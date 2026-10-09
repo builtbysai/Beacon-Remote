@@ -30,6 +30,34 @@ proxy network, configure rate limiting for actual client IPs, and add CSP,
 frame-ancestors, HSTS and static asset headers. Use WSS for later signaling.
 Assign memory/CPU limits, health checks, bounded logs and restart policy.
 
+## Encrypted recovery
+
+OCI's signed-in bucket page verified approximately 33.57 KiB usage against its
+20 GiB free combined object/archive allowance; the existing `beacon-backups`
+Standard bucket is private. Use a separate `beacon-remote` Restic prefix and a new
+independent encryption password. Only ephemeral host backup operations receive
+the existing OCI S3 credentials; backend/frontend never receive them. Do not
+initialize, prune or change the existing View repository or enable its timers.
+
+Root's Remote environment adds `REMOTE_BACKUP_REPOSITORY`,
+`REMOTE_BACKUP_PASSWORD`, `REMOTE_BACKUP_ACCESS_KEY_ID` and
+`REMOTE_BACKUP_SECRET_ACCESS_KEY`. Supply these without displaying values.
+Build the operations backup/restore images; run `backup init`, `backup run`, and
+`backup check`. Then run `restore-check` with
+`REMOTE_ALLOW_ISOLATED_RESTORE=RESTORE_A_SEPARATE_DATABASE` while writes are
+quiesced. It creates only the fixed new `beacon_remote_restore_check` database,
+refuses any existing target, checks restored schema/aggregates without printing
+contents, and removes only the target it created. Never restore over live data.
+
+The initial backup policy refuses dumps over 32 MiB and retains daily/weekly/monthly
+snapshots within a small fraction of the verified free storage. Larger data or
+other bucket growth requires fresh quota/billing review. Restic encrypts before
+upload; successful dump completion is checked before stdin is backed up. Keep
+the encryption key and recovery credentials outside the VM as well, protected
+for the owner, so losing the VM does not destroy the recovery path. Install the
+new Remote-only timer after the host backup/restore drill passes, and verify its
+status. A root-owned `current` symlink selects the validated Remote release.
+
 Apply migrations explicitly and verify schema, establish encrypted backups and
 an isolated restore drill, then deploy a validated exact commit. Verify HTTPS,
 database readiness, login, pairing, signed presence, revocation, restart and

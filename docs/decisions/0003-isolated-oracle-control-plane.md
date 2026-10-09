@@ -28,10 +28,15 @@ the backend starts. Provision accounts through the operator command, never publi
 signup or copied Beacon View password hashes. General consumer access, desktop
 media/input and code signing retain their separate release gates.
 
-Before storing real account/device data, establish encrypted backup and isolated
-restore verification. Local encrypted backups alone do not recover a lost VM;
-off-host recovery remains a limitation until a verified free destination exists.
-No production deployment or backup acceptance is claimed by these source files.
+The existing private OCI backup bucket has verified negligible usage against its
+20 GiB free allocation. Use a separate Remote Restic prefix/key and an ephemeral
+backup helper with its own egress network. Regular backup jobs receive only the
+app database credential; the explicit isolated restore job additionally receives
+the admin credential. Backend/frontend receive neither OCI credentials nor the
+backup key. Preserve View's repository, key and disabled timers. Bounded dump size
+and retention protect the free-storage budget. The owner must retain protected
+recovery credentials outside this VM. Production backup/restore acceptance still
+requires the actual off-host drill; local acceptance alone does not prove it.
 
 Sources: [Docker internal/external networks](https://docs.docker.com/reference/compose-file/networks/),
 [Caddy imports](https://caddyserver.com/docs/caddyfile/directives/import).

@@ -51,3 +51,11 @@ Real database login-limit integration now checks forwarded-IP spoof rejection
 outside the trusted proxy CIDR and separate client limits through that proxy.
 Encrypted backup/restore, ARM64 host deployment and public HTTPS acceptance are
 still pending; successful local containers do not establish those results.
+
+The backup image also passed local real PostgreSQL/Restic acceptance with a
+fixture account: encrypted repository initialization, completed dump, encrypted
+backup, integrity read verification, a fresh separate-database restore,
+schema/aggregate comparison and owned-target cleanup. A pre-existing verification
+database was deliberately created; the restore refused it and left it intact.
+The disposable test PostgreSQL and repository were cleaned up. This does not yet
+claim an OCI-host off-site recovery point or an enabled production timer.

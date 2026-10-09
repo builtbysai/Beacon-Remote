@@ -1,0 +1,7 @@
+FROM postgres:17.6-alpine
+USER root
+RUN apk add --no-cache restic && mkdir /repo && chown postgres:postgres /repo
+COPY infrastructure/oracle/backup.sh /usr/local/bin/remote-backup
+RUN chmod 0555 /usr/local/bin/remote-backup
+USER postgres
+ENTRYPOINT ["/usr/local/bin/remote-backup"]

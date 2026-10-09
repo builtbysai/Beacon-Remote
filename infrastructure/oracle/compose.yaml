@@ -90,7 +90,48 @@ services:
     cpus: 0.15
     restart: unless-stopped
     logging: *logs
+  backup:
+    profiles: [operations]
+    build:
+      { context: ../.., dockerfile: infrastructure/oracle/Dockerfile.backup }
+    environment: &backup-env
+      REMOTE_DB_PASSWORD: ${REMOTE_DB_PASSWORD:?required}
+      RESTIC_REPOSITORY: ${REMOTE_BACKUP_REPOSITORY:-}
+      RESTIC_PASSWORD: ${REMOTE_BACKUP_PASSWORD:-}
+      AWS_ACCESS_KEY_ID: ${REMOTE_BACKUP_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${REMOTE_BACKUP_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: us-ashburn-1
+    networks: [private, backup-egress]
+    depends_on: { postgres: { condition: service_healthy } }
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 384m
+    cpus: 0.25
+    restart: "no"
+    logging: *logs
+  restore-check:
+    profiles: [operations]
+    build:
+      { context: ../.., dockerfile: infrastructure/oracle/Dockerfile.backup }
+    command: [restore-check]
+    environment:
+      <<: *backup-env
+      REMOTE_ADMIN_PASSWORD: ${REMOTE_ADMIN_PASSWORD:?required}
+      REMOTE_ALLOW_ISOLATED_RESTORE: ${REMOTE_ALLOW_ISOLATED_RESTORE:-}
+    networks: [private, backup-egress]
+    depends_on: { postgres: { condition: service_healthy } }
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 384m
+    cpus: 0.25
+    restart: "no"
+    logging: *logs
 networks:
+  backup-egress: {}
   private:
     internal: true
     ipam:
