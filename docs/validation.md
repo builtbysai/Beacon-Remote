@@ -22,6 +22,15 @@ or input; those paths do not exist yet. No production Remote deployment or signi
 is claimed. Local Rust tooling was installed, but Microsoft C++ installation was
 canceled; CI supplied the native executable for this acceptance check.
 
-The attended capture helper is a later slice and needs separate CI and real
-Windows consent/measurement. Its performance must not be inferred from presence
-tests or from upstream library benchmarks.
+The attended capture helper passed Windows CI formatting, Clippy, workspace
+tests and release build in [the capture run](https://github.com/builtbysai/Beacon-Remote/actions/runs/38003097627).
+Its executable enumerated the actual primary display as 1920×1080 physical pixels
+at origin (0, 0), DPI scale 1.50. After the owner accepted the local dialog, the
+ten-second benchmark captured a real 8,294,400-byte BGRA snapshot in memory.
+Observed compositor update rate was 22.88 FPS, first-frame latency 170.94 ms,
+mean GPU readback/copy 4.29 ms, peak process working set 65.08 MiB and sampled
+total process CPU time 1.031 seconds. These are measurements of this host and
+window activity, not an encoded video cadence or a remote latency claim.
+Capture stopped at the deadline; no frames were saved or uploaded. Manual Ctrl+C
+shutdown, consent rejection, display removal and GPU/device-loss recovery remain
+unverified. WebRTC encoding/transport and input are not implemented by this slice.
