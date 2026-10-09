@@ -1,6 +1,7 @@
 # ADR 0002: Attended primary-display capture before media transport
 
-Status: development implementation; real-machine capture acceptance pending.
+Status: development implementation; initial real-machine capture and deadline
+shutdown verified. Cancellation and device-loss acceptance remain pending.
 
 Use Windows Graphics Capture through the MIT-licensed `windows-capture` 2.0.1
 crate for the first native capture slice. Its maintained native API wrapper
@@ -20,3 +21,7 @@ acceptance must verify the border, cancellation, stop, dimensions, DPI, CPU,
 memory, first-frame latency, and update rate. Constant encoder cadence, GPU-native
 encoding without readback, display changes, and secure session authorization are
 later work. Source: [upstream library](https://github.com/NiiightmareXD/windows-capture).
+
+The initial host measurements and remaining limitations are recorded in
+[validation](../validation.md). They support continuing the media spike, not a
+claim that remote access is complete.

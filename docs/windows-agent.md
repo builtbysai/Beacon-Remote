@@ -16,9 +16,10 @@ Run `displays` for physical dimensions/DPI, or `capture-benchmark` for a visible
 consent dialog followed by ten seconds of primary-display capture with a Windows
 border. Ctrl+C stops early. It reports real frame/update measurements and exercises
 the in-memory snapshot interface; it saves/uploads no media. Capture is not wired
-to enrollment or exposed to remote viewers. Real-machine acceptance is pending.
+to enrollment or exposed to remote viewers. Initial real-machine capture and
+deadline shutdown passed; see [measurements and remaining checks](validation.md).
 
-Next build an attended capture helper with explicit screen selection and a visible
+Next extend the attended capture helper with explicit screen selection and a visible
 Stop control. Measure primary-display FPS, memory/CPU, acquisition latency, DPI,
 rotation, cursor, desktop lock, display disconnect and device loss on real Windows.
 Protect Windows Session 0/UAC/UIPI; do not capture secure desktop or inject into
