@@ -1,0 +1,6 @@
+packages:
+  - apps/backend
+  - apps/web
+  - packages/protocol
+allowBuilds:
+  esbuild: true

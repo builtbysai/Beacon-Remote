@@ -1,0 +1,18 @@
+name: beacon-remote-dev
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_USER: remote_dev
+      POSTGRES_PASSWORD: development-only
+      POSTGRES_DB: beacon_remote_dev
+    ports:
+      - 127.0.0.1:5433:5432
+    volumes:
+      - remote-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U remote_dev -d beacon_remote_dev"]
+      interval: 5s
+      retries: 10
+volumes:
+  remote-postgres:

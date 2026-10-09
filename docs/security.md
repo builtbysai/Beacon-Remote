@@ -1,0 +1,38 @@
+# Security boundaries
+
+Machine private keys never leave the endpoint. User-scoped DPAPI protects the
+development agent's serialized identity at rest; this is not proof against a
+compromised Windows user or administrator. The later service uses a separate
+credential context and restricted filesystem ACLs, not shared plaintext files.
+
+Enrollment codes are sensitive bearer invitations, delivered only to an
+authenticated owner with an exact same-origin check. They expire after five
+minutes and are claimed atomically. Signed heartbeats bind version, machine ID,
+timestamp, and nonce; the server rejects forgery, stale timestamps and replay.
+Revocation prevents presence immediately on the server and terminates the agent
+when it next receives rejection. No desktop session is created by enrollment.
+
+Browser session tokens are random, stored hashed, eight-hour, HTTP-only,
+SameSite=Strict, Secure in production. Login and enrollment are rate-limited;
+write routes require an exact Origin. Account IDs constrain every inventory and
+revoke query. Camera credentials and sessions grant no computer access. Public
+registration, recovery, MFA, and federation are absent; do not open this release
+for general consumer use until those account lifecycle controls are reviewed.
+
+Desktop sessions will need short-lived grants for `desktop:view` and separately
+`desktop:control`, explicit local consent, local revoke, one controller lease,
+and server/endpoint audit events. Future clipboard/file-transfer/admin scopes
+remain unauthorized and unimplemented. The core interfaces themselves do not
+authenticate callers; the eventual adapter must validate signed server grants
+and local consent before creating a lease.
+
+Threats to test include account isolation, pairing races, credential theft,
+heartbeat replay, stale presence, forged signaling, controller collision,
+session replay, held modifiers after disconnect, malicious IPC clients, UAC
+boundaries, compromised updates, and signaling/relay denial of service.
+Logs must exclude request bodies, cookies, pairing codes, signatures, passwords,
+private keys, screen pixels, and input contents. Retention and account deletion
+still need implementation before release. Do not claim end-to-end encryption:
+WebRTC transport encryption alone does not authenticate peers against a malicious
+signaling service. Installer signing and an independently authenticated update
+manifest are release gates, not cosmetic checks.
