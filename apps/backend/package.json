@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
+    "test:native": "tsx scripts/verify-native-presence.ts",
     "start": "node dist/apps/backend/src/index.js",
     "db:migrate": "tsx scripts/migrate.ts",
     "account:create": "tsx scripts/create-account.ts"
