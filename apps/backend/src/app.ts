@@ -38,8 +38,8 @@ export async function createApp(pool: Pool, config: Config) {
               'res.headers["set-cookie"]',
             ],
           },
-    // Do not trust arbitrary forwarded IPs. Proxy configuration comes with deploy.
-    trustProxy: false,
+    // Only the explicitly configured private proxy network may forward client IPs.
+    trustProxy: config.TRUST_PROXY_CIDR ?? false,
   });
   await app.register(cookie);
   await app.register(rateLimit, { max: 120, timeWindow: "1 minute" });

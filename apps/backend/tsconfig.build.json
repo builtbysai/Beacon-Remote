@@ -1,6 +1,12 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": { "outDir": "dist", "rootDir": "../.." },
-  "include": ["src", "../../packages/protocol/src"],
-  "exclude": ["scripts", "test"]
+  "include": [
+    "src",
+    "scripts/migrate.ts",
+    "scripts/create-account.ts",
+    "scripts/verify-schema.ts",
+    "../../packages/protocol/src"
+  ],
+  "exclude": ["test"]
 }

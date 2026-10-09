@@ -1,0 +1,143 @@
+name: beacon-remote
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_USER: remote_admin
+      POSTGRES_PASSWORD: ${REMOTE_ADMIN_PASSWORD:?required}
+      POSTGRES_DB: postgres
+      REMOTE_DB_PASSWORD: ${REMOTE_DB_PASSWORD:?required}
+    volumes:
+      - remote-postgres:/var/lib/postgresql/data
+      - ./init-database.sql:/docker-entrypoint-initdb.d/001.sql:ro
+    networks: [private]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U remote_admin -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    mem_limit: 512m
+    cpus: 0.4
+    restart: unless-stopped
+    logging: &logs
+      driver: local
+      options: { max-size: 10m, max-file: "3" }
+  backend:
+    build:
+      { context: ../.., dockerfile: infrastructure/oracle/Dockerfile.backend }
+    environment: &backend-env
+      DATABASE_URL: postgresql://remote_app:${REMOTE_DB_PASSWORD:?required}@postgres:5432/beacon_remote
+      WEB_ORIGIN: https://remote.builtbysai.com
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3010"
+      TRUST_PROXY_CIDR: 172.30.88.0/28
+      NODE_OPTIONS: --max-old-space-size=256
+    networks: [private]
+    depends_on: { postgres: { condition: service_healthy } }
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 0.5
+    restart: unless-stopped
+    logging: *logs
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3010/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+  migrate:
+    build:
+      { context: ../.., dockerfile: infrastructure/oracle/Dockerfile.backend }
+    command: [node, apps/backend/dist/apps/backend/scripts/migrate.js]
+    environment: *backend-env
+    networks: [private]
+    depends_on: { postgres: { condition: service_healthy } }
+    restart: "no"
+    logging: *logs
+  verify:
+    build:
+      { context: ../.., dockerfile: infrastructure/oracle/Dockerfile.backend }
+    command: [node, apps/backend/dist/apps/backend/scripts/verify-schema.js]
+    environment: *backend-env
+    networks: [private]
+    depends_on: { postgres: { condition: service_healthy } }
+    restart: "no"
+    logging: *logs
+  web:
+    build: { context: ../.., dockerfile: infrastructure/oracle/Dockerfile.web }
+    networks:
+      private: {}
+      edge: { aliases: [beacon-remote-web] }
+    depends_on: { backend: { condition: service_healthy } }
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /config:uid=1000,gid=1000,mode=0700
+      - /data:uid=1000,gid=1000,mode=0700
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    cpus: 0.15
+    restart: unless-stopped
+    logging: *logs
+  backup:
+    profiles: [operations]
+    build:
+      { context: ../.., dockerfile: infrastructure/oracle/Dockerfile.backup }
+    environment: &backup-env
+      REMOTE_DB_PASSWORD: ${REMOTE_DB_PASSWORD:?required}
+      RESTIC_REPOSITORY: ${REMOTE_BACKUP_REPOSITORY:-}
+      RESTIC_PASSWORD: ${REMOTE_BACKUP_PASSWORD:-}
+      AWS_ACCESS_KEY_ID: ${REMOTE_BACKUP_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${REMOTE_BACKUP_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: us-ashburn-1
+    networks: [private, backup-egress]
+    depends_on: { postgres: { condition: service_healthy } }
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 384m
+    cpus: 0.25
+    restart: "no"
+    logging: *logs
+  restore-check:
+    profiles: [operations]
+    build:
+      { context: ../.., dockerfile: infrastructure/oracle/Dockerfile.backup }
+    command: [restore-check]
+    environment:
+      <<: *backup-env
+      REMOTE_ADMIN_PASSWORD: ${REMOTE_ADMIN_PASSWORD:?required}
+      REMOTE_ALLOW_ISOLATED_RESTORE: ${REMOTE_ALLOW_ISOLATED_RESTORE:-}
+    networks: [private, backup-egress]
+    depends_on: { postgres: { condition: service_healthy } }
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 384m
+    cpus: 0.25
+    restart: "no"
+    logging: *logs
+networks:
+  backup-egress: {}
+  private:
+    internal: true
+    ipam:
+      config: [{ subnet: 172.30.88.0/28 }]
+  edge:
+    external: true
+    name: ${BEACON_EDGE_NETWORK:-beacon-edge}
+volumes:
+  remote-postgres:

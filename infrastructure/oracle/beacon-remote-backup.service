@@ -1,0 +1,9 @@
+[Unit]
+Description=Encrypted Beacon Remote database backup
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/usr/bin/docker compose --project-name beacon-remote --env-file /etc/beacon-remote/production.env --file /opt/beacon-remote/current/infrastructure/oracle/compose.yaml run --rm --interactive=false backup run

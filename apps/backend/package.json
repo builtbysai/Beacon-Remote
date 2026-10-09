@@ -5,12 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-migrations.mjs",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
     "test:native": "tsx scripts/verify-native-presence.ts",
     "start": "node dist/apps/backend/src/index.js",
     "db:migrate": "tsx scripts/migrate.ts",
+    "db:verify": "tsx scripts/verify-schema.ts",
     "account:create": "tsx scripts/create-account.ts"
   },
   "dependencies": {

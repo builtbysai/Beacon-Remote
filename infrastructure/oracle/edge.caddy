@@ -1,0 +1,3 @@
+remote.builtbysai.com {
+	reverse_proxy beacon-remote-web:8080
+}

@@ -5,6 +5,23 @@ claimed. Deploy to the existing Oracle host only after OCI free eligibility and
 resource budgets are verified. Keep the host's existing Caddy/PostgreSQL/Coturn
 services and Beacon View rollback releases intact.
 
+`infrastructure/oracle/compose.yaml` supplies the isolated production containers.
+Use a root-owned mode-0600 environment file outside the checkout containing
+independent random hex `REMOTE_ADMIN_PASSWORD` and `REMOTE_DB_PASSWORD` values.
+Never use development passwords. The private subnet is 172.30.88.0/28; inspect
+existing Docker/host routes for overlap before creating it. The shared external
+`beacon-edge` frontend network and View's Caddy product-import support must exist
+before starting Remote's web container. Install the reviewed `edge.caddy` fragment
+into View's root-owned products directory and validate/reload Caddy gracefully.
+The DNS A record is DNS-only to match the existing direct TLS deployment.
+
+Deploy only a validated exact commit under `/opt/beacon-remote/releases/<sha>`.
+Build backend/migrate/verify/web images, start PostgreSQL, explicitly run `migrate`
+then `verify`, and start backend/web only after both pass. The application role
+must be non-superuser with no role/database-creation rights. Retain the previous
+release/images for rollback; do not use `compose down` or delete data volumes.
+See [the hosting decision](decisions/0003-isolated-oracle-control-plane.md).
+
 Use a separate PostgreSQL database/role and private network; bind backend only
 inside that network. Route a dedicated HTTPS origin through Caddy and require
 `WEB_ORIGIN` to match it exactly. No PostgreSQL or development HTTP ports should
@@ -12,6 +29,34 @@ be public. Set production Secure cookies; restrict proxy trust to the known
 proxy network, configure rate limiting for actual client IPs, and add CSP,
 frame-ancestors, HSTS and static asset headers. Use WSS for later signaling.
 Assign memory/CPU limits, health checks, bounded logs and restart policy.
+
+## Encrypted recovery
+
+OCI's signed-in bucket page verified approximately 33.57 KiB usage against its
+20 GiB free combined object/archive allowance; the existing `beacon-backups`
+Standard bucket is private. Use a separate `beacon-remote` Restic prefix and a new
+independent encryption password. Only ephemeral host backup operations receive
+the existing OCI S3 credentials; backend/frontend never receive them. Do not
+initialize, prune or change the existing View repository or enable its timers.
+
+Root's Remote environment adds `REMOTE_BACKUP_REPOSITORY`,
+`REMOTE_BACKUP_PASSWORD`, `REMOTE_BACKUP_ACCESS_KEY_ID` and
+`REMOTE_BACKUP_SECRET_ACCESS_KEY`. Supply these without displaying values.
+Build the operations backup/restore images; run `backup init`, `backup run`, and
+`backup check`. Then run `restore-check` with
+`REMOTE_ALLOW_ISOLATED_RESTORE=RESTORE_A_SEPARATE_DATABASE` while writes are
+quiesced. It creates only the fixed new `beacon_remote_restore_check` database,
+refuses any existing target, checks restored schema/aggregates without printing
+contents, and removes only the target it created. Never restore over live data.
+
+The initial backup policy refuses dumps over 32 MiB and retains daily/weekly/monthly
+snapshots within a small fraction of the verified free storage. Larger data or
+other bucket growth requires fresh quota/billing review. Restic encrypts before
+upload; successful dump completion is checked before stdin is backed up. Keep
+the encryption key and recovery credentials outside the VM as well, protected
+for the owner, so losing the VM does not destroy the recovery path. Install the
+new Remote-only timer after the host backup/restore drill passes, and verify its
+status. A root-owned `current` symlink selects the validated Remote release.
 
 Apply migrations explicitly and verify schema, establish encrypted backups and
 an isolated restore drill, then deploy a validated exact commit. Verify HTTPS,
