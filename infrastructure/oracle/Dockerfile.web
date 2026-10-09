@@ -1,0 +1,16 @@
+FROM node:22-bookworm-slim AS build
+WORKDIR /app
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+COPY apps/backend/package.json apps/backend/package.json
+COPY apps/web/package.json apps/web/package.json
+COPY packages/protocol/package.json packages/protocol/package.json
+RUN pnpm install --frozen-lockfile
+COPY apps/web apps/web
+RUN pnpm --filter @beacon-remote/web build
+
+FROM caddy:2.10.2-alpine
+# The private frontend uses an unprivileged port and needs no file capability.
+RUN setcap -r /usr/bin/caddy
+COPY --from=build /app/apps/web/dist /srv
+COPY infrastructure/oracle/Caddyfile /etc/caddy/Caddyfile

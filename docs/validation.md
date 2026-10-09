@@ -34,3 +34,20 @@ window activity, not an encoded video cadence or a remote latency claim.
 Capture stopped at the deadline; no frames were saved or uploaded. Manual Ctrl+C
 shutdown, consent rejection, display removal and GPU/device-loss recovery remain
 unverified. WebRTC encoding/transport and input are not implemented by this slice.
+
+The Oracle control-plane packaging was validated locally before deployment:
+both production Docker images built, PostgreSQL initialized a separate restricted
+app role/database, compiled migration and schema/role verification passed,
+backend readiness and the private Caddy route worked, and real HTTP login,
+Secure/HttpOnly/Strict cookies, authenticated inventory and CSP passed. Runtime
+backend/frontend use non-root users, read-only filesystems and dropped capabilities.
+The first hardened Caddy startup failed because the vendor binary carried an
+unneeded port-binding file capability; removing it at build time fixed startup
+without granting runtime capabilities. An early test invocation bypassed database
+readiness and was refused; rerunning with Compose's health dependency passed.
+Only the named disposable hosting-test containers, volume and network were removed.
+
+Real database login-limit integration now checks forwarded-IP spoof rejection
+outside the trusted proxy CIDR and separate client limits through that proxy.
+Encrypted backup/restore, ARM64 host deployment and public HTTPS acceptance are
+still pending; successful local containers do not establish those results.

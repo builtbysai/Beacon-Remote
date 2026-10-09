@@ -9,6 +9,63 @@ import { heartbeatMessage } from "../../../packages/protocol/src/index.js";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 test(
+  "login limits reject spoofed forwarded IPs and preserve trusted proxy client isolation",
+  { skip: !databaseUrl },
+  async () => {
+    assert.match(new URL(databaseUrl!).pathname, /_test$/);
+    const pool = new Pool({ connectionString: databaseUrl });
+    const app = await createApp(pool, {
+      DATABASE_URL: databaseUrl!,
+      WEB_ORIGIN: "https://remote.example.test",
+      NODE_ENV: "test",
+      HOST: "127.0.0.1",
+      PORT: 3010,
+      TRUST_PROXY_CIDR: "172.30.88.0/28",
+    });
+    const attempt = (remoteAddress: string, forwarded: string) =>
+      app.inject({
+        method: "POST",
+        url: "/api/login",
+        remoteAddress,
+        headers: {
+          origin: "https://remote.example.test",
+          "x-forwarded-for": forwarded,
+        },
+        payload: {
+          email: `${randomUUID()}@example.test`,
+          password: "test-only-missing-account",
+        },
+      });
+    try {
+      for (let i = 0; i < 8; i++)
+        assert.equal(
+          (await attempt("203.0.113.10", `198.51.100.${i + 1}`)).statusCode,
+          401,
+        );
+      assert.equal(
+        (await attempt("203.0.113.10", "198.51.100.99")).statusCode,
+        429,
+      );
+      for (let i = 0; i < 8; i++)
+        assert.equal(
+          (await attempt("172.30.88.2", "198.51.100.150")).statusCode,
+          401,
+        );
+      assert.equal(
+        (await attempt("172.30.88.2", "198.51.100.150")).statusCode,
+        429,
+      );
+      assert.equal(
+        (await attempt("172.30.88.2", "198.51.100.151")).statusCode,
+        401,
+      );
+    } finally {
+      await app.close();
+      await pool.end();
+    }
+  },
+);
+test(
   "one-use enrollment, authenticated presence, account isolation, replay and revocation",
   { skip: !databaseUrl },
   async () => {
