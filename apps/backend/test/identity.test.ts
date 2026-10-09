@@ -14,6 +14,12 @@ test(
   async () => {
     assert.match(new URL(databaseUrl!).pathname, /_test$/);
     const pool = new Pool({ connectionString: databaseUrl });
+    await pool.query(
+      await readFile(
+        new URL("../migrations/001_identity.sql", import.meta.url),
+        "utf8",
+      ),
+    );
     const app = await createApp(pool, {
       DATABASE_URL: databaseUrl!,
       WEB_ORIGIN: "https://remote.example.test",
