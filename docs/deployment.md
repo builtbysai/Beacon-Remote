@@ -1,8 +1,11 @@
 # Deployment gates
 
-The control plane is currently local development; production deployment is not
-claimed. Deploy to the existing Oracle host only after OCI free eligibility and
-resource budgets are verified. Keep the host's existing Caddy/PostgreSQL/Coturn
+The private-alpha control plane is deployed at `https://remote.builtbysai.com`.
+Exact hosting release `771b4081f2243b214e4333058a07ce5a6466badb` passed production
+schema/role verification, public HTTPS health/readiness and encrypted OCI backup,
+integrity and separate-database restore verification. Its independent daily backup
+timer is enabled. Owner login/pairing against production remains an acceptance
+gate; desktop streaming/control is not implemented. Keep existing Caddy/PostgreSQL/Coturn
 services and Beacon View rollback releases intact.
 
 `infrastructure/oracle/compose.yaml` supplies the isolated production containers.
@@ -64,3 +67,14 @@ database readiness, login, pairing, signed presence, revocation, restart and
 Beacon View health independently. Do not reuse local test passwords. General
 consumer access additionally requires the account lifecycle/security gates in
 `security.md`. Never expose an unfinished input/capture endpoint.
+
+## Operator invitation
+
+After migration, an operator may run the compiled
+`apps/backend/dist/apps/backend/scripts/create-invitation.js` inside the backend
+image with its existing restricted database environment. Capture the output
+privately: it is a bearer invitation and must not enter operational logs or chat.
+Open the generated HTTPS URL for the owner; the fragment is removed immediately.
+The owner enters and submits their password themselves. Invitations expire after
+30 minutes and cannot be reused. Reloading the setup page discards the token;
+issue a replacement if needed. This does not enable general registration.

@@ -59,3 +59,8 @@ schema/aggregate comparison and owned-target cleanup. A pre-existing verificatio
 database was deliberately created; the restore refused it and left it intact.
 The disposable test PostgreSQL and repository were cleaned up. This does not yet
 claim an OCI-host off-site recovery point or an enabled production timer.
+
+The operator invitation integration uses real PostgreSQL to check expiry, exact
+Origin rejection, atomic concurrent claims, replay rejection and login with an
+Argon2-protected owner-chosen password. Local formatting, lint, type checking,
+production compilation and database integration passed before review.

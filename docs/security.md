@@ -16,7 +16,9 @@ Browser session tokens are random, stored hashed, eight-hour, HTTP-only,
 SameSite=Strict, Secure in production. Login and enrollment are rate-limited;
 write routes require an exact Origin. Account IDs constrain every inventory and
 revoke query. Camera credentials and sessions grant no computer access. Public
-registration, recovery, MFA, and federation are absent; do not open this release
+registration, recovery, MFA, and federation are absent. Operator-issued one-use
+account invitations permit owner-chosen passwords for the private alpha; see
+[the invitation decision](decisions/0004-operator-account-invitations.md). Do not open this release
 for general consumer use until those account lifecycle controls are reviewed.
 
 Desktop sessions will need short-lived grants for `desktop:view` and separately

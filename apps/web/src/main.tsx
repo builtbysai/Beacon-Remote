@@ -3,6 +3,12 @@ import { createRoot } from "react-dom/client";
 import type { Machine } from "@beacon-remote/protocol";
 import "./style.css";
 
+// Fragments stay out of HTTP/access logs; remove the bearer from browser history.
+const invitation = new URLSearchParams(window.location.hash.slice(1)).get(
+  "invite",
+);
+if (invitation) window.history.replaceState(null, "", window.location.pathname);
+
 async function api<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(`/api/${path}`, {
     method: body === undefined ? "GET" : "POST",
@@ -18,6 +24,7 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
 }
 
 function App() {
+  const [invite, setInvite] = useState(invitation);
   const [machines, setMachines] = useState<Machine[] | null>(null);
   const [error, setError] = useState("");
   const [code, setCode] = useState<{ code: string; expiresAt: number } | null>(
@@ -66,6 +73,14 @@ function App() {
     setBusy(true);
     setError("");
     try {
+      if (invite) {
+        await api("account/setup", {
+          token: invite,
+          email: form.get("email"),
+          password: form.get("password"),
+        });
+        setInvite(null);
+      }
       await api("login", {
         email: form.get("email"),
         password: form.get("password"),
@@ -74,7 +89,11 @@ function App() {
       setMachines(result.machines);
       setStale(false);
     } catch {
-      setError("Sign-in failed. Check your details and try again.");
+      setError(
+        invite
+          ? "Account setup failed. Check your details and invitation, then try again."
+          : "Sign-in failed. Check your details and try again.",
+      );
     } finally {
       setBusy(false);
     }
@@ -134,8 +153,12 @@ function App() {
       {machines === null ? (
         <section className="login">
           <p className="eyebrow">YOUR COMPUTERS, WITHIN REACH</p>
-          <h1>Welcome back.</h1>
-          <p>Sign in to see your paired computers.</p>
+          <h1>{invite ? "Create your account." : "Welcome back."}</h1>
+          <p>
+            {invite
+              ? "Choose a password with at least 16 characters. Your invitation expires after 30 minutes."
+              : "Sign in to see your paired computers."}
+          </p>
           <form onSubmit={signIn}>
             <label>
               Email
@@ -151,11 +174,15 @@ function App() {
               <input
                 name="password"
                 type="password"
-                autoComplete="current-password"
+                autoComplete={invite ? "new-password" : "current-password"}
+                minLength={invite ? 16 : undefined}
+                maxLength={512}
                 required
               />
             </label>
-            <button disabled={busy}>Sign in</button>
+            <button disabled={busy}>
+              {invite ? "Create account" : "Sign in"}
+            </button>
           </form>
           <p className="note">
             This development release supports pairing and presence. Desktop
