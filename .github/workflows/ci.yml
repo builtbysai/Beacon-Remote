@@ -1,0 +1,50 @@
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  control-plane:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_USER: remote_ci
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: beacon_remote_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U remote_ci -d beacon_remote_test"
+          --health-interval 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://remote_ci:ci-only@127.0.0.1:5432/beacon_remote_test
+    steps:
+      - uses: actions/checkout@v5
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@v4
+        with: { version: 11.9.0 }
+      - uses: actions/setup-node@v5
+        with: { node-version: "22", cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm audit --prod --audit-level high
+  native:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+        with: { persist-credentials: false }
+      - run: rustup update stable
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      - run: cargo build --workspace --release --locked
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-agent-development
+          path: target/release/beacon-remote-agent.exe
+          retention-days: 7
