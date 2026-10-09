@@ -61,5 +61,17 @@ in that target. Without this variable the integration test is explicitly skipped
 CI supplies a disposable PostgreSQL database and builds/tests the native agent on
 Windows. No code-signing or installer acceptance is implied by a successful build.
 
+For executable acceptance, set `NATIVE_AGENT_PATH` to a CI-built or locally built
+Windows agent and `TEST_DATABASE_URL` to a dedicated `_test` database, then run
+`pnpm --filter @beacon-remote/backend test:native`. This verifies actual enrollment,
+DPAPI persistence, presence, backend restart, offline expiry and revocation.
+It runs no desktop capture/input and never replaces the user's paired identity.
+
+The attended capture spike is the separate `beacon-remote-session.exe` helper:
+`displays` reports native monitor metadata; `capture-benchmark` asks for local
+consent and captures the primary display for ten seconds with a visible border.
+It keeps one bounded frame in memory and saves/uploads nothing. Initial real-machine
+measurements passed; see [validation and remaining checks](docs/validation.md).
+
 See [architecture](docs/architecture.md), [security](docs/security.md),
 [Windows agent](docs/windows-agent.md), and [deployment](docs/deployment.md).
