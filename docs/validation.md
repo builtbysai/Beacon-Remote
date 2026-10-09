@@ -18,8 +18,8 @@ termination after server revocation. It removed only its own account and state.
 
 The browser was manually validated through local sign-in and the real database
 inventory, including the revoked-access state. This is not proof of desktop media
-or input; those paths do not exist yet. No production Remote deployment or signing
-is claimed. Local Rust tooling was installed, but Microsoft C++ installation was
+or input; those paths do not exist yet. Signing and production owner login/pairing
+are not yet verified. Local Rust tooling was installed, but Microsoft C++ installation was
 canceled; CI supplied the native executable for this acceptance check.
 
 The attended capture helper passed Windows CI formatting, Clippy, workspace
@@ -49,16 +49,16 @@ Only the named disposable hosting-test containers, volume and network were remov
 
 Real database login-limit integration now checks forwarded-IP spoof rejection
 outside the trusted proxy CIDR and separate client limits through that proxy.
-Encrypted backup/restore, ARM64 host deployment and public HTTPS acceptance are
-still pending; successful local containers do not establish those results.
+The subsequent ARM64 host deployment passed public HTTPS health/readiness,
+encrypted OCI backup, full repository integrity and isolated restore verification.
 
 The backup image also passed local real PostgreSQL/Restic acceptance with a
 fixture account: encrypted repository initialization, completed dump, encrypted
 backup, integrity read verification, a fresh separate-database restore,
 schema/aggregate comparison and owned-target cleanup. A pre-existing verification
 database was deliberately created; the restore refused it and left it intact.
-The disposable test PostgreSQL and repository were cleaned up. This does not yet
-claim an OCI-host off-site recovery point or an enabled production timer.
+The disposable test PostgreSQL and repository were cleaned up. The later host
+drill also passed; its independent daily timer is enabled.
 
 The operator invitation integration uses real PostgreSQL to check expiry, exact
 Origin rejection, atomic concurrent claims, replay rejection and login with an
