@@ -1,0 +1,179 @@
+# Beacon Remote: Claude technical and operational handoff
+
+**Prepared 2026-10-10.** This is a continuation document, not a statement that every feature or release gate is complete. Recheck GitHub and the actual machines before acting.
+
+## Source of truth and first 20 minutes
+
+- Repo: https://github.com/builtbysai/Beacon-Remote (private); branch: `main`.
+- PR #8 attended media: **merged** as `d6c40c807948a4bbc991fdc048a2699746f1d6cf`.
+- PR #9 product UI/relay/backend recovery: **merged** as `6d8d7496cb87d919f0b8a7dbdb02177a816d74ae` from head `0979cd12f3371f5eabec2fbc703808eb5b53213b`. Its head passed Windows/control-plane GitHub Actions run `38083605846`. Revalidate any later commits.
+- The last documented **deployed Remote release** is `ff452ffe66dd600e9a7b18d12fccc08ac970a7d6` (blue/slate private-alpha interface; **media disabled**). Repository merges are **not** production deployments. Current production commit/container state must be checked on the VM.
+- Active milestone: **4, attended real desktop viewing and lifecycle/failure acceptance**. Milestones 5–8 are authorized for ordinary implementation but subject to their prerequisites.
+- No unfinished local working tree can be verified from GitHub alone. On the Windows development PC check `git status --short`, local branches, ignored development fixtures and any unpushed commits before deleting or overwriting anything.
+- Read `docs/roadmap.md`, `docs/security.md`, `docs/architecture.md`, `docs/deployment.md`, `docs/windows-agent.md`, `docs/android-acceptance-2026-10-10.md`, `docs/product-interface-validation.md`, and the ADRs in `docs/decisions/`. Follow `AGENTS.md`.
+
+**Immediate next work:** confirm the new long-poll consent-delivery behavior with matching Windows/backend artifacts; finish actual attended desktop interruption and sustained performance tests, especially denial, expiry/logout/revoke, refresh, backend/agent restart, network loss, display lock/unplug, consent focus and Stop. Capture timing/candidate-route/FPS/CPU/RAM observations without logging pixels or secrets. Never report a scenario as passed from CI or simulated media alone.
+
+## The product and its boundaries
+
+Beacon is a suite:
+- **Beacon View**: camera monitoring/recording, a separate codebase, database and permission realm.
+- **Beacon Remote**: secure, self-hosted browser-to-Windows remote access and support, initially Windows host/browser client, with direct WebRTC preferred and authenticated Coturn relay fallback.
+- **Potential future**: Lighthouse-style observability plus authorized human/AI remote operations. Keep capture, snapshots, input, identity, session/control leases and policies behind transport-independent interfaces. **Do not build AI, MCP, shell, file transfer, recording, multi-OS support or enterprise management during current milestones.**
+
+Consumer journey: install host → register/sign in → pair → see online → request view → local person approves → desktop appears → separately approve mouse/keyboard control → Stop or disconnect safely. For one-time support, require scoped, expiring invitation and fresh local consent; do not imply persistent machine enrollment. No screenshot/media storage is required.
+
+The reference products are Chrome Remote Desktop for simplicity, RustDesk for direct/relay and self-hosting, MeshCentral for inventory and management, and BeyondTrust for attended/unattended session policy and audit. Never copy vendor code or screens.
+
+## Actual architecture (read source before editing)
+
+```text
+Browser (React/Vite) ─ HTTPS + authenticated signaling ─ Fastify backend ─ PostgreSQL
+           │                                                 ▲
+           │  WebRTC H.264 screen frames / future DataChannels│ signed presence,
+           ▼                                                 │ one-use grants
+Windows user-session Rust helper ─ local consent/Stop ─ Rust Windows agent
+           │
+Windows Graphics Capture → BGRA/NV12 → H.264 encoder
+           │
+     direct ICE / shared Coturn relay fallback
+```
+
+- `apps/web/src/main.tsx`, `Product.tsx`, `LiveView.tsx`, `ComputerInspector.tsx`, `SessionHistory.tsx`, `AccountPanels.tsx`, `api.ts`: current React UI. `product-approved.css` and `style.css`: styling.
+- `apps/backend/src/app.ts`, `sessions.ts`, `relay.ts`, `backend-ownership.ts`, `config.ts`: Fastify REST/signaling, authorization, TURN grant issuance, atomic session/audit transitions and startup recovery.
+- `apps/backend/migrations/`: 001 identity, 002 viewing sessions; deployment must migrate and verify schema.
+- `apps/windows-agent/src/`: interactive visible Rust agent, pairing, DPAPI-protected Ed25519 identity and signed presence, bounded long-poll request delivery, native helper lifetime bound with Windows kill-on-close job.
+- `apps/windows-session/src/`: user-session helper, consent/indicator/Stop, WGC capture, pixel conversion, encoder, WebRTC and renewable lease enforcement.
+- `crates/remote-core/`, `packages/protocol/`: shared core and protocol types. Keep machine operations behind these interfaces rather than React component logic.
+- No installed Windows service, signed installer, tray app, robust auto-updater, mouse/keyboard injection, production guest-code support or general-public account lifecycle yet. Don't imply they are complete.
+- Security: one-use 5-minute pairing code; machine keys user-DPAPI; browser tokens hashed server-side, Secure/HttpOnly/SameSite strict in production; short session grants, local attended consent, independent Stop, monotonic lease expiry, account isolation and revocation. `desktop:view` does **not** grant `desktop:control`. Respect UAC, UIPI, Session 0, and Windows secure desktop.
+
+### What evidence exists and what does not
+
+- Local Windows PC: real WGC primary-display capture, actual H.264 Chrome viewing, attended Yes and Stop; signed presence/enrollment and expiry/revoke accepted on real Windows.
+- Coturn: wildcard relay mapping caused CreatePermission 403; dynamic concrete relay address wrapper and official Coturn 4.13.0 fix passed two-sided relay/relay **synthetic** decode and local Stop. Do not revert to vulnerable Coturn or unprotected peer ranges.
+- Separate network: owner confirmed synthetic and real desktop viewing plus Stop from an **Android browser on T-Mobile mobile data** on 2026-10-10. Database sessions ended and native logs showed stop. Consent dialog was slow, prompting signed long-poll delivery change; fresh measured consent timing is still needed.
+- Backend: atomic grant/audit recovery, single owner advisory lock per database, shutdown behavior, helper termination on parent death and old-grant rejection have real PostgreSQL/process test evidence.
+- **Not accepted for production yet**: broader unrelated external networks, denial/logout/revoke/expiry/refresh/restarts/network-loss/display-loss matrix on real devices, sustained streaming performance, media rollout, remote input, host installation and consumer account lifecycle. An isolated successful cross-network session does not cover the full matrix.
+- Deployment: production remains private alpha and video/control-disabled. New commits, successful CI, and a temporary test deployment do not change that fact.
+- Source details and CI references live in `docs/development-handoff.md`, `docs/validation.md`, `docs/android-acceptance-2026-10-10.md` and linked PRs.
+
+## Development on Windows
+
+Requirements: Node 22 (>=22.13, <23), pnpm **11.9.0**, Docker, stable Rust, Visual Studio C++ Build Tools/MSVC linker and Windows SDK for native local binaries. Earlier local `cargo check` failed for missing `link.exe`; the GitHub Actions Windows job compiled instead.
+
+From a fresh clone:
+
+```powershell
+git clone https://github.com/builtbysai/Beacon-Remote.git
+cd Beacon-Remote
+git switch main
+git pull --ff-only
+pnpm install --frozen-lockfile
+docker compose -f infrastructure/compose.yaml up -d
+```
+
+The dev PostgreSQL listens **only** on localhost port 5433 (container database `beacon_remote_dev`). In separate shells, securely set `DATABASE_URL` and `WEB_ORIGIN` based on `apps/backend/.env.example` (startup does **not** automatically load a .env file). Then:
+
+```powershell
+pnpm --filter @beacon-remote/backend db:migrate
+pnpm --filter @beacon-remote/backend dev
+pnpm --filter @beacon-remote/web dev
+cargo build --workspace --locked
+```
+
+Open `http://127.0.0.1:5174` (Vite proxies /api/WebSocket to `http://127.0.0.1:3010`). For initial private development account creation, set `REMOTE_ACCOUNT_EMAIL` and `REMOTE_ACCOUNT_PASSWORD` securely in the process environment, then run `pnpm --filter @beacon-remote/backend account:create`; clear the values after. Minimum password length is 16. Never put credentials in shell history or source files.
+
+For enrollment with working backend and a generated one-use UI code:
+
+```powershell
+.\target\debug\beacon-remote-agent.exe pair
+.\target\debug\beacon-remote-agent.exe run
+```
+
+When prompted, provide the backend origin `http://127.0.0.1:3010`, host name and code. The interactive `forget` command removes only this agent's local paired identity for deliberate re-enrollment. The default identity is under `%LOCALAPPDATA%\BeaconRemote\identity.dpapi` and MUST NOT be copied/shared. The session helper supports `displays` and `capture-benchmark`, which requires explicit local approval. Use matching agent/helper versions.
+
+### Validation
+
+```powershell
+pnpm check
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+cargo build --workspace --release --locked
+```
+
+Set `TEST_DATABASE_URL` to a **separate** database whose name ends `_test` before integration checks; otherwise backend database tests are explicitly skipped. CI's `.github/workflows/ci.yml` uses PostgreSQL 17.6 on Ubuntu and native Rust build/test on Windows. GitHub Actions produces unsigned `beacon-remote-agent.exe` and `beacon-remote-session.exe` artifacts, currently retained for seven days. Verify SHA/CI runs, never mix native/backend protocol versions. The native acceptance test uses `NATIVE_AGENT_PATH` and a dedicated test database; see README.
+
+## Accessing the authorized Oracle VM and production
+
+**Do not invent a host/IP/user/key.** Current repository verifies that the VM is Oracle Cloud and has Remote deployment paths, but it does **not** record an independently verified SSH alias, public IP, Linux username or SSH key path. The Desktop Commander device available in this chat was offline on 2026-10-10. Claude must ask for an authorized SSH or desktop/OCI connection and verify exact details from OCI console, trusted SSH config or owner, without printing private key contents.
+
+1. With owner-approved access, obtain the OCI instance public address, authorized username, host fingerprint (out of band) and SSH identity path. Example shape **only**, not an asserted working command: `ssh -i <authorized-private-key-path> <verified-user>@<verified-public-ip>`.
+2. Inspect **read-only** first: `whoami`, `hostname`, `uname -m`, `df -h`, `free -h`, `sudo docker ps --format 'table {{.Names}}\t{{.Status}}'`, `sudo systemctl list-timers --all`, `readlink -f /opt/beacon-remote/current`.
+3. Separate hosts/origins:
+   - `https://remote.builtbysai.com`: production Remote control plane, video/control disabled until release gates.
+   - `https://remote-test.builtbysai.com`: temporary acceptance origin. Its host fixture and test containers were **stopped** at handoff; do not assume currently online.
+   - Beacon View remains independent but shares edge/Coturn infrastructure. Confirm its public health separately.
+4. Repo-controlled deployment definition: `infrastructure/oracle/compose.yaml`; on VM releases live under `/opt/beacon-remote/releases/<sha>` and `/opt/beacon-remote/current` selects validated release. Protected Remote credentials/backups and relay overrides live under `/etc/beacon-remote/`; NEVER print .env values or rendered Compose configuration containing secrets.
+5. Stack: Remote Compose project `beacon-remote`; services `postgres`, `backend`, `web`, one-off `migrate`, `verify`, and profile `backup`/`restore-check`. Backend internal port 3010, web via Caddy edge hostname `beacon-remote-web:8080`. Reverse proxy fragment in `infrastructure/oracle/edge.caddy`. Network `beacon-edge` is external shared; Remote Postgres in isolated private network 172.30.88.0/28.
+6. Shared Coturn (used by View and Remote) is in the older Beacon View Compose project `beacon-secureview-cloud`; the reviewed override is `/etc/beacon-remote/turn-relay.override.yaml` and wrapper `turn-relay-entrypoint.sh`, with upstream pinned to Coturn **4.13.0** by digest. Do not apply the original View Compose alone to Coturn; it removes the fix and restores permission failure. Never relax protected peer checks. Full reviewed exact Coturn commands are in `docs/deployment.md`.
+
+### Deployment is gated; not an automatic instruction to ship
+
+- **Preflight:** verify owner authorization and current production commit, GitHub Action results, current database migrations, exact Remote secrets filename, control plane readiness, backup integrity, View health and available Oracle Always Free resources. Never assume old docs reflect current deployment or accept billable upgrades.
+- **No overlapping backend instances** against a single Remote database. The backend holds a session-scoped advisory lock and atomically ends interrupted grants before listening. Stop old backend before replacing it. Transaction-pooled connection proxies are inappropriate for the ownership lock.
+- **Build/backup:** from a validated exact commit in a new release directory, run Compose config validation with a verified root-protected env file, build the relevant production images, take an encrypted backup, run `backup check`, and if required run the documented isolated restore drill with writes quiesced. The restore target must be new and separate, never live.
+- **Migrations:** explicitly run one-off `migrate`, then one-off `verify` with the same private network/validated image before starting application services. Use `docker compose run --rm` for one-offs only after checking arguments/config. Start backend then web and validate /health or /ready and actual HTTPS login/inventory.
+- **Cutover/rollback:** only after approval update `/opt/beacon-remote/current`; retain prior backend/web images and deployment tree for rollback. Check `sudo docker compose -p beacon-remote --env-file <VERIFIED_ENV_FILE> -f <VALIDATED_COMPOSE_PATH> ps` and service-specific `logs --tail=100` (avoid secret-bearing logs). Roll back to **previous verified exact commit and images** if health/login fail. Do not use `compose down -v` or delete data volumes. A short Caddy 502 during container recreation was observed and recovered; don't misclassify temporary 502 as automatic success.
+- **Backups:** independent Restic repository under existing private `beacon-backups` bucket, daily timer; operations include `init`, `run`, `check`, and `restore-check`. Existing script enforces 32 MiB backup dump budget, expiry policy and non-overwrite isolated restore. Verify bucket/free allocations each time.
+- **Do not enable desktop media or control in production** without a reviewed release decision and the complete real-world acceptance matrix. Do not deploy an unsigned public installer. Production app updates, Caddy, database and shared TURN are consequential operations requiring explicit inspection and rollback readiness.
+- Exact root-owned environment file path for Remote, SSH values, instance shape/public IP and current daemon state are **not independently verified in this handoff**; the next operator must verify them before executable production commands.
+
+### Temporary Android mobile-data acceptance environment
+
+See `docs/android-acceptance-2026-10-10.md` for complete bounded setup/teardown. The owner successfully viewed the Windows desktop from an Android phone over **T-Mobile cellular** and clicked local Stop. Native helper/DB reflected ended. Test host: a local runner `C:/Dev/beacon-remote-android-host.mjs`; isolated state under `C:/Users/Saiha/.beacon-remote-recovery/android-acceptance-20261010`. On Oracle, isolated sources `/opt/beacon-remote/acceptance/20261010-b1c2ae4`, Compose file `/etc/beacon-remote/acceptance-compose-20261010.yaml`, isolated web/backend containers and DB, separate acceptance Caddy fragment. They were stopped at handoff and fixture state was preserved, not production release. Before reuse verify expiration/credentials/containers, protect production, reinitialize only named fixture and obtain **fresh** approval; never silently resurrect a consent grant. Explicit local Stop and a two-minute session lease still apply.
+
+## Approved design and UX gap
+
+The owner-approved `Beacon-Remote-Final-Package.zip` is an **external design artifact** from the ChatGPT conversation, **not available in GitHub** unless manually attached. Ask for it and open its interactive HTML, workspace prototype, screenshots, logo assets and product prompt before design work. It includes landing, sign-in/MFA/recovery states, Windows host consent windows, device management and viewer. The design is a target, **not evidence that unimplemented functions work**.
+
+Partial React integration exists (blue/slate tokens, brand mark, public pages, inventory search/filter, inspector/name editing, activity/session history, browser sessions, responsive themes). Remaining fidelity issues seen by owner: overly simplified landing/preview, bare sidebar and wide empty workspace, action-heavy machine rows where test video/revoke compete with Remote, missing host/tray/installer and many account/support states, layout/typography/motion inconsistencies. Track design completeness separately from backend readiness in `docs/roadmap.md`, fix UX incrementally, never ship fabricated stats/devices, and isolate synthetic/debug operations to a clearly labeled development-only control.
+
+## Remaining ordered roadmap and acceptance
+
+**4 — Attended media (active):** retest signed long-poll consent latency on actual PC/mobile path; real denial/Stop and revoke, grant expiry, logout, browser refresh, network loss, agent crash, backend restart, display/lock/GPU device-loss, relay/direct selection and sustained FPS/CPU/memory/latency. Fresh grant and local approval after interruption. Measure and close security/performance gates **before production view enablement**.
+
+**5 — Authorized input:** distinct approval for `desktop:control`; one controller lease; typed WebRTC DataChannels; mouse motion/buttons/drag/scroll and keyboard/modifiers; correct DPI/multi-display coordinates; immediate held-input release on pause, loss, revoke, stop or expiry. Never inject into higher-integrity apps/UAC/secure desktop by bypass.
+
+**6 — Windows installation/resilience:** proper least-privilege service with interactive helper, restricted IPC, visible tray/Stop, reboot recovery, signed installer, signed-update manifest and rollback, clean uninstall; needs legitimate code-signing credentials. No stealth persistence.
+
+**7 — Consumer account:** verified signup/email, password recovery, MFA, session management, credential rotation, account deletion/retention and abuse/rate controls. Private invitation login alone is not general-public ready.
+
+**8 — Consumer UX/release:** approved visual fidelity across public/auth/workspace/host; no mock operational telemetry; real device state; graceful offline/timeout/denial/permission/reconnect states; mobile touch and accessibility; attended guest support with scoped expiring code and explicit local consent; multi-hardware/field tests; signed distribution and deployment/rollback drill.
+
+Keep a **separate UI status** alongside each capability: approved target, current implementation, visual gaps, real backend availability, and verified browser/native acceptance.
+
+## Lessons learned / security warnings
+
+- Coturn wildcard relay mapping: permissions failed with zero-address mapping; dynamic concrete-address wrapper plus patched Coturn 4.13.0. Never blindly revert the override.
+- TCP/TLS TURN URLs are rejected by current native transport; only configured UDP TURN routes are accepted.
+- A Chrome peer-reflexive candidate can be mislabeled Direct; diagnostics report relay-only correctly and mark ambiguous routes unavailable.
+- Delayed playback failure used to overwrite a terminated session UI; client now ignores post-shutdown rejects.
+- Backend duplicate startup previously risked ending live sessions; exclusive advisory ownership lock and fail-closed recovery now enforce single ownership. Real startup/subprocess checks cover failure cases, not every real restart scenario.
+- Native helper was at risk of surviving agent death; non-inheritable kill-on-close Windows job mitigates it and has process-boundary evidence.
+- Signed heartbeat's old fixed 15s cadence delayed host consent arrival; bounded signed long poll was implemented (see ADR 0009), but improved real-world delay still needs measurement.
+- Build passing does not imply signed installer, direct/relay desktop acceptance, or actual control. Local `link.exe` absence is a tooling issue, not proof source is broken.
+- Honor all privacy boundaries. Never print credentials, session SDP, screen pixels, private keys, bearer invitations or input contents.
+
+## Handoff completion checklist
+
+- [x] PR #8 merged to main.
+- [x] PR #9 merged to main, media remains off in production.
+- [x] PR #9 latest head's CI was green before merge.
+- [x] Owner-confirmed one mobile-data desktop viewing + Stop scenario documented.
+- [ ] Verify CI on final main/doc commits and current production health with authorized access.
+- [ ] Verify local Windows working tree and SSH/OCI access details; GitHub cannot see uncommitted work.
+- [ ] Confirm temporary test containers are still stopped and fixture cleanup policy respected.
+- [ ] Complete remaining Milestone 4 field acceptance before media release.
+- [ ] Obtain approved design ZIP if not already attached to Claude.
