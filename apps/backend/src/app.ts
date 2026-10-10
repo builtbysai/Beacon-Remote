@@ -192,6 +192,42 @@ export async function createApp(pool: Pool, config: Config) {
     return { machines: result.rows };
   });
 
+  app.get("/api/account/sessions", async (request, reply) => {
+    const account = await owner(request);
+    if (!account) return reply.code(401).send({ error: "Sign in required" });
+    const result = await pool.query(
+      `SELECT expires_at AS "expiresAt", token_hash=$2 AS current
+       FROM browser_sessions WHERE account_id=$1 AND expires_at>now()
+       ORDER BY expires_at DESC LIMIT 100`,
+      [account, digest(request.cookies.remote_session!)],
+    );
+    return { sessions: result.rows };
+  });
+
+  app.post("/api/account/sessions/end-others", async (request, reply) => {
+    if (!sameOrigin(request))
+      return reply.code(403).send({ error: "Origin rejected" });
+    const account = await owner(request);
+    if (!account) return reply.code(401).send({ error: "Sign in required" });
+    await pool.query(
+      "DELETE FROM browser_sessions WHERE account_id=$1 AND token_hash<>$2",
+      [account, digest(request.cookies.remote_session!)],
+    );
+    return { ok: true };
+  });
+
+  app.get("/api/activity", async (request, reply) => {
+    const account = await owner(request);
+    if (!account) return reply.code(401).send({ error: "Sign in required" });
+    const result = await pool.query(
+      `SELECT a.id::text, a.action, a.occurred_at AS "occurredAt", m.name AS "machineName"
+       FROM audit_events a LEFT JOIN machines m ON m.id=a.machine_id AND m.account_id=a.account_id
+       WHERE a.account_id=$1 ORDER BY a.occurred_at DESC,a.id DESC LIMIT 100`,
+      [account],
+    );
+    return { events: result.rows };
+  });
+
   app.post(
     "/api/enrollments",
     { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },

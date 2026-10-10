@@ -64,6 +64,20 @@ export async function registerSessions(
   const entries = new Map<string, Entry>();
   const authorized = new WeakMap<FastifyRequest, Authorization>();
   const enabled = Boolean(config.SESSION_SECRET);
+  app.get("/api/sessions", async (request, reply) => {
+    const account = await owner(request);
+    if (!account) return reply.code(401).send({ error: "Sign in required" });
+    if (!enabled) return { available: false, sessions: [] };
+    const result = await pool.query(
+      `SELECT s.id, m.name AS "machineName", s.source,
+       CASE WHEN s.expires_at<=now() AND s.status IN ('requested','connecting','active') THEN 'expired' ELSE s.status END AS status,
+       s.created_at AS "createdAt", s.expires_at AS "expiresAt"
+       FROM view_sessions s JOIN machines m ON m.id=s.machine_id AND m.account_id=s.account_id
+       WHERE s.account_id=$1 ORDER BY s.created_at DESC,s.id LIMIT 100`,
+      [account],
+    );
+    return { available: true, sessions: result.rows };
+  });
   const iceServers = [
     { urls: [config.STUN_URL ?? "stun:129.213.128.206:3478"] },
   ];

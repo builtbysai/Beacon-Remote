@@ -3,6 +3,10 @@ import { createRoot } from "react-dom/client";
 import type { Machine } from "@beacon-remote/protocol";
 import "./style.css";
 import { LiveView, type ViewGrant } from "./LiveView.js";
+import { Brand, Monitor, ProductPage, pageFromHash } from "./Product.js";
+import { api, ApiError } from "./api.js";
+import { AccountPanels } from "./AccountPanels.js";
+import { SessionHistory } from "./SessionHistory.js";
 
 // Fragments stay out of HTTP/access logs; remove the bearer from browser history.
 const invitation = new URLSearchParams(window.location.hash.slice(1)).get(
@@ -10,21 +14,28 @@ const invitation = new URLSearchParams(window.location.hash.slice(1)).get(
 );
 if (invitation) window.history.replaceState(null, "", window.location.pathname);
 
-async function api<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`/api/${path}`, {
-    method: body === undefined ? "GET" : "POST",
-    credentials: "same-origin",
-    headers: body === undefined ? {} : { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (!response.ok) {
-    if (response.status === 401) throw new Error("Please sign in.");
-    throw new Error("Request failed. Please try again.");
-  }
-  return response.json() as Promise<T>;
-}
-
 function App() {
+  const [page, setPage] = useState(pageFromHash);
+  const [theme, setTheme] = useState("system");
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [selected, setSelected] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  useEffect(() => {
+    const change = () => setPage(pageFromHash());
+    window.addEventListener("hashchange", change);
+    return () => window.removeEventListener("hashchange", change);
+  }, []);
+  useEffect(() => {
+    const preference = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      document.documentElement.dataset.theme =
+        theme === "system" ? (preference.matches ? "dark" : "light") : theme;
+    };
+    apply();
+    preference.addEventListener("change", apply);
+    return () => preference.removeEventListener("change", apply);
+  }, [theme]);
   const [invite, setInvite] = useState(invitation);
   const [machines, setMachines] = useState<Machine[] | null>(null);
   const [error, setError] = useState("");
@@ -38,6 +49,10 @@ function App() {
   const [view, setView] = useState<{ grant: ViewGrant; name: string } | null>(
     null,
   );
+  useEffect(() => {
+    setView(null);
+    setError("");
+  }, [page]);
   const signedIn = machines !== null;
   useEffect(() => {
     let disposed = false;
@@ -129,11 +144,22 @@ function App() {
       const result = await api<{ machines: Machine[] }>("machines");
       setMachines(result.machines);
       setStale(false);
-    } catch {
+      window.location.hash = [
+        "computers",
+        "sessions",
+        "assist",
+        "activity",
+        "settings",
+      ].includes(page)
+        ? page
+        : "computers";
+    } catch (failure) {
       setError(
-        invite
-          ? "Account setup failed. Check your details and invitation, then try again."
-          : "Sign-in failed. Check your details and try again.",
+        failure instanceof ApiError && failure.status === 429
+          ? failure.message
+          : invite
+            ? "Account setup failed. Check your details and invitation, then try again."
+            : "Sign-in failed. Check your details and try again.",
       );
     } finally {
       setBusy(false);
@@ -184,17 +210,93 @@ function App() {
   }
 
   return (
-    <main>
+    <main
+      className={
+        signedIn && page !== "home" && page !== "support" && page !== "security"
+          ? "app-shell"
+          : "public-shell"
+      }
+    >
       <header>
-        <a className="brand" href="/">
-          ◉ Beacon <span>Remote</span>
-        </a>
-        <small>PRIVATE DEVELOPMENT</small>
+        <Brand />
+        <nav aria-label="Public navigation">
+          <a href="#home">Overview</a>
+          <a href="#downloads">Download</a>
+          <a href="#support">Support</a>
+          <a href="#security">Security</a>
+        </nav>
+        <div className="header-end">
+          <label className="theme-label">
+            Appearance
+            <select
+              aria-label="Appearance"
+              value={theme}
+              onChange={(event) => setTheme(event.target.value)}
+            >
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+          <a
+            className="button secondary"
+            href={signedIn ? "#computers" : "#signin"}
+          >
+            {signedIn ? "Workspace" : "Sign in"}
+          </a>
+        </div>
       </header>
-      {machines === null ? (
+      {signedIn &&
+        page !== "home" &&
+        page !== "support" &&
+        page !== "security" && (
+          <nav className="workspace-nav" aria-label="Workspace">
+            <p className="eyebrow">WORKSPACE</p>
+            {[
+              "computers",
+              "sessions",
+              "assist",
+              "activity",
+              "downloads",
+              "settings",
+            ].map((item) => (
+              <a
+                key={item}
+                href={`#${item}`}
+                aria-current={page === item ? "page" : undefined}
+              >
+                {item.charAt(0).toUpperCase() + item.slice(1)}
+              </a>
+            ))}
+            <button
+              className="secondary"
+              onClick={() => {
+                void logout();
+              }}
+            >
+              Sign out
+            </button>
+          </nav>
+        )}
+      {!invite &&
+      page !== "signin" &&
+      !(
+        ["computers", "sessions", "assist", "activity", "settings"].includes(
+          page,
+        ) && !signedIn
+      ) &&
+      page !== "computers" ? (
+        page === "sessions" ? (
+          <SessionHistory />
+        ) : page === "settings" || page === "activity" ? (
+          <AccountPanels activity={page === "activity"} />
+        ) : (
+          <ProductPage page={page} signedIn={signedIn} />
+        )
+      ) : machines === null || invite ? (
         <section className="login">
           <p className="eyebrow">YOUR COMPUTERS, WITHIN REACH</p>
-          <h1>{invite ? "Create your account." : "Welcome back."}</h1>
+          <h1>{invite ? "Create your account" : "Sign in"}</h1>
           <p>
             {invite
               ? "Choose a password with at least 16 characters. Your invitation expires after 30 minutes."
@@ -214,20 +316,28 @@ function App() {
               Password
               <input
                 name="password"
-                type="password"
+                type={showPassword ? "text" : "password"}
                 autoComplete={invite ? "new-password" : "current-password"}
                 minLength={invite ? 16 : undefined}
                 maxLength={512}
                 required
               />
             </label>
+            <button
+              type="button"
+              className="secondary password-toggle"
+              aria-pressed={showPassword}
+              onClick={() => setShowPassword(!showPassword)}
+            >
+              {showPassword ? "Hide password" : "Show password"}
+            </button>
             <button disabled={busy}>
               {invite ? "Create account" : "Sign in"}
             </button>
           </form>
           <p className="note">
-            This development release supports pairing and presence. Desktop
-            viewing and control are being built.
+            Private alpha. Account creation requires an operator invitation.
+            Password recovery and MFA are not available yet.
           </p>
         </section>
       ) : (
@@ -278,58 +388,114 @@ function App() {
             </div>
           )}
           <div className="grid">
-            {machines.map((machine) => (
-              <article key={machine.id}>
-                <div className="computer-icon">▣</div>
-                <h2>{machine.name}</h2>
-                <p className={machine.online && !stale ? "online" : "offline"}>
-                  {machine.revokedAt
-                    ? "Access revoked"
-                    : stale
-                      ? "Status unavailable"
-                      : machine.online
-                        ? "● Online"
-                        : "○ Offline"}
-                </p>
-                <button
-                  disabled={
-                    !mediaEnabled ||
-                    busy ||
-                    !machine.online ||
-                    stale ||
-                    view !== null ||
-                    Boolean(machine.revokedAt)
-                  }
-                  onClick={() => {
-                    void testVideo(machine, "desktop");
-                  }}
-                  title="View only; requires approval on your Windows computer"
-                >
-                  {mediaEnabled ? "View desktop" : "Remote — coming next"}
-                </button>
-                {mediaEnabled && !machine.revokedAt && (
+            <div className="inventory-tools">
+              <input
+                type="search"
+                aria-label="Search computers"
+                placeholder="Search computers"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+              <select
+                aria-label="Computer status"
+                value={filter}
+                onChange={(event) => setFilter(event.target.value)}
+              >
+                <option value="all">All computers</option>
+                <option value="online">Online</option>
+                <option value="offline">Offline</option>
+              </select>
+            </div>
+            {machines
+              .filter(
+                (machine) =>
+                  machine.name.toLowerCase().includes(search.toLowerCase()) &&
+                  (filter === "all" ||
+                    (!stale && !machine.revokedAt && machine.online
+                      ? "online"
+                      : "offline") === filter),
+              )
+              .map((machine) => (
+                <article key={machine.id} className="device-row">
+                  <Monitor />
                   <button
-                    disabled={busy || !machine.online || stale || view !== null}
-                    onClick={() => {
-                      void testVideo(machine, "synthetic");
-                    }}
+                    className="device-name secondary"
+                    onClick={() =>
+                      setSelected(selected === machine.id ? null : machine.id)
+                    }
+                    aria-expanded={selected === machine.id}
                   >
-                    Test video connection
+                    {machine.name}
                   </button>
-                )}
-                {!machine.revokedAt && (
+                  <p
+                    className={machine.online && !stale ? "online" : "offline"}
+                  >
+                    {machine.revokedAt
+                      ? "Access revoked"
+                      : stale
+                        ? "Status unavailable"
+                        : machine.online
+                          ? "● Online"
+                          : "○ Offline"}
+                  </p>
                   <button
-                    className="secondary"
-                    disabled={busy}
+                    disabled={
+                      !mediaEnabled ||
+                      busy ||
+                      !machine.online ||
+                      stale ||
+                      view !== null ||
+                      Boolean(machine.revokedAt)
+                    }
                     onClick={() => {
-                      void revoke(machine.id);
+                      void testVideo(machine, "desktop");
                     }}
+                    title="View only; requires approval on your Windows computer"
                   >
-                    Revoke access
+                    {mediaEnabled ? "View desktop" : "Remote — coming next"}
                   </button>
-                )}
-              </article>
-            ))}
+                  {mediaEnabled && !machine.revokedAt && (
+                    <button
+                      disabled={
+                        busy || !machine.online || stale || view !== null
+                      }
+                      onClick={() => {
+                        void testVideo(machine, "synthetic");
+                      }}
+                    >
+                      Test video connection
+                    </button>
+                  )}
+                  {!machine.revokedAt && (
+                    <button
+                      className="secondary"
+                      disabled={busy}
+                      onClick={() => {
+                        void revoke(machine.id);
+                      }}
+                    >
+                      Revoke access
+                    </button>
+                  )}
+                  {selected === machine.id && (
+                    <div className="device-inspector">
+                      <h3>Computer details</h3>
+                      <dl>
+                        <dt>Machine ID</dt>
+                        <dd>{machine.id}</dd>
+                        <dt>Last seen</dt>
+                        <dd>
+                          {machine.lastSeenAt
+                            ? new Date(machine.lastSeenAt).toLocaleString()
+                            : "Not reported"}
+                        </dd>
+                        <dt>Access</dt>
+                        <dd>Attended · View only</dd>
+                      </dl>
+                    </div>
+                  )}
+                </article>
+              ))}
           </div>
           {view && (
             <LiveView
@@ -338,14 +504,6 @@ function App() {
               onClose={() => setView(null)}
             />
           )}
-          <button
-            className="secondary"
-            onClick={() => {
-              void logout();
-            }}
-          >
-            Sign out
-          </button>
         </section>
       )}
       {error && (

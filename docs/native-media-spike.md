@@ -97,11 +97,15 @@ foreground activation and focuses its button, with a taskbar flash if Windows
 denies activation. This follows [Windows foreground restrictions](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setforegroundwindow)
 without changing system policy. Native ICE now trickles through a bounded queue
 rather than waiting for complete STUN gathering before sending the offer.
-These attention/startup changes require a fresh real-machine check. Presence
-still polls every fifteen seconds, so request delivery can add that delay.
+The owner completed another local desktop test with this build. Chrome reported
+1,053 decoded frames followed by Session ended, cleared video, and the native
+helper exited with its sharing-stopped message. This verifies media and shutdown
+after the trickle change; the owner's brief completion reply does not establish
+subjective focus or startup-speed improvement. Presence still polls every
+fifteen seconds, so request delivery can add that delay.
 
 Production still runs the validated identity/presence release. Cross-network and
-forced-relay acceptance, the updated consent focus and input remain incomplete.
+forced-relay acceptance, subjective consent-focus confirmation and input remain incomplete.
 Account creation and broader UI/UX redesign remain postponed at the
 owner's request. Release signing remains required; this development retry does
 not replace a signed installer/update path.

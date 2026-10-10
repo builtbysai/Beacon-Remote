@@ -36,7 +36,7 @@ pnpm --filter @beacon-remote/web dev
 cargo build --workspace
 ```
 
-Open `http://127.0.0.1:5174`, sign in, choose Add a computer. Run
+Open `http://127.0.0.1:5174`, choose Sign in, then Add a computer. Run
 `target/debug/beacon-remote-agent.exe pair` and enter the origin
 `http://127.0.0.1:3010`, computer name, and one-use code interactively. Run
 `target/debug/beacon-remote-agent.exe run`. It reports a signed heartbeat every
@@ -81,8 +81,17 @@ through stdin. Synthetic video decoding, browser Stop, logout, expiry and the
 visible Windows Stop button passed real-machine acceptance. Desktop grants ask
 for explicit local approval before primary-display capture with a Windows border
 and visible Stop sharing window. Microphone, recording and input are disabled.
-Desktop viewing acceptance remains pending; production still provides pairing
+Local desktop viewing acceptance passed; cross-network/relay acceptance remains pending. Production still provides pairing
 and presence only. Keep matching agent/helper binaries in the same directory.
+
+The approved product interface adds public Overview, Download, Support and
+Security pages plus the authenticated Computers, Sessions, Assist, Activity and
+Settings workspace. It uses real account/inventory/history state; unavailable
+MFA, recovery, guest support and installer features are explicitly identified.
+Light, dark and system appearance are available in the header. To use a separate
+local API port, set `REMOTE_API_ORIGIN` before starting Vite; the backend's
+`WEB_ORIGIN` must match the browser origin exactly. See the
+[interface decision](docs/decisions/0006-approved-product-interface.md).
 For a separate local API port, set `REMOTE_API_ORIGIN` before starting Vite; its
 default is `http://127.0.0.1:3010`, including WebSocket forwarding.
 

@@ -212,9 +212,15 @@ async fn stream(grant: Grant) -> Result<(), Error> {
         }
     }
     let active = Arc::new(AtomicBool::new(true));
+    let connected = Arc::new(AtomicBool::new(false));
     let _stop = StopOnDrop(active.clone());
     // Refuse media if a visible local Stop control cannot be created.
-    let _indicator = crate::indicator::Indicator::start(active.clone(), desktop)?;
+    let _indicator = crate::indicator::Indicator::start(
+        active.clone(),
+        connected.clone(),
+        desktop,
+        grant.controller.clone(),
+    )?;
     timeout(
         Duration::from_millis(500),
         socket.send(Message::Text(
@@ -222,7 +228,6 @@ async fn stream(grant: Grant) -> Result<(), Error> {
         )),
     )
     .await??;
-    let connected = Arc::new(AtomicBool::new(false));
     let (local_candidates, mut candidate_receiver) = mpsc::channel(16);
     let lease = Arc::new(AtomicU64::new(0));
     let epoch = Instant::now();

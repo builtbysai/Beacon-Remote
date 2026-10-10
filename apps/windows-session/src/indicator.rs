@@ -7,9 +7,16 @@ use std::{
     },
     thread,
 };
+use windows_sys::Win32::Graphics::Gdi::{GetStockObject, DEFAULT_GUI_FONT};
+use windows_sys::Win32::UI::HiDpi::GetDpiForSystem;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows_sys::Win32::{System::LibraryLoader::GetModuleHandleW, UI::WindowsAndMessaging::*};
 type Error = Box<dyn std::error::Error + Send + Sync>;
+struct WindowState {
+    active: Arc<AtomicBool>,
+    connected: Arc<AtomicBool>,
+    desktop: bool,
+}
 pub struct Indicator {
     active: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<()>>,
@@ -27,17 +34,29 @@ unsafe extern "system" fn procedure(
         let creation = &*(lparam as *const CREATESTRUCTW);
         SetWindowLongPtrW(window, GWLP_USERDATA, creation.lpCreateParams as isize);
     }
-    let state = GetWindowLongPtrW(window, GWLP_USERDATA) as *const AtomicBool;
+    let state = GetWindowLongPtrW(window, GWLP_USERDATA) as *const WindowState;
     if (message == WM_COMMAND && (wparam & 0xffff) == 1001) || message == WM_CLOSE {
         if !state.is_null() {
-            (*state).store(false, Ordering::Release);
+            (*state).active.store(false, Ordering::Release);
         }
         DestroyWindow(window);
         return 0;
     }
-    if message == WM_TIMER && !state.is_null() && !(*state).load(Ordering::Acquire) {
-        DestroyWindow(window);
-        return 0;
+    if message == WM_TIMER && !state.is_null() {
+        if !(*state).active.load(Ordering::Acquire) {
+            DestroyWindow(window);
+            return 0;
+        }
+        let text = wide(if (*state).connected.load(Ordering::Acquire) {
+            if (*state).desktop {
+                "Connected — desktop sharing · View only"
+            } else {
+                "Connected — synthetic video only"
+            }
+        } else {
+            "Connecting — waiting for the browser"
+        });
+        SetWindowTextW(GetDlgItem(window, 1002), text.as_ptr());
     }
     if message == WM_DESTROY {
         KillTimer(window, 1);
@@ -47,9 +66,18 @@ unsafe extern "system" fn procedure(
     DefWindowProcW(window, message, wparam, lparam)
 }
 impl Indicator {
-    pub fn start(active: Arc<AtomicBool>, desktop: bool) -> Result<Self, Error> {
+    pub fn start(
+        active: Arc<AtomicBool>,
+        connected: Arc<AtomicBool>,
+        desktop: bool,
+        controller: String,
+    ) -> Result<Self, Error> {
         let (ready, received) = mpsc::channel();
-        let state = active.clone();
+        let state = Arc::new(WindowState {
+            active: active.clone(),
+            connected,
+            desktop,
+        });
         let thread = thread::spawn(move || {
             let result = (|| -> Result<(), Error> {
                 unsafe {
@@ -58,6 +86,8 @@ impl Indicator {
                         return Err(io::Error::last_os_error().into());
                     }
                     let class = wide("BeaconRemoteVisibleStop");
+                    let dpi = GetDpiForSystem().max(96) as i32;
+                    let scale = |value: i32| value * dpi / 96;
                     let definition = WNDCLASSW {
                         lpfnWndProc: Some(procedure),
                         hInstance: instance,
@@ -69,7 +99,7 @@ impl Indicator {
                         return Err(io::Error::last_os_error().into());
                     }
                     let title = wide(if desktop {
-                        "Beacon Remote — DESKTOP SHARING ACTIVE"
+                        "Beacon Remote — attended desktop view"
                     } else {
                         "Beacon Remote — synthetic video test (no desktop)"
                     });
@@ -80,8 +110,8 @@ impl Indicator {
                         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
                         CW_USEDEFAULT,
                         CW_USEDEFAULT,
-                        480,
-                        160,
+                        scale(640),
+                        scale(310),
                         std::ptr::null_mut(),
                         std::ptr::null_mut(),
                         instance,
@@ -91,6 +121,41 @@ impl Indicator {
                         UnregisterClassW(class.as_ptr(), instance);
                         return Err(io::Error::last_os_error().into());
                     }
+                    let label = wide("STATIC");
+                    let controller = controller
+                        .chars()
+                        .filter(|character| !character.is_control())
+                        .collect::<String>();
+                    let details = wide(&format!("Beacon Remote\nController: {controller}\nView only · Ends within two minutes\nMicrophone, recording and remote input are disabled."));
+                    let identity = CreateWindowExW(
+                        0,
+                        label.as_ptr(),
+                        details.as_ptr(),
+                        WS_CHILD | WS_VISIBLE | SS_NOPREFIX,
+                        scale(24),
+                        scale(16),
+                        scale(580),
+                        scale(100),
+                        window,
+                        std::ptr::null_mut(),
+                        instance,
+                        std::ptr::null(),
+                    );
+                    let status = wide("Connecting — waiting for the browser");
+                    let status_control = CreateWindowExW(
+                        0,
+                        label.as_ptr(),
+                        status.as_ptr(),
+                        WS_CHILD | WS_VISIBLE | SS_NOPREFIX,
+                        scale(24),
+                        scale(124),
+                        scale(580),
+                        scale(30),
+                        window,
+                        1002usize as _,
+                        instance,
+                        std::ptr::null(),
+                    );
                     let button = wide("BUTTON");
                     let caption = wide(if desktop {
                         "Stop sharing now"
@@ -102,21 +167,31 @@ impl Indicator {
                         button.as_ptr(),
                         caption.as_ptr(),
                         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON as u32,
-                        30,
-                        30,
-                        410,
-                        55,
+                        scale(24),
+                        scale(174),
+                        scale(580),
+                        scale(55),
                         window,
                         1001usize as _,
                         instance,
                         std::ptr::null(),
                     );
-                    if control.is_null() || SetTimer(window, 1, 100, None) == 0 {
+                    if identity.is_null()
+                        || status_control.is_null()
+                        || control.is_null()
+                        || SetTimer(window, 1, 100, None) == 0
+                    {
                         DestroyWindow(window);
                         UnregisterClassW(class.as_ptr(), instance);
                         return Err(io::Error::last_os_error().into());
                     }
                     ShowWindow(window, SW_SHOW);
+                    let font = GetStockObject(DEFAULT_GUI_FONT);
+                    if !font.is_null() {
+                        for child in [identity, status_control, control] {
+                            SendMessageW(child, WM_SETFONT, font as usize, 1);
+                        }
+                    }
                     if SetForegroundWindow(window) == 0 {
                         let attention = FLASHWINFO {
                             cbSize: std::mem::size_of::<FLASHWINFO>() as u32,
@@ -138,13 +213,13 @@ impl Indicator {
                         TranslateMessage(&message);
                         DispatchMessageW(&message);
                     }
-                    state.store(false, Ordering::Release);
+                    state.active.store(false, Ordering::Release);
                     UnregisterClassW(class.as_ptr(), instance);
                     Ok(())
                 }
             })();
             if let Err(error) = result {
-                state.store(false, Ordering::Release);
+                state.active.store(false, Ordering::Release);
                 let _ = ready.send(Err(error.to_string()));
             }
         });
