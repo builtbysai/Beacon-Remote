@@ -284,6 +284,52 @@ test(
         ).rowCount,
         1,
       );
+      // Browser refresh/network loss and helper exit must consume the old grant.
+      // Reconnecting a socket cannot revive consent or renew its native lease.
+      for (const lostRole of ["viewer", "machine"] as const) {
+        const interruptedGrant = await create();
+        assert.equal(interruptedGrant.statusCode, 200);
+        const interruptedId = interruptedGrant.json().id as string;
+        const interruptedToken = (await beat())[0]!.token;
+        const interruptedViewer = await connect(
+          interruptedId,
+          "viewer",
+          headers,
+        );
+        const interruptedNative = await connect(interruptedId, "machine", {
+          authorization: `Bearer ${interruptedToken}`,
+        });
+        await received(interruptedViewer, () =>
+          interruptedNative.send(
+            JSON.stringify({ type: "consent", accepted: true }),
+          ),
+        );
+        const surviving =
+          lostRole === "viewer" ? interruptedNative : interruptedViewer;
+        const closed = once(surviving, "close", {
+          signal: AbortSignal.timeout(3000),
+        });
+        (lostRole === "viewer"
+          ? interruptedViewer
+          : interruptedNative
+        ).terminate();
+        await closed;
+        assert.equal(
+          (
+            await pool.query("SELECT status FROM view_sessions WHERE id=$1", [
+              interruptedId,
+            ])
+          ).rows[0].status,
+          "ended",
+        );
+        await assert.rejects(connect(interruptedId, "viewer", headers));
+        await assert.rejects(
+          connect(interruptedId, "machine", {
+            authorization: `Bearer ${interruptedToken}`,
+          }),
+        );
+        assert.deepEqual(await beat(), []);
+      }
       const logoutGrant = await create();
       assert.equal(logoutGrant.statusCode, 200);
       const logoutId = logoutGrant.json().id as string;

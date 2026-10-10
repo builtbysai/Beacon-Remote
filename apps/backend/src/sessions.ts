@@ -53,6 +53,20 @@ const signal = z.discriminatedUnion("type", [
   z.object({ type: z.literal("stop") }).strict(),
 ]);
 
+// Signaling peers and consent leases belong to one process. A restarted backend
+// cannot recover them from persisted status, even when the grant has time left.
+// Run once at process startup, before listening, with the prior backend stopped.
+export async function endInterruptedSessions(pool: Pool) {
+  await pool.query(`WITH interrupted AS (
+    UPDATE view_sessions SET status='ended'
+    WHERE status IN ('requested','connecting','active')
+    RETURNING account_id,machine_id
+  )
+  INSERT INTO audit_events(account_id,machine_id,action)
+  SELECT account_id,machine_id,'desktop.view.interrupted:backend-restart'
+  FROM interrupted`);
+}
+
 export async function registerSessions(
   app: FastifyInstance,
   pool: Pool,
