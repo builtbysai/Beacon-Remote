@@ -1,13 +1,19 @@
 # Deployment gates
 
 The private-alpha control plane is deployed at `https://remote.builtbysai.com`.
+The approved interface now runs exact release
+`ff452ffe66dd600e9a7b18d12fccc08ac970a7d6`, with encrypted pre-rollout backup,
+schema/role verification, public health and real browser account acceptance.
+Production media remains disabled; the prior release/images are retained.
+See [the interface validation](product-interface-validation.md).
 Exact hosting release `771b4081f2243b214e4333058a07ce5a6466badb` passed production
 schema/role verification, public HTTPS health/readiness and encrypted OCI backup,
 integrity and separate-database restore verification. Its independent daily backup
 timer is enabled. Runtime release `2c8f944c5e44ff765baa1671a70ea9202b9b688c`
 also passed public native Windows enrollment, online/offline presence, restart
-and revocation using a temporary account. Owner account setup remains pending;
-desktop streaming/control is not implemented. Keep existing Caddy/PostgreSQL/Coturn
+and revocation using a temporary account. The testing account is provisioned;
+local attended viewing works, while production viewing/control remain unavailable.
+Keep existing Caddy/PostgreSQL/Coturn
 services and Beacon View rollback releases intact.
 
 `infrastructure/oracle/compose.yaml` supplies the isolated production containers.

@@ -48,4 +48,16 @@ or replayed replies cannot extend the lease. Logout, expiry, computer revocation
 end the grant. The native helper stops on connection loss or lease lapse and
 does not resume automatically. Synthetic browser/native decoding, browser Stop,
 logout, absolute expiry and the local Windows Stop button passed acceptance.
-Desktop and forced-relay acceptance remain pending.
+Local desktop decoding passed; cross-network and forced-relay acceptance remain
+pending.
+
+## Workspace account views
+
+Authenticated, account-scoped `GET /api/activity`, `GET /api/sessions` and
+`GET /api/account/sessions` return bounded recent records. Media history reports
+unavailable when media is disabled. Browser records expose expiry and whether
+the record belongs to this browser, never tokens or token hashes.
+`POST /api/account/sessions/end-others` requires exact Origin and deletes only
+the owner's other browser sessions. Media renewal rejects the revoked viewer.
+`POST /api/machines/:id/name` requires exact Origin and ownership, rejects revoked
+machines/invalid names, and atomically audits the update.
