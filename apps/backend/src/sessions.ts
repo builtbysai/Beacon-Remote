@@ -5,6 +5,7 @@ import type { Pool } from "pg";
 import type { WebSocket } from "ws";
 import { z } from "zod";
 import type { Config } from "./config.js";
+import { relayCredentials } from "./relay.js";
 
 type Session = {
   id: string;
@@ -52,6 +53,20 @@ const signal = z.discriminatedUnion("type", [
   z.object({ type: z.literal("stop") }).strict(),
 ]);
 
+// Signaling peers and consent leases belong to one process. A restarted backend
+// cannot recover them from persisted status, even when the grant has time left.
+// Run once at process startup, before listening, with the prior backend stopped.
+export async function endInterruptedSessions(pool: Pool) {
+  await pool.query(`WITH interrupted AS (
+    UPDATE view_sessions SET status='ended'
+    WHERE status IN ('requested','connecting','active')
+    RETURNING account_id,machine_id
+  )
+  INSERT INTO audit_events(account_id,machine_id,action)
+  SELECT account_id,machine_id,'desktop.view.interrupted:backend-restart'
+  FROM interrupted`);
+}
+
 export async function registerSessions(
   app: FastifyInstance,
   pool: Pool,
@@ -64,9 +79,64 @@ export async function registerSessions(
   const entries = new Map<string, Entry>();
   const authorized = new WeakMap<FastifyRequest, Authorization>();
   const enabled = Boolean(config.SESSION_SECRET);
+  let closing = false;
+  const waiters = new Map<string, () => void>();
+  function wake(machineId: string) {
+    waiters.get(machineId)?.();
+  }
+  function waitForRequest(machineId: string, signal?: AbortSignal) {
+    // One bounded waiter per authenticated machine, outside the database pool.
+    wake(machineId);
+    let resolve!: () => void;
+    const promise = new Promise<void>((done) => {
+      resolve = done;
+    });
+    const finish = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", finish);
+      if (waiters.get(machineId) === finish) waiters.delete(machineId);
+      resolve();
+    };
+    const timer = setTimeout(finish, 15000);
+    waiters.set(machineId, finish);
+    signal?.addEventListener("abort", finish, { once: true });
+    if (signal?.aborted) finish();
+    return { promise, finish };
+  }
+  app.addHook("preClose", async () => {
+    closing = true;
+    for (const finish of [...waiters.values()]) finish();
+  });
+  app.get("/api/sessions", async (request, reply) => {
+    const account = await owner(request);
+    if (!account) return reply.code(401).send({ error: "Sign in required" });
+    if (!enabled) return { available: false, sessions: [] };
+    const result = await pool.query(
+      `SELECT s.id, m.name AS "machineName", s.source,
+       CASE WHEN s.expires_at<=now() AND s.status IN ('requested','connecting','active') THEN 'expired' ELSE s.status END AS status,
+       s.created_at AS "createdAt", s.expires_at AS "expiresAt"
+       FROM view_sessions s JOIN machines m ON m.id=s.machine_id AND m.account_id=s.account_id
+       WHERE s.account_id=$1 ORDER BY s.created_at DESC,s.id LIMIT 100`,
+      [account],
+    );
+    return { available: true, sessions: result.rows };
+  });
   const iceServers = [
     { urls: [config.STUN_URL ?? "stun:129.213.128.206:3478"] },
   ];
+  const iceTransportPolicy = config.ICE_TRANSPORT_POLICY ?? "all";
+  function sessionIce(session: Session) {
+    if (!config.TURN_URLS || !config.TURN_SECRET) return iceServers;
+    const relay = relayCredentials(config, session.id, session.expires_at);
+    return [
+      ...iceServers,
+      {
+        urls: relay.urls,
+        username: relay.username,
+        credential: relay.credential,
+      },
+    ];
+  }
   function token(session: Session) {
     if (!config.SESSION_SECRET) throw new Error("View sessions disabled");
     return createHmac("sha256", Buffer.from(config.SESSION_SECRET, "hex"))
@@ -190,11 +260,13 @@ export async function registerSessions(
           ],
         );
         await client.query("COMMIT");
+        wake(session.machine_id);
         return {
           id: session.id,
           source: session.source,
           expiresAtMillis: session.expires_at.getTime(),
-          iceServers,
+          iceServers: sessionIce(session),
+          iceTransportPolicy,
         };
       } catch (error) {
         await client.query("ROLLBACK");
@@ -221,6 +293,39 @@ export async function registerSessions(
     await finish(parsed.data.id);
     return { ok: true };
   });
+
+  // Reissuance never extends the existing session or relay credential deadline.
+  app.post(
+    "/api/sessions/:id/relay",
+    { config: { rateLimit: { max: 8, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      if (request.headers.origin !== config.WEB_ORIGIN)
+        return reply.code(403).send({ error: "Origin rejected" });
+      const account = await owner(request);
+      if (!account) return reply.code(401).send({ error: "Sign in required" });
+      const parsed = params.safeParse(request.params);
+      if (!parsed.success)
+        return reply.code(400).send({ error: "Invalid session" });
+      if (!enabled || !config.TURN_URLS || !config.TURN_SECRET)
+        return reply.code(503).send({ error: "Relay unavailable" });
+      const result = await pool.query<Session>(
+        `SELECT s.* FROM view_sessions s JOIN machines m
+         ON m.id=s.machine_id AND m.account_id=s.account_id
+         WHERE s.id=$1 AND s.account_id=$2 AND s.expires_at>now()+interval '1 second'
+         AND s.status IN ('requested','connecting','active') AND m.revoked_at IS NULL`,
+        [parsed.data.id, account],
+      );
+      const session = result.rows[0];
+      if (!session)
+        return reply.code(404).send({ error: "Session unavailable" });
+      const { expiresAtMillis, ...server } = relayCredentials(
+        config,
+        session.id,
+        session.expires_at,
+      );
+      return { iceServers: [server], expiresAtMillis };
+    },
+  );
 
   app.route({
     method: "GET",
@@ -388,23 +493,26 @@ export async function registerSessions(
                 return;
               }
               const consent = await pool.query(
-                "UPDATE view_sessions s SET status=$2 WHERE id=$1 AND status='connecting' AND expires_at>now() AND EXISTS (SELECT 1 FROM machines m WHERE m.id=s.machine_id AND m.revoked_at IS NULL) RETURNING id",
-                [session.id, body.accepted ? "active" : "denied"],
-              );
-              if (!consent.rowCount) {
-                await finish(session.id);
-                return;
-              }
-              await pool.query(
-                "INSERT INTO audit_events(account_id,machine_id,action) VALUES ($1,$2,$3)",
+                `WITH transitioned AS (
+                  UPDATE view_sessions s SET status=$2
+                  WHERE id=$1 AND status='connecting' AND expires_at>now()
+                  AND EXISTS (SELECT 1 FROM machines m WHERE m.id=s.machine_id AND m.revoked_at IS NULL)
+                  RETURNING account_id,machine_id
+                )
+                INSERT INTO audit_events(account_id,machine_id,action)
+                SELECT account_id,machine_id,$3 FROM transitioned RETURNING id`,
                 [
-                  session.account_id,
-                  session.machine_id,
+                  session.id,
+                  body.accepted ? "active" : "denied",
                   body.accepted
                     ? "desktop.view.accepted"
                     : "desktop.view.denied",
                 ],
               );
+              if (!consent.rowCount) {
+                await finish(session.id);
+                return;
+              }
               send(live.viewer, { type: "consent", accepted: body.accepted });
               if (!body.accepted) await finish(session.id, "denied");
               return;
@@ -434,26 +542,49 @@ export async function registerSessions(
         type: "joined",
         role,
         source: session.source,
-        iceServers,
       });
     },
   });
   app.addHook("onClose", async () => {
     await Promise.allSettled([...entries.keys()].map((id) => finish(id)));
   });
-  return async (machineId: string) => {
+  async function pending(
+    machineId: string,
+    options?: { wait: boolean; handled?: string; signal: AbortSignal },
+  ) {
     if (!enabled) return [];
-    const result = await pool.query<Session & { controller: string }>(
-      "SELECT s.*,a.email AS controller FROM view_sessions s JOIN accounts a ON a.id=s.account_id JOIN machines m ON m.id=s.machine_id WHERE s.machine_id=$1 AND m.revoked_at IS NULL AND s.status='requested' AND s.expires_at>now() ORDER BY s.created_at LIMIT 1",
-      [machineId],
-    );
-    return result.rows.map((session) => ({
-      id: session.id,
-      token: token(session),
-      controller: session.controller,
-      source: session.source,
-      expiresAtMillis: session.expires_at.getTime(),
-      iceServers,
-    }));
-  };
+    async function load() {
+      const result = await pool.query<Session & { controller: string }>(
+        "SELECT s.*,a.email AS controller FROM view_sessions s JOIN accounts a ON a.id=s.account_id JOIN machines m ON m.id=s.machine_id WHERE s.machine_id=$1 AND m.revoked_at IS NULL AND s.status='requested' AND s.expires_at>now()+interval '1 second' ORDER BY s.created_at LIMIT 1",
+        [machineId],
+      );
+      return result.rows
+        .filter((session) => session.id !== options?.handled)
+        .map((session) => ({
+          id: session.id,
+          token: token(session),
+          controller: session.controller,
+          source: session.source,
+          expiresAtMillis: session.expires_at.getTime(),
+          iceServers: sessionIce(session),
+          iceTransportPolicy,
+        }));
+    }
+    // Register before reading so a commit between the read and wait is not lost.
+    const waiting =
+      options?.wait && !closing
+        ? waitForRequest(machineId, options.signal)
+        : undefined;
+    try {
+      const grants = await load();
+      if (grants.length || !waiting || options?.signal.aborted) return grants;
+      await waiting.promise;
+      if (options?.signal.aborted) return [];
+      // Always re-read authorization/state; notification itself grants nothing.
+      return await load();
+    } finally {
+      waiting?.finish();
+    }
+  }
+  return { pending, wake, enabled };
 }

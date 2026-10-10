@@ -7,7 +7,8 @@ This development release implements private account login, one-use machine
 enrollment, cryptographic machine identity, signed presence, inventory, and
 revocation. The native Windows agent runs visibly in a terminal and stores its
 private key with user-scoped Windows DPAPI. It installs no service or autostart.
-**Desktop streaming and input are not available yet.**
+Attended desktop viewing has local development acceptance. Production media is
+disabled pending relay/network validation; mouse and keyboard input are absent.
 
 ## Develop
 
@@ -36,7 +37,7 @@ pnpm --filter @beacon-remote/web dev
 cargo build --workspace
 ```
 
-Open `http://127.0.0.1:5174`, sign in, choose Add a computer. Run
+Open `http://127.0.0.1:5174`, choose Sign in, then Add a computer. Run
 `target/debug/beacon-remote-agent.exe pair` and enter the origin
 `http://127.0.0.1:3010`, computer name, and one-use code interactively. Run
 `target/debug/beacon-remote-agent.exe run`. It reports a signed heartbeat every
@@ -81,10 +82,35 @@ through stdin. Synthetic video decoding, browser Stop, logout, expiry and the
 visible Windows Stop button passed real-machine acceptance. Desktop grants ask
 for explicit local approval before primary-display capture with a Windows border
 and visible Stop sharing window. Microphone, recording and input are disabled.
-Desktop viewing acceptance remains pending; production still provides pairing
+Local desktop viewing acceptance passed; cross-network/relay acceptance remains pending. Production still provides pairing
 and presence only. Keep matching agent/helper binaries in the same directory.
-For a separate local API port, set `REMOTE_API_ORIGIN` before starting Vite; its
-default is `http://127.0.0.1:3010`, including WebSocket forwarding.
+
+The approved product interface adds public Overview, Download, Support and
+Security pages plus the authenticated Computers, Sessions, Assist, Activity and
+Settings workspace. It uses real account/inventory/history state; unavailable
+MFA, recovery, guest support and installer features are explicitly identified.
+Light, dark and system appearance are available in the header. To use a separate
+local API port, set `REMOTE_API_ORIGIN` before starting Vite; the backend's
+`WEB_ORIGIN` must match the browser origin exactly. See the
+[interface decision](docs/decisions/0006-approved-product-interface.md).
+The default local API target is `http://127.0.0.1:3010`, including WebSocket
+forwarding.
+
+The backend relay foundation accepts paired `TURN_URLS` (comma-separated TURN
+URLs with explicit ports and `transport=udp` or `transport=tcp`) and `TURN_SECRET`
+(at least 32 characters matching Coturn REST authentication), together with
+`SESSION_SECRET`. Supply secrets privately in the environment; no `.env` file is
+loaded automatically. `turns` requires TCP. Partial configuration fails startup.
+An owner's exact-Origin `POST /api/sessions/:id/relay` returns session-deadline
+bounded credentials. With TURN configured, browser grants and signed machine
+heartbeat responses now carry the same session-bound credentials. The matching
+native helper validates and consumes them. `ICE_TRANSPORT_POLICY=relay` forces
+relay candidates for acceptance; the default `all` permits direct connections
+and relay fallback. Relay-only configuration without TURN fails startup.
+Deploy matching helper/backend/web builds together: the old helper rejects the
+new grant fields. Native compilation and actual relay acceptance are pending;
+production/shared Coturn configuration remains unchanged. See the [delivery roadmap](docs/roadmap.md) and
+[relay decision](docs/decisions/0007-session-scoped-relay-credentials.md).
 
 See [architecture](docs/architecture.md), [security](docs/security.md),
 [Windows agent](docs/windows-agent.md), and [deployment](docs/deployment.md).

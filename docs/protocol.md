@@ -48,4 +48,35 @@ or replayed replies cannot extend the lease. Logout, expiry, computer revocation
 end the grant. The native helper stops on connection loss or lease lapse and
 does not resume automatically. Synthetic browser/native decoding, browser Stop,
 logout, absolute expiry and the local Windows Stop button passed acceptance.
-Desktop and forced-relay acceptance remain pending.
+Local desktop decoding passed; cross-network and forced-relay acceptance remain
+pending.
+
+`POST /api/sessions/:id/relay` is the backend relay foundation. It requires an
+owner cookie, exact Origin, enabled media/relay configuration and a live session
+on a nonrevoked owned machine. It returns short-lived Coturn REST `iceServers`
+and `expiresAtMillis`, no shared secret. Expiry never exceeds the session
+deadline; ended/denied/expired sessions cannot obtain new credentials. Requests
+are rate-limited and responses use no-store. Configured TURN credentials and
+`iceTransportPolicy` now travel in the created browser grant and signed machine
+heartbeat response, with the same session-bound username/password and deadline.
+The native helper strictly validates credentials and configures the peer; the
+browser configures its peer from the same grant. Default policy is `all`; an
+operator can select `relay` for forced-relay acceptance only when TURN is configured.
+Matched native/backend/web builds are required; previous native artifacts reject
+the new grant. Windows native CI passed. Browser-only forced-relay synthetic
+decoding passed with an existing native Tailscale path; dual-relay and distinct-
+public-network desktop acceptance remain unresolved. Only UDP TURN is supported;
+startup and native grant validation reject TCP/TLS TURN. Relay
+credentials are bearer credentials, not per-peer or instant-revocation controls;
+see [the decision](decisions/0007-session-scoped-relay-credentials.md).
+
+## Workspace account views
+
+Authenticated, account-scoped `GET /api/activity`, `GET /api/sessions` and
+`GET /api/account/sessions` return bounded recent records. Media history reports
+unavailable when media is disabled. Browser records expose expiry and whether
+the record belongs to this browser, never tokens or token hashes.
+`POST /api/account/sessions/end-others` requires exact Origin and deletes only
+the owner's other browser sessions. Media renewal rejects the revoked viewer.
+`POST /api/machines/:id/name` requires exact Origin and ownership, rejects revoked
+machines/invalid names, and atomically audits the update.

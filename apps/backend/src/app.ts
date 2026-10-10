@@ -74,7 +74,7 @@ export async function createApp(pool: Pool, config: Config) {
   function sameOrigin(request: FastifyRequest) {
     return request.headers.origin === config.WEB_ORIGIN;
   }
-  const pendingSessions = await registerSessions(app, pool, config, owner);
+  const sessionRequests = await registerSessions(app, pool, config, owner);
 
   app.get("/health", async () => ({ status: "ok", service: "beacon-remote" }));
   app.get("/ready", async () => {
@@ -192,6 +192,64 @@ export async function createApp(pool: Pool, config: Config) {
     return { machines: result.rows };
   });
 
+  app.get("/api/account/sessions", async (request, reply) => {
+    const account = await owner(request);
+    if (!account) return reply.code(401).send({ error: "Sign in required" });
+    const result = await pool.query(
+      `SELECT expires_at AS "expiresAt", token_hash=$2 AS current
+       FROM browser_sessions WHERE account_id=$1 AND expires_at>now()
+       ORDER BY expires_at DESC LIMIT 100`,
+      [account, digest(request.cookies.remote_session!)],
+    );
+    return { sessions: result.rows };
+  });
+
+  app.post("/api/machines/:id/name", async (request, reply) => {
+    if (!sameOrigin(request))
+      return reply.code(403).send({ error: "Origin rejected" });
+    const account = await owner(request);
+    if (!account) return reply.code(401).send({ error: "Sign in required" });
+    const path = z.object({ id: z.uuid() }).safeParse(request.params);
+    const body = z
+      .object({ name: z.string().trim().min(1).max(80) })
+      .strict()
+      .safeParse(request.body);
+    if (!path.success || !body.success)
+      return reply.code(400).send({ error: "Invalid computer name" });
+    const result = await pool.query(
+      `WITH renamed AS (UPDATE machines SET name=$3 WHERE id=$1 AND account_id=$2 AND revoked_at IS NULL RETURNING id)
+       INSERT INTO audit_events(account_id,machine_id,action) SELECT $2,id,'machine.renamed' FROM renamed RETURNING machine_id`,
+      [path.data.id, account, body.data.name],
+    );
+    if (result.rowCount !== 1)
+      return reply.code(404).send({ error: "Computer unavailable" });
+    return { ok: true };
+  });
+
+  app.post("/api/account/sessions/end-others", async (request, reply) => {
+    if (!sameOrigin(request))
+      return reply.code(403).send({ error: "Origin rejected" });
+    const account = await owner(request);
+    if (!account) return reply.code(401).send({ error: "Sign in required" });
+    await pool.query(
+      "DELETE FROM browser_sessions WHERE account_id=$1 AND token_hash<>$2",
+      [account, digest(request.cookies.remote_session!)],
+    );
+    return { ok: true };
+  });
+
+  app.get("/api/activity", async (request, reply) => {
+    const account = await owner(request);
+    if (!account) return reply.code(401).send({ error: "Sign in required" });
+    const result = await pool.query(
+      `SELECT a.id::text, a.action, a.occurred_at AS "occurredAt", m.name AS "machineName"
+       FROM audit_events a LEFT JOIN machines m ON m.id=a.machine_id AND m.account_id=a.account_id
+       WHERE a.account_id=$1 ORDER BY a.occurred_at DESC,a.id DESC LIMIT 100`,
+      [account],
+    );
+    return { events: result.rows };
+  });
+
   app.post(
     "/api/enrollments",
     { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
@@ -255,6 +313,12 @@ export async function createApp(pool: Pool, config: Config) {
   );
 
   app.post("/api/agent/heartbeat", async (request, reply) => {
+    const query = z
+      .object({ wait: z.literal("1").optional(), handled: z.uuid().optional() })
+      .strict()
+      .safeParse(request.query);
+    if (!query.success || (query.data.handled && !query.data.wait))
+      return reply.code(400).send({ error: "Invalid heartbeat options" });
     const parsed = heartbeat.safeParse(request.body);
     if (!parsed.success)
       return reply.code(400).send({ error: "Invalid heartbeat" });
@@ -316,16 +380,29 @@ export async function createApp(pool: Pool, config: Config) {
         [body.machineId],
       );
       await client.query("COMMIT");
-      return {
-        ok: true,
-        version: 1,
-        sessions: await pendingSessions(body.machineId),
-      };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
     } finally {
       client.release();
+    }
+    const aborted = new AbortController();
+    const disconnect = () => aborted.abort();
+    reply.raw.once("close", disconnect);
+    try {
+      const wait = query.data.wait === "1" && sessionRequests.enabled;
+      return {
+        ok: true,
+        version: 1,
+        pollAfterMillis: wait ? 0 : 15000,
+        sessions: await sessionRequests.pending(body.machineId, {
+          wait,
+          handled: query.data.handled,
+          signal: aborted.signal,
+        }),
+      };
+    } finally {
+      reply.raw.removeListener("close", disconnect);
     }
   });
 
@@ -343,6 +420,7 @@ export async function createApp(pool: Pool, config: Config) {
     );
     if (!result.rowCount)
       return reply.code(404).send({ error: "Machine unavailable" });
+    sessionRequests.wake(id.data.id);
     return { ok: true };
   });
   return app;

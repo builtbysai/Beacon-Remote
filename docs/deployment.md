@@ -1,13 +1,19 @@
 # Deployment gates
 
 The private-alpha control plane is deployed at `https://remote.builtbysai.com`.
+The approved interface now runs exact release
+`ff452ffe66dd600e9a7b18d12fccc08ac970a7d6`, with encrypted pre-rollout backup,
+schema/role verification, public health and real browser account acceptance.
+Production media remains disabled; the prior release/images are retained.
+See [the interface validation](product-interface-validation.md).
 Exact hosting release `771b4081f2243b214e4333058a07ce5a6466badb` passed production
 schema/role verification, public HTTPS health/readiness and encrypted OCI backup,
 integrity and separate-database restore verification. Its independent daily backup
 timer is enabled. Runtime release `2c8f944c5e44ff765baa1671a70ea9202b9b688c`
 also passed public native Windows enrollment, online/offline presence, restart
-and revocation using a temporary account. Owner account setup remains pending;
-desktop streaming/control is not implemented. Keep existing Caddy/PostgreSQL/Coturn
+and revocation using a temporary account. The testing account is provisioned;
+local attended viewing works, while production viewing/control remain unavailable.
+Keep existing Caddy/PostgreSQL/Coturn
 services and Beacon View rollback releases intact.
 
 `infrastructure/oracle/compose.yaml` supplies the isolated production containers.
@@ -21,6 +27,18 @@ into View's root-owned products directory and validate/reload Caddy gracefully.
 The DNS A record is DNS-only to match the existing direct TLS deployment.
 
 Deploy only a validated exact commit under `/opt/beacon-remote/releases/<sha>`.
+Run one backend instance per Remote database. Stop the previous instance before
+starting its replacement; overlapping or rolling backend replicas are unsupported.
+The backend acquires a database-scoped session advisory lock before recovery;
+duplicates fail without ending the owner's grants. Its dedicated ownership
+connection must go directly to PostgreSQL or through a session-preserving proxy,
+not transaction pooling. Budget one connection in addition to the request pool's
+maximum of eight. Detected ownership connection loss stops the backend immediately;
+the normal restart policy may then start a replacement.
+Startup atomically ends persisted live view grants and records interruption
+events before listening. It fails closed if recovery cannot commit. Existing
+native leases expire independently; reconnect requires a new request and local
+approval. This also releases busy computers after an abrupt process crash.
 Build backend/migrate/verify/web images, start PostgreSQL, explicitly run `migrate`
 then `verify`, and start backend/web only after both pass. The application role
 must be non-superuser with no role/database-creation rights. Retain the previous
@@ -34,6 +52,51 @@ be public. Set production Secure cookies; restrict proxy trust to the known
 proxy network, configure rate limiting for actual client IPs, and add CSP,
 frame-ancestors, HSTS and static asset headers. Use WSS for later signaling.
 Assign memory/CPU limits, health checks, bounded logs and restart policy.
+
+## Shared relay address mapping
+
+The existing Coturn 4.6.3 service needs a concrete relay address. A wildcard
+`relay-ip` maps same-server public peers to a zero address and CreatePermission
+returns `403`. The isolated mapping reproduction returned `200` with a concrete
+relay address; a subsequent Windows/Chrome synthetic test selected relay/relay
+and decoded frames. This does not prove distinct-network desktop acceptance.
+
+The override also pins official Coturn 4.13.0 by digest. The previously installed
+4.6.3 is covered by the maintainer's
+[mapped-loopback bypass advisory](https://github.com/coturn/coturn/security/advisories/GHSA-w4hf-cr3w-6h79).
+Isolated checks on 4.13.0 accepted concrete mapping and rejected ordinary IPv4
+and IPv4-mapped IPv6 loopback permission requests, including an IPv6 allocation.
+The updated shared service reports 4.13.0 and both products' health/readiness
+passed. The prior mapping-only override is retained at
+`/etc/beacon-remote/turn-relay.override.pre-4.13.0.yaml` for emergency rollback;
+that older image is not an acceptable consumer-release baseline.
+
+Install `infrastructure/oracle/turn-relay-entrypoint.sh` and
+`turn-relay.override.yaml` as root-owned, mode-0644 files under
+`/etc/beacon-remote/`. The wrapper resolves the existing single-network container's
+IPv4 on each start and fails closed for wildcard, loopback, IPv6 or multiple
+addresses. It preserves the original arguments, credentials and peer protections.
+No port, paid resource or View repository change is needed.
+
+Validate and apply only Coturn with the existing protected environment:
+
+```sh
+sudo docker compose --project-name beacon-secureview-cloud \
+  --env-file /etc/beacon/production.env \
+  -f /opt/beacon/app/infrastructure/cloud/compose.yaml \
+  -f /etc/beacon-remote/turn-relay.override.yaml config --quiet
+sudo docker compose --project-name beacon-secureview-cloud \
+  --env-file /etc/beacon/production.env \
+  -f /opt/beacon/app/infrastructure/cloud/compose.yaml \
+  -f /etc/beacon-remote/turn-relay.override.yaml up -d --no-deps coturn
+```
+
+Include this override in future shared relay maintenance. Applying the original
+Compose file alone to Coturn removes the wrapper and restores the prior mapping
+failure; that command is also the rollback. Retain the original files and never
+print rendered Compose configuration or container command lines containing
+secrets. A Coturn replacement interrupts its allocations; preserve app services
+and verify both products' health/readiness afterward.
 
 ## Encrypted recovery
 

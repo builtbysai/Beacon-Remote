@@ -8,10 +8,16 @@ use std::{
 
 #[derive(Default)]
 pub struct Helpers {
+    #[cfg(windows)]
+    job: Option<crate::helper_lifetime::Job>,
     children: HashMap<String, (u64, Child)>,
     handled: HashMap<String, u64>,
 }
 impl Helpers {
+    pub fn handled(&self, id: &str) -> bool {
+        self.handled.contains_key(id)
+    }
+
     pub fn update(&mut self, body: Value, server: &str) -> Result<(), Box<dyn std::error::Error>> {
         let now: u64 = SystemTime::now()
             .duration_since(UNIX_EPOCH)?
@@ -65,6 +71,10 @@ impl Helpers {
                 return Err("Session grant too large".into());
             }
             self.handled.insert(id.into(), expiry);
+            #[cfg(windows)]
+            if self.job.is_none() {
+                self.job = Some(crate::helper_lifetime::Job::new()?);
+            }
             let helper = std::env::current_exe()?
                 .parent()
                 .ok_or("Agent directory missing")?
@@ -82,6 +92,19 @@ impl Helpers {
                     continue;
                 }
             };
+            #[cfg(windows)]
+            if self
+                .job
+                .as_ref()
+                .ok_or("Helper job unavailable")?
+                .assign(&child)
+                .is_err()
+            {
+                let _ = child.kill();
+                let _ = child.wait();
+                println!("Video helper could not be bound to the agent lifetime.");
+                continue;
+            }
             let sent = child
                 .stdin
                 .take()

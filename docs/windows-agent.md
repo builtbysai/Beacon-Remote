@@ -11,6 +11,16 @@ There is no service installation, elevated input, autostart, tray UI, remote
 control, installer, or automatic updater yet. Exiting the visible agent stops
 presence. Development binaries are unsigned.
 
+The agent opts into a bounded signed-heartbeat long poll for pending requests.
+The backend wakes it after a new request commits, rather than waiting for the old
+15-second sleep. A handled-request cursor suppresses redelivery while consent is
+open, and the next distinct request wakes immediately. The server waits at most
+15 seconds outside the database pool; the client request timeout is 25 seconds.
+Older or media-disabled backends retain the 15-second polling fallback. Network
+failure still uses bounded backoff. Consent follows authenticated signaling;
+no capture starts merely because a notification arrives. See
+[the request delivery decision](decisions/0009-prompt-request-delivery.md).
+
 The separate `beacon-remote-session` helper adds a local attended capture spike.
 Run `displays` for physical dimensions/DPI, or `capture-benchmark` for a visible
 consent dialog followed by ten seconds of primary-display capture with a Windows
@@ -22,7 +32,32 @@ The media branch now offers a two-minute primary-display view request. The nativ
 helper requires a valid server grant, local Yes consent, a visible Stop sharing
 window, a connected peer and a live renewable lease before starting WGC. No
 microphone, input or recording is enabled. The synthetic video path and local
-Stop passed; actual desktop viewing acceptance is pending.
+Stop passed; actual local desktop viewing acceptance also passed. Cross-network
+and forced-relay acceptance remain pending. Local source now validates and passes
+session-bound TURN credentials and the all/relay policy to native RTC configuration.
+Use matching agent/helper and backend versions; previous helper artifacts reject
+the new strict grant fields. Native compilation, Clippy and tests passed Windows
+CI for `543988f`; local MSVC `link.exe` remains unavailable. UDP TURN is supported;
+TCP/TLS TURN is rejected because the current RTC driver skips those transports.
+Browser-only forced-relay synthetic decoding and Stop passed on this Windows PC,
+with an existing Tailscale route on the native side. Dual-relay and distinct-public-
+network desktop acceptance remained unresolved at that point. The later concrete
+relay-address fix passed dual-relay synthetic decoding with relay/relay selected;
+distinct-network desktop acceptance is still pending. Native diagnostics expose state names
+and lease-expiry reasons only, never grants, SDP or candidate addresses.
+
+Development helpers now belong to an unnamed, non-inheritable Windows job with
+kill-on-close. Assignment precedes sending the grant through stdin and fails
+closed. Windows terminates helpers if the agent is forcibly stopped, even when
+Rust cleanup cannot run. Existing consent, visible Stop and monotonic leases
+remain required. A native process-boundary check verifies job-close termination;
+Windows CI formatting, Clippy, process-boundary tests and release build passed at
+`e111946` in [run 38078446154](https://github.com/builtbysai/Beacon-Remote/actions/runs/38078446154).
+The matching agent/helper then decoded synthetic video over relay/relay through
+patched Coturn 4.13.0. Forcibly terminating only the fixture agent also terminated
+its observed helper process; Chrome showed Session ended, PostgreSQL stored ended,
+and reconnecting the old browser grant returned 403. No desktop was captured.
+No service, privilege escalation or job breakaway is introduced.
 
 Next measure streaming FPS, memory/CPU, acquisition latency, DPI,
 rotation, cursor, desktop lock, display disconnect and device loss on real Windows.
