@@ -22,3 +22,25 @@ Input envelopes are preparation only: no input endpoint or DataChannel currently
 accepts them. Future adapters validate session/lease/sequence/capability before
 converting typed network messages to core operations. Separate reliable control
 and unreliable pointer channels; do not overload signaling with raw input.
+
+## View signaling under development
+
+An owner requests `POST /api/machines/:id/sessions` with source `synthetic` or
+`desktop`. Only an online, nonrevoked computer belonging to that account is
+eligible. The database permits one pending or active session per computer, with
+a maximum lifetime of 120 seconds. The native helper currently implements only
+the synthetic source; it does not capture the desktop.
+
+The signed heartbeat response delivers the machine's pending session grant.
+Its opaque bearer is an HMAC bound to session, machine, source and expiry,
+derived from the independent session secret. The database stores its hash and
+atomically consumes it when the machine joins. No bearer appears in a URL.
+`/api/sessions/:id/signal?role=machine` uses an Authorization header; the viewer
+role requires its owner cookie and an exact Origin. Each role permits one socket.
+
+Native consent precedes an offer; the browser returns an answer. Only bounded
+SDP, ICE and consent/stop messages pass through the server, never media or input.
+The server sends a three-second lease once per second while the viewer session
+remains valid. Logout, expiry, computer revocation, disconnect and explicit stop
+end the grant. The native helper stops on connection loss or lease lapse and
+does not resume automatically. Actual browser/native acceptance is still pending.

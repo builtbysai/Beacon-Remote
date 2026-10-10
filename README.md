@@ -56,8 +56,8 @@ cargo build --workspace --release --locked
 
 Create a separate database named `beacon_remote_test` with the local development
 PostgreSQL user; set `TEST_DATABASE_URL` to it before `pnpm test`. The integration
-suite refuses targets whose name does not end in `_test`; it clears accounts only
-in that target. Without this variable the integration test is explicitly skipped.
+suite refuses targets whose name does not end in `_test`; fixture cleanup deletes
+only the accounts created by that test. Without this variable integration tests are explicitly skipped.
 CI supplies a disposable PostgreSQL database and builds/tests the native agent on
 Windows. No code-signing or installer acceptance is implied by a successful build.
 
@@ -72,6 +72,16 @@ The attended capture spike is the separate `beacon-remote-session.exe` helper:
 consent and captures the primary display for ten seconds with a visible border.
 It keeps one bounded frame in memory and saves/uploads nothing. Initial real-machine
 measurements passed; see [validation and remaining checks](docs/validation.md).
+
+The current media branch adds a **synthetic video connection test**, gated by a
+separate `SESSION_SECRET` (32 random bytes as 64 lowercase hexadecimal characters).
+Keep that secret outside source control. An authenticated browser can request a
+two-minute test grant; the agent passes it to its matching sibling session helper
+through stdin. The test streams generated H.264 directly over WebRTC and never
+reads the desktop. Browser decoding and disconnect acceptance remain pending on
+this branch; the production release still provides pairing and presence only.
+For a separate local API port, set `REMOTE_API_ORIGIN` before starting Vite; its
+default is `http://127.0.0.1:3010`, including WebSocket forwarding.
 
 See [architecture](docs/architecture.md), [security](docs/security.md),
 [Windows agent](docs/windows-agent.md), and [deployment](docs/deployment.md).

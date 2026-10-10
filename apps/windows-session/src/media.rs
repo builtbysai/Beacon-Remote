@@ -219,7 +219,7 @@ async fn stream(grant: Grant) -> Result<(), Error> {
             connected: connected.clone(),
             active: active.clone(),
         }))
-        .with_udp_addrs(vec!["0.0.0.0:0".into()])
+        .with_udp_addrs(vec!["0.0.0.0:0".to_owned()])
         .build()
         .await?;
     let track = Arc::new(TrackLocalStaticSample::new(
