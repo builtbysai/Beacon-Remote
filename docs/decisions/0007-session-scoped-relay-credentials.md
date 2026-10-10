@@ -22,6 +22,17 @@ captured. The owner currently has no second device/network, so separate-network
 desktop acceptance remains an external gate. See deployment instructions for
 maintenance and rollback of the override.
 
+The override subsequently pinned patched official Coturn 4.13.0 by digest after
+isolated checks confirmed concrete mapping success and rejection of IPv4 and
+IPv4-mapped IPv6 loopback peers. Using matching `e111946` artifacts from successful
+[Windows CI 38078446154](https://github.com/builtbysai/Beacon-Remote/actions/runs/38078446154),
+the browser again selected relay/relay and decoded synthetic video (288 frames at
+observation, 681 before interruption). Forced fixture-agent termination killed
+the helper, ended the browser session and persisted ended; old browser WebSocket
+authorization was rejected with 403. Original credentials remained unchanged and
+both products' health/readiness passed. This is still synthetic, same-host relay
+acceptance, not distinct-network desktop acceptance.
+
 Follow-up: Windows CI also passed at `543988f`. Additional safe browser diagnostics
 showed both peers obtained relay candidates in the failed dual-relay test. A
 comparison with only the browser forced to relay decoded synthetic H.264, including

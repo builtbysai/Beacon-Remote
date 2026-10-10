@@ -2,6 +2,7 @@
 # compose file and protected environment file. No secrets belong in this file.
 services:
   coturn:
+    image: coturn/coturn:4.13.0@sha256:ad82d29a60c549878ca5a062220cab737518f56814b806fac5bcb4b366b7f974
     entrypoint: [/bin/sh, /usr/local/bin/beacon-turn-relay]
     volumes:
       - /etc/beacon-remote/turn-relay-entrypoint.sh:/usr/local/bin/beacon-turn-relay:ro

@@ -41,7 +41,12 @@ kill-on-close. Assignment precedes sending the grant through stdin and fails
 closed. Windows terminates helpers if the agent is forcibly stopped, even when
 Rust cleanup cannot run. Existing consent, visible Stop and monotonic leases
 remain required. A native process-boundary check verifies job-close termination;
-actual agent-crash media acceptance is pending the matching Windows CI build.
+Windows CI formatting, Clippy, process-boundary tests and release build passed at
+`e111946` in [run 38078446154](https://github.com/builtbysai/Beacon-Remote/actions/runs/38078446154).
+The matching agent/helper then decoded synthetic video over relay/relay through
+patched Coturn 4.13.0. Forcibly terminating only the fixture agent also terminated
+its observed helper process; Chrome showed Session ended, PostgreSQL stored ended,
+and reconnecting the old browser grant returned 403. No desktop was captured.
 No service, privilege escalation or job breakaway is introduced.
 
 Next measure streaming FPS, memory/CPU, acquisition latency, DPI,

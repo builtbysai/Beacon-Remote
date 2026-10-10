@@ -55,6 +55,16 @@ returns `403`. The isolated mapping reproduction returned `200` with a concrete
 relay address; a subsequent Windows/Chrome synthetic test selected relay/relay
 and decoded frames. This does not prove distinct-network desktop acceptance.
 
+The override also pins official Coturn 4.13.0 by digest. The previously installed
+4.6.3 is covered by the maintainer's
+[mapped-loopback bypass advisory](https://github.com/coturn/coturn/security/advisories/GHSA-w4hf-cr3w-6h79).
+Isolated checks on 4.13.0 accepted concrete mapping and rejected ordinary IPv4
+and IPv4-mapped IPv6 loopback permission requests, including an IPv6 allocation.
+The updated shared service reports 4.13.0 and both products' health/readiness
+passed. The prior mapping-only override is retained at
+`/etc/beacon-remote/turn-relay.override.pre-4.13.0.yaml` for emergency rollback;
+that older image is not an acceptable consumer-release baseline.
+
 Install `infrastructure/oracle/turn-relay-entrypoint.sh` and
 `turn-relay.override.yaml` as root-owned, mode-0644 files under
 `/etc/beacon-remote/`. The wrapper resolves the existing single-network container's

@@ -21,3 +21,10 @@ Real PostgreSQL validation uses an isolated schema. It exercises audit failure
 rollback, persisted interrupted grants, rejected old WebSocket authorization,
 and successful creation of a fresh pending request. These checks do not replace
 real Windows capture/Stop acceptance across a backend interruption.
+
+The signaling suite also terminates each peer in turn using actual WebSockets,
+verifying closure of the survivor, persisted ended status and rejection of both
+old peer authorizations. Following the native helper lifetime fix, an actual
+synthetic relay session ended after forced fixture-agent termination; PostgreSQL
+stored ended and its old browser WebSocket returned 403. Real desktop interruption
+acceptance remains pending.
