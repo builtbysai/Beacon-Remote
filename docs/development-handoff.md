@@ -1,9 +1,14 @@
-# Development handoff — 2026-10-10
+# Historical development snapshot — 2026-10-10
+
+**Superseded for new-agent onboarding** by [CLAUDE_HANDOFF.md](CLAUDE_HANDOFF.md)
+and root [CLAUDE.md](../CLAUDE.md). The material below preserves test history;
+current branch/PR status and next steps are in the new handoff.
 
 ## Scope and repository
 
-Beacon Remote is in its own repository on `codex/approved-product-ui`.
-[Draft PR #9](https://github.com/builtbysai/Beacon-Remote/pull/9) depends on #8.
+Beacon Remote development occurred on `codex/approved-product-ui`.
+PR #8 and [PR #9](https://github.com/builtbysai/Beacon-Remote/pull/9) are now
+merged into main. The section below reflects the branch's earlier status.
 The owner's continuation request authorizes milestones 5–8 in order after their
 prerequisites. Work remains on milestone 4; do not present input or release
 features as ready. Keep Beacon View source independent.
@@ -43,8 +48,8 @@ exported relay secrets, test containers and the acceptance dev server were remov
 
 ## Next actionable scope and external gates
 
-The owner now has an Android viewer on T-Mobile mobile data. A separate temporary
-acceptance site and paired Windows fixture are ready; see
+The owner tested an Android viewer on T-Mobile mobile data. A temporary
+acceptance site and paired Windows fixture were used, then stopped; see
 [the current test setup](android-acceptance-2026-10-10.md). The owner confirmed
 synthetic playback, desktop viewing and Stop on that separate mobile network.
 Native output showed connected/stopped and the database stored ended for both
@@ -61,8 +66,7 @@ Use fresh authorization after interruption. Keep one backend per database; stop
 the predecessor before replacement. Do not revive persisted consent or enable
 production media until the desktop/network gates pass.
 
-Before further frontend work, satisfy the latest request's complete approved ZIP
-inspection requirement; its prototype states are references, not real capability
-or permission evidence. Keep the roadmap's ordered input, installation, account
+Before frontend work, obtain/review the full approved design ZIP if needed;
+its prototype states are references, not real capability or permission evidence. Keep the roadmap's ordered input, installation, account
 and final UX/support milestones. Code-signing credentials and email delivery are
 later external dependencies; no paid resources or Oracle tier changes are approved.
