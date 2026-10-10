@@ -71,6 +71,11 @@ try {
   const names = new Set(constraints.rows.map((r) => r.conname));
   for (const name of requiredConstraints)
     if (!names.has(name)) throw new Error(`Missing schema constraint ${name}`);
+  const sessionIndex = await pool.query(
+    "SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE c.relname='view_sessions_one_live_machine' AND i.indisunique AND i.indisvalid AND i.indpred IS NOT NULL",
+  );
+  if (!sessionIndex.rowCount)
+    throw new Error("Missing active-session uniqueness index");
   const role = await pool.query<{
     rolsuper: boolean;
     rolcreatedb: boolean;

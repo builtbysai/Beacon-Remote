@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import type { Machine } from "@beacon-remote/protocol";
 import "./style.css";
+import { LiveView, type ViewGrant } from "./LiveView.js";
 
 // Fragments stay out of HTTP/access logs; remove the bearer from browser history.
 const invitation = new URLSearchParams(window.location.hash.slice(1)).get(
@@ -33,6 +34,46 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [stale, setStale] = useState(false);
   const [clock, setClock] = useState(Date.now());
+  const [mediaEnabled, setMediaEnabled] = useState(false);
+  const [view, setView] = useState<{ grant: ViewGrant; name: string } | null>(
+    null,
+  );
+  const signedIn = machines !== null;
+  useEffect(() => {
+    let disposed = false;
+    if (signedIn)
+      void api<{ enabled: boolean }>("media/config")
+        .then((data) => {
+          if (!disposed) setMediaEnabled(data.enabled);
+        })
+        .catch(() => {
+          if (!disposed) setMediaEnabled(false);
+        });
+    else {
+      setMediaEnabled(false);
+      setView(null);
+    }
+    return () => {
+      disposed = true;
+    };
+  }, [signedIn]);
+
+  async function testVideo(machine: Machine) {
+    setBusy(true);
+    setError("");
+    try {
+      const grant = await api<ViewGrant>(`machines/${machine.id}/sessions`, {
+        source: "synthetic",
+      });
+      setView({ grant, name: machine.name });
+    } catch {
+      setError(
+        "Could not start video. Check that your computer is online and no session is active.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
 
   useEffect(() => {
     let disposed = false;
@@ -256,6 +297,16 @@ function App() {
                 >
                   Remote — coming next
                 </button>
+                {mediaEnabled && !machine.revokedAt && (
+                  <button
+                    disabled={busy || !machine.online || stale || view !== null}
+                    onClick={() => {
+                      void testVideo(machine);
+                    }}
+                  >
+                    Test video connection
+                  </button>
+                )}
                 {!machine.revokedAt && (
                   <button
                     className="secondary"
@@ -270,6 +321,13 @@ function App() {
               </article>
             ))}
           </div>
+          {view && (
+            <LiveView
+              grant={view.grant}
+              name={view.name}
+              onClose={() => setView(null)}
+            />
+          )}
           <button
             className="secondary"
             onClick={() => {

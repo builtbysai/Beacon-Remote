@@ -39,7 +39,7 @@ use webrtc::{
         RTCIceCandidateInit, RTCIceGatheringState, RTCIceServer, RTCPeerConnectionState,
         RTCSessionDescription,
     },
-    runtime::tokio::TokioRuntime,
+    runtime::TokioRuntime,
 };
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
