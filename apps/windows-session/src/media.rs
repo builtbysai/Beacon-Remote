@@ -17,6 +17,7 @@ use rtc::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
+    collections::VecDeque,
     io::{self, Read},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -292,9 +293,23 @@ async fn stream(grant: Grant) -> Result<(), Error> {
     let result:Result<(),Error> = async {
         let mut tick=tokio::time::interval(Duration::from_millis(100));
         let mut answered=false;
+        let mut renewal=0u64;
+        let mut renewals=VecDeque::<(String,u64)>::new();
+        let mut next_renewal=Instant::now();
         loop {
             tokio::select! {
-                _=tick.tick()=>{if !active.load(Ordering::Acquire) || Instant::now()>=deadline {break;}}
+                _=tick.tick()=>{
+                    if !active.load(Ordering::Acquire) || Instant::now()>=deadline {break;}
+                    if Instant::now()>=next_renewal {
+                        renewal+=1;
+                        let nonce=renewal.to_string();
+                        let issued=(epoch.elapsed().as_millis() as u64).max(1);
+                        renewals.push_back((nonce.clone(),issued));
+                        while renewals.len()>4{renewals.pop_front();}
+                        socket.send(Message::Text(json!({"type":"renew","nonce":nonce}).to_string().into())).await?;
+                        next_renewal=Instant::now()+Duration::from_secs(1);
+                    }
+                }
                 packet=receiver.recv()=>{
                     let Some(packet)=packet else {break;};
                     if !answered {return Err("Media arrived before answer".into());}
@@ -308,7 +323,17 @@ async fn stream(grant: Grant) -> Result<(), Error> {
                     match body["type"].as_str() {
                         Some("answer")=>{if answered{return Err("Repeated answer".into());} let sdp=body["sdp"].as_str().filter(|s|s.len()<=32768).ok_or("Invalid answer")?;pc.set_remote_description(RTCSessionDescription::answer(sdp.into())?).await?;answered=true;}
                         Some("candidate")=>{let candidate=body["candidate"].as_str().filter(|s|s.len()<=2048).ok_or("Invalid candidate")?;if !candidate.is_empty(){pc.add_ice_candidate(RTCIceCandidateInit{candidate:candidate.into(),sdp_mid:body["sdpMid"].as_str().map(String::from),sdp_mline_index:body["sdpMLineIndex"].as_u64().map(|v|v as u16),..Default::default()}).await?;}}
-                        Some("lease")=>{if body["expiresAtMillis"].as_u64()!=Some(grant.expires_at_millis) || body["maxAgeMs"].as_u64()!=Some(3000) {return Err("Invalid lease".into());} lease.store((epoch.elapsed().as_millis() as u64).max(1),Ordering::Release);}
+                        Some("lease")=>{
+                            if body["expiresAtMillis"].as_u64()!=Some(grant.expires_at_millis) || body["maxAgeMs"].as_u64()!=Some(3000) {return Err("Invalid lease".into());}
+                            let nonce=body["nonce"].as_str().ok_or("Missing lease challenge")?;
+                            if let Some(index)=renewals.iter().position(|(expected,_)|expected==nonce){
+                                let issued=renewals.remove(index).ok_or("Missing renewal")?.1;
+                                if (epoch.elapsed().as_millis() as u64).saturating_sub(issued)<=3000 {
+                                    // Age starts when our challenge was sent, never when a delayed reply arrives.
+                                    lease.fetch_max(issued,Ordering::Release);
+                                }
+                            }
+                        }
                         Some("ended")=>break,
                         Some("joined")=>{},
                         _=>return Err("Unexpected signaling".into())

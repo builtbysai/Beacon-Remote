@@ -161,6 +161,12 @@ test(
         ),
         { type: "consent", accepted: true },
       );
+      const lease = await received(native, () =>
+        native.send(JSON.stringify({ type: "renew", nonce: "1" })),
+      );
+      assert.equal(lease.type, "lease");
+      assert.equal(lease.nonce, "1");
+      assert.equal(lease.maxAgeMs, 3000);
       assert.deepEqual(
         await received(viewer, () =>
           native.send(

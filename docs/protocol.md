@@ -40,7 +40,9 @@ role requires its owner cookie and an exact Origin. Each role permits one socket
 
 Native consent precedes an offer; the browser returns an answer. Only bounded
 SDP, ICE and consent/stop messages pass through the server, never media or input.
-The server sends a three-second lease once per second while the viewer session
-remains valid. Logout, expiry, computer revocation, disconnect and explicit stop
+The helper sends a numbered renewal challenge once per second. The server echoes
+it with a three-second lease only while the viewer session remains valid. The
+helper measures lease age from its own monotonic challenge-send time, so delayed
+or replayed replies cannot extend the lease. Logout, expiry, computer revocation, disconnect and explicit stop
 end the grant. The native helper stops on connection loss or lease lapse and
 does not resume automatically. Actual browser/native acceptance is still pending.

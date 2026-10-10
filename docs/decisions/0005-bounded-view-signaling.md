@@ -9,6 +9,8 @@ Origin authorize the browser; device grants arrive through signed presence.
 Database uniqueness prevents competing live sessions. Explicit native consent
 gates SDP forwarding. A short renewable lease binds ongoing media to an active
 browser login and nonrevoked machine; the helper must stop when renewal fails.
+Renewals echo native challenges and expire relative to the native challenge-send
+time, preventing delayed signaling from extending access.
 These grants confer viewing only. They do not authorize input, clipboard,
 recording, microphone, files, elevation or unattended capture.
 

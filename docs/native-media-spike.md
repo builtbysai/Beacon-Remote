@@ -32,3 +32,28 @@ The owner requested a temporary testing account and postponed broader account
 creation/UI redesign. That account is now provisioned, signed into the production
 browser and paired to the actual Windows PC; its credentials are restricted to
 the owner's local recovery folder, outside both repositories.
+
+## WebRTC acceptance blocker — 2026-10-10
+
+The media branch now includes authenticated, one-use view grants, bounded
+WebSocket signaling, a synthetic H.264/WebRTC helper and a browser video viewer.
+Its [Windows build](https://github.com/builtbysai/Beacon-Remote/actions/runs/38029036705)
+passed formatting, Clippy, native tests and release compilation. Backend checks
+exercise real PostgreSQL, account/origin isolation, consent gating, grant reuse,
+revocation and logout. A follow-up renewal protocol measures lease age from
+native challenge-send time rather than delayed reply receipt.
+
+Actual owner-PC browser decoding could not run: Windows Application Control
+blocked both new executables before startup. Code Integrity event 3077 identifies
+policy `0283ac0f-fff1-49ae-ada1-8a933130cad6`; Smart App Control state is On. No
+current-user code-signing certificate was found. No protection, policy, trust
+store or file security metadata was changed to bypass the block. Microsoft
+[documents signing as the developer path](https://support.microsoft.com/en-us/windows/security/threat-malware-protection/smart-app-control-frequently-asked-questions).
+
+Resume with an existing trusted signing certificate or a Windows test environment
+that permits these development executables. The disposable local fixture account
+and identity were removed after failed startup; the owner's paired identity and
+production testing account were retained. Production still runs the validated
+identity/presence release. Synthetic browser decoding, attended desktop streaming,
+local Stop sharing acceptance, forced relay and input remain incomplete. Account
+creation and broader UI/UX redesign remain postponed at the owner's request.

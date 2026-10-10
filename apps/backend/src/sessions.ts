@@ -43,6 +43,12 @@ const signal = z.discriminatedUnion("type", [
     })
     .strict(),
   z.object({ type: z.literal("consent"), accepted: z.boolean() }).strict(),
+  z
+    .object({
+      type: z.literal("renew"),
+      nonce: z.string().regex(/^[0-9]{1,20}$/),
+    })
+    .strict(),
   z.object({ type: z.literal("stop") }).strict(),
 ]);
 
@@ -299,11 +305,6 @@ export async function registerSessions(
                 await finish(session.id);
                 return;
               }
-              send(live.machine, {
-                type: "lease",
-                maxAgeMs: 3000,
-                expiresAtMillis: session.expires_at.getTime(),
-              });
             }
           })()
             .catch(() => finish(session.id).catch(() => {}))
@@ -327,7 +328,7 @@ export async function registerSessions(
       // Attach synchronously: upgrade clients may send immediately.
       socket.on("message", (data, binary) => {
         if (live.closed) return;
-        if (binary || ++live.frames > 96 || data.toString().length > 65536) {
+        if (binary || ++live.frames > 256 || data.toString().length > 65536) {
           void finish(session.id);
           return;
         }
@@ -352,6 +353,30 @@ export async function registerSessions(
               return;
             }
             const body = message.data;
+            if (body.type === "renew") {
+              const viewer = live.viewer as
+                (WebSocket & { accountRequest?: FastifyRequest }) | undefined;
+              if (role !== "machine" || current.rows[0].status !== "active") {
+                await finish(session.id);
+                return;
+              }
+              if (!viewer) return;
+              if (
+                viewer.readyState !== 1 ||
+                !viewer.accountRequest ||
+                (await owner(viewer.accountRequest)) !== session.account_id
+              ) {
+                await finish(session.id);
+                return;
+              }
+              send(socket, {
+                type: "lease",
+                nonce: body.nonce,
+                maxAgeMs: 3000,
+                expiresAtMillis: session.expires_at.getTime(),
+              });
+              return;
+            }
             if (body.type === "stop") {
               await finish(session.id);
               return;
