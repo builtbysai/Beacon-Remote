@@ -29,7 +29,8 @@ An owner requests `POST /api/machines/:id/sessions` with source `synthetic` or
 `desktop`. Only an online, nonrevoked computer belonging to that account is
 eligible. The database permits one pending or active session per computer, with
 a maximum lifetime of 120 seconds. The native helper currently implements only
-the synthetic source; it does not capture the desktop.
+the synthetic source without capture, or the desktop source after local consent
+with a Windows capture border and visible Stop sharing control.
 
 The signed heartbeat response delivers the machine's pending session grant.
 Its opaque bearer is an HMAC bound to session, machine, source and expiry,
@@ -45,4 +46,6 @@ it with a three-second lease only while the viewer session remains valid. The
 helper measures lease age from its own monotonic challenge-send time, so delayed
 or replayed replies cannot extend the lease. Logout, expiry, computer revocation, disconnect and explicit stop
 end the grant. The native helper stops on connection loss or lease lapse and
-does not resume automatically. Actual browser/native acceptance is still pending.
+does not resume automatically. Synthetic browser/native decoding, browser Stop,
+logout, absolute expiry and the local Windows Stop button passed acceptance.
+Desktop and forced-relay acceptance remain pending.
