@@ -9,7 +9,7 @@
 5. Input: live authorized lease, pointer/buttons/drag/scroll/keys, local revoke.
 6. Resilience: service/helper, reboot/restart, network loss, update/installer foundation.
 
-Completion requires actual checks and machine evidence, not files alone. No
-milestone after presence is claimed by this implementation. MCP, AI agents, file
+Completion requires actual checks and machine evidence, not files alone. Identity,
+presence and attended local capture have real-machine acceptance. MCP, AI agents, file
 transfer, terminal, recording, extra OS platforms and enterprise management remain
 outside this pass.

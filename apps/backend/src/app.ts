@@ -81,6 +81,57 @@ export async function createApp(pool: Pool, config: Config) {
   });
 
   app.post(
+    "/api/account/setup",
+    { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      if (!sameOrigin(request))
+        return reply.code(403).send({ error: "Origin rejected" });
+      const parsed = login
+        .extend({
+          token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+          password: z.string().min(16).max(512),
+        })
+        .safeParse(request.body);
+      if (!parsed.success)
+        return reply.code(400).send({ error: "Invalid account setup" });
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const invitation = await client.query(
+          "UPDATE account_invitations SET claimed_at=now() WHERE token_hash=$1 AND claimed_at IS NULL AND expires_at>now() RETURNING token_hash",
+          [digest(parsed.data.token)],
+        );
+        if (invitation.rowCount !== 1) {
+          await client.query("ROLLBACK");
+          return reply.code(403).send({ error: "Invitation unavailable" });
+        }
+        await client.query(
+          "INSERT INTO accounts(id,email,password_hash) VALUES ($1,$2,$3)",
+          [
+            randomUUID(),
+            parsed.data.email.toLowerCase(),
+            await hash(parsed.data.password),
+          ],
+        );
+        await client.query("COMMIT");
+        return { ok: true };
+      } catch (failure) {
+        await client.query("ROLLBACK");
+        if (
+          failure &&
+          typeof failure === "object" &&
+          "code" in failure &&
+          failure.code === "23505"
+        )
+          return reply.code(400).send({ error: "Account setup unavailable" });
+        throw failure;
+      } finally {
+        client.release();
+      }
+    },
+  );
+
+  app.post(
     "/api/login",
     { config: { rateLimit: { max: 8, timeWindow: "1 minute" } } },
     async (request, reply) => {

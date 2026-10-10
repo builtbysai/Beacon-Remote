@@ -38,3 +38,8 @@ CREATE TABLE IF NOT EXISTS audit_events (
   action text NOT NULL,
   occurred_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS account_invitations (
+  token_hash text PRIMARY KEY,
+  expires_at timestamptz NOT NULL,
+  claimed_at timestamptz
+);

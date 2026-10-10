@@ -4,6 +4,7 @@ if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL required");
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 try {
   const expected: Record<string, string[]> = {
+    account_invitations: ["token_hash", "expires_at", "claimed_at"],
     accounts: ["id", "email", "password_hash", "created_at"],
     browser_sessions: ["token_hash", "account_id", "expires_at"],
     enrollments: ["code_hash", "account_id", "expires_at", "claimed_at"],
@@ -32,6 +33,7 @@ try {
     }
   }
   const requiredConstraints = [
+    "account_invitations_pkey",
     "accounts_pkey",
     "accounts_email_key",
     "browser_sessions_pkey",
