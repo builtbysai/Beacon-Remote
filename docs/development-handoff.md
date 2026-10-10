@@ -43,9 +43,12 @@ exported relay secrets, test containers and the acceptance dev server were remov
 
 ## Next actionable scope and external gates
 
-The owner has no second device/network yet. Actual Windows desktop viewing from
-a separate network is therefore **unverified**, despite successful synthetic
-dual-relay transport. Production Remote remains at `ff452ff`, with media disabled;
+The owner now has an Android viewer on T-Mobile mobile data. A separate temporary
+acceptance site and paired Windows fixture are ready; see
+[the current test setup](android-acceptance-2026-10-10.md). Actual Windows desktop
+viewing from a separate network remains **unverified** until the owner performs
+the test, despite successful prior synthetic dual-relay transport.
+Production Remote remains at `ff452ff`, with media disabled;
 the backend/native follow-ups are not deployed Remote application evidence.
 
 Continue milestone 4 desktop acceptance: explicit local approval, Stop/denial,
