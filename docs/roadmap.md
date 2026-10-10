@@ -1,7 +1,8 @@
 # Beacon Remote delivery roadmap
 
-Updated 2026-10-10 after reviewing the original product brief, approved design
-package, backend, browser and native Windows implementation and acceptance logs.
+Updated 2026-10-10 after consolidating PR #8 (attended media) and PR #9
+(approved UI, relay, recovery), reviewing the design package, CI and owner
+mobile-data acceptance. See [Claude handoff](CLAUDE_HANDOFF.md).
 
 ## Product and architecture
 
@@ -27,11 +28,14 @@ database and permissions even when infrastructure is shared.
 | Foundation               | Backend/web and native Windows CI builds                                                              | Local native linker absent; use Windows CI for compilation                                     |
 | Account/machine identity | Private invitations/login, actual pairing, DPAPI persistence, signed presence, restart and revoke     | Public account lifecycle, MFA/recovery and retention/deletion                                  |
 | Capture                  | Actual attended primary-display WGC capture, snapshot interface and measurements                      | Sustained performance, lock/display-loss behavior, broader hardware                            |
-| Media                    | Native H.264 → Chrome, real local desktop decoding, consent, Stop/logout/expiry and lease enforcement | Distinct-network desktop acceptance and restart/loss matrix                                    |
+| Media                    | Real native H.264 in Chrome, local Stop; owner confirmed Android/T-Mobile separate-network desktop viewing + Stop | Full interruption/recovery, sustained performance, broader route/hardware acceptance |
 | Approved interface       | Real inventory/inspector/naming, activity/history/browser sessions; responsive/theme checks           | Complete native host states, permission focus/readability feedback and backend-dependent flows |
 | Deployment               | Isolated Oracle control plane, HTTPS, encrypted backup/restore and rollback                           | Production media intentionally disabled; input absent                                          |
 
-The deployed interface is release `ff452ffe66dd600e9a7b18d12fccc08ac970a7d6`.
+The last documented deployed interface is release `ff452ffe66dd600e9a7b18d12fccc08ac970a7d6`.
+PR #8 was merged as `d6c40c8`, PR #9 as `6d8d7496` into main. CI was
+successful at PR #9 head `0979cd1` (run 38083605846); merged code is **not**
+proof of a new deployment or production media approval.
 Local follow-up changes are not deployment evidence. A synthetic stream is not
 desktop acceptance; a local direct connection is not relay acceptance. Consent
 audit proves permission, not that a viewer decoded media.
@@ -101,8 +105,10 @@ never inherit computer access from a camera or a public support code.
    The dynamic relay-address wrapper then enabled native/Chrome synthetic decoding
    with relay/relay selected and 667 presented frames at observation. Stop passed;
    both products' health/readiness remained healthy. Protected-peer restrictions
-   remain intact. Actual separate-network desktop acceptance is still required;
-   the owner currently has no second device/network.
+   remain intact. A subsequent owner test on Android over T-Mobile mobile data **did** decode
+   actual Windows desktop video and pass local Stop; native logs and PostgreSQL
+   recorded the sessions ending. This is a bounded single network-path acceptance,
+   not the full network/failure/performance matrix. See `android-acceptance-2026-10-10.md`.
 4. **Failure and UX acceptance.** Verify Stop, denial, logout, browser refresh,
    machine revoke, expiry, backend restart and network loss. Reconnect requires
    fresh authorization. Confirm native focus/readability; measure startup,
@@ -124,12 +130,35 @@ file transfer, recording, extra OS, enterprise management or cloud media storage
 No new services/dependencies without demonstrated need. Preserve Oracle free
 allocation and Beacon View health.
 
-Owner dependencies: a second network/peer for transport acceptance, human native
-consent/Stop/readability feedback, legitimate signing credentials before installer
-distribution, and external release prerequisites for later milestones. Never weaken OS or
+Owner dependencies: further actual device/network tests for interruption and sustained
+performance, Windows native consent/readability/timing feedback, legitimate signing
+credentials before installer distribution, and external release prerequisites.
+The Android/T-Mobile viewer already provided one real separate-network pass. Never weaken OS or
 relay protections to pass tests. The owner has authorized commits to Beacon
 Remote; use its feature branches and keep Beacon View changes separate.
 
 Use the smallest useful suite at security/database boundaries plus real Windows/
 browser/network checks. Report failed/skipped checks and unproven behavior;
 test counts, screenshots and CI alone do not prove remote control is ready.
+
+
+## Ongoing UI/UX fidelity track (parallel with technical gates)
+
+The visual target is the owner-supplied `Beacon-Remote-Final-Package.zip` (external
+attachment, **not checked into the repo**). UI completeness and backend
+availability are different measures. A feature can match the target visually
+while remaining honestly disabled until its secure backend exists.
+
+| Surface | Integrated now | Remaining visual/functional gaps |
+| --- | --- | --- |
+| Public landing/download/security | React public navigation and partial approved style | Match prototype composition and copy; show real release/download state |
+| Sign-in/account | Operator invitation and password login | Complete visual/auth states, signup, email/MFA/recovery (milestone 7) |
+| Sidebar/workspace | Device inventory, search/status filter, inspector, inline rename | Prototype-aligned sidebar/density/responsiveness, hide dev diagnostics from consumer UI |
+| Sessions/Assist/Activity | Authenticated view/audit history, browser session management | Fill available space, real states, one-time support UI after backend capability |
+| Remote session | Attended view-only browser video, native consent + local Stop | Polished viewer, accurate reconnect and input states; control after milestone 5 |
+| Windows host | Native helper consent/Stop control | Approved idle/tray/request/active/error visual system after service/installer work |
+| Themes, icons, accessibility | Blue/slate tokens and mark assets; viewport checks on integrated slices | Complete fidelity in light/dark, keyboard/touch/focus, mobile and reduced motion |
+
+For each implementation slice: compare actual desktop/tablet/mobile screenshots
+against the approved prototype, fix layout/UX gaps, run accessibility/browser
+checks and document remaining differences. No simulated production data.
