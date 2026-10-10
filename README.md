@@ -73,13 +73,16 @@ consent and captures the primary display for ten seconds with a visible border.
 It keeps one bounded frame in memory and saves/uploads nothing. Initial real-machine
 measurements passed; see [validation and remaining checks](docs/validation.md).
 
-The current media branch adds a **synthetic video connection test**, gated by a
+The current media branch adds **attended desktop viewing and a synthetic video test**, gated by a
 separate `SESSION_SECRET` (32 random bytes as 64 lowercase hexadecimal characters).
 Keep that secret outside source control. An authenticated browser can request a
-two-minute test grant; the agent passes it to its matching sibling session helper
-through stdin. The test streams generated H.264 directly over WebRTC and never
-reads the desktop. Browser decoding and disconnect acceptance remain pending on
-this branch; the production release still provides pairing and presence only.
+two-minute view grant; the agent passes it to its matching sibling session helper
+through stdin. Synthetic video decoding, browser Stop, logout, expiry and the
+visible Windows Stop button passed real-machine acceptance. Desktop grants ask
+for explicit local approval before primary-display capture with a Windows border
+and visible Stop sharing window. Microphone, recording and input are disabled.
+Desktop viewing acceptance remains pending; production still provides pairing
+and presence only. Keep matching agent/helper binaries in the same directory.
 For a separate local API port, set `REMOTE_API_ORIGIN` before starting Vite; its
 default is `http://127.0.0.1:3010`, including WebSocket forwarding.
 
