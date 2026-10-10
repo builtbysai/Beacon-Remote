@@ -21,6 +21,11 @@ features as ready. Keep Beacon View source independent.
 - Backend startup atomically ends interrupted grants and records audit before
   listening. Real PostgreSQL checks cover audit rollback, old-grant rejection,
   fresh pending requests and loss of either signaling peer.
+- Startup now acquires exclusive database ownership before recovery. Actual backend
+  subprocesses verified that a duplicate on another port preserves the live grant,
+  owner connection termination stops its process, and replacement startup recovers
+  the interrupted row with audit. See the restart recovery decision for connection
+  lifetime and proxy requirements.
 - Matching `e111946` native artifacts passed
   [Windows CI 38078446154](https://github.com/builtbysai/Beacon-Remote/actions/runs/38078446154),
   including Clippy, process-boundary tests and release build. Helpers join an

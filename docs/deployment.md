@@ -29,6 +29,12 @@ The DNS A record is DNS-only to match the existing direct TLS deployment.
 Deploy only a validated exact commit under `/opt/beacon-remote/releases/<sha>`.
 Run one backend instance per Remote database. Stop the previous instance before
 starting its replacement; overlapping or rolling backend replicas are unsupported.
+The backend acquires a database-scoped session advisory lock before recovery;
+duplicates fail without ending the owner's grants. Its dedicated ownership
+connection must go directly to PostgreSQL or through a session-preserving proxy,
+not transaction pooling. Budget one connection in addition to the request pool's
+maximum of eight. Detected ownership connection loss stops the backend immediately;
+the normal restart policy may then start a replacement.
 Startup atomically ends persisted live view grants and records interruption
 events before listening. It fails closed if recovery cannot commit. Existing
 native leases expire independently; reconnect requires a new request and local
