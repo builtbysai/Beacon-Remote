@@ -15,12 +15,16 @@ The separate `beacon-remote-session` helper adds a local attended capture spike.
 Run `displays` for physical dimensions/DPI, or `capture-benchmark` for a visible
 consent dialog followed by ten seconds of primary-display capture with a Windows
 border. Ctrl+C stops early. It reports real frame/update measurements and exercises
-the in-memory snapshot interface; it saves/uploads no media. Capture is not wired
-to enrollment or exposed to remote viewers. Initial real-machine capture and
+the in-memory snapshot interface; it saves/uploads no media. Initial real-machine capture and
 deadline shutdown passed; see [measurements and remaining checks](validation.md).
 
-Next extend the attended capture helper with explicit screen selection and a visible
-Stop control. Measure primary-display FPS, memory/CPU, acquisition latency, DPI,
+The media branch now offers a two-minute primary-display view request. The native
+helper requires a valid server grant, local Yes consent, a visible Stop sharing
+window, a connected peer and a live renewable lease before starting WGC. No
+microphone, input or recording is enabled. The synthetic video path and local
+Stop passed; actual desktop viewing acceptance is pending.
+
+Next measure streaming FPS, memory/CPU, acquisition latency, DPI,
 rotation, cursor, desktop lock, display disconnect and device loss on real Windows.
 Protect Windows Session 0/UAC/UIPI; do not capture secure desktop or inject into
 higher-integrity windows by bypassing protections.

@@ -4,6 +4,16 @@ if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL required");
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 try {
   const expected: Record<string, string[]> = {
+    view_sessions: [
+      "id",
+      "account_id",
+      "machine_id",
+      "source",
+      "token_hash",
+      "expires_at",
+      "status",
+      "created_at",
+    ],
     account_invitations: ["token_hash", "expires_at", "claimed_at"],
     accounts: ["id", "email", "password_hash", "created_at"],
     browser_sessions: ["token_hash", "account_id", "expires_at"],
@@ -33,6 +43,11 @@ try {
     }
   }
   const requiredConstraints = [
+    "view_sessions_pkey",
+    "view_sessions_account_id_fkey",
+    "view_sessions_machine_id_fkey",
+    "view_sessions_source_check",
+    "view_sessions_status_check",
     "account_invitations_pkey",
     "accounts_pkey",
     "accounts_email_key",
@@ -56,6 +71,11 @@ try {
   const names = new Set(constraints.rows.map((r) => r.conname));
   for (const name of requiredConstraints)
     if (!names.has(name)) throw new Error(`Missing schema constraint ${name}`);
+  const sessionIndex = await pool.query(
+    "SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE c.relname='view_sessions_one_live_machine' AND i.indisunique AND i.indisvalid AND i.indpred IS NOT NULL",
+  );
+  if (!sessionIndex.rowCount)
+    throw new Error("Missing active-session uniqueness index");
   const role = await pool.query<{
     rolsuper: boolean;
     rolcreatedb: boolean;

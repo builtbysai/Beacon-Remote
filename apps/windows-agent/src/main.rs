@@ -1,4 +1,5 @@
 mod credentials;
+mod sessions;
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use ed25519_dalek::{Signer, SigningKey};
@@ -128,6 +129,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server = validate_server(&identity.server)?;
     let key = SigningKey::from_bytes(&identity.secret_key);
     let mut failures: u32 = 0;
+    let mut helpers = sessions::Helpers::default();
     println!("Beacon Remote is reporting presence. No desktop capture or remote control is active. Ctrl+C stops this process.");
     loop {
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
@@ -142,6 +144,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })).send();
         match response {
             Ok(response) if response.status().is_success() => {
+                helpers.update(response.json()?, &identity.server)?;
                 if failures > 0 {
                     println!("Connection restored.");
                 }

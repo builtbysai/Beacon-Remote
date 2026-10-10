@@ -32,3 +32,76 @@ The owner requested a temporary testing account and postponed broader account
 creation/UI redesign. That account is now provisioned, signed into the production
 browser and paired to the actual Windows PC; its credentials are restricted to
 the owner's local recovery folder, outside both repositories.
+
+## WebRTC acceptance blocker — 2026-10-10
+
+The media branch now includes authenticated, one-use view grants, bounded
+WebSocket signaling, a synthetic H.264/WebRTC helper and a browser video viewer.
+Its [Windows build](https://github.com/builtbysai/Beacon-Remote/actions/runs/38029036705)
+passed formatting, Clippy, native tests and release compilation. Backend checks
+exercise real PostgreSQL, account/origin isolation, consent gating, grant reuse,
+revocation and logout. A follow-up renewal protocol measures lease age from
+native challenge-send time rather than delayed reply receipt. The final renewal
+change also passed the complete [Windows and backend/web CI run](https://github.com/builtbysai/Beacon-Remote/actions/runs/38030855483).
+
+The next hardening increment bounds native signaling writes and socket shutdown,
+checks renewal and absolute grant expiry again before sending queued video, and
+limits each media write to the remaining authorization time. Expired leases
+cannot be revived by a later reply. Deterministic native regression checks cover
+delayed, duplicate, unknown, reordered and discarded renewal challenges; these
+checks do not replace actual Windows/browser media acceptance.
+
+Actual owner-PC browser decoding could not run: Windows Application Control
+blocked both new executables before startup. Code Integrity event 3077 identifies
+policy `0283ac0f-fff1-49ae-ada1-8a933130cad6`; Smart App Control state is On. No
+current-user code-signing certificate was found. No protection, policy, trust
+store or file security metadata was changed to bypass the block. Microsoft
+[documents signing as the developer path](https://support.microsoft.com/en-us/windows/security/threat-malware-protection/smart-app-control-frequently-asked-questions).
+
+The owner subsequently changed Smart App Control and requested a retry. Both
+executables from [the final media build](https://github.com/builtbysai/Beacon-Remote/actions/runs/38054167791)
+then started. An isolated local PostgreSQL account, actual signed native agent,
+one-use grant and Chrome viewer established WebRTC: the page reported connected
+and actual decoded H.264 frames. Browser Stop cleared the video and terminated
+the native media helper. This proves synthetic native-to-browser decoding on the
+same Windows PC; it does not prove desktop capture, cross-network or relay use.
+
+The next increment adds a visible native Stop video test window before native
+consent and media. Clicking Stop or closing it clears the same atomic active
+state used by encoder/signaling; failure to create the window refuses media.
+The window owns its message loop and state lifetime, following Microsoft's
+[Win32 message-loop guidance](https://learn.microsoft.com/en-us/windows/win32/winmsg/using-messages-and-message-queues).
+Actual local Stop acceptance is required before desktop sharing is connected.
+
+Local Stop acceptance passed: the owner clicked the native button during real
+synthetic decoding; the helper exited, Chrome cleared video, and PostgreSQL
+marked the session ended. Real browser Stop, logout and absolute two-minute
+expiry also passed; the expiry run decoded 3,292 frames before clearing media.
+
+The next development increment connects consented primary-display WGC capture
+to the same bounded encoder/transport. It preserves the Windows border and
+cursor, refuses capture until a connected peer and live challenge lease exist,
+fits BGRA into 1280×720 NV12 without stretching, and retains no recording.
+Conversion uses [Microsoft's limited-range BT.601 formulas](https://learn.microsoft.com/en-us/windows/win32/medfound/recommended-8-bit-yuv-formats-for-video-rendering)
+and deterministic checks for BGRA channel order, NV12 chroma layout, letterbox
+values and malformed buffers. The owner granted desktop consent and Chrome
+decoded real primary-display video. A short process sample measured about 49.5%
+of one CPU core, 102.2 MiB working set and 118.1 MiB peak; this is a prototype
+sample, not a sustained or network-latency benchmark. An earlier connection
+attempt returned Windows socket error 10053; the subsequent request connected.
+No input, microphone, recording or unattended sharing is added.
+
+The owner reported delayed connection and consent windows lacking attention.
+Consent is now topmost and defaults to No. The Stop window requests normal
+foreground activation and focuses its button, with a taskbar flash if Windows
+denies activation. This follows [Windows foreground restrictions](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setforegroundwindow)
+without changing system policy. Native ICE now trickles through a bounded queue
+rather than waiting for complete STUN gathering before sending the offer.
+These attention/startup changes require a fresh real-machine check. Presence
+still polls every fifteen seconds, so request delivery can add that delay.
+
+Production still runs the validated identity/presence release. Cross-network and
+forced-relay acceptance, the updated consent focus and input remain incomplete.
+Account creation and broader UI/UX redesign remain postponed at the
+owner's request. Release signing remains required; this development retry does
+not replace a signed installer/update path.

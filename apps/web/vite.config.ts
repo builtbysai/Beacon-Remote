@@ -1,5 +1,12 @@
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  server: { proxy: { "/api": "http://127.0.0.1:3010" } },
+  server: {
+    proxy: {
+      "/api": {
+        target: process.env.REMOTE_API_ORIGIN ?? "http://127.0.0.1:3010",
+        ws: true,
+      },
+    },
+  },
 });

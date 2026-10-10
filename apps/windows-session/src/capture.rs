@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 use windows_capture::{
-    capture::{Context, GraphicsCaptureApiHandler},
+    capture::{CaptureControl, Context, GraphicsCaptureApiHandler},
     frame::Frame,
     graphics_capture_api::InternalCaptureControl,
     monitor::Monitor,
@@ -25,7 +25,10 @@ use windows_sys::Win32::{
             GetDpiForMonitor, SetProcessDpiAwarenessContext,
             DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, MDT_EFFECTIVE_DPI,
         },
-        WindowsAndMessaging::{MessageBoxW, IDYES, MB_ICONINFORMATION, MB_SETFOREGROUND, MB_YESNO},
+        WindowsAndMessaging::{
+            MessageBoxW, IDYES, MB_DEFBUTTON2, MB_ICONINFORMATION, MB_SETFOREGROUND, MB_TOPMOST,
+            MB_YESNO,
+        },
     },
 };
 
@@ -61,7 +64,7 @@ fn displays() -> Result<Vec<Display>, Error> {
         .collect()
 }
 
-fn dpi_awareness() -> Result<(), Error> {
+pub fn dpi_awareness() -> Result<(), Error> {
     if unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) } == 0 {
         return Err(io::Error::last_os_error().into());
     }
@@ -173,6 +176,69 @@ impl GraphicsCaptureApiHandler for Handler {
 struct CaptureSource {
     flags: CaptureFlags,
 }
+
+/// Owned attended capture. Caller must first verify authorization and consent.
+pub struct DesktopCapture {
+    source: CaptureSource,
+    control: Option<CaptureControl<Handler, Error>>,
+}
+impl DesktopCapture {
+    pub fn start(active: Arc<AtomicBool>) -> Result<Self, Error> {
+        let monitor = Monitor::primary()?;
+        let flags = CaptureFlags {
+            state: Arc::new(Mutex::new(FrameState::default())),
+            active,
+            display_id: monitor.device_name()?,
+            started: Instant::now(),
+        };
+        let settings = Settings::new(
+            monitor,
+            CursorCaptureSettings::WithCursor,
+            DrawBorderSettings::WithBorder,
+            SecondaryWindowSettings::Exclude,
+            MinimumUpdateIntervalSettings::Custom(Duration::from_millis(33)),
+            DirtyRegionSettings::Default,
+            ColorFormat::Bgra8,
+            flags.clone(),
+        );
+        let control = Handler::start_free_threaded(settings)?;
+        Ok(Self {
+            source: CaptureSource { flags },
+            control: Some(control),
+        })
+    }
+
+    pub fn snapshot(&mut self) -> Result<Option<Snapshot>, Error> {
+        if self
+            .control
+            .as_ref()
+            .is_none_or(|control| control.is_finished())
+        {
+            return Err("Desktop capture ended".into());
+        }
+        let id = self.source.flags.display_id.clone();
+        match self.source.capture_snapshot(&id) {
+            Ok(snapshot) => Ok(Some(snapshot)),
+            Err(ControlError::PlatformUnavailable)
+                if self.source.flags.started.elapsed() < Duration::from_secs(3) =>
+            {
+                Ok(None)
+            }
+            _ => Err("Desktop frame unavailable".into()),
+        }
+    }
+}
+impl Drop for DesktopCapture {
+    fn drop(&mut self) {
+        self.source.flags.active.store(false, Ordering::Release);
+        if let Some(control) = self.control.take() {
+            let _ = control.stop();
+        }
+        if let Ok(mut state) = self.source.flags.state.lock() {
+            state.latest = None;
+        }
+    }
+}
 impl ScreenCapture for CaptureSource {
     fn get_displays(&self) -> Result<Vec<Display>, ControlError> {
         displays().map_err(|_| ControlError::PlatformUnavailable)
@@ -204,6 +270,19 @@ impl ScreenCapture for CaptureSource {
 
 fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(Some(0)).collect()
+}
+
+pub fn consent(controller: &str) -> bool {
+    let title = wide("Beacon Remote — allow desktop viewing?");
+    let message = wide(&format!("{controller} requests viewing of your PRIMARY DISPLAY.\n\nIf you choose Yes, your desktop is sent through encrypted WebRTC to the requesting Beacon Remote browser for at most two minutes. A Windows capture border and Stop sharing window remain visible.\n\nNo microphone, recording or remote input is enabled. Choose No to decline."));
+    unsafe {
+        MessageBoxW(
+            std::ptr::null_mut(),
+            message.as_ptr(),
+            title.as_ptr(),
+            MB_YESNO | MB_ICONINFORMATION | MB_SETFOREGROUND | MB_TOPMOST | MB_DEFBUTTON2,
+        ) == IDYES
+    }
 }
 
 pub fn benchmark() -> Result<(), Error> {

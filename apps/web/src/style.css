@@ -171,3 +171,9 @@ footer {
     flex-direction: column;
   }
 }
+.live-view video {
+  width: 100%;
+  max-height: 70vh;
+  background: #101820;
+  border-radius: 12px;
+}

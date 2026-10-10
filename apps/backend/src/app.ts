@@ -18,6 +18,7 @@ import {
   heartbeatMessage,
 } from "../../../packages/protocol/src/index.js";
 import type { Config } from "./config.js";
+import { registerSessions } from "./sessions.js";
 
 const digest = (value: string) =>
   createHash("sha256").update(value).digest("hex");
@@ -73,6 +74,7 @@ export async function createApp(pool: Pool, config: Config) {
   function sameOrigin(request: FastifyRequest) {
     return request.headers.origin === config.WEB_ORIGIN;
   }
+  const pendingSessions = await registerSessions(app, pool, config, owner);
 
   app.get("/health", async () => ({ status: "ok", service: "beacon-remote" }));
   app.get("/ready", async () => {
@@ -314,7 +316,11 @@ export async function createApp(pool: Pool, config: Config) {
         [body.machineId],
       );
       await client.query("COMMIT");
-      return { ok: true, version: 1 };
+      return {
+        ok: true,
+        version: 1,
+        sessions: await pendingSessions(body.machineId),
+      };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;

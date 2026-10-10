@@ -15,6 +15,12 @@ try {
       "utf8",
     ),
   );
+  await client.query(
+    await readFile(
+      new URL("../migrations/002_view_sessions.sql", import.meta.url),
+      "utf8",
+    ),
+  );
   await client.query("COMMIT");
 } catch (error) {
   await client.query("ROLLBACK");
