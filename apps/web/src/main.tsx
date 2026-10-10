@@ -425,6 +425,7 @@ function App() {
                   <article key={machine.id} className="device-row">
                     <Monitor />
                     <button
+                      id={`device-${machine.id}`}
                       className="device-name secondary"
                       onClick={() =>
                         setSelected(selected === machine.id ? null : machine.id)
@@ -494,7 +495,10 @@ function App() {
                   key={selected}
                   stale={stale}
                   machine={machines.find((machine) => machine.id === selected)!}
-                  onClose={() => setSelected(null)}
+                  onClose={() => {
+                    setSelected(null);
+                    document.getElementById(`device-${selected}`)?.focus();
+                  }}
                   onUpdated={async () => {
                     const result = await api<{ machines: Machine[] }>(
                       "machines",

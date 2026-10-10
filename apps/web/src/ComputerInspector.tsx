@@ -36,7 +36,16 @@ export function ComputerInspector({
     }
   }
   return (
-    <aside className="device-inspector" aria-label="Computer details">
+    <aside
+      className="device-inspector"
+      aria-label="Computer details"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && !busy) {
+          event.stopPropagation();
+          onClose();
+        }
+      }}
+    >
       <div className="inspector-heading">
         <h2>{machine.name}</h2>
         <button
