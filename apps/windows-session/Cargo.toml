@@ -9,5 +9,6 @@ beacon-remote-core = { path = "../../crates/remote-core" }
 
 [target.'cfg(windows)'.dependencies]
 windows-capture = "=2.0.1"
+windows = { version = "=0.62.2", features = ["Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_System_Ole", "Win32_System_Variant"] }
 ctrlc = "3.5"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_HiDpi", "Win32_UI_WindowsAndMessaging"] }
