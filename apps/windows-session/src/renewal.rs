@@ -67,9 +67,9 @@ mod tests {
         assert_eq!(remaining(last, 4999), Some(Duration::from_millis(1)));
         assert_eq!(remaining(last, 5000), None);
         let discarded = renewals.issue(3000);
-        for now in [4000, 5000, 6000, 7000] {
+        for now in [3100, 3200, 3300, 3400] {
             renewals.issue(now);
         }
-        assert_eq!(renewals.acknowledge(&discarded, 5000), None);
+        assert_eq!(renewals.acknowledge(&discarded, 3500), None);
     }
 }
