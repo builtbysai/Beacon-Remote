@@ -5,6 +5,7 @@
     "src",
     "scripts/migrate.ts",
     "scripts/create-account.ts",
+    "scripts/create-invitation.ts",
     "scripts/verify-schema.ts",
     "../../packages/protocol/src"
   ],
