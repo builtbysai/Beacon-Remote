@@ -41,7 +41,15 @@ Its [Windows build](https://github.com/builtbysai/Beacon-Remote/actions/runs/380
 passed formatting, Clippy, native tests and release compilation. Backend checks
 exercise real PostgreSQL, account/origin isolation, consent gating, grant reuse,
 revocation and logout. A follow-up renewal protocol measures lease age from
-native challenge-send time rather than delayed reply receipt.
+native challenge-send time rather than delayed reply receipt. The final renewal
+change also passed the complete [Windows and backend/web CI run](https://github.com/builtbysai/Beacon-Remote/actions/runs/38030855483).
+
+The next hardening increment bounds native signaling writes and socket shutdown,
+checks renewal and absolute grant expiry again before sending queued video, and
+limits each media write to the remaining authorization time. Expired leases
+cannot be revived by a later reply. Deterministic native regression checks cover
+delayed, duplicate, unknown, reordered and discarded renewal challenges; these
+checks do not replace actual Windows/browser media acceptance.
 
 Actual owner-PC browser decoding could not run: Windows Application Control
 blocked both new executables before startup. Code Integrity event 3077 identifies

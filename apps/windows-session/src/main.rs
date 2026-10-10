@@ -4,6 +4,8 @@ mod capture;
 mod encoder;
 #[cfg(windows)]
 mod media;
+#[cfg(any(windows, test))]
+mod renewal;
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     #[cfg(windows)]

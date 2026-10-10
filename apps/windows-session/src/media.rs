@@ -1,5 +1,6 @@
 //! Bounded synthetic-video acceptance path. Never reads the desktop.
 use crate::encoder::Encoder;
+use crate::renewal::{remaining, Renewals, MAX_AGE_MS};
 use futures_util::{SinkExt, StreamExt};
 use rtc::{
     interceptor::Registry,
@@ -17,7 +18,6 @@ use rtc::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
-    collections::VecDeque,
     io::{self, Read},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -170,11 +170,13 @@ async fn stream(grant: Grant) -> Result<(), Error> {
         connect_async_with_config(request, Some(limits), true),
     )
     .await??;
-    socket
-        .send(Message::Text(
+    timeout(
+        Duration::from_millis(500),
+        socket.send(Message::Text(
             json!({"type":"consent","accepted":true}).to_string().into(),
-        ))
-        .await?;
+        )),
+    )
+    .await??;
     let active = Arc::new(AtomicBool::new(true));
     let _stop = StopOnDrop(active.clone());
     let connected = Arc::new(AtomicBool::new(false));
@@ -247,13 +249,15 @@ async fn stream(grant: Grant) -> Result<(), Error> {
         .local_description()
         .await
         .ok_or("Missing local description")?;
-    socket
-        .send(Message::Text(
+    timeout(
+        Duration::from_millis(500),
+        socket.send(Message::Text(
             json!({"type":"offer","sdp":description.sdp})
                 .to_string()
                 .into(),
-        ))
-        .await?;
+        )),
+    )
+    .await??;
     let (packets, mut receiver) = mpsc::channel::<crate::encoder::EncodedFrame>(2);
     let worker_active = active.clone();
     let worker_connected = connected.clone();
@@ -265,7 +269,7 @@ async fn stream(grant: Grant) -> Result<(), Error> {
         while worker_active.load(Ordering::Acquire) && Instant::now() < deadline {
             let last = worker_lease.load(Ordering::Acquire);
             let elapsed = epoch.elapsed().as_millis() as u64;
-            if last != 0 && elapsed.saturating_sub(last) > 3000 {
+            if last != 0 && remaining(last, elapsed).is_none() {
                 break;
             }
             if !worker_connected.load(Ordering::Acquire) || last == 0 {
@@ -293,28 +297,32 @@ async fn stream(grant: Grant) -> Result<(), Error> {
     let result:Result<(),Error> = async {
         let mut tick=tokio::time::interval(Duration::from_millis(100));
         let mut answered=false;
-        let mut renewal=0u64;
-        let mut renewals=VecDeque::<(String,u64)>::new();
+        let mut renewals=Renewals::default();
         let mut next_renewal=Instant::now();
         loop {
+            let last=lease.load(Ordering::Acquire);
+            if last!=0 && remaining(last,epoch.elapsed().as_millis() as u64).is_none() {break;}
             tokio::select! {
                 _=tick.tick()=>{
                     if !active.load(Ordering::Acquire) || Instant::now()>=deadline {break;}
                     if Instant::now()>=next_renewal {
-                        renewal+=1;
-                        let nonce=renewal.to_string();
-                        let issued=(epoch.elapsed().as_millis() as u64).max(1);
-                        renewals.push_back((nonce.clone(),issued));
-                        while renewals.len()>4{renewals.pop_front();}
-                        socket.send(Message::Text(json!({"type":"renew","nonce":nonce}).to_string().into())).await?;
+                        let nonce=renewals.issue(epoch.elapsed().as_millis() as u64);
+                        timeout(Duration::from_millis(500), socket.send(Message::Text(json!({"type":"renew","nonce":nonce}).to_string().into()))).await??;
                         next_renewal=Instant::now()+Duration::from_secs(1);
                     }
                 }
                 packet=receiver.recv()=>{
                     let Some(packet)=packet else {break;};
+                    if !active.load(Ordering::Acquire) || !connected.load(Ordering::Acquire) || Instant::now()>=deadline {break;}
                     if !answered {return Err("Media arrived before answer".into());}
-                    let payload=sender.get_parameters().await?.rtp_parameters.codecs.first().ok_or("No negotiated codec")?.payload_type;
-                    timeout(Duration::from_millis(500),track.sample_writer(7_230_001,payload).write_sample(&Sample{data:bytes::Bytes::from(packet.bytes),duration:Duration::from_secs_f64(1.0/30.0),..Sample::new(Instant::now())})).await??;
+                    let parameters=timeout(Duration::from_millis(500),sender.get_parameters()).await??;
+                    let payload=parameters.rtp_parameters.codecs.first().ok_or("No negotiated codec")?.payload_type;
+                    // Queued packets must not outlive renewal or the absolute grant deadline.
+                    let Some(lease_remaining)=remaining(lease.load(Ordering::Acquire),epoch.elapsed().as_millis() as u64) else {break;};
+                    if !active.load(Ordering::Acquire) {break;}
+                    let budget=lease_remaining.min(deadline.saturating_duration_since(Instant::now())).min(Duration::from_millis(500));
+                    if budget.is_zero() {break;}
+                    timeout(budget,track.sample_writer(7_230_001,payload).write_sample(&Sample{data:bytes::Bytes::from(packet.bytes),duration:Duration::from_secs_f64(1.0/30.0),..Sample::new(Instant::now())})).await??;
                 }
                 message=socket.next()=>{
                     let text=match message {Some(Ok(Message::Text(text)))=>text,Some(Ok(Message::Ping(_) | Message::Pong(_)))=>continue,_=>break};
@@ -324,14 +332,13 @@ async fn stream(grant: Grant) -> Result<(), Error> {
                         Some("answer")=>{if answered{return Err("Repeated answer".into());} let sdp=body["sdp"].as_str().filter(|s|s.len()<=32768).ok_or("Invalid answer")?;pc.set_remote_description(RTCSessionDescription::answer(sdp.into())?).await?;answered=true;}
                         Some("candidate")=>{let candidate=body["candidate"].as_str().filter(|s|s.len()<=2048).ok_or("Invalid candidate")?;if !candidate.is_empty(){pc.add_ice_candidate(RTCIceCandidateInit{candidate:candidate.into(),sdp_mid:body["sdpMid"].as_str().map(String::from),sdp_mline_index:body["sdpMLineIndex"].as_u64().map(|v|v as u16),..Default::default()}).await?;}}
                         Some("lease")=>{
-                            if body["expiresAtMillis"].as_u64()!=Some(grant.expires_at_millis) || body["maxAgeMs"].as_u64()!=Some(3000) {return Err("Invalid lease".into());}
+                            let last=lease.load(Ordering::Acquire);
+                            if last!=0 && remaining(last,epoch.elapsed().as_millis() as u64).is_none() {break;}
+                            if body["expiresAtMillis"].as_u64()!=Some(grant.expires_at_millis) || body["maxAgeMs"].as_u64()!=Some(MAX_AGE_MS) {return Err("Invalid lease".into());}
                             let nonce=body["nonce"].as_str().ok_or("Missing lease challenge")?;
-                            if let Some(index)=renewals.iter().position(|(expected,_)|expected==nonce){
-                                let issued=renewals.remove(index).ok_or("Missing renewal")?.1;
-                                if (epoch.elapsed().as_millis() as u64).saturating_sub(issued)<=3000 {
+                            if let Some(issued)=renewals.acknowledge(nonce,epoch.elapsed().as_millis() as u64){
                                     // Age starts when our challenge was sent, never when a delayed reply arrives.
                                     lease.fetch_max(issued,Ordering::Release);
-                                }
                             }
                         }
                         Some("ended")=>break,
@@ -344,7 +351,7 @@ async fn stream(grant: Grant) -> Result<(), Error> {
     }.await;
     active.store(false, Ordering::Release);
     let _ = timeout(Duration::from_secs(2), pc.close()).await;
-    let _ = socket.close(None).await;
+    let _ = timeout(Duration::from_millis(500), socket.close(None)).await;
     timeout(Duration::from_secs(3), worker).await???;
     println!("Synthetic video stopped. Nothing recorded or captured.");
     result
