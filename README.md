@@ -5,7 +5,6 @@
 [the active roadmap](docs/roadmap.md). Merging a feature branch does not
 release it; production media/control remain disabled until acceptance.
 
-
 Windows computers, accessible from a browser. Part of Beacon, independently
 maintained from [Beacon View](https://github.com/builtbysai/Beacon-View).
 
