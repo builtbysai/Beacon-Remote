@@ -23,7 +23,15 @@ impl Helpers {
                 let _ = child.wait();
                 return false;
             }
-            matches!(child.try_wait(), Ok(None))
+            match child.try_wait() {
+                Ok(None) => true,
+                Ok(Some(_)) => false,
+                Err(_) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    false
+                }
+            }
         });
         self.handled.retain(|_, expiry| *expiry > now);
         let Some(grants) = body.get("sessions").and_then(Value::as_array) else {
@@ -41,7 +49,7 @@ impl Helpers {
             if expiry <= now || expiry - now > 120_000 || self.handled.contains_key(id) {
                 continue;
             }
-            if self.handled.len() >= 8 || self.children.len() >= 1 {
+            if self.handled.len() >= 8 || !self.children.is_empty() {
                 continue;
             }
             // This development increment deliberately launches synthetic video only.

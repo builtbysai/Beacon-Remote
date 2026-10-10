@@ -29,8 +29,8 @@ use tokio::{
     time::timeout,
 };
 use tokio_tungstenite::{
-    connect_async,
-    tungstenite::{client::IntoClientRequest, Message},
+    connect_async_with_config,
+    tungstenite::{client::IntoClientRequest, protocol::WebSocketConfig, Message},
 };
 use webrtc::{
     media_stream::track_local::{static_sample::TrackLocalStaticSample, TrackLocal},
@@ -161,7 +161,14 @@ async fn stream(grant: Grant) -> Result<(), Error> {
     request
         .headers_mut()
         .insert("Authorization", format!("Bearer {}", grant.token).parse()?);
-    let (mut socket, _) = timeout(Duration::from_secs(10), connect_async(request)).await??;
+    let limits = WebSocketConfig::default()
+        .max_message_size(Some(65536))
+        .max_frame_size(Some(65536));
+    let (mut socket, _) = timeout(
+        Duration::from_secs(10),
+        connect_async_with_config(request, Some(limits), true),
+    )
+    .await??;
     socket
         .send(Message::Text(
             json!({"type":"consent","accepted":true}).to_string().into(),
@@ -296,7 +303,7 @@ async fn stream(grant: Grant) -> Result<(), Error> {
                     timeout(Duration::from_millis(500),track.sample_writer(7_230_001,payload).write_sample(&Sample{data:bytes::Bytes::from(packet.bytes),duration:Duration::from_secs_f64(1.0/30.0),..Sample::new(Instant::now())})).await??;
                 }
                 message=socket.next()=>{
-                    let Some(Ok(Message::Text(text)))=message else {break;};
+                    let text=match message {Some(Ok(Message::Text(text)))=>text,Some(Ok(Message::Ping(_) | Message::Pong(_)))=>continue,_=>break};
                     if text.len()>65536 {return Err("Oversized signaling".into());}
                     let body:Value=serde_json::from_str(&text)?;
                     match body["type"].as_str() {
