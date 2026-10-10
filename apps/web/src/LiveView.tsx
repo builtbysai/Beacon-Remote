@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 export type ViewGrant = {
   id: string;
+  source: "synthetic" | "desktop";
   expiresAtMillis: number;
   iceServers: RTCIceServer[];
 };
@@ -74,7 +75,11 @@ export function LiveView({
     };
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === "connected")
-        setStatus("Connected — synthetic video only.");
+        setStatus(
+          grant.source === "desktop"
+            ? "Connected — view only."
+            : "Connected — synthetic video only.",
+        );
       if (["failed", "disconnected"].includes(pc.connectionState))
         finish("Video connection interrupted.");
     };
@@ -174,9 +179,14 @@ export function LiveView({
   }, [grant]);
   return (
     <aside className="live-view">
-      <h2>{name} — video connection test</h2>
+      <h2>
+        {name} —{" "}
+        {grant.source === "desktop" ? "desktop view" : "video connection test"}
+      </h2>
       <p>
-        Synthetic video only. Your desktop, microphone and input are not shared.
+        {grant.source === "desktop"
+          ? "View only. Sharing requires approval on Windows and ends after two minutes. Microphone, recording and remote input are disabled."
+          : "Synthetic video only. Your desktop, microphone and input are not shared."}
       </p>
       <video
         ref={video}
@@ -184,7 +194,11 @@ export function LiveView({
         muted
         playsInline
         controls
-        aria-label="Synthetic Windows video"
+        aria-label={
+          grant.source === "desktop"
+            ? "Windows desktop video"
+            : "Synthetic Windows video"
+        }
       />
       <p role="status" data-decoded-frames={frames}>
         {status}
@@ -196,7 +210,11 @@ export function LiveView({
           onClose();
         }}
       >
-        {ended ? "Close" : "Stop video test"}
+        {ended
+          ? "Close"
+          : grant.source === "desktop"
+            ? "Stop viewing"
+            : "Stop video test"}
       </button>
     </aside>
   );

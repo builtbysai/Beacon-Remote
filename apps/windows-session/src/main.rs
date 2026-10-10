@@ -7,6 +7,8 @@ mod indicator;
 #[cfg(windows)]
 mod media;
 #[cfg(any(windows, test))]
+mod pixels;
+#[cfg(any(windows, test))]
 mod renewal;
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -23,9 +25,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             return encoder::benchmark();
         }
         if command == "media-test" {
-            return media::synthetic();
+            return media::run();
         }
-        println!("Beacon Remote interactive session helper\n  displays: physical display dimensions and DPI\n  capture-benchmark: locally consent to ten seconds of primary-display capture\n  encoder-benchmark: synthetic in-memory H.264 encoding, no screen capture\n  media-test: authenticated two-minute synthetic WebRTC video using a stdin grant\nNo desktop streaming, recording, audio, or input injection is implemented.");
+        println!("Beacon Remote interactive session helper\n  displays: physical display dimensions and DPI\n  capture-benchmark: locally consent to ten seconds of primary-display capture\n  encoder-benchmark: synthetic in-memory H.264 encoding, no screen capture\n  media-test: authenticated two-minute WebRTC viewing using a stdin grant; desktop requires local consent and visible Stop\nNo recording, audio, or input injection is implemented.");
         Ok(())
     }
     #[cfg(not(windows))]

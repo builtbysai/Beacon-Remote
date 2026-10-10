@@ -46,7 +46,7 @@ unsafe extern "system" fn procedure(
     DefWindowProcW(window, message, wparam, lparam)
 }
 impl Indicator {
-    pub fn start(active: Arc<AtomicBool>) -> Result<Self, Error> {
+    pub fn start(active: Arc<AtomicBool>, desktop: bool) -> Result<Self, Error> {
         let (ready, received) = mpsc::channel();
         let state = active.clone();
         let thread = thread::spawn(move || {
@@ -67,7 +67,11 @@ impl Indicator {
                     if RegisterClassW(&definition) == 0 {
                         return Err(io::Error::last_os_error().into());
                     }
-                    let title = wide("Beacon Remote — synthetic video test (no desktop)");
+                    let title = wide(if desktop {
+                        "Beacon Remote — DESKTOP SHARING ACTIVE"
+                    } else {
+                        "Beacon Remote — synthetic video test (no desktop)"
+                    });
                     let window = CreateWindowExW(
                         WS_EX_TOPMOST,
                         class.as_ptr(),
@@ -87,7 +91,11 @@ impl Indicator {
                         return Err(io::Error::last_os_error().into());
                     }
                     let button = wide("BUTTON");
-                    let caption = wide("Stop video test");
+                    let caption = wide(if desktop {
+                        "Stop sharing now"
+                    } else {
+                        "Stop video test"
+                    });
                     let control = CreateWindowExW(
                         0,
                         button.as_ptr(),

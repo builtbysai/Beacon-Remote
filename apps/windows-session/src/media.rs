@@ -1,4 +1,4 @@
-//! Bounded synthetic-video acceptance path. Never reads the desktop.
+//! Bounded view-only media; desktop requires local consent and visible Stop.
 use crate::encoder::Encoder;
 use crate::renewal::{remaining, Renewals, MAX_AGE_MS};
 use futures_util::{SinkExt, StreamExt};
@@ -99,15 +99,18 @@ fn now_millis() -> Result<u64, Error> {
         .try_into()?)
 }
 
-pub fn synthetic() -> Result<(), Error> {
+pub fn run() -> Result<(), Error> {
     let mut input = String::new();
     io::stdin().take(8193).read_to_string(&mut input)?;
     if input.len() > 8192 {
         return Err("Grant exceeds size limit".into());
     }
     let grant: Grant = serde_json::from_str(&input)?;
-    if grant.source != "synthetic" || grant.controller.len() > 254 {
-        return Err("This command accepts synthetic video grants only".into());
+    if !matches!(grant.source.as_str(), "synthetic" | "desktop")
+        || grant.controller.is_empty()
+        || grant.controller.len() > 254
+    {
+        return Err("Invalid view source or controller".into());
     }
     let now = now_millis()?;
     if grant.expires_at_millis <= now || grant.expires_at_millis - now > 120_000 {
@@ -142,6 +145,9 @@ pub fn synthetic() -> Result<(), Error> {
     {
         return Err("Invalid ICE servers".into());
     }
+    if grant.source == "desktop" {
+        crate::capture::dpi_awareness()?;
+    }
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
@@ -150,8 +156,14 @@ pub fn synthetic() -> Result<(), Error> {
 }
 
 async fn stream(grant: Grant) -> Result<(), Error> {
+    let desktop = grant.source == "desktop";
     println!(
-        "SYNTHETIC VIDEO TEST: no screen capture, audio, recording or input. Maximum two minutes."
+        "{}",
+        if desktop {
+            "DESKTOP VIEW REQUEST: local consent required. No audio, recording or input. Maximum two minutes."
+        } else {
+            "SYNTHETIC VIDEO TEST: no screen capture, audio, recording or input. Maximum two minutes."
+        }
     );
     let mut url = url::Url::parse(&grant.server)?;
     url.set_scheme(if url.scheme() == "https" { "wss" } else { "ws" })
@@ -170,10 +182,31 @@ async fn stream(grant: Grant) -> Result<(), Error> {
         connect_async_with_config(request, Some(limits), true),
     )
     .await??;
+    if desktop {
+        let controller = grant.controller.clone();
+        let accepted =
+            tokio::task::spawn_blocking(move || crate::capture::consent(&controller)).await?;
+        if !accepted {
+            timeout(
+                Duration::from_millis(500),
+                socket.send(Message::Text(
+                    json!({"type":"consent","accepted":false})
+                        .to_string()
+                        .into(),
+                )),
+            )
+            .await??;
+            println!("Desktop viewing declined; nothing captured.");
+            return Ok(());
+        }
+        if now_millis()? >= grant.expires_at_millis {
+            return Err("View grant expired during consent".into());
+        }
+    }
     let active = Arc::new(AtomicBool::new(true));
     let _stop = StopOnDrop(active.clone());
     // Refuse media if a visible local Stop control cannot be created.
-    let _indicator = crate::indicator::Indicator::start(active.clone())?;
+    let _indicator = crate::indicator::Indicator::start(active.clone(), desktop)?;
     timeout(
         Duration::from_millis(500),
         socket.send(Message::Text(
@@ -231,7 +264,11 @@ async fn stream(grant: Grant) -> Result<(), Error> {
         MediaStreamTrack::new(
             "beacon-test-stream".into(),
             "beacon-test-video".into(),
-            "Synthetic video — no desktop".into(),
+            if desktop {
+                "Primary desktop".into()
+            } else {
+                "Synthetic video — no desktop".into()
+            },
             RtpCodecKind::Video,
             vec![RTCRtpEncodingParameters {
                 rtp_coding_parameters: RTCRtpCodingParameters {
@@ -268,6 +305,7 @@ async fn stream(grant: Grant) -> Result<(), Error> {
         let mut encoder = Encoder::new(1280, 720, 30, 2_500_000)?;
         let mut nv12 = vec![128; 1280 * 720 * 3 / 2];
         let mut index = 0;
+        let mut capture = None::<crate::capture::DesktopCapture>;
         while worker_active.load(Ordering::Acquire) && Instant::now() < deadline {
             let last = worker_lease.load(Ordering::Acquire);
             let elapsed = epoch.elapsed().as_millis() as u64;
@@ -279,8 +317,24 @@ async fn stream(grant: Grant) -> Result<(), Error> {
                 continue;
             }
             let started = Instant::now();
-            for (offset, pixel) in nv12[..1280 * 720].iter_mut().enumerate() {
-                *pixel = 16 + ((offset / 1280 + index as usize * 4) % 220) as u8;
+            if desktop {
+                if capture.is_none() {
+                    capture = Some(crate::capture::DesktopCapture::start(
+                        worker_active.clone(),
+                    )?);
+                }
+                let Some(frame) = capture.as_mut().ok_or("Capture unavailable")?.snapshot()? else {
+                    std::thread::sleep(Duration::from_millis(10));
+                    continue;
+                };
+                crate::pixels::nv12(&frame.bgra, frame.width, frame.height, &mut nv12, 1280, 720)?;
+            } else {
+                for (offset, pixel) in nv12[..1280 * 720].iter_mut().enumerate() {
+                    *pixel = 16 + ((offset / 1280 + index as usize * 4) % 220) as u8;
+                }
+            }
+            if !worker_active.load(Ordering::Acquire) {
+                break;
             }
             for packet in encoder.encode(&nv12, index)? {
                 if packets.try_send(packet).is_err() {
@@ -355,6 +409,13 @@ async fn stream(grant: Grant) -> Result<(), Error> {
     let _ = timeout(Duration::from_secs(2), pc.close()).await;
     let _ = timeout(Duration::from_millis(500), socket.close(None)).await;
     timeout(Duration::from_secs(3), worker).await???;
-    println!("Synthetic video stopped. Nothing recorded or captured.");
+    println!(
+        "{}",
+        if desktop {
+            "Desktop sharing stopped. Nothing recorded."
+        } else {
+            "Synthetic video stopped. Nothing recorded or captured."
+        }
+    );
     result
 }

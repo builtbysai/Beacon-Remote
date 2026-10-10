@@ -58,12 +58,12 @@ function App() {
     };
   }, [signedIn]);
 
-  async function testVideo(machine: Machine) {
+  async function testVideo(machine: Machine, source: "synthetic" | "desktop") {
     setBusy(true);
     setError("");
     try {
       const grant = await api<ViewGrant>(`machines/${machine.id}/sessions`, {
-        source: "synthetic",
+        source,
       });
       setView({ grant, name: machine.name });
     } catch {
@@ -292,16 +292,26 @@ function App() {
                         : "○ Offline"}
                 </p>
                 <button
-                  disabled
-                  title="Desktop streaming is not available in this development release"
+                  disabled={
+                    !mediaEnabled ||
+                    busy ||
+                    !machine.online ||
+                    stale ||
+                    view !== null ||
+                    Boolean(machine.revokedAt)
+                  }
+                  onClick={() => {
+                    void testVideo(machine, "desktop");
+                  }}
+                  title="View only; requires approval on your Windows computer"
                 >
-                  Remote — coming next
+                  {mediaEnabled ? "View desktop" : "Remote — coming next"}
                 </button>
                 {mediaEnabled && !machine.revokedAt && (
                   <button
                     disabled={busy || !machine.online || stale || view !== null}
                     onClick={() => {
-                      void testVideo(machine);
+                      void testVideo(machine, "synthetic");
                     }}
                   >
                     Test video connection

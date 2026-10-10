@@ -52,8 +52,7 @@ impl Helpers {
             if self.handled.len() >= 8 || !self.children.is_empty() {
                 continue;
             }
-            // This development increment deliberately launches synthetic video only.
-            if grant["source"].as_str() != Some("synthetic") {
+            if !matches!(grant["source"].as_str(), Some("synthetic" | "desktop")) {
                 continue;
             }
             let mut payload = grant.clone();

@@ -192,6 +192,7 @@ export async function registerSessions(
         await client.query("COMMIT");
         return {
           id: session.id,
+          source: session.source,
           expiresAtMillis: session.expires_at.getTime(),
           iceServers,
         };

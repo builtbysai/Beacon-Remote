@@ -73,6 +73,20 @@ The window owns its message loop and state lifetime, following Microsoft's
 [Win32 message-loop guidance](https://learn.microsoft.com/en-us/windows/win32/winmsg/using-messages-and-message-queues).
 Actual local Stop acceptance is required before desktop sharing is connected.
 
+Local Stop acceptance passed: the owner clicked the native button during real
+synthetic decoding; the helper exited, Chrome cleared video, and PostgreSQL
+marked the session ended. Real browser Stop, logout and absolute two-minute
+expiry also passed; the expiry run decoded 3,292 frames before clearing media.
+
+The next development increment connects consented primary-display WGC capture
+to the same bounded encoder/transport. It preserves the Windows border and
+cursor, refuses capture until a connected peer and live challenge lease exist,
+fits BGRA into 1280×720 NV12 without stretching, and retains no recording.
+Conversion uses [Microsoft's limited-range BT.601 formulas](https://learn.microsoft.com/en-us/windows/win32/medfound/recommended-8-bit-yuv-formats-for-video-rendering)
+and deterministic checks for BGRA channel order, NV12 chroma layout, letterbox
+values and malformed buffers. Desktop acceptance is still pending; no input,
+microphone, recording or unattended sharing is added.
+
 Production still runs the validated identity/presence release. Attended desktop
 streaming, local Stop sharing acceptance, forced relay and input remain
 incomplete. Account creation and broader UI/UX redesign remain postponed at the
