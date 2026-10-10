@@ -92,7 +92,9 @@ export function AccountPanels({ activity }: { activity: boolean }) {
                       ? "Computer paired"
                       : event.action === "machine.revoked"
                         ? "Access revoked"
-                        : event.action}
+                        : event.action === "machine.renamed"
+                          ? "Computer renamed"
+                          : event.action}
                   </strong>
                   <span>{event.machineName ?? "Computer"}</span>
                   <time dateTime={event.occurredAt}>

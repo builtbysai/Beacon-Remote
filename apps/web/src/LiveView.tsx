@@ -206,8 +206,23 @@ export function LiveView({
       />
       <p role="status" data-decoded-frames={frames}>
         {status}
-        {frames > 0 ? ` Decoded frames: ${frames}.` : ""}
       </p>
+      {frames > 0 && (
+        <details>
+          <summary>Connection diagnostics</summary>
+          <p>Decoded frames: {frames}</p>
+        </details>
+      )}
+      {grant.source === "desktop" && !ended && (
+        <div className="actions">
+          <button disabled title="Pause and resume are not available yet">
+            Pause sharing
+          </button>
+          <button disabled title="This session permits viewing only">
+            Request control
+          </button>
+        </div>
+      )}
       <button
         onClick={() => {
           stop.current();

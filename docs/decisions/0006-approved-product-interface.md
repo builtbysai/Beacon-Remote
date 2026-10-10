@@ -16,7 +16,9 @@ Expose bounded, account-scoped activity and view-request history from existing
 tables, and browser-session expiry/current-browser information without tokens or
 token hashes. Ending other browser sessions requires the existing exact Origin
 and preserves the current browser and other accounts. No new database or service
-is needed. Session history is unavailable when media is disabled, so the deployed
+is needed. Inline computer renaming uses an owner-scoped, Origin-checked update
+and an atomic audit event; revoked computers cannot be renamed.
+Session history is unavailable when media is disabled, so the deployed
 presence release does not need the media migration to render the interface.
 
 MFA, recovery, accountless support, signed installer downloads, control and

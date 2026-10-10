@@ -204,6 +204,28 @@ export async function createApp(pool: Pool, config: Config) {
     return { sessions: result.rows };
   });
 
+  app.post("/api/machines/:id/name", async (request, reply) => {
+    if (!sameOrigin(request))
+      return reply.code(403).send({ error: "Origin rejected" });
+    const account = await owner(request);
+    if (!account) return reply.code(401).send({ error: "Sign in required" });
+    const path = z.object({ id: z.uuid() }).safeParse(request.params);
+    const body = z
+      .object({ name: z.string().trim().min(1).max(80) })
+      .strict()
+      .safeParse(request.body);
+    if (!path.success || !body.success)
+      return reply.code(400).send({ error: "Invalid computer name" });
+    const result = await pool.query(
+      `WITH renamed AS (UPDATE machines SET name=$3 WHERE id=$1 AND account_id=$2 AND revoked_at IS NULL RETURNING id)
+       INSERT INTO audit_events(account_id,machine_id,action) SELECT $2,id,'machine.renamed' FROM renamed RETURNING machine_id`,
+      [path.data.id, account, body.data.name],
+    );
+    if (result.rowCount !== 1)
+      return reply.code(404).send({ error: "Computer unavailable" });
+    return { ok: true };
+  });
+
   app.post("/api/account/sessions/end-others", async (request, reply) => {
     if (!sameOrigin(request))
       return reply.code(403).send({ error: "Origin rejected" });

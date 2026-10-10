@@ -7,6 +7,7 @@ import { Brand, Monitor, ProductPage, pageFromHash } from "./Product.js";
 import { api, ApiError } from "./api.js";
 import { AccountPanels } from "./AccountPanels.js";
 import { SessionHistory } from "./SessionHistory.js";
+import { ComputerInspector } from "./ComputerInspector.js";
 
 // Fragments stay out of HTTP/access logs; remove the bearer from browser history.
 const invitation = new URLSearchParams(window.location.hash.slice(1)).get(
@@ -387,115 +388,121 @@ function App() {
               </p>
             </div>
           )}
-          <div className="grid">
-            <div className="inventory-tools">
-              <input
-                type="search"
-                aria-label="Search computers"
-                placeholder="Search computers"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-              />
-              <select
-                aria-label="Computer status"
-                value={filter}
-                onChange={(event) => setFilter(event.target.value)}
-              >
-                <option value="all">All computers</option>
-                <option value="online">Online</option>
-                <option value="offline">Offline</option>
-              </select>
-            </div>
-            {machines
-              .filter(
-                (machine) =>
-                  machine.name.toLowerCase().includes(search.toLowerCase()) &&
-                  (filter === "all" ||
-                    (!stale && !machine.revokedAt && machine.online
-                      ? "online"
-                      : "offline") === filter),
-              )
-              .map((machine) => (
-                <article key={machine.id} className="device-row">
-                  <Monitor />
-                  <button
-                    className="device-name secondary"
-                    onClick={() =>
-                      setSelected(selected === machine.id ? null : machine.id)
-                    }
-                    aria-expanded={selected === machine.id}
-                  >
-                    {machine.name}
-                  </button>
-                  <p
-                    className={machine.online && !stale ? "online" : "offline"}
-                  >
-                    {machine.revokedAt
-                      ? "Access revoked"
-                      : stale
-                        ? "Status unavailable"
-                        : machine.online
-                          ? "● Online"
-                          : "○ Offline"}
-                  </p>
-                  <button
-                    disabled={
-                      !mediaEnabled ||
-                      busy ||
-                      !machine.online ||
-                      stale ||
-                      view !== null ||
-                      Boolean(machine.revokedAt)
-                    }
-                    onClick={() => {
-                      void testVideo(machine, "desktop");
-                    }}
-                    title="View only; requires approval on your Windows computer"
-                  >
-                    {mediaEnabled ? "View desktop" : "Remote — coming next"}
-                  </button>
-                  {mediaEnabled && !machine.revokedAt && (
+          <div
+            className={
+              selected ? "inventory-layout with-inspector" : "inventory-layout"
+            }
+          >
+            <div className="grid">
+              <div className="inventory-tools">
+                <input
+                  type="search"
+                  aria-label="Search computers"
+                  placeholder="Search computers"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+                <select
+                  aria-label="Computer status"
+                  value={filter}
+                  onChange={(event) => setFilter(event.target.value)}
+                >
+                  <option value="all">All computers</option>
+                  <option value="online">Online</option>
+                  <option value="offline">Offline</option>
+                </select>
+              </div>
+              {machines
+                .filter(
+                  (machine) =>
+                    machine.name.toLowerCase().includes(search.toLowerCase()) &&
+                    (filter === "all" ||
+                      (!stale && !machine.revokedAt && machine.online
+                        ? "online"
+                        : "offline") === filter),
+                )
+                .map((machine) => (
+                  <article key={machine.id} className="device-row">
+                    <Monitor />
+                    <button
+                      className="device-name secondary"
+                      onClick={() =>
+                        setSelected(selected === machine.id ? null : machine.id)
+                      }
+                      aria-expanded={selected === machine.id}
+                    >
+                      {machine.name}
+                    </button>
+                    <p
+                      className={
+                        machine.online && !stale ? "online" : "offline"
+                      }
+                    >
+                      {machine.revokedAt
+                        ? "Access revoked"
+                        : stale
+                          ? "Status unavailable"
+                          : machine.online
+                            ? "● Online"
+                            : "○ Offline"}
+                    </p>
                     <button
                       disabled={
-                        busy || !machine.online || stale || view !== null
+                        !mediaEnabled ||
+                        busy ||
+                        !machine.online ||
+                        stale ||
+                        view !== null ||
+                        Boolean(machine.revokedAt)
                       }
                       onClick={() => {
-                        void testVideo(machine, "synthetic");
+                        void testVideo(machine, "desktop");
                       }}
+                      title="View only; requires approval on your Windows computer"
                     >
-                      Test video connection
+                      {mediaEnabled ? "View desktop" : "Remote — coming next"}
                     </button>
-                  )}
-                  {!machine.revokedAt && (
-                    <button
-                      className="secondary"
-                      disabled={busy}
-                      onClick={() => {
-                        void revoke(machine.id);
-                      }}
-                    >
-                      Revoke access
-                    </button>
-                  )}
-                  {selected === machine.id && (
-                    <div className="device-inspector">
-                      <h3>Computer details</h3>
-                      <dl>
-                        <dt>Machine ID</dt>
-                        <dd>{machine.id}</dd>
-                        <dt>Last seen</dt>
-                        <dd>
-                          {machine.lastSeenAt
-                            ? new Date(machine.lastSeenAt).toLocaleString()
-                            : "Not reported"}
-                        </dd>
-                        <dt>Access</dt>
-                        <dd>Attended · View only</dd>
-                      </dl>
-                    </div>
-                  )}
-                </article>
-              ))}
+                    {mediaEnabled && !machine.revokedAt && (
+                      <button
+                        disabled={
+                          busy || !machine.online || stale || view !== null
+                        }
+                        onClick={() => {
+                          void testVideo(machine, "synthetic");
+                        }}
+                      >
+                        Test video connection
+                      </button>
+                    )}
+                    {!machine.revokedAt && (
+                      <button
+                        className="secondary"
+                        disabled={busy}
+                        onClick={() => {
+                          void revoke(machine.id);
+                        }}
+                      >
+                        Revoke access
+                      </button>
+                    )}
+                  </article>
+                ))}
+            </div>
+            {selected &&
+              machines.find((machine) => machine.id === selected) && (
+                <ComputerInspector
+                  key={selected}
+                  stale={stale}
+                  machine={machines.find((machine) => machine.id === selected)!}
+                  onClose={() => setSelected(null)}
+                  onUpdated={async () => {
+                    const result = await api<{ machines: Machine[] }>(
+                      "machines",
+                    );
+                    setMachines(result.machines);
+                  }}
+                />
+              )}
           </div>
           {view && (
             <LiveView

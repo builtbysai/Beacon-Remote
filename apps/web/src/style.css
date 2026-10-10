@@ -30,6 +30,57 @@
 .password-toggle {
   margin-bottom: 16px;
 }
+.inventory-layout {
+  display: grid;
+  min-width: 0;
+  align-items: start;
+}
+.with-inspector {
+  grid-template-columns: minmax(0, 1fr) 300px;
+}
+.with-inspector .grid {
+  border-radius: 10px 0 0 10px;
+}
+.inventory-layout .device-inspector {
+  margin: 0;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 0;
+  border-radius: 0 10px 10px 0;
+  min-width: 0;
+  min-height: 360px;
+}
+.inspector-heading {
+  display: flex;
+  align-items: start;
+  gap: 12px;
+}
+.inspector-heading h2 {
+  font-size: 18px;
+  overflow-wrap: anywhere;
+  flex: 1;
+}
+.inspector-heading button {
+  min-width: 40px;
+}
+.device-inspector input {
+  margin-top: 8px;
+}
+@media (max-width: 1200px) {
+  .with-inspector {
+    grid-template-columns: 1fr;
+  }
+  .with-inspector .grid {
+    border-radius: 10px 10px 0 0;
+  }
+  .inventory-layout .device-inspector {
+    border-left: 1px solid var(--line);
+    border-top: 0;
+    border-radius: 0 0 10px 10px;
+    min-height: 0;
+  }
+}
 body {
   font-size: 14px;
 }
@@ -277,6 +328,7 @@ select {
 }
 .app-shell {
   display: grid;
+  grid-template-rows: auto 1fr auto;
   grid-template-columns: 204px minmax(0, 1fr);
   min-height: 100vh;
 }
@@ -306,6 +358,8 @@ select {
   margin-top: 24px;
 }
 .app-shell > section {
+  margin: 0;
+  max-width: none;
   width: 100%;
   min-width: 0;
   padding: 28px 32px;

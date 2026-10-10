@@ -34,6 +34,8 @@ test(
     });
     const account = randomUUID(),
       other = randomUUID();
+    const ownMachine = randomUUID(),
+      alienMachine = randomUUID();
     const current = randomBytes(32).toString("base64url"),
       sibling = randomBytes(32).toString("base64url"),
       alien = randomBytes(32).toString("base64url");
@@ -62,7 +64,7 @@ test(
         [account, other],
       );
       for (const owner of [account, other]) {
-        const machine = randomUUID();
+        const machine = owner === account ? ownMachine : alienMachine;
         await pool.query(
           "INSERT INTO machines(id,account_id,name,public_key) VALUES ($1,$2,$3,$4)",
           [
@@ -116,6 +118,29 @@ test(
           .json()
           .events.map((event: { action: string }) => event.action),
         ["machine.enrolled"],
+      );
+      const rename = (id: string, name: string, origin = headers.origin) =>
+        app.inject({
+          method: "POST",
+          url: `/api/machines/${id}/name`,
+          headers: { ...headers, origin },
+          payload: { name },
+        });
+      assert.equal(
+        (await rename(ownMachine, "Changed", "https://attacker.test"))
+          .statusCode,
+        403,
+      );
+      assert.equal((await rename(alienMachine, "Changed")).statusCode, 404);
+      assert.equal((await rename(ownMachine, " ")).statusCode, 400);
+      assert.equal(
+        (await rename(ownMachine, "Renamed computer")).statusCode,
+        200,
+      );
+      assert.equal(
+        (await app.inject({ url: "/api/machines", headers })).json().machines[0]
+          .name,
+        "Renamed computer",
       );
       assert.equal(
         (
