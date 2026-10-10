@@ -23,14 +23,14 @@ database and permissions even when infrastructure is shared.
 
 ## Evidence and current gaps
 
-| Area                     | Working evidence                                                                                      | Remaining gate                                                                                 |
-| ------------------------ | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Foundation               | Backend/web and native Windows CI builds                                                              | Local native linker absent; use Windows CI for compilation                                     |
-| Account/machine identity | Private invitations/login, actual pairing, DPAPI persistence, signed presence, restart and revoke     | Public account lifecycle, MFA/recovery and retention/deletion                                  |
-| Capture                  | Actual attended primary-display WGC capture, snapshot interface and measurements                      | Sustained performance, lock/display-loss behavior, broader hardware                            |
-| Media                    | Real native H.264 in Chrome, local Stop; owner confirmed Android/T-Mobile separate-network desktop viewing + Stop | Full interruption/recovery, sustained performance, broader route/hardware acceptance |
-| Approved interface       | Real inventory/inspector/naming, activity/history/browser sessions; responsive/theme checks           | Complete native host states, permission focus/readability feedback and backend-dependent flows |
-| Deployment               | Isolated Oracle control plane, HTTPS, encrypted backup/restore and rollback                           | Production media intentionally disabled; input absent                                          |
+| Area                     | Working evidence                                                                                                  | Remaining gate                                                                                 |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Foundation               | Backend/web and native Windows CI builds                                                                          | Local native linker absent; use Windows CI for compilation                                     |
+| Account/machine identity | Private invitations/login, actual pairing, DPAPI persistence, signed presence, restart and revoke                 | Public account lifecycle, MFA/recovery and retention/deletion                                  |
+| Capture                  | Actual attended primary-display WGC capture, snapshot interface and measurements                                  | Sustained performance, lock/display-loss behavior, broader hardware                            |
+| Media                    | Real native H.264 in Chrome, local Stop; owner confirmed Android/T-Mobile separate-network desktop viewing + Stop | Full interruption/recovery, sustained performance, broader route/hardware acceptance           |
+| Approved interface       | Real inventory/inspector/naming, activity/history/browser sessions; responsive/theme checks                       | Complete native host states, permission focus/readability feedback and backend-dependent flows |
+| Deployment               | Isolated Oracle control plane, HTTPS, encrypted backup/restore and rollback                                       | Production media intentionally disabled; input absent                                          |
 
 The last documented deployed interface is release `ff452ffe66dd600e9a7b18d12fccc08ac970a7d6`.
 PR #8 was merged as `d6c40c8`, PR #9 as `6d8d7496` into main. CI was
@@ -141,7 +141,6 @@ Use the smallest useful suite at security/database boundaries plus real Windows/
 browser/network checks. Report failed/skipped checks and unproven behavior;
 test counts, screenshots and CI alone do not prove remote control is ready.
 
-
 ## Ongoing UI/UX fidelity track (parallel with technical gates)
 
 The visual target is the owner-supplied `Beacon-Remote-Final-Package.zip` (external
@@ -149,15 +148,15 @@ attachment, **not checked into the repo**). UI completeness and backend
 availability are different measures. A feature can match the target visually
 while remaining honestly disabled until its secure backend exists.
 
-| Surface | Integrated now | Remaining visual/functional gaps |
-| --- | --- | --- |
-| Public landing/download/security | React public navigation and partial approved style | Match prototype composition and copy; show real release/download state |
-| Sign-in/account | Operator invitation and password login | Complete visual/auth states, signup, email/MFA/recovery (milestone 7) |
-| Sidebar/workspace | Device inventory, search/status filter, inspector, inline rename | Prototype-aligned sidebar/density/responsiveness, hide dev diagnostics from consumer UI |
-| Sessions/Assist/Activity | Authenticated view/audit history, browser session management | Fill available space, real states, one-time support UI after backend capability |
-| Remote session | Attended view-only browser video, native consent + local Stop | Polished viewer, accurate reconnect and input states; control after milestone 5 |
-| Windows host | Native helper consent/Stop control | Approved idle/tray/request/active/error visual system after service/installer work |
-| Themes, icons, accessibility | Blue/slate tokens and mark assets; viewport checks on integrated slices | Complete fidelity in light/dark, keyboard/touch/focus, mobile and reduced motion |
+| Surface                          | Integrated now                                                          | Remaining visual/functional gaps                                                        |
+| -------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Public landing/download/security | React public navigation and partial approved style                      | Match prototype composition and copy; show real release/download state                  |
+| Sign-in/account                  | Operator invitation and password login                                  | Complete visual/auth states, signup, email/MFA/recovery (milestone 7)                   |
+| Sidebar/workspace                | Device inventory, search/status filter, inspector, inline rename        | Prototype-aligned sidebar/density/responsiveness, hide dev diagnostics from consumer UI |
+| Sessions/Assist/Activity         | Authenticated view/audit history, browser session management            | Fill available space, real states, one-time support UI after backend capability         |
+| Remote session                   | Attended view-only browser video, native consent + local Stop           | Polished viewer, accurate reconnect and input states; control after milestone 5         |
+| Windows host                     | Native helper consent/Stop control                                      | Approved idle/tray/request/active/error visual system after service/installer work      |
+| Themes, icons, accessibility     | Blue/slate tokens and mark assets; viewport checks on integrated slices | Complete fidelity in light/dark, keyboard/touch/focus, mobile and reduced motion        |
 
 For each implementation slice: compare actual desktop/tablet/mobile screenshots
 against the approved prototype, fix layout/UX gaps, run accessibility/browser

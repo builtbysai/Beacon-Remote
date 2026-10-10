@@ -17,6 +17,7 @@
 ## The product and its boundaries
 
 Beacon is a suite:
+
 - **Beacon View**: camera monitoring/recording, a separate codebase, database and permission realm.
 - **Beacon Remote**: secure, self-hosted browser-to-Windows remote access and support, initially Windows host/browser client, with direct WebRTC preferred and authenticated Coturn relay fallback.
 - **Potential future**: Lighthouse-style observability plus authorized human/AI remote operations. Keep capture, snapshots, input, identity, session/control leases and policies behind transport-independent interfaces. **Do not build AI, MCP, shell, file transfer, recording, multi-OS support or enterprise management during current milestones.**
