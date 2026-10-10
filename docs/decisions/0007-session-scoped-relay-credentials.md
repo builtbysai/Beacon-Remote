@@ -1,7 +1,8 @@
 # Session-scoped relay credential foundation
 
-Date: 2026-10-10. Status: backend/peer integration implemented and Windows CI
-passed; actual forced-relay acceptance failed and remains unresolved.
+Date: 2026-10-10. Status: backend/peer integration and Windows CI passed;
+browser-only synthetic relay passed, dual-relay permission was rejected, and
+distinct-public-network desktop acceptance remains incomplete.
 
 Follow-up: Windows CI also passed at `543988f`. Additional safe browser diagnostics
 showed both peers obtained relay candidates in the failed dual-relay test. A
@@ -11,6 +12,16 @@ existing Tailscale path; distinct-public-network desktop viewing remains unprove
 The comparison used a temporary local browser policy override, restored afterward;
 normal product policy still comes from the authorized grant. No production rollout
 or shared relay configuration change occurred.
+
+A bounded header-only TURN error probe on the existing relay observed Allocate
+`401` (the normal authentication challenge) followed by CreatePermission `403`
+in a repeated dual-relay session. Both peers had relay candidates; permission to
+exchange traffic between the allocations was rejected. This locates the current
+dual-relay failure at the relay permission boundary, not credential issuance.
+Existing no-loopback/protected-peer controls were retained. General fallback
+cannot be called ready until restrictive-network peers are accepted without
+weakening those controls. The probe printed only numeric method/error codes;
+addresses, transaction IDs, usernames, credentials and payloads were not retained.
 
 Chrome reported the selected local candidate as `prflx` despite relay-only policy.
 Diagnostics now honor the enforced policy and leave ambiguous peer-reflexive
@@ -23,6 +34,19 @@ Registry source for the current webrtc 0.21.0 async TURN driver skips secure and
 non-UDP TURN URLs. Backend startup and native validation now reject TCP/TLS TURN
 instead of accepting an unusable configuration. This is an explicit current
 transport limitation, not a recommendation to disable TLS elsewhere.
+
+Validation of this follow-up: `pnpm check` passed with real PostgreSQL and no
+database checks skipped; production dependency audit found no known vulnerabilities.
+Windows formatting, Clippy, tests and release build passed for `c7fc58c` in
+[CI run 38076047160](https://github.com/builtbysai/Beacon-Remote/actions/runs/38076047160).
+The updated matching agent/helper artifacts were downloaded for bounded native
+acceptance. These checks validate the implementation, not the unresolved relay
+topology or public-network desktop acceptance.
+The matching `c7fc58c` helper ran a further bounded dual-relay synthetic test:
+native logged connecting and then sharing stopped; browser retained disconnected
+ICE, one relay candidate per peer and zero decoded frames. The test captured no
+desktop. Its temporary account, native identity and exported relay secret were
+removed afterward; production and Beacon View remained unchanged.
 
 Milestone 4 cannot finish with STUN-only local acceptance. Use existing Coturn
 REST authentication rather than static client credentials or another service.

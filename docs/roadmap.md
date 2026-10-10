@@ -93,6 +93,9 @@ never inherit computer access from a camera or a public support code.
    reflexive candidate reporting exposed a false Direct label; diagnostics now
    honor relay-only policy and report ambiguous routes as unavailable. Unsupported
    TCP/TLS TURN URLs are rejected rather than silently skipped by native RTC.
+   A repeated dual-relay attempt returned TURN CreatePermission `403` after
+   successful allocation. Existing protected-peer restrictions remain intact;
+   a secure relay topology and restrictive-network acceptance are still required.
 4. **Failure and UX acceptance.** Verify Stop, denial, logout, browser refresh,
    machine revoke, expiry, backend restart and network loss. Reconnect requires
    fresh authorization. Confirm native focus/readability; measure startup,
