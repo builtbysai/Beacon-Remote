@@ -44,3 +44,12 @@ CPU/RAM, groups and favorites are omitted where there is no real backend state.
 Local desktop viewing has acceptance evidence; cross-network/forced relay does
 not. Production media stays disabled and the input milestone was not started.
 No new paid infrastructure or service was introduced.
+
+Follow-up workspace recovery: Activity, Settings and Sessions now expose refresh
+and retry controls, clear old results while loading and discard responses after
+navigation. Actual Chrome checks refreshed all three screens against an isolated
+local account. Stopping its backend produced an error with an enabled Try again
+control; clicking it retried without leaving stale history visible. Fixture
+account and isolated native identity were cleaned up. Full local `pnpm check`
+passed, including real PostgreSQL regressions. This follow-up is local and has
+not changed the production release above.

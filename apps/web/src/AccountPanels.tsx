@@ -15,9 +15,15 @@ export function AccountPanels({ activity }: { activity: boolean }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const [refresh, setRefresh] = useState(0);
+  const [loading, setLoading] = useState(true);
   useEffect(() => {
     let disposed = false;
     setError("");
+    setNotice("");
+    setSessions(null);
+    setEvents(null);
+    setLoading(true);
     if (activity)
       void api<{ events: Activity[] }>("activity")
         .then((data) => {
@@ -30,6 +36,9 @@ export function AccountPanels({ activity }: { activity: boolean }) {
                 ? failure.message
                 : "Could not load activity.",
             );
+        })
+        .finally(() => {
+          if (!disposed) setLoading(false);
         });
     else
       void api<{ sessions: BrowserSession[] }>("account/sessions")
@@ -43,11 +52,14 @@ export function AccountPanels({ activity }: { activity: boolean }) {
                 ? failure.message
                 : "Could not load browser sessions.",
             );
+        })
+        .finally(() => {
+          if (!disposed) setLoading(false);
         });
     return () => {
       disposed = true;
     };
-  }, [activity]);
+  }, [activity, refresh]);
   async function endOthers() {
     setBusy(true);
     setError("");
@@ -70,6 +82,12 @@ export function AccountPanels({ activity }: { activity: boolean }) {
   return (
     <section className="public-section">
       <h1>{activity ? "Activity" : "Settings"}</h1>
+      <button
+        disabled={loading || busy}
+        onClick={() => setRefresh((value) => value + 1)}
+      >
+        {loading ? "Refreshing…" : error ? "Try again" : "Refresh"}
+      </button>
       {error && (
         <p role="alert" className="error">
           {error}
@@ -78,7 +96,7 @@ export function AccountPanels({ activity }: { activity: boolean }) {
       {notice && <p role="status">{notice}</p>}
       {activity ? (
         <>
-          <p>Recent enrollment and access revocation events.</p>
+          <p>Recent pairing, naming and access revocation events.</p>
           {events === null && !error ? (
             <p role="status">Loading activity…</p>
           ) : events?.length === 0 ? (

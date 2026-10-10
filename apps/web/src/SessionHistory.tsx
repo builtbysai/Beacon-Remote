@@ -15,8 +15,13 @@ export function SessionHistory() {
     sessions: SessionRecord[];
   } | null>(null);
   const [error, setError] = useState("");
+  const [refresh, setRefresh] = useState(0);
+  const [loading, setLoading] = useState(true);
   useEffect(() => {
     let disposed = false;
+    setData(null);
+    setError("");
+    setLoading(true);
     void api<{ available: boolean; sessions: SessionRecord[] }>("sessions")
       .then((result) => {
         if (!disposed) setData(result);
@@ -28,14 +33,23 @@ export function SessionHistory() {
               ? failure.message
               : "Could not load sessions.",
           );
+      })
+      .finally(() => {
+        if (!disposed) setLoading(false);
       });
     return () => {
       disposed = true;
     };
-  }, []);
+  }, [refresh]);
   return (
     <section className="public-section">
       <h1>Sessions</h1>
+      <button
+        disabled={loading}
+        onClick={() => setRefresh((value) => value + 1)}
+      >
+        {loading ? "Refreshing…" : error ? "Try again" : "Refresh"}
+      </button>
       <p>
         Recent view requests. A request does not establish that desktop media
         was viewed.
