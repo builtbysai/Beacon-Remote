@@ -64,3 +64,20 @@ The operator invitation integration uses real PostgreSQL to check expiry, exact
 Origin rejection, atomic concurrent claims, replay rejection and login with an
 Argon2-protected owner-chosen password. Local formatting, lint, type checking,
 production compilation and database integration passed before review.
+
+Production runtime release `2c8f944c5e44ff765baa1671a70ea9202b9b688c`
+passed the real Windows agent path over `https://remote.builtbysai.com`: a temporary
+invited account, password login with Secure/HttpOnly/Strict cookies, native
+enrollment, user-DPAPI identity, signed online presence, stopped-agent offline
+expiry, restarted-agent presence, and server revocation terminating the process.
+Only that acceptance account, invitation and isolated temporary local identity
+were removed. This test captured no screen content and proves no video/input path.
+The owner's separate setup page is open for direct credential entry.
+
+The first operator CLI invocation caught an omitted production-build include;
+the manifest was corrected and the compiled CLI was verified inside the ARM64
+runtime image before this acceptance passed. Scheduled backup now uses `--no-deps`;
+the actual systemd job succeeded and preserved the live PostgreSQL container ID
+and start time. Both products still pass public health/database readiness, and
+the Remote-only daily timer remains active. Its restored-database drill passed
+before owner setup was opened, while writes were quiesced.
