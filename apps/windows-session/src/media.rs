@@ -193,7 +193,6 @@ async fn stream(grant: Grant) -> Result<(), Error> {
             rtcp_feedback: vec![],
         },
         payload_type: 102,
-        ..Default::default()
     };
     engine.register_codec(codec.clone(), RtpCodecKind::Video)?;
     let registry = register_default_interceptors(Registry::new(), &mut engine)?;
