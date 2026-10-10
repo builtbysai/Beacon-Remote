@@ -1,0 +1,7 @@
+# Apply only to the existing shared Coturn service, using its original project,
+# compose file and protected environment file. No secrets belong in this file.
+services:
+  coturn:
+    entrypoint: [/bin/sh, /usr/local/bin/beacon-turn-relay]
+    volumes:
+      - /etc/beacon-remote/turn-relay-entrypoint.sh:/usr/local/bin/beacon-turn-relay:ro

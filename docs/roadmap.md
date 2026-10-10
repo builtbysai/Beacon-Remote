@@ -27,7 +27,7 @@ database and permissions even when infrastructure is shared.
 | Foundation               | Backend/web and native Windows CI builds                                                              | Local native linker absent; use Windows CI for compilation                                     |
 | Account/machine identity | Private invitations/login, actual pairing, DPAPI persistence, signed presence, restart and revoke     | Public account lifecycle, MFA/recovery and retention/deletion                                  |
 | Capture                  | Actual attended primary-display WGC capture, snapshot interface and measurements                      | Sustained performance, lock/display-loss behavior, broader hardware                            |
-| Media                    | Native H.264 → Chrome, real local desktop decoding, consent, Stop/logout/expiry and lease enforcement | Authenticated TURN, forced relay, distinct-network acceptance and restart/loss matrix          |
+| Media                    | Native H.264 → Chrome, real local desktop decoding, consent, Stop/logout/expiry and lease enforcement | Distinct-network desktop acceptance and restart/loss matrix                                    |
 | Approved interface       | Real inventory/inspector/naming, activity/history/browser sessions; responsive/theme checks           | Complete native host states, permission focus/readability feedback and backend-dependent flows |
 | Deployment               | Isolated Oracle control plane, HTTPS, encrypted backup/restore and rollback                           | Production media intentionally disabled; input absent                                          |
 
@@ -39,19 +39,21 @@ audit proves permission, not that a viewer decoded media.
 ## Ordered milestones
 
 Historical milestone numbers are retained. Work on one active milestone at a
-time. Milestone 4 is the current implementation scope; later milestones still
-require explicit approval.
+time. Milestone 4 remains active. The owner's continuation request authorizes
+milestones 5–8 in sequence after their prerequisites pass. Ordinary implementation
+needs no repeat approval; external release gates still apply.
 
-| Milestone                              | Status                          | Deliverable and completion gate                                                                                                                                  |
-| -------------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0 — Research/architecture              | Foundation recorded             | Existing capture/encoding/transport decisions remain measured prototypes; refine using evidence                                                                  |
-| 1 — Repository foundation              | Implemented                     | Formatting/lint/types/backend regressions and native Windows CI remain green                                                                                     |
-| 2 — Identity/presence                  | Private-alpha acceptance passed | Pair real agent, survive backend restart, expire stale presence and reject revoked identity                                                                      |
-| 3 — Capture                            | Initial acceptance passed       | Visible primary-display capture and bounded snapshot path; broader hardening belongs in media/resilience gates                                                   |
-| **4 — Attended WebRTC media**          | **Active**                      | Authorized direct and forced-relay real Windows/browser viewing, explicit local consent/Stop, safe loss/restart/expiry and measured behavior                     |
-| 5 — Authorized input                   | Queued; approval required       | Separate view/control approval, typed DataChannels, one controller, pointer/buttons/drag/scroll/keys/modifiers, held-input release on shutdown, respect UIPI/UAC |
-| 6 — Resilient installation             | Queued; approval required       | Least-privilege service/interactive helper, restricted IPC, visible status/tray, reboot recovery, signed installer/update/rollback and clean uninstall           |
-| 7 — Consumer account/release readiness | Queued; approval required       | Reviewed signup/email verification, MFA/recovery, credential rotation, retention/deletion, abuse limits and complete account/support flows                       |
+| Milestone                              | Status                            | Deliverable and completion gate                                                                                                                                  |
+| -------------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0 — Research/architecture              | Foundation recorded               | Existing capture/encoding/transport decisions remain measured prototypes; refine using evidence                                                                  |
+| 1 — Repository foundation              | Implemented                       | Formatting/lint/types/backend regressions and native Windows CI remain green                                                                                     |
+| 2 — Identity/presence                  | Private-alpha acceptance passed   | Pair real agent, survive backend restart, expire stale presence and reject revoked identity                                                                      |
+| 3 — Capture                            | Initial acceptance passed         | Visible primary-display capture and bounded snapshot path; broader hardening belongs in media/resilience gates                                                   |
+| **4 — Attended WebRTC media**          | **Active**                        | Authorized direct and forced-relay real Windows/browser viewing, explicit local consent/Stop, safe loss/restart/expiry and measured behavior                     |
+| 5 — Authorized input                   | Authorized; prerequisites pending | Separate view/control approval, typed DataChannels, one controller, pointer/buttons/drag/scroll/keys/modifiers, held-input release on shutdown, respect UIPI/UAC |
+| 6 — Resilient installation             | Authorized; prerequisites pending | Least-privilege service/interactive helper, restricted IPC, visible status/tray, reboot recovery, signed installer/update/rollback and clean uninstall           |
+| 7 — Consumer account/release readiness | Authorized; prerequisites pending | Reviewed signup/email verification, MFA/recovery, credential rotation, retention/deletion, abuse limits and complete account/support flows                       |
+| 8 — Production UX and reliability      | Authorized; prerequisites pending | Complete approved responsive UI, actionable lifecycle errors, accessibility and attended temporary support with distinct view/control approval                   |
 
 Account lifecycle is a general-consumer release gate. It can be reprioritized by
 the owner, but unfinished recovery/MFA screens remain honestly unavailable.
@@ -93,17 +95,26 @@ never inherit computer access from a camera or a public support code.
    reflexive candidate reporting exposed a false Direct label; diagnostics now
    honor relay-only policy and report ambiguous routes as unavailable. Unsupported
    TCP/TLS TURN URLs are rejected rather than silently skipped by native RTC.
-   A repeated dual-relay attempt returned TURN CreatePermission `403` after
-   successful allocation. Existing protected-peer restrictions remain intact;
-   a secure relay topology and restrictive-network acceptance are still required.
+   The permission failure is now reproduced and corrected: Coturn's wildcard
+   relay mapping translated its public peer into a protected zero address. An
+   isolated comparison returned `403` for wildcard and `200` for concrete mapping.
+   The dynamic relay-address wrapper then enabled native/Chrome synthetic decoding
+   with relay/relay selected and 667 presented frames at observation. Stop passed;
+   both products' health/readiness remained healthy. Protected-peer restrictions
+   remain intact. Actual separate-network desktop acceptance is still required;
+   the owner currently has no second device/network.
 4. **Failure and UX acceptance.** Verify Stop, denial, logout, browser refresh,
    machine revoke, expiry, backend restart and network loss. Reconnect requires
    fresh authorization. Confirm native focus/readability; measure startup,
    sustained FPS/CPU/RAM and relay usage. Pause must actually stop capture before
    a Pause/Resume control is enabled.
+   Backend startup now atomically ends interrupted persisted grants with audit
+   before listening, releasing busy computers after a crash. Real PostgreSQL
+   checks passed for rollback on audit failure, rejection of old grants and fresh
+   pending authorization. This does not replace actual Windows outage acceptance.
 5. **Release decision.** Review evidence, quota impact and exact-commit rollout/
    rollback. Enable production viewing only after acceptance. Input remains
-   unavailable until milestone 5 is approved.
+   unavailable until milestone 4 passes and milestone 5 is implemented.
 
 ## Boundaries and owner dependencies
 
@@ -115,7 +126,7 @@ allocation and Beacon View health.
 
 Owner dependencies: a second network/peer for transport acceptance, human native
 consent/Stop/readability feedback, legitimate signing credentials before installer
-distribution, and explicit approval before later milestones. Never weaken OS or
+distribution, and external release prerequisites for later milestones. Never weaken OS or
 relay protections to pass tests. The owner has authorized commits to Beacon
 Remote; use its feature branches and keep Beacon View changes separate.
 

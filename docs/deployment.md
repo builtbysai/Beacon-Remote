@@ -27,6 +27,12 @@ into View's root-owned products directory and validate/reload Caddy gracefully.
 The DNS A record is DNS-only to match the existing direct TLS deployment.
 
 Deploy only a validated exact commit under `/opt/beacon-remote/releases/<sha>`.
+Run one backend instance per Remote database. Stop the previous instance before
+starting its replacement; overlapping or rolling backend replicas are unsupported.
+Startup atomically ends persisted live view grants and records interruption
+events before listening. It fails closed if recovery cannot commit. Existing
+native leases expire independently; reconnect requires a new request and local
+approval. This also releases busy computers after an abrupt process crash.
 Build backend/migrate/verify/web images, start PostgreSQL, explicitly run `migrate`
 then `verify`, and start backend/web only after both pass. The application role
 must be non-superuser with no role/database-creation rights. Retain the previous
@@ -40,6 +46,41 @@ be public. Set production Secure cookies; restrict proxy trust to the known
 proxy network, configure rate limiting for actual client IPs, and add CSP,
 frame-ancestors, HSTS and static asset headers. Use WSS for later signaling.
 Assign memory/CPU limits, health checks, bounded logs and restart policy.
+
+## Shared relay address mapping
+
+The existing Coturn 4.6.3 service needs a concrete relay address. A wildcard
+`relay-ip` maps same-server public peers to a zero address and CreatePermission
+returns `403`. The isolated mapping reproduction returned `200` with a concrete
+relay address; a subsequent Windows/Chrome synthetic test selected relay/relay
+and decoded frames. This does not prove distinct-network desktop acceptance.
+
+Install `infrastructure/oracle/turn-relay-entrypoint.sh` and
+`turn-relay.override.yaml` as root-owned, mode-0644 files under
+`/etc/beacon-remote/`. The wrapper resolves the existing single-network container's
+IPv4 on each start and fails closed for wildcard, loopback, IPv6 or multiple
+addresses. It preserves the original arguments, credentials and peer protections.
+No port, paid resource or View repository change is needed.
+
+Validate and apply only Coturn with the existing protected environment:
+
+```sh
+sudo docker compose --project-name beacon-secureview-cloud \
+  --env-file /etc/beacon/production.env \
+  -f /opt/beacon/app/infrastructure/cloud/compose.yaml \
+  -f /etc/beacon-remote/turn-relay.override.yaml config --quiet
+sudo docker compose --project-name beacon-secureview-cloud \
+  --env-file /etc/beacon/production.env \
+  -f /opt/beacon/app/infrastructure/cloud/compose.yaml \
+  -f /etc/beacon-remote/turn-relay.override.yaml up -d --no-deps coturn
+```
+
+Include this override in future shared relay maintenance. Applying the original
+Compose file alone to Coturn removes the wrapper and restores the prior mapping
+failure; that command is also the rollback. Retain the original files and never
+print rendered Compose configuration or container command lines containing
+secrets. A Coturn replacement interrupts its allocations; preserve app services
+and verify both products' health/readiness afterward.
 
 ## Encrypted recovery
 

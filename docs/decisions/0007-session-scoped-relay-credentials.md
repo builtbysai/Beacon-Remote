@@ -1,8 +1,26 @@
 # Session-scoped relay credential foundation
 
 Date: 2026-10-10. Status: backend/peer integration and Windows CI passed;
-browser-only synthetic relay passed, dual-relay permission was rejected, and
+dual-relay synthetic decoding now passes after correcting wildcard relay mapping;
 distinct-public-network desktop acceptance remains incomplete.
+
+The later bounded probe correlated CreatePermission `403` with a request for the
+relay's public address, without retaining addresses or transaction IDs. Coturn
+4.6.3 decodes that address through its public/private mapping. With a wildcard
+relay address, it becomes a protected zero address. An isolated container using
+the existing image reproduced `403` with `relay-ip=0.0.0.0` and `200` with a
+concrete relay address. Authentication and protected-peer controls were unchanged.
+
+A separate root-owned Compose override now starts the shared relay through
+`infrastructure/oracle/turn-relay-entrypoint.sh`, resolving its concrete container
+IPv4 on each startup. Original View source/config/environment remain unchanged.
+The corrected service stayed running without restart loops; both products' public
+health/readiness passed. The matching native helper and unmodified browser grant
+policy then decoded synthetic video with **relay / relay** selected and 667
+presented frames at observation. Browser Stop ended the stream. No desktop was
+captured. The owner currently has no second device/network, so separate-network
+desktop acceptance remains an external gate. See deployment instructions for
+maintenance and rollback of the override.
 
 Follow-up: Windows CI also passed at `543988f`. Additional safe browser diagnostics
 showed both peers obtained relay candidates in the failed dual-relay test. A
