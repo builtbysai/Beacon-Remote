@@ -11,9 +11,10 @@ created. Historical 4-OCPU/24-GB banners were not used to justify expansion.
 
 Bounded old Docker build-cache cleanup reclaimed 26.46 GB without deleting data
 volumes or retained rollback images. After both product rollouts the root disk
-shows 24 GiB used, 34 GiB free (42%); RAM approximately 1.8 GiB used, 9.8 GiB
-available. Remote container samples were backend 54 MiB, PostgreSQL 49 MiB and
-frontend 12 MiB. Its hard limits total 1152 MiB and 1.05 CPUs, not reservations.
+shows 25 GiB used, 33 GiB free (43%); RAM approximately 1.8 GiB used, 9.9 GiB
+available. Load average was 0.73/0.48/0.30 on two CPUs. Remote samples during
+acceptance were backend 83 MiB, PostgreSQL 26 MiB and frontend 13 MiB. Its hard
+limits total 1152 MiB and 1.05 CPUs, not reservations.
 
 Public HTTPS and database-backed readiness pass for both products. Remote has
 its own encrypted Restic prefix/key and daily backup timer; a host-side backup,
