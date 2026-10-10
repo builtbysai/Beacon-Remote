@@ -1,4 +1,6 @@
 mod credentials;
+#[cfg(windows)]
+mod helper_lifetime;
 mod sessions;
 
 use base64::{engine::general_purpose::STANDARD, Engine};

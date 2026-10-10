@@ -31,8 +31,18 @@ CI for `543988f`; local MSVC `link.exe` remains unavailable. UDP TURN is support
 TCP/TLS TURN is rejected because the current RTC driver skips those transports.
 Browser-only forced-relay synthetic decoding and Stop passed on this Windows PC,
 with an existing Tailscale route on the native side. Dual-relay and distinct-public-
-network desktop acceptance remain unresolved. Native diagnostics expose state names
+network desktop acceptance remained unresolved at that point. The later concrete
+relay-address fix passed dual-relay synthetic decoding with relay/relay selected;
+distinct-network desktop acceptance is still pending. Native diagnostics expose state names
 and lease-expiry reasons only, never grants, SDP or candidate addresses.
+
+Development helpers now belong to an unnamed, non-inheritable Windows job with
+kill-on-close. Assignment precedes sending the grant through stdin and fails
+closed. Windows terminates helpers if the agent is forcibly stopped, even when
+Rust cleanup cannot run. Existing consent, visible Stop and monotonic leases
+remain required. A native process-boundary check verifies job-close termination;
+actual agent-crash media acceptance is pending the matching Windows CI build.
+No service, privilege escalation or job breakaway is introduced.
 
 Next measure streaming FPS, memory/CPU, acquisition latency, DPI,
 rotation, cursor, desktop lock, display disconnect and device loss on real Windows.
