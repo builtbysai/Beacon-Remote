@@ -7,6 +7,7 @@ use std::{
     },
     thread,
 };
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows_sys::Win32::{System::LibraryLoader::GetModuleHandleW, UI::WindowsAndMessaging::*};
 type Error = Box<dyn std::error::Error + Send + Sync>;
 pub struct Indicator {
@@ -115,6 +116,18 @@ impl Indicator {
                         UnregisterClassW(class.as_ptr(), instance);
                         return Err(io::Error::last_os_error().into());
                     }
+                    ShowWindow(window, SW_SHOW);
+                    if SetForegroundWindow(window) == 0 {
+                        let attention = FLASHWINFO {
+                            cbSize: std::mem::size_of::<FLASHWINFO>() as u32,
+                            hwnd: window,
+                            dwFlags: FLASHW_ALL | FLASHW_TIMERNOFG,
+                            uCount: 3,
+                            dwTimeout: 0,
+                        };
+                        FlashWindowEx(&attention);
+                    }
+                    SetFocus(control);
                     let _ = ready.send(Ok(()));
                     let mut message = MSG::default();
                     loop {

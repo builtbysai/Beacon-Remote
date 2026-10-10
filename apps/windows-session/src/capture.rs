@@ -25,7 +25,10 @@ use windows_sys::Win32::{
             GetDpiForMonitor, SetProcessDpiAwarenessContext,
             DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, MDT_EFFECTIVE_DPI,
         },
-        WindowsAndMessaging::{MessageBoxW, IDYES, MB_ICONINFORMATION, MB_SETFOREGROUND, MB_YESNO},
+        WindowsAndMessaging::{
+            MessageBoxW, IDYES, MB_DEFBUTTON2, MB_ICONINFORMATION, MB_SETFOREGROUND, MB_TOPMOST,
+            MB_YESNO,
+        },
     },
 };
 
@@ -277,7 +280,7 @@ pub fn consent(controller: &str) -> bool {
             std::ptr::null_mut(),
             message.as_ptr(),
             title.as_ptr(),
-            MB_YESNO | MB_ICONINFORMATION | MB_SETFOREGROUND,
+            MB_YESNO | MB_ICONINFORMATION | MB_SETFOREGROUND | MB_TOPMOST | MB_DEFBUTTON2,
         ) == IDYES
     }
 }

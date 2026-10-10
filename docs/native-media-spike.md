@@ -84,11 +84,24 @@ cursor, refuses capture until a connected peer and live challenge lease exist,
 fits BGRA into 1280×720 NV12 without stretching, and retains no recording.
 Conversion uses [Microsoft's limited-range BT.601 formulas](https://learn.microsoft.com/en-us/windows/win32/medfound/recommended-8-bit-yuv-formats-for-video-rendering)
 and deterministic checks for BGRA channel order, NV12 chroma layout, letterbox
-values and malformed buffers. Desktop acceptance is still pending; no input,
-microphone, recording or unattended sharing is added.
+values and malformed buffers. The owner granted desktop consent and Chrome
+decoded real primary-display video. A short process sample measured about 49.5%
+of one CPU core, 102.2 MiB working set and 118.1 MiB peak; this is a prototype
+sample, not a sustained or network-latency benchmark. An earlier connection
+attempt returned Windows socket error 10053; the subsequent request connected.
+No input, microphone, recording or unattended sharing is added.
 
-Production still runs the validated identity/presence release. Attended desktop
-streaming, local Stop sharing acceptance, forced relay and input remain
-incomplete. Account creation and broader UI/UX redesign remain postponed at the
+The owner reported delayed connection and consent windows lacking attention.
+Consent is now topmost and defaults to No. The Stop window requests normal
+foreground activation and focuses its button, with a taskbar flash if Windows
+denies activation. This follows [Windows foreground restrictions](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setforegroundwindow)
+without changing system policy. Native ICE now trickles through a bounded queue
+rather than waiting for complete STUN gathering before sending the offer.
+These attention/startup changes require a fresh real-machine check. Presence
+still polls every fifteen seconds, so request delivery can add that delay.
+
+Production still runs the validated identity/presence release. Cross-network and
+forced-relay acceptance, the updated consent focus and input remain incomplete.
+Account creation and broader UI/UX redesign remain postponed at the
 owner's request. Release signing remains required; this development retry does
 not replace a signed installer/update path.

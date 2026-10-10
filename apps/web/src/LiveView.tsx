@@ -18,7 +18,11 @@ export function LiveView({
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const stop = useRef<() => void>(() => {});
-  const [status, setStatus] = useState("Waiting for the Windows helper…");
+  const [status, setStatus] = useState(
+    grant.source === "desktop"
+      ? "Approve this request on your Windows computer…"
+      : "Waiting for the Windows helper…",
+  );
   const [frames, setFrames] = useState(0);
   const [ended, setEnded] = useState(false);
   useEffect(() => {

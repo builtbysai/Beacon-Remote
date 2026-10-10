@@ -25,10 +25,7 @@ use std::{
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use tokio::{
-    sync::{mpsc, Notify},
-    time::timeout,
-};
+use tokio::{sync::mpsc, time::timeout};
 use tokio_tungstenite::{
     connect_async_with_config,
     tungstenite::{client::IntoClientRequest, protocol::WebSocketConfig, Message},
@@ -37,7 +34,7 @@ use webrtc::{
     media_stream::track_local::{static_sample::TrackLocalStaticSample, TrackLocal},
     peer_connection::{
         PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler, RTCConfigurationBuilder,
-        RTCIceCandidateInit, RTCIceGatheringState, RTCIceServer, RTCPeerConnectionState,
+        RTCIceCandidateInit, RTCIceServer, RTCPeerConnectionIceEvent, RTCPeerConnectionState,
         RTCSessionDescription,
     },
     runtime::TokioRuntime,
@@ -61,15 +58,26 @@ struct IceServer {
     urls: Vec<String>,
 }
 struct Handler {
-    gathered: Arc<Notify>,
+    candidates: mpsc::Sender<RTCIceCandidateInit>,
     connected: Arc<AtomicBool>,
     active: Arc<AtomicBool>,
 }
 #[async_trait::async_trait]
 impl PeerConnectionEventHandler for Handler {
-    async fn on_ice_gathering_state_change(&self, state: RTCIceGatheringState) {
-        if state == RTCIceGatheringState::Complete {
-            self.gathered.notify_one();
+    async fn on_ice_candidate(&self, event: RTCPeerConnectionIceEvent) {
+        match event.candidate.to_json() {
+            Ok(candidate) if candidate.candidate.is_empty() => {}
+            Ok(mut candidate) => {
+                // The prototype has one video m-line; the SDK emits an empty mid.
+                candidate.sdp_mid = None;
+                candidate.sdp_mline_index = Some(0);
+                if self.candidates.try_send(candidate).is_err() {
+                    self.active.store(false, Ordering::Release);
+                }
+            }
+            Err(_) => {
+                self.active.store(false, Ordering::Release);
+            }
         }
     }
     async fn on_connection_state_change(&self, state: RTCPeerConnectionState) {
@@ -215,7 +223,7 @@ async fn stream(grant: Grant) -> Result<(), Error> {
     )
     .await??;
     let connected = Arc::new(AtomicBool::new(false));
-    let gathered = Arc::new(Notify::new());
+    let (local_candidates, mut candidate_receiver) = mpsc::channel(16);
     let lease = Arc::new(AtomicU64::new(0));
     let epoch = Instant::now();
     let lifetime = Duration::from_millis(grant.expires_at_millis.saturating_sub(now_millis()?));
@@ -252,7 +260,7 @@ async fn stream(grant: Grant) -> Result<(), Error> {
         .with_interceptor_registry(registry)
         .with_runtime(Arc::new(TokioRuntime))
         .with_handler(Arc::new(Handler {
-            gathered: gathered.clone(),
+            candidates: local_candidates,
             connected: connected.clone(),
             active: active.clone(),
         }))
@@ -283,7 +291,6 @@ async fn stream(grant: Grant) -> Result<(), Error> {
     let sender = pc.add_track(track.clone() as Arc<dyn TrackLocal>).await?;
     pc.set_local_description(pc.create_offer(None).await?)
         .await?;
-    timeout(Duration::from_secs(10), gathered.notified()).await?;
     let description = pc
         .local_description()
         .await
@@ -353,12 +360,17 @@ async fn stream(grant: Grant) -> Result<(), Error> {
     let result:Result<(),Error> = async {
         let mut tick=tokio::time::interval(Duration::from_millis(100));
         let mut answered=false;
+        let mut remote_candidates=Vec::<RTCIceCandidateInit>::new();
         let mut renewals=Renewals::default();
         let mut next_renewal=Instant::now();
         loop {
             let last=lease.load(Ordering::Acquire);
             if last!=0 && remaining(last,epoch.elapsed().as_millis() as u64).is_none() {break;}
             tokio::select! {
+                candidate=candidate_receiver.recv()=>{
+                    let Some(candidate)=candidate else {break;};
+                    timeout(Duration::from_millis(500),socket.send(Message::Text(json!({"type":"candidate","candidate":candidate.candidate,"sdpMid":candidate.sdp_mid,"sdpMLineIndex":candidate.sdp_mline_index}).to_string().into()))).await??;
+                }
                 _=tick.tick()=>{
                     if !active.load(Ordering::Acquire) || Instant::now()>=deadline {break;}
                     if Instant::now()>=next_renewal {
@@ -385,8 +397,21 @@ async fn stream(grant: Grant) -> Result<(), Error> {
                     if text.len()>65536 {return Err("Oversized signaling".into());}
                     let body:Value=serde_json::from_str(&text)?;
                     match body["type"].as_str() {
-                        Some("answer")=>{if answered{return Err("Repeated answer".into());} let sdp=body["sdp"].as_str().filter(|s|s.len()<=32768).ok_or("Invalid answer")?;pc.set_remote_description(RTCSessionDescription::answer(sdp.into())?).await?;answered=true;}
-                        Some("candidate")=>{let candidate=body["candidate"].as_str().filter(|s|s.len()<=2048).ok_or("Invalid candidate")?;if !candidate.is_empty(){pc.add_ice_candidate(RTCIceCandidateInit{candidate:candidate.into(),sdp_mid:body["sdpMid"].as_str().map(String::from),sdp_mline_index:body["sdpMLineIndex"].as_u64().map(|v|v as u16),..Default::default()}).await?;}}
+                        Some("answer")=>{
+                            if answered{return Err("Repeated answer".into());}
+                            let sdp=body["sdp"].as_str().filter(|s|s.len()<=32768).ok_or("Invalid answer")?;
+                            timeout(Duration::from_secs(2),pc.set_remote_description(RTCSessionDescription::answer(sdp.into())?)).await??;
+                            answered=true;
+                            for candidate in remote_candidates.drain(..) {timeout(Duration::from_millis(500),pc.add_ice_candidate(candidate)).await??;}
+                        }
+                        Some("candidate")=>{
+                            let candidate=body["candidate"].as_str().filter(|s|s.len()<=2048).ok_or("Invalid candidate")?;
+                            if !candidate.is_empty(){
+                                let candidate=RTCIceCandidateInit{candidate:candidate.into(),sdp_mid:body["sdpMid"].as_str().map(String::from),sdp_mline_index:body["sdpMLineIndex"].as_u64().map(|v|v as u16),..Default::default()};
+                                if answered {timeout(Duration::from_millis(500),pc.add_ice_candidate(candidate)).await??;}
+                                else {if remote_candidates.len()>=16 {return Err("Too many early candidates".into());} remote_candidates.push(candidate);}
+                            }
+                        }
                         Some("lease")=>{
                             let last=lease.load(Ordering::Acquire);
                             if last!=0 && remaining(last,epoch.elapsed().as_millis() as u64).is_none() {break;}

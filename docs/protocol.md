@@ -28,7 +28,7 @@ and unreliable pointer channels; do not overload signaling with raw input.
 An owner requests `POST /api/machines/:id/sessions` with source `synthetic` or
 `desktop`. Only an online, nonrevoked computer belonging to that account is
 eligible. The database permits one pending or active session per computer, with
-a maximum lifetime of 120 seconds. The native helper currently implements only
+a maximum lifetime of 120 seconds. The native helper implements
 the synthetic source without capture, or the desktop source after local consent
 with a Windows capture border and visible Stop sharing control.
 
