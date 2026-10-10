@@ -56,8 +56,8 @@ impl Encoder {
             || height == 0
             || width > 1920
             || height > 1080
-            || width % 2 != 0
-            || height % 2 != 0
+            || !width.is_multiple_of(2)
+            || !height.is_multiple_of(2)
             || fps == 0
             || fps > 60
             || bitrate == 0
