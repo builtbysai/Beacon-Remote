@@ -85,6 +85,10 @@ test(
       PORT: 3010,
       NODE_ENV: "test",
     });
+    const first = randomUUID();
+    const second = randomUUID();
+    const firstEmail = `${first}@example.test`;
+    const secondEmail = `${second}@example.test`;
     try {
       await pool.query(
         await readFile(
@@ -92,20 +96,11 @@ test(
           "utf8",
         ),
       );
-      await pool.query("TRUNCATE accounts CASCADE");
-      const first = randomUUID();
-      const second = randomUUID();
       const password = "test-only-long-password";
       const passwordHash = await hash(password);
       await pool.query(
         "INSERT INTO accounts(id,email,password_hash) VALUES ($1,$2,$3),($4,$5,$3)",
-        [
-          first,
-          "first@example.test",
-          passwordHash,
-          second,
-          "second@example.test",
-        ],
+        [first, firstEmail, passwordHash, second, secondEmail],
       );
       async function login(email: string) {
         const result = await app.inject({
@@ -123,8 +118,8 @@ test(
           origin: "http://127.0.0.1:5174",
         };
       }
-      const firstHeaders = await login("first@example.test");
-      const secondHeaders = await login("second@example.test");
+      const firstHeaders = await login(firstEmail);
+      const secondHeaders = await login(secondEmail);
       assert.equal(
         (await app.inject({ method: "GET", url: "/api/machines" })).statusCode,
         401,
@@ -321,6 +316,9 @@ test(
         403,
       );
     } finally {
+      await pool.query("DELETE FROM accounts WHERE id=ANY($1::uuid[])", [
+        [first, second],
+      ]);
       await app.close();
       await pool.end();
     }

@@ -1,0 +1,433 @@
+import { createHash, createHmac, randomUUID } from "node:crypto";
+import websocket from "@fastify/websocket";
+import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { Pool } from "pg";
+import type { WebSocket } from "ws";
+import { z } from "zod";
+import type { Config } from "./config.js";
+
+type Session = {
+  id: string;
+  account_id: string;
+  machine_id: string;
+  source: "desktop" | "synthetic";
+  expires_at: Date;
+  status: string;
+};
+type Role = "viewer" | "machine";
+type Authorization = { session: Session; role: Role; request: FastifyRequest };
+type Entry = {
+  viewer?: WebSocket;
+  machine?: WebSocket;
+  timer?: ReturnType<typeof setInterval>;
+  closed: boolean;
+  serial: Promise<void>;
+  frames: number;
+};
+const digest = (token: string) =>
+  createHash("sha256").update(token).digest("hex");
+const params = z.object({ id: z.uuid() });
+const signal = z.discriminatedUnion("type", [
+  z
+    .object({ type: z.literal("offer"), sdp: z.string().min(1).max(32768) })
+    .strict(),
+  z
+    .object({ type: z.literal("answer"), sdp: z.string().min(1).max(32768) })
+    .strict(),
+  z
+    .object({
+      type: z.literal("candidate"),
+      candidate: z.string().max(2048),
+      sdpMid: z.string().max(32).nullable(),
+      sdpMLineIndex: z.number().int().min(0).max(16).nullable(),
+    })
+    .strict(),
+  z.object({ type: z.literal("consent"), accepted: z.boolean() }).strict(),
+  z.object({ type: z.literal("stop") }).strict(),
+]);
+
+export async function registerSessions(
+  app: FastifyInstance,
+  pool: Pool,
+  config: Config,
+  owner: (request: FastifyRequest) => Promise<string | null>,
+) {
+  await app.register(websocket, {
+    options: { maxPayload: 65536, perMessageDeflate: false },
+  });
+  const entries = new Map<string, Entry>();
+  const authorized = new WeakMap<FastifyRequest, Authorization>();
+  const enabled = Boolean(config.SESSION_SECRET);
+  const iceServers = [
+    { urls: [config.STUN_URL ?? "stun:129.213.128.206:3478"] },
+  ];
+  function token(session: Session) {
+    if (!config.SESSION_SECRET) throw new Error("View sessions disabled");
+    return createHmac("sha256", Buffer.from(config.SESSION_SECRET, "hex"))
+      .update(
+        `beacon-remote:view:v1\n${session.id}\n${session.machine_id}\n${session.source}\n${session.expires_at.getTime()}`,
+      )
+      .digest("base64url");
+  }
+  function send(socket: WebSocket | undefined, body: unknown) {
+    if (socket?.readyState === 1) {
+      if (socket.bufferedAmount > 131072) {
+        socket.terminate();
+        return;
+      }
+      socket.send(JSON.stringify(body));
+    }
+  }
+  async function finish(id: string, status: "ended" | "denied" = "ended") {
+    const entry = entries.get(id);
+    if (entry?.closed) return;
+    if (entry) {
+      entry.closed = true;
+      clearInterval(entry.timer);
+    }
+    try {
+      await pool.query(
+        "UPDATE view_sessions SET status=$2 WHERE id=$1 AND status IN ('requested','connecting','active')",
+        [id, status],
+      );
+    } finally {
+      if (entry) {
+        send(entry.viewer, { type: "ended", reason: status });
+        entry.viewer?.close(1000);
+        entry.machine?.close(1000);
+        // A stalled peer must not retain socket buffers for ws's 30-second default.
+        const closing = [entry.viewer, entry.machine];
+        const timeout = setTimeout(() => {
+          for (const socket of closing) {
+            if (socket && socket.readyState !== 3) socket.terminate();
+          }
+        }, 1000);
+        timeout.unref();
+        entries.delete(id);
+      }
+    }
+  }
+
+  app.get("/api/media/config", async (request, reply) => {
+    if (!(await owner(request)))
+      return reply.code(401).send({ error: "Sign in required" });
+    return { enabled, iceServers, capability: "desktop:view", maxSeconds: 120 };
+  });
+  app.post(
+    "/api/machines/:id/sessions",
+    { config: { rateLimit: { max: 4, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      if (request.headers.origin !== config.WEB_ORIGIN)
+        return reply.code(403).send({ error: "Origin rejected" });
+      const account = await owner(request);
+      if (!account) return reply.code(401).send({ error: "Sign in required" });
+      if (!enabled)
+        return reply.code(503).send({ error: "View sessions disabled" });
+      const parsed = params.safeParse(request.params);
+      const body = z
+        .object({ source: z.enum(["desktop", "synthetic"]) })
+        .strict()
+        .safeParse(request.body);
+      if (!parsed.success || !body.success)
+        return reply.code(400).send({ error: "Invalid session" });
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const machine = await client.query(
+          "SELECT id FROM machines WHERE id=$1 AND account_id=$2 AND revoked_at IS NULL AND last_seen_at>now()-interval '45 seconds' FOR UPDATE",
+          [parsed.data.id, account],
+        );
+        if (!machine.rowCount) {
+          await client.query("ROLLBACK");
+          return reply.code(404).send({ error: "Computer unavailable" });
+        }
+        await client.query(
+          "UPDATE view_sessions SET status='ended' WHERE machine_id=$1 AND expires_at<=now() AND status IN ('requested','connecting','active')",
+          [parsed.data.id],
+        );
+        const busy = await client.query(
+          "SELECT 1 FROM view_sessions WHERE machine_id=$1 AND status IN ('requested','connecting','active')",
+          [parsed.data.id],
+        );
+        if (busy.rowCount) {
+          await client.query("ROLLBACK");
+          return reply
+            .code(409)
+            .send({ error: "A view session is already active" });
+        }
+        const session: Session = {
+          id: randomUUID(),
+          account_id: account,
+          machine_id: parsed.data.id,
+          source: body.data.source,
+          expires_at: new Date(Date.now() + 120000),
+          status: "requested",
+        };
+        await client.query(
+          "INSERT INTO view_sessions(id,account_id,machine_id,source,token_hash,expires_at,status) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+          [
+            session.id,
+            account,
+            session.machine_id,
+            session.source,
+            digest(token(session)),
+            session.expires_at,
+            session.status,
+          ],
+        );
+        await client.query(
+          "INSERT INTO audit_events(account_id,machine_id,action) VALUES ($1,$2,$3)",
+          [
+            account,
+            session.machine_id,
+            `desktop.view.requested:${session.source}`,
+          ],
+        );
+        await client.query("COMMIT");
+        return {
+          id: session.id,
+          expiresAtMillis: session.expires_at.getTime(),
+          iceServers,
+        };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+  );
+  app.post("/api/sessions/:id/stop", async (request, reply) => {
+    if (request.headers.origin !== config.WEB_ORIGIN)
+      return reply.code(403).send({ error: "Origin rejected" });
+    const account = await owner(request);
+    const parsed = params.safeParse(request.params);
+    if (!account) return reply.code(401).send({ error: "Sign in required" });
+    if (!parsed.success)
+      return reply.code(400).send({ error: "Invalid session" });
+    const session = await pool.query(
+      "SELECT id FROM view_sessions WHERE id=$1 AND account_id=$2",
+      [parsed.data.id, account],
+    );
+    if (!session.rowCount)
+      return reply.code(404).send({ error: "Session unavailable" });
+    await finish(parsed.data.id);
+    return { ok: true };
+  });
+
+  app.route({
+    method: "GET",
+    url: "/api/sessions/:id/signal",
+    preValidation: async (request, reply) => {
+      const parsed = params.safeParse(request.params);
+      const query = z
+        .object({ role: z.enum(["viewer", "machine"]) })
+        .strict()
+        .safeParse(request.query);
+      if (!enabled || !parsed.success || !query.success)
+        return reply.code(403).send({ error: "Session unavailable" });
+      if (request.headers.upgrade?.toLowerCase() !== "websocket")
+        return reply.code(426).send({ error: "WebSocket required" });
+      const result = await pool.query<Session>(
+        "SELECT s.* FROM view_sessions s JOIN machines m ON m.id=s.machine_id WHERE s.id=$1 AND s.expires_at>now() AND s.status IN ('requested','connecting','active') AND m.revoked_at IS NULL",
+        [parsed.data.id],
+      );
+      const session = result.rows[0];
+      if (!session)
+        return reply.code(403).send({ error: "Session unavailable" });
+      if (query.data.role === "viewer") {
+        if (
+          request.headers.origin !== config.WEB_ORIGIN ||
+          (await owner(request)) !== session.account_id ||
+          entries.get(session.id)?.viewer
+        )
+          return reply.code(403).send({ error: "Session unavailable" });
+      } else {
+        const bearer = request.headers.authorization?.match(
+          /^Bearer ([A-Za-z0-9_-]{43})$/,
+        )?.[1];
+        if (!bearer)
+          return reply.code(403).send({ error: "Session unavailable" });
+        const claimed = await pool.query(
+          "UPDATE view_sessions s SET status='connecting' WHERE id=$1 AND token_hash=$2 AND status='requested' AND expires_at>now() AND EXISTS (SELECT 1 FROM machines m WHERE m.id=s.machine_id AND m.revoked_at IS NULL) RETURNING id",
+          [session.id, digest(bearer)],
+        );
+        if (!claimed.rowCount)
+          return reply.code(403).send({ error: "Session unavailable" });
+      }
+      authorized.set(request, { session, role: query.data.role, request });
+    },
+    handler: (_request, reply) =>
+      reply.code(426).send({ error: "WebSocket required" }),
+    wsHandler: (socket, request) => {
+      const auth = authorized.get(request);
+      if (!auth) {
+        socket.close(1008);
+        return;
+      }
+      const { session, role } = auth;
+      let entry = entries.get(session.id);
+      if (!entry) {
+        entry = {
+          closed: false,
+          serial: Promise.resolve(),
+          frames: 0,
+        };
+        const live = entry;
+        let checking = false;
+        entry.timer = setInterval(() => {
+          if (checking || live.closed) return;
+          checking = true;
+          void (async () => {
+            const valid = await pool.query(
+              "SELECT 1 FROM view_sessions s JOIN machines m ON m.id=s.machine_id WHERE s.id=$1 AND s.expires_at>now() AND s.status IN ('requested','connecting','active') AND m.revoked_at IS NULL",
+              [session.id],
+            );
+            const viewer = live.viewer;
+            if (!valid.rowCount || (viewer && viewer.readyState !== 1)) {
+              await finish(session.id);
+              return;
+            }
+            if (viewer) {
+              const viewerAuth = (
+                viewer as WebSocket & { accountRequest?: FastifyRequest }
+              ).accountRequest;
+              if (
+                !viewerAuth ||
+                (await owner(viewerAuth)) !== session.account_id
+              ) {
+                await finish(session.id);
+                return;
+              }
+              send(live.machine, {
+                type: "lease",
+                maxAgeMs: 3000,
+                expiresAtMillis: session.expires_at.getTime(),
+              });
+            }
+          })()
+            .catch(() => finish(session.id).catch(() => {}))
+            .finally(() => {
+              checking = false;
+            });
+        }, 1000);
+        entry.timer.unref();
+        entries.set(session.id, entry);
+      }
+      if (entry[role]) {
+        socket.close(1008);
+        return;
+      }
+      entry[role] = socket;
+      if (role === "viewer")
+        (
+          socket as WebSocket & { accountRequest?: FastifyRequest }
+        ).accountRequest = request;
+      const live = entry;
+      // Attach synchronously: upgrade clients may send immediately.
+      socket.on("message", (data, binary) => {
+        if (live.closed) return;
+        if (binary || ++live.frames > 96 || data.toString().length > 65536) {
+          void finish(session.id);
+          return;
+        }
+        live.serial = live.serial
+          .then(async () => {
+            if (live.closed) return;
+            const current = await pool.query(
+              "SELECT s.status FROM view_sessions s JOIN machines m ON m.id=s.machine_id WHERE s.id=$1 AND s.expires_at>now() AND s.status IN ('requested','connecting','active') AND m.revoked_at IS NULL",
+              [session.id],
+            );
+            if (
+              !current.rowCount ||
+              (role === "viewer" &&
+                (await owner(request)) !== session.account_id)
+            ) {
+              await finish(session.id);
+              return;
+            }
+            const message = signal.safeParse(JSON.parse(data.toString()));
+            if (!message.success) {
+              await finish(session.id);
+              return;
+            }
+            const body = message.data;
+            if (body.type === "stop") {
+              await finish(session.id);
+              return;
+            }
+            if (body.type === "consent") {
+              if (role !== "machine") {
+                await finish(session.id);
+                return;
+              }
+              const consent = await pool.query(
+                "UPDATE view_sessions s SET status=$2 WHERE id=$1 AND status='connecting' AND expires_at>now() AND EXISTS (SELECT 1 FROM machines m WHERE m.id=s.machine_id AND m.revoked_at IS NULL) RETURNING id",
+                [session.id, body.accepted ? "active" : "denied"],
+              );
+              if (!consent.rowCount) {
+                await finish(session.id);
+                return;
+              }
+              await pool.query(
+                "INSERT INTO audit_events(account_id,machine_id,action) VALUES ($1,$2,$3)",
+                [
+                  session.account_id,
+                  session.machine_id,
+                  body.accepted
+                    ? "desktop.view.accepted"
+                    : "desktop.view.denied",
+                ],
+              );
+              send(live.viewer, { type: "consent", accepted: body.accepted });
+              if (!body.accepted) await finish(session.id, "denied");
+              return;
+            }
+            if (
+              (body.type === "offer" && role !== "machine") ||
+              (body.type === "answer" && role !== "viewer")
+            ) {
+              await finish(session.id);
+              return;
+            }
+            if (current.rows[0].status !== "active") {
+              await finish(session.id);
+              return;
+            }
+            send(role === "viewer" ? live.machine : live.viewer, body);
+          })
+          .catch(() => finish(session.id).catch(() => {}));
+      });
+      socket.on("close", () => {
+        void finish(session.id).catch(() => {});
+      });
+      socket.on("error", () => {
+        void finish(session.id).catch(() => {});
+      });
+      send(socket, {
+        type: "joined",
+        role,
+        source: session.source,
+        iceServers,
+      });
+    },
+  });
+  app.addHook("onClose", async () => {
+    await Promise.allSettled([...entries.keys()].map((id) => finish(id)));
+  });
+  return async (machineId: string) => {
+    if (!enabled) return [];
+    const result = await pool.query<Session & { controller: string }>(
+      "SELECT s.*,a.email AS controller FROM view_sessions s JOIN accounts a ON a.id=s.account_id JOIN machines m ON m.id=s.machine_id WHERE s.machine_id=$1 AND m.revoked_at IS NULL AND s.status='requested' AND s.expires_at>now() ORDER BY s.created_at LIMIT 1",
+      [machineId],
+    );
+    return result.rows.map((session) => ({
+      id: session.id,
+      token: token(session),
+      controller: session.controller,
+      source: session.source,
+      expiresAtMillis: session.expires_at.getTime(),
+      iceServers,
+    }));
+  };
+}

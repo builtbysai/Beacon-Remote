@@ -6,6 +6,14 @@ const schema = z.object({
   HOST: z.string().default("127.0.0.1"),
   PORT: z.coerce.number().int().min(1).max(65535).default(3010),
   TRUST_PROXY_CIDR: z.string().min(1).optional(),
+  SESSION_SECRET: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  STUN_URL: z
+    .string()
+    .regex(/^stun:[A-Za-z0-9.-]+:[0-9]+$/)
+    .optional(),
   NODE_ENV: z
     .enum(["development", "test", "production"])
     .default("development"),

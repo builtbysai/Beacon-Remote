@@ -2,6 +2,8 @@
 mod capture;
 #[cfg(windows)]
 mod encoder;
+#[cfg(windows)]
+mod media;
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     #[cfg(windows)]
@@ -15,6 +17,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
         if command == "encoder-benchmark" {
             return encoder::benchmark();
+        }
+        if command == "media-test" {
+            return media::synthetic();
         }
         println!("Beacon Remote interactive session helper\n  displays: physical display dimensions and DPI\n  capture-benchmark: locally consent to ten seconds of primary-display capture\n  encoder-benchmark: synthetic in-memory H.264 encoding, no screen capture\nNo recording, network upload, or input injection is implemented.");
         Ok(())
