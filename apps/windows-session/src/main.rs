@@ -3,6 +3,8 @@ mod capture;
 #[cfg(windows)]
 mod encoder;
 #[cfg(windows)]
+mod indicator;
+#[cfg(windows)]
 mod media;
 #[cfg(any(windows, test))]
 mod renewal;

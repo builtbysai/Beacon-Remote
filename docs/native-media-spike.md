@@ -58,10 +58,23 @@ current-user code-signing certificate was found. No protection, policy, trust
 store or file security metadata was changed to bypass the block. Microsoft
 [documents signing as the developer path](https://support.microsoft.com/en-us/windows/security/threat-malware-protection/smart-app-control-frequently-asked-questions).
 
-Resume with an existing trusted signing certificate or a Windows test environment
-that permits these development executables. The disposable local fixture account
-and identity were removed after failed startup; the owner's paired identity and
-production testing account were retained. Production still runs the validated
-identity/presence release. Synthetic browser decoding, attended desktop streaming,
-local Stop sharing acceptance, forced relay and input remain incomplete. Account
-creation and broader UI/UX redesign remain postponed at the owner's request.
+The owner subsequently changed Smart App Control and requested a retry. Both
+executables from [the final media build](https://github.com/builtbysai/Beacon-Remote/actions/runs/38054167791)
+then started. An isolated local PostgreSQL account, actual signed native agent,
+one-use grant and Chrome viewer established WebRTC: the page reported connected
+and actual decoded H.264 frames. Browser Stop cleared the video and terminated
+the native media helper. This proves synthetic native-to-browser decoding on the
+same Windows PC; it does not prove desktop capture, cross-network or relay use.
+
+The next increment adds a visible native Stop video test window before native
+consent and media. Clicking Stop or closing it clears the same atomic active
+state used by encoder/signaling; failure to create the window refuses media.
+The window owns its message loop and state lifetime, following Microsoft's
+[Win32 message-loop guidance](https://learn.microsoft.com/en-us/windows/win32/winmsg/using-messages-and-message-queues).
+Actual local Stop acceptance is required before desktop sharing is connected.
+
+Production still runs the validated identity/presence release. Attended desktop
+streaming, local Stop sharing acceptance, forced relay and input remain
+incomplete. Account creation and broader UI/UX redesign remain postponed at the
+owner's request. Release signing remains required; this development retry does
+not replace a signed installer/update path.

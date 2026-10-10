@@ -170,6 +170,10 @@ async fn stream(grant: Grant) -> Result<(), Error> {
         connect_async_with_config(request, Some(limits), true),
     )
     .await??;
+    let active = Arc::new(AtomicBool::new(true));
+    let _stop = StopOnDrop(active.clone());
+    // Refuse media if a visible local Stop control cannot be created.
+    let _indicator = crate::indicator::Indicator::start(active.clone())?;
     timeout(
         Duration::from_millis(500),
         socket.send(Message::Text(
@@ -177,8 +181,6 @@ async fn stream(grant: Grant) -> Result<(), Error> {
         )),
     )
     .await??;
-    let active = Arc::new(AtomicBool::new(true));
-    let _stop = StopOnDrop(active.clone());
     let connected = Arc::new(AtomicBool::new(false));
     let gathered = Arc::new(Notify::new());
     let lease = Arc::new(AtomicU64::new(0));
