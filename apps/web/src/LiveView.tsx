@@ -96,7 +96,7 @@ export function LiveView({
       if (!element || closed || event.track.kind !== "video") return;
       element.srcObject = new MediaStream([event.track]);
       void element.play().catch(() => {
-        setStatus("Press Play to view the stream.");
+        if (!closed) setStatus("Press Play to view the stream.");
       });
       if (element.requestVideoFrameCallback) {
         const count: VideoFrameRequestCallback = (time, metadata) => {

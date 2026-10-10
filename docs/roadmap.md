@@ -66,18 +66,26 @@ never inherit computer access from a camera or a public support code.
    Bind expiry to the existing deadline. Prove ownership, disabled configuration,
    expiry, revocation and HMAC compatibility using real PostgreSQL routes.
    Preserve atomic consent/audit transitions.
-2. **Native/browser transport integration — implemented locally; validation pending.** Carry matching short-lived ICE
+2. **Native/browser transport integration — implemented; Windows CI passed.** Carry matching short-lived ICE
    credentials to both peers through existing authorized paths. Extend strict
    native validation and RTC configuration. Add a bounded forced-relay acceptance
    mode, selected-candidate diagnostics and honest connection errors. Preserve
    consent, no recording/input and local lease enforcement.
-   Backend/web checks and native formatting pass. Native compilation is blocked
-   locally by missing MSVC `link.exe`; commit/push approval is needed to run the
-   existing Windows CI against this source before any media acceptance.
+   Backend/web checks and Windows native formatting, Clippy, tests and release
+   build passed for `d64854f` in
+   [CI run 38066791856](https://github.com/builtbysai/Beacon-Remote/actions/runs/38066791856).
+   The local MSVC linker remains absent; matching CI binaries were used for the
+   actual browser/native relay attempts.
 3. **Real relay acceptance.** Use existing Coturn without changing protected-peer
    restrictions or buying resources. Verify relay candidates and decoded native
    video on a reachable external peer; test a distinct-network path. A credential
-   API alone does not complete this step.
+   API alone does not complete this step. On 2026-10-10, two relay-only synthetic
+   attempts from Windows through existing Oracle Coturn ended before decoded
+   frames or a selected relay route could be verified. The second displayed
+   “Video connection interrupted.” Root cause remains unresolved; this is failed
+   acceptance, not proof of a successful TURN allocation. No desktop was captured.
+   The attempt exposed a delayed playback rejection overwriting the ended status;
+   the browser now ignores that rejection after shutdown.
 4. **Failure and UX acceptance.** Verify Stop, denial, logout, browser refresh,
    machine revoke, expiry, backend restart and network loss. Reconnect requires
    fresh authorization. Confirm native focus/readability; measure startup,

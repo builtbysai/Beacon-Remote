@@ -1,7 +1,7 @@
 # Session-scoped relay credential foundation
 
-Date: 2026-10-10. Status: backend/peer integration implemented locally; native
-compilation and relay acceptance pending.
+Date: 2026-10-10. Status: backend/peer integration implemented and Windows CI
+passed; actual forced-relay acceptance failed and remains unresolved.
 
 Milestone 4 cannot finish with STUN-only local acceptance. Use existing Coturn
 REST authentication rather than static client credentials or another service.
@@ -43,9 +43,13 @@ rate limiting and the expected Coturn HMAC/expiry. Startup checks reject partial
 configuration, embedded URL credentials and invalid ports/transports. An initial
 test-helper UUID type inference error was corrected before the final passing run.
 Follow-up PostgreSQL signaling checks confirm both peers receive identical
-credentials and relay policy. Native format passes; native check fails before
-compiling application code because MSVC `link.exe` is absent. Native validation
-regressions are added but have not run; Windows CI is required. Browser diagnostics
-have type/build validation only and need actual media acceptance with the new
-helper. No Coturn allocation, native relay connection or production rollout was
-performed for this increment.
+credentials and relay policy. Windows formatting, Clippy, tests and release build
+passed for `d64854f` in
+[CI run 38066791856](https://github.com/builtbysai/Beacon-Remote/actions/runs/38066791856).
+Local native compilation remains unavailable because MSVC `link.exe` is absent.
+Using matching CI binaries, two actual relay-only synthetic attempts through
+existing Oracle Coturn stopped before decoding or a selected route could be
+verified. The second browser reported “Video connection interrupted.” Root cause
+is unresolved; successful allocation and native relay connectivity are unproven.
+No desktop capture or production rollout occurred. A delayed playback rejection
+also overwrote the ended status; the browser now ignores it after shutdown.
