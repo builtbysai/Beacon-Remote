@@ -51,6 +51,22 @@ logout, absolute expiry and the local Windows Stop button passed acceptance.
 Local desktop decoding passed; cross-network and forced-relay acceptance remain
 pending.
 
+`POST /api/sessions/:id/relay` is the backend relay foundation. It requires an
+owner cookie, exact Origin, enabled media/relay configuration and a live session
+on a nonrevoked owned machine. It returns short-lived Coturn REST `iceServers`
+and `expiresAtMillis`, no shared secret. Expiry never exceeds the session
+deadline; ended/denied/expired sessions cannot obtain new credentials. Requests
+are rate-limited and responses use no-store. Configured TURN credentials and
+`iceTransportPolicy` now travel in the created browser grant and signed machine
+heartbeat response, with the same session-bound username/password and deadline.
+The native helper strictly validates credentials and configures the peer; the
+browser configures its peer from the same grant. Default policy is `all`; an
+operator can select `relay` for forced-relay acceptance only when TURN is configured.
+Matched native/backend/web builds are required; previous native artifacts reject
+the new grant. Real forced-relay acceptance and native compilation are pending. Relay
+credentials are bearer credentials, not per-peer or instant-revocation controls;
+see [the decision](decisions/0007-session-scoped-relay-credentials.md).
+
 ## Workspace account views
 
 Authenticated, account-scoped `GET /api/activity`, `GET /api/sessions` and

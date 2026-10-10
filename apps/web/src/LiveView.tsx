@@ -5,6 +5,7 @@ export type ViewGrant = {
   source: "synthetic" | "desktop";
   expiresAtMillis: number;
   iceServers: RTCIceServer[];
+  iceTransportPolicy: RTCIceTransportPolicy;
 };
 
 export function LiveView({
@@ -25,8 +26,12 @@ export function LiveView({
   );
   const [frames, setFrames] = useState(0);
   const [ended, setEnded] = useState(false);
+  const [route, setRoute] = useState("Not established");
   useEffect(() => {
-    const pc = new RTCPeerConnection({ iceServers: grant.iceServers });
+    const pc = new RTCPeerConnection({
+      iceServers: grant.iceServers,
+      iceTransportPolicy: grant.iceTransportPolicy,
+    });
     const url = new URL(
       `/api/sessions/${grant.id}/signal?role=viewer`,
       window.location.origin,
@@ -176,8 +181,55 @@ export function LiveView({
     const timer = setInterval(() => {
       if (Date.now() >= grant.expiresAtMillis) finish("Session expired.");
     }, 500);
+    let inspecting = false;
+    const diagnostics = setInterval(() => {
+      if (closed || inspecting || pc.connectionState !== "connected") return;
+      inspecting = true;
+      void pc
+        .getStats()
+        .then((stats) => {
+          if (closed) return;
+          const reports = new Map<
+            string,
+            {
+              localCandidateId?: string;
+              remoteCandidateId?: string;
+              candidateType?: string;
+            }
+          >();
+          let selected: string | undefined;
+          stats.forEach((report) => {
+            reports.set(report.id, report);
+            if (
+              report.type === "transport" &&
+              typeof report.selectedCandidatePairId === "string"
+            )
+              selected = report.selectedCandidatePairId;
+          });
+          const pair = selected ? reports.get(selected) : undefined;
+          if (!pair) return;
+          const local =
+            reports.get(pair.localCandidateId ?? "")?.candidateType ?? "";
+          const remote =
+            reports.get(pair.remoteCandidateId ?? "")?.candidateType ?? "";
+          if (local === "relay" || remote === "relay") setRoute("Relayed");
+          else if (
+            ["host", "srflx", "prflx"].includes(local) &&
+            ["host", "srflx", "prflx"].includes(remote)
+          )
+            setRoute("Direct");
+          else setRoute("Unavailable");
+        })
+        .catch(() => {
+          if (!closed) setRoute("Unavailable");
+        })
+        .finally(() => {
+          inspecting = false;
+        });
+    }, 2000);
     return () => {
       clearInterval(timer);
+      clearInterval(diagnostics);
       finish("Stopped.");
     };
   }, [grant]);
@@ -211,6 +263,7 @@ export function LiveView({
         <details>
           <summary>Connection diagnostics</summary>
           <p>Decoded frames: {frames}</p>
+          <p>Connection route: {route}</p>
         </details>
       )}
       {grant.source === "desktop" && !ended && (

@@ -37,6 +37,9 @@ test(
       HOST: "127.0.0.1",
       PORT: 3010,
       SESSION_SECRET: randomBytes(32).toString("hex"),
+      TURN_SECRET: randomBytes(32).toString("hex"),
+      TURN_URLS: ["turn:relay.example.test:3478?transport=udp"],
+      ICE_TRANSPORT_POLICY: "relay",
     });
     await app.ready();
     const account = randomUUID();
@@ -69,7 +72,12 @@ test(
         },
       });
       assert.equal(response.statusCode, 200);
-      return response.json().sessions as { id: string; token: string }[];
+      return response.json().sessions as {
+        id: string;
+        token: string;
+        iceServers: unknown[];
+        iceTransportPolicy: string;
+      }[];
     };
     let createAddress = 1;
     const create = async (requestHeaders = headers) =>
@@ -133,6 +141,10 @@ test(
       assert.equal((await create()).statusCode, 409);
       const pending = await beat();
       assert.equal(pending[0]!.id, id);
+      assert.deepEqual(pending[0]!.iceServers, grant.json().iceServers);
+      assert.equal(pending[0]!.iceTransportPolicy, "relay");
+      assert.equal(grant.json().iceTransportPolicy, "relay");
+      assert.equal(pending[0]!.iceServers.length, 2);
       await assert.rejects(connect(id, "viewer", alien));
       await assert.rejects(
         connect(id, "viewer", {
@@ -167,6 +179,15 @@ test(
       assert.equal(lease.type, "lease");
       assert.equal(lease.nonce, "1");
       assert.equal(lease.maxAgeMs, 3000);
+      assert.equal(
+        (
+          await pool.query(
+            "SELECT 1 FROM audit_events WHERE account_id=$1 AND machine_id=$2 AND action='desktop.view.accepted'",
+            [account, machine],
+          )
+        ).rowCount,
+        1,
+      );
       assert.deepEqual(
         await received(viewer, () =>
           native.send(
@@ -220,6 +241,48 @@ test(
           )
         ).type,
         "ended",
+      );
+      assert.equal(
+        (
+          await pool.query(
+            "SELECT 1 FROM audit_events WHERE account_id=$1 AND machine_id=$2 AND action='desktop.view.accepted'",
+            [account, machine],
+          )
+        ).rowCount,
+        1,
+      );
+      const deniedGrant = await create();
+      assert.equal(deniedGrant.statusCode, 200);
+      const deniedId = deniedGrant.json().id as string;
+      const deniedToken = (await beat())[0]!.token;
+      const deniedViewer = await connect(deniedId, "viewer", headers);
+      const deniedNative = await connect(deniedId, "machine", {
+        authorization: `Bearer ${deniedToken}`,
+      });
+      assert.deepEqual(
+        await received(deniedViewer, () =>
+          deniedNative.send(
+            JSON.stringify({ type: "consent", accepted: false }),
+          ),
+        ),
+        { type: "consent", accepted: false },
+      );
+      assert.equal(
+        (
+          await pool.query("SELECT status FROM view_sessions WHERE id=$1", [
+            deniedId,
+          ])
+        ).rows[0].status,
+        "denied",
+      );
+      assert.equal(
+        (
+          await pool.query(
+            "SELECT 1 FROM audit_events WHERE account_id=$1 AND machine_id=$2 AND action='desktop.view.denied'",
+            [account, machine],
+          )
+        ).rowCount,
+        1,
       );
       const logoutGrant = await create();
       assert.equal(logoutGrant.statusCode, 200);

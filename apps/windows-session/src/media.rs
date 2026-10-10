@@ -34,8 +34,8 @@ use webrtc::{
     media_stream::track_local::{static_sample::TrackLocalStaticSample, TrackLocal},
     peer_connection::{
         PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler, RTCConfigurationBuilder,
-        RTCIceCandidateInit, RTCIceServer, RTCPeerConnectionIceEvent, RTCPeerConnectionState,
-        RTCSessionDescription,
+        RTCIceCandidateInit, RTCIceServer, RTCIceTransportPolicy, RTCPeerConnectionIceEvent,
+        RTCPeerConnectionState, RTCSessionDescription,
     },
     runtime::TokioRuntime,
 };
@@ -51,11 +51,74 @@ pub struct Grant {
     controller: String,
     expires_at_millis: u64,
     ice_servers: Vec<IceServer>,
+    ice_transport_policy: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct IceServer {
     urls: Vec<String>,
+    username: Option<String>,
+    credential: Option<String>,
+}
+fn validate_ice(grant: &Grant) -> Result<(), Error> {
+    if !matches!(grant.ice_transport_policy.as_str(), "all" | "relay")
+        || grant.ice_servers.is_empty()
+        || grant.ice_servers.len() > 2
+    {
+        return Err("Invalid ICE policy or servers".into());
+    }
+    let expected = format!(
+        "{}:beacon-remote:{}",
+        grant.expires_at_millis / 1000,
+        grant.id
+    );
+    let mut has_relay = false;
+    for server in &grant.ice_servers {
+        if server.urls.is_empty()
+            || server.urls.len() > 3
+            || server.urls.iter().any(|url| url.len() > 256)
+        {
+            return Err("Invalid ICE URLs".into());
+        }
+        let stun = server.urls.iter().all(|url| url.starts_with("stun:"));
+        let turn = server
+            .urls
+            .iter()
+            .all(|url| url.starts_with("turn:") || url.starts_with("turns:"));
+        if stun {
+            if server.username.is_some() || server.credential.is_some() {
+                return Err("STUN must not contain credentials".into());
+            }
+        } else if turn {
+            let credential = server
+                .credential
+                .as_deref()
+                .ok_or("Missing TURN credential")?;
+            if server.username.as_deref() != Some(expected.as_str())
+                || credential.len() != 28
+                || !credential.ends_with('=')
+                || !credential[..27]
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'+' || byte == b'/')
+            {
+                return Err("Invalid session-bound TURN credential".into());
+            }
+            has_relay = true;
+        } else {
+            return Err("Invalid or mixed ICE schemes".into());
+        }
+        RTCIceServer {
+            urls: server.urls.clone(),
+            username: server.username.clone().unwrap_or_default(),
+            credential: server.credential.clone().unwrap_or_default(),
+        }
+        .urls()
+        .map_err(|_| "Invalid ICE URL syntax")?;
+    }
+    if grant.ice_transport_policy == "relay" && !has_relay {
+        return Err("Relay-only policy requires TURN".into());
+    }
+    Ok(())
 }
 struct Handler {
     candidates: mpsc::Sender<RTCIceCandidateInit>,
@@ -145,14 +208,7 @@ pub fn run() -> Result<(), Error> {
     {
         return Err("Invalid server origin".into());
     }
-    if grant.ice_servers.len() > 2
-        || grant
-            .ice_servers
-            .iter()
-            .any(|s| s.urls.len() != 1 || !s.urls[0].starts_with("stun:") || s.urls[0].len() > 256)
-    {
-        return Err("Invalid ICE servers".into());
-    }
+    validate_ice(&grant)?;
     if grant.source == "desktop" {
         crate::capture::dpi_awareness()?;
     }
@@ -248,13 +304,19 @@ async fn stream(grant: Grant) -> Result<(), Error> {
     engine.register_codec(codec.clone(), RtpCodecKind::Video)?;
     let registry = register_default_interceptors(Registry::new(), &mut engine)?;
     let config = RTCConfigurationBuilder::new()
+        .with_ice_transport_policy(if grant.ice_transport_policy == "relay" {
+            RTCIceTransportPolicy::Relay
+        } else {
+            RTCIceTransportPolicy::All
+        })
         .with_ice_servers(
             grant
                 .ice_servers
                 .into_iter()
                 .map(|s| RTCIceServer {
                     urls: s.urls,
-                    ..Default::default()
+                    username: s.username.unwrap_or_default(),
+                    credential: s.credential.unwrap_or_default(),
                 })
                 .collect(),
         )
@@ -448,4 +510,66 @@ async fn stream(grant: Grant) -> Result<(), Error> {
         }
     );
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn grant() -> Grant {
+        serde_json::from_value(json!({
+            "id": "12345678-1234-1234-1234-123456789abc",
+            "token": "a".repeat(43),
+            "server": "https://remote.example.test",
+            "source": "synthetic",
+            "controller": "fixture@example.test",
+            "expiresAtMillis": 120999,
+            "iceTransportPolicy": "relay",
+            "iceServers": [{
+                "urls": ["turn:relay.example.test:3478?transport=udp"],
+                "username": "120:beacon-remote:12345678-1234-1234-1234-123456789abc",
+                "credential": "a".repeat(27) + "="
+            }]
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn relay_grants_bind_credentials_to_session_and_reject_missing_or_mixed_fields() {
+        let mut valid = grant();
+        assert!(validate_ice(&valid).is_ok());
+        valid.ice_servers[0].username = Some("121:other-session".into());
+        assert!(validate_ice(&valid).is_err());
+        valid = grant();
+        valid.ice_servers[0].credential = None;
+        assert!(validate_ice(&valid).is_err());
+        valid = grant();
+        valid.ice_servers[0]
+            .urls
+            .push("stun:relay.example.test:3478".into());
+        assert!(validate_ice(&valid).is_err());
+        valid = grant();
+        valid.ice_servers[0].urls[0] = "https://relay.example.test".into();
+        assert!(validate_ice(&valid).is_err());
+        valid = grant();
+        valid.ice_transport_policy = "unrecognized".into();
+        assert!(validate_ice(&valid).is_err());
+    }
+
+    #[test]
+    fn direct_grants_accept_stun_but_relay_requires_authenticated_turn() {
+        let mut valid = grant();
+        valid.ice_servers = vec![IceServer {
+            urls: vec!["stun:relay.example.test:3478".into()],
+            username: None,
+            credential: None,
+        }];
+        assert!(validate_ice(&valid).is_err());
+        valid.ice_transport_policy = "all".into();
+        assert!(validate_ice(&valid).is_ok());
+        valid.ice_servers[0].credential = Some("unexpected".into());
+        assert!(validate_ice(&valid).is_err());
+        valid.ice_servers.clear();
+        assert!(validate_ice(&valid).is_err());
+    }
 }

@@ -22,7 +22,12 @@ The media branch now offers a two-minute primary-display view request. The nativ
 helper requires a valid server grant, local Yes consent, a visible Stop sharing
 window, a connected peer and a live renewable lease before starting WGC. No
 microphone, input or recording is enabled. The synthetic video path and local
-Stop passed; actual desktop viewing acceptance is pending.
+Stop passed; actual local desktop viewing acceptance also passed. Cross-network
+and forced-relay acceptance remain pending. Local source now validates and passes
+session-bound TURN credentials and the all/relay policy to native RTC configuration.
+Use matching agent/helper and backend versions; previous helper artifacts reject
+the new strict grant fields. Native compilation and relay acceptance of this
+increment remain pending because local MSVC `link.exe` is unavailable.
 
 Next measure streaming FPS, memory/CPU, acquisition latency, DPI,
 rotation, cursor, desktop lock, display disconnect and device loss on real Windows.

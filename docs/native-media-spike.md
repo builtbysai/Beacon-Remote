@@ -104,8 +104,12 @@ after the trickle change; the owner's brief completion reply does not establish
 subjective focus or startup-speed improvement. Presence still polls every
 fifteen seconds, so request delivery can add that delay.
 
-Production still runs the validated identity/presence release. Cross-network and
-forced-relay acceptance, subjective consent-focus confirmation and input remain incomplete.
-Account creation and broader UI/UX redesign remain postponed at the
-owner's request. Release signing remains required; this development retry does
-not replace a signed installer/update path.
+Production now runs the approved product interface with media disabled; see
+[interface validation](product-interface-validation.md). The approved UI pass
+supersedes the earlier deferral of redesign. Cross-network/forced-relay
+acceptance, subjective consent-focus confirmation and input remain incomplete.
+The backend relay foundation and native/browser credential integration are
+implemented in local source; native compilation and real relay acceptance remain
+pending. Release signing
+remains required; development acceptance does not replace a signed installer or
+update path. See the [delivery roadmap](roadmap.md).

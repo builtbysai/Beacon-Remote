@@ -7,7 +7,8 @@ This development release implements private account login, one-use machine
 enrollment, cryptographic machine identity, signed presence, inventory, and
 revocation. The native Windows agent runs visibly in a terminal and stores its
 private key with user-scoped Windows DPAPI. It installs no service or autostart.
-**Desktop streaming and input are not available yet.**
+Attended desktop viewing has local development acceptance. Production media is
+disabled pending relay/network validation; mouse and keyboard input are absent.
 
 ## Develop
 
@@ -92,8 +93,24 @@ Light, dark and system appearance are available in the header. To use a separate
 local API port, set `REMOTE_API_ORIGIN` before starting Vite; the backend's
 `WEB_ORIGIN` must match the browser origin exactly. See the
 [interface decision](docs/decisions/0006-approved-product-interface.md).
-For a separate local API port, set `REMOTE_API_ORIGIN` before starting Vite; its
-default is `http://127.0.0.1:3010`, including WebSocket forwarding.
+The default local API target is `http://127.0.0.1:3010`, including WebSocket
+forwarding.
+
+The backend relay foundation accepts paired `TURN_URLS` (comma-separated TURN
+URLs with explicit ports and `transport=udp` or `transport=tcp`) and `TURN_SECRET`
+(at least 32 characters matching Coturn REST authentication), together with
+`SESSION_SECRET`. Supply secrets privately in the environment; no `.env` file is
+loaded automatically. `turns` requires TCP. Partial configuration fails startup.
+An owner's exact-Origin `POST /api/sessions/:id/relay` returns session-deadline
+bounded credentials. With TURN configured, browser grants and signed machine
+heartbeat responses now carry the same session-bound credentials. The matching
+native helper validates and consumes them. `ICE_TRANSPORT_POLICY=relay` forces
+relay candidates for acceptance; the default `all` permits direct connections
+and relay fallback. Relay-only configuration without TURN fails startup.
+Deploy matching helper/backend/web builds together: the old helper rejects the
+new grant fields. Native compilation and actual relay acceptance are pending;
+production/shared Coturn configuration remains unchanged. See the [delivery roadmap](docs/roadmap.md) and
+[relay decision](docs/decisions/0007-session-scoped-relay-credentials.md).
 
 See [architecture](docs/architecture.md), [security](docs/security.md),
 [Windows agent](docs/windows-agent.md), and [deployment](docs/deployment.md).
