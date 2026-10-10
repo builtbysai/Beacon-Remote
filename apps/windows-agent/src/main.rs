@@ -132,6 +132,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key = SigningKey::from_bytes(&identity.secret_key);
     let mut failures: u32 = 0;
     let mut helpers = sessions::Helpers::default();
+    let mut handled_request: Option<String> = None;
     println!("Beacon Remote is reporting presence. No desktop capture or remote control is active. Ctrl+C stops this process.");
     loop {
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
@@ -140,18 +141,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "beacon-remote:heartbeat:v1\n{}\n{}\n{}",
             identity.machine_id, timestamp, nonce
         );
-        let response = client.post(server.join("/api/agent/heartbeat")?).json(&serde_json::json!({
+        let mut query = vec![("wait", "1")];
+        if let Some(id) = handled_request.as_deref() {
+            query.push(("handled", id));
+        }
+        let response = client.post(server.join("/api/agent/heartbeat")?)
+        .timeout(Duration::from_secs(25)).query(&query).json(&serde_json::json!({
             "version": 1, "machineId": identity.machine_id, "timestamp": timestamp,
             "nonce": nonce, "signature": STANDARD.encode(key.sign(message.as_bytes()).to_bytes()),
         })).send();
         match response {
             Ok(response) if response.status().is_success() => {
-                helpers.update(response.json()?, &identity.server)?;
+                let body: serde_json::Value = response.json()?;
+                let mut poll_after = body["pollAfterMillis"]
+                    .as_u64()
+                    .filter(|delay| matches!(delay, 0 | 15000))
+                    .unwrap_or(15000);
+                let request_id = body["sessions"]
+                    .as_array()
+                    .and_then(|grants| grants.first())
+                    .and_then(|grant| grant["id"].as_str())
+                    .map(str::to_owned);
+                helpers.update(body, &identity.server)?;
+                if let Some(id) = request_id {
+                    if helpers.handled(&id) {
+                        handled_request = Some(id);
+                    } else {
+                        // A previous helper may still be closing after local Stop.
+                        // Keep the new request pending and retry without a busy loop.
+                        poll_after = 1000;
+                    }
+                }
                 if failures > 0 {
                     println!("Connection restored.");
                 }
                 failures = 0;
-                thread::sleep(Duration::from_secs(15));
+                thread::sleep(Duration::from_millis(poll_after));
             }
             Ok(response) if response.status() == reqwest::StatusCode::UNAUTHORIZED => {
                 return Err("Identity rejected or clock out of sync. Presence stopped; check revocation and Windows time.".into());

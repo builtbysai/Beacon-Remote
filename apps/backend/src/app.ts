@@ -74,7 +74,7 @@ export async function createApp(pool: Pool, config: Config) {
   function sameOrigin(request: FastifyRequest) {
     return request.headers.origin === config.WEB_ORIGIN;
   }
-  const pendingSessions = await registerSessions(app, pool, config, owner);
+  const sessionRequests = await registerSessions(app, pool, config, owner);
 
   app.get("/health", async () => ({ status: "ok", service: "beacon-remote" }));
   app.get("/ready", async () => {
@@ -313,6 +313,12 @@ export async function createApp(pool: Pool, config: Config) {
   );
 
   app.post("/api/agent/heartbeat", async (request, reply) => {
+    const query = z
+      .object({ wait: z.literal("1").optional(), handled: z.uuid().optional() })
+      .strict()
+      .safeParse(request.query);
+    if (!query.success || (query.data.handled && !query.data.wait))
+      return reply.code(400).send({ error: "Invalid heartbeat options" });
     const parsed = heartbeat.safeParse(request.body);
     if (!parsed.success)
       return reply.code(400).send({ error: "Invalid heartbeat" });
@@ -374,16 +380,29 @@ export async function createApp(pool: Pool, config: Config) {
         [body.machineId],
       );
       await client.query("COMMIT");
-      return {
-        ok: true,
-        version: 1,
-        sessions: await pendingSessions(body.machineId),
-      };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
     } finally {
       client.release();
+    }
+    const aborted = new AbortController();
+    const disconnect = () => aborted.abort();
+    reply.raw.once("close", disconnect);
+    try {
+      const wait = query.data.wait === "1" && sessionRequests.enabled;
+      return {
+        ok: true,
+        version: 1,
+        pollAfterMillis: wait ? 0 : 15000,
+        sessions: await sessionRequests.pending(body.machineId, {
+          wait,
+          handled: query.data.handled,
+          signal: aborted.signal,
+        }),
+      };
+    } finally {
+      reply.raw.removeListener("close", disconnect);
     }
   });
 
@@ -401,6 +420,7 @@ export async function createApp(pool: Pool, config: Config) {
     );
     if (!result.rowCount)
       return reply.code(404).send({ error: "Machine unavailable" });
+    sessionRequests.wake(id.data.id);
     return { ok: true };
   });
   return app;

@@ -11,6 +11,16 @@ There is no service installation, elevated input, autostart, tray UI, remote
 control, installer, or automatic updater yet. Exiting the visible agent stops
 presence. Development binaries are unsigned.
 
+The agent opts into a bounded signed-heartbeat long poll for pending requests.
+The backend wakes it after a new request commits, rather than waiting for the old
+15-second sleep. A handled-request cursor suppresses redelivery while consent is
+open, and the next distinct request wakes immediately. The server waits at most
+15 seconds outside the database pool; the client request timeout is 25 seconds.
+Older or media-disabled backends retain the 15-second polling fallback. Network
+failure still uses bounded backoff. Consent follows authenticated signaling;
+no capture starts merely because a notification arrives. See
+[the request delivery decision](decisions/0009-prompt-request-delivery.md).
+
 The separate `beacon-remote-session` helper adds a local attended capture spike.
 Run `displays` for physical dimensions/DPI, or `capture-benchmark` for a visible
 consent dialog followed by ten seconds of primary-display capture with a Windows

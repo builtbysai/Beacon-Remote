@@ -45,9 +45,12 @@ exported relay secrets, test containers and the acceptance dev server were remov
 
 The owner now has an Android viewer on T-Mobile mobile data. A separate temporary
 acceptance site and paired Windows fixture are ready; see
-[the current test setup](android-acceptance-2026-10-10.md). Actual Windows desktop
-viewing from a separate network remains **unverified** until the owner performs
-the test, despite successful prior synthetic dual-relay transport.
+[the current test setup](android-acceptance-2026-10-10.md). The owner confirmed
+synthetic playback, desktop viewing and Stop on that separate mobile network.
+Native output showed connected/stopped and the database stored ended for both
+sessions. The owner reported slow consent-dialog arrival; request delivery is
+being changed from fixed polling to a bounded authenticated long poll.
+Remaining interruption and sustained-performance acceptance is still required.
 Production Remote remains at `ff452ff`, with media disabled;
 the backend/native follow-ups are not deployed Remote application evidence.
 

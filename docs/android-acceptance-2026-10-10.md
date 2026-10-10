@@ -1,10 +1,13 @@
 # Android mobile-network acceptance preparation
 
 The owner supplied an Android viewer on T-Mobile mobile data on 2026-10-10.
-The first requested step is synthetic video playback and local Stop, followed by
-a fresh, explicitly approved primary-display session. Neither phone playback nor
-desktop acceptance has been reported yet. This is a temporary milestone 4 test,
-not a production media release or proof of Android compatibility.
+The owner completed the synthetic video/Stop step, then confirmed desktop viewing
+and Stop working on the Android phone. Matching native output showed each peer
+connected and each stream stopped; PostgreSQL stored both sessions as ended.
+The owner reported a long delay before the consent dialog appeared. This proves
+the owner's tested mobile-data viewing path, not broad Android compatibility or
+completion of the remaining interruption/performance gates. No frames were saved.
+This is a temporary milestone 4 test, not a production media release.
 
 ## Prepared and verified
 

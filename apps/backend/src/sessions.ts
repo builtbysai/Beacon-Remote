@@ -79,6 +79,34 @@ export async function registerSessions(
   const entries = new Map<string, Entry>();
   const authorized = new WeakMap<FastifyRequest, Authorization>();
   const enabled = Boolean(config.SESSION_SECRET);
+  let closing = false;
+  const waiters = new Map<string, () => void>();
+  function wake(machineId: string) {
+    waiters.get(machineId)?.();
+  }
+  function waitForRequest(machineId: string, signal?: AbortSignal) {
+    // One bounded waiter per authenticated machine, outside the database pool.
+    wake(machineId);
+    let resolve!: () => void;
+    const promise = new Promise<void>((done) => {
+      resolve = done;
+    });
+    const finish = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", finish);
+      if (waiters.get(machineId) === finish) waiters.delete(machineId);
+      resolve();
+    };
+    const timer = setTimeout(finish, 15000);
+    waiters.set(machineId, finish);
+    signal?.addEventListener("abort", finish, { once: true });
+    if (signal?.aborted) finish();
+    return { promise, finish };
+  }
+  app.addHook("preClose", async () => {
+    closing = true;
+    for (const finish of [...waiters.values()]) finish();
+  });
   app.get("/api/sessions", async (request, reply) => {
     const account = await owner(request);
     if (!account) return reply.code(401).send({ error: "Sign in required" });
@@ -232,6 +260,7 @@ export async function registerSessions(
           ],
         );
         await client.query("COMMIT");
+        wake(session.machine_id);
         return {
           id: session.id,
           source: session.source,
@@ -519,20 +548,43 @@ export async function registerSessions(
   app.addHook("onClose", async () => {
     await Promise.allSettled([...entries.keys()].map((id) => finish(id)));
   });
-  return async (machineId: string) => {
+  async function pending(
+    machineId: string,
+    options?: { wait: boolean; handled?: string; signal: AbortSignal },
+  ) {
     if (!enabled) return [];
-    const result = await pool.query<Session & { controller: string }>(
-      "SELECT s.*,a.email AS controller FROM view_sessions s JOIN accounts a ON a.id=s.account_id JOIN machines m ON m.id=s.machine_id WHERE s.machine_id=$1 AND m.revoked_at IS NULL AND s.status='requested' AND s.expires_at>now()+interval '1 second' ORDER BY s.created_at LIMIT 1",
-      [machineId],
-    );
-    return result.rows.map((session) => ({
-      id: session.id,
-      token: token(session),
-      controller: session.controller,
-      source: session.source,
-      expiresAtMillis: session.expires_at.getTime(),
-      iceServers: sessionIce(session),
-      iceTransportPolicy,
-    }));
-  };
+    async function load() {
+      const result = await pool.query<Session & { controller: string }>(
+        "SELECT s.*,a.email AS controller FROM view_sessions s JOIN accounts a ON a.id=s.account_id JOIN machines m ON m.id=s.machine_id WHERE s.machine_id=$1 AND m.revoked_at IS NULL AND s.status='requested' AND s.expires_at>now()+interval '1 second' ORDER BY s.created_at LIMIT 1",
+        [machineId],
+      );
+      return result.rows
+        .filter((session) => session.id !== options?.handled)
+        .map((session) => ({
+          id: session.id,
+          token: token(session),
+          controller: session.controller,
+          source: session.source,
+          expiresAtMillis: session.expires_at.getTime(),
+          iceServers: sessionIce(session),
+          iceTransportPolicy,
+        }));
+    }
+    // Register before reading so a commit between the read and wait is not lost.
+    const waiting =
+      options?.wait && !closing
+        ? waitForRequest(machineId, options.signal)
+        : undefined;
+    try {
+      const grants = await load();
+      if (grants.length || !waiting || options?.signal.aborted) return grants;
+      await waiting.promise;
+      if (options?.signal.aborted) return [];
+      // Always re-read authorization/state; notification itself grants nothing.
+      return await load();
+    } finally {
+      waiting?.finish();
+    }
+  }
+  return { pending, wake, enabled };
 }

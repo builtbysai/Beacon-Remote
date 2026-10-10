@@ -14,6 +14,10 @@ pub struct Helpers {
     handled: HashMap<String, u64>,
 }
 impl Helpers {
+    pub fn handled(&self, id: &str) -> bool {
+        self.handled.contains_key(id)
+    }
+
     pub fn update(&mut self, body: Value, server: &str) -> Result<(), Box<dyn std::error::Error>> {
         let now: u64 = SystemTime::now()
             .duration_since(UNIX_EPOCH)?
