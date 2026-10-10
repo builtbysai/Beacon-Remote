@@ -26,8 +26,13 @@ Stop passed; actual local desktop viewing acceptance also passed. Cross-network
 and forced-relay acceptance remain pending. Local source now validates and passes
 session-bound TURN credentials and the all/relay policy to native RTC configuration.
 Use matching agent/helper and backend versions; previous helper artifacts reject
-the new strict grant fields. Native compilation and relay acceptance of this
-increment remain pending because local MSVC `link.exe` is unavailable.
+the new strict grant fields. Native compilation, Clippy and tests passed Windows
+CI for `543988f`; local MSVC `link.exe` remains unavailable. UDP TURN is supported;
+TCP/TLS TURN is rejected because the current RTC driver skips those transports.
+Browser-only forced-relay synthetic decoding and Stop passed on this Windows PC,
+with an existing Tailscale route on the native side. Dual-relay and distinct-public-
+network desktop acceptance remain unresolved. Native diagnostics expose state names
+and lease-expiry reasons only, never grants, SDP or candidate addresses.
 
 Next measure streaming FPS, memory/CPU, acquisition latency, DPI,
 rotation, cursor, desktop lock, display disconnect and device loss on real Windows.

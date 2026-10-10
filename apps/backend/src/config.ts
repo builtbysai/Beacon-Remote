@@ -32,9 +32,10 @@ const schema = z.object({
                 match &&
                 Number(match[3]) > 0 &&
                 Number(match[3]) <= 65535 &&
-                (match[1] !== "turns" || match[4] === "tcp"),
+                match[1] === "turn" &&
+                match[4] === "udp",
               );
-            }, "Use an explicit TURN host, port and udp/tcp transport; turns requires tcp"),
+            }, "Use an explicit TURN host and port with UDP; native TCP/TLS TURN is unsupported"),
         )
         .min(1)
         .max(3),

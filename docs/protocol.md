@@ -63,7 +63,10 @@ The native helper strictly validates credentials and configures the peer; the
 browser configures its peer from the same grant. Default policy is `all`; an
 operator can select `relay` for forced-relay acceptance only when TURN is configured.
 Matched native/backend/web builds are required; previous native artifacts reject
-the new grant. Real forced-relay acceptance and native compilation are pending. Relay
+the new grant. Windows native CI passed. Browser-only forced-relay synthetic
+decoding passed with an existing native Tailscale path; dual-relay and distinct-
+public-network desktop acceptance remain unresolved. Only UDP TURN is supported;
+startup and native grant validation reject TCP/TLS TURN. Relay
 credentials are bearer credentials, not per-peer or instant-revocation controls;
 see [the decision](decisions/0007-session-scoped-relay-credentials.md).
 

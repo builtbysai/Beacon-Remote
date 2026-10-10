@@ -3,6 +3,27 @@
 Date: 2026-10-10. Status: backend/peer integration implemented and Windows CI
 passed; actual forced-relay acceptance failed and remains unresolved.
 
+Follow-up: Windows CI also passed at `543988f`. Additional safe browser diagnostics
+showed both peers obtained relay candidates in the failed dual-relay test. A
+comparison with only the browser forced to relay decoded synthetic H.264, including
+444 presented frames, and browser Stop ended the stream. The native side used the
+existing Tailscale path; distinct-public-network desktop viewing remains unproven.
+The comparison used a temporary local browser policy override, restored afterward;
+normal product policy still comes from the authorized grant. No production rollout
+or shared relay configuration change occurred.
+
+Chrome reported the selected local candidate as `prflx` despite relay-only policy.
+Diagnostics now honor the enforced policy and leave ambiguous peer-reflexive
+paths unavailable rather than calling them direct. Diagnostics remain accessible
+before decoding and after failure, showing state, candidate counts/types and numeric
+server errors without addresses or credentials. Native state/lease-stop messages
+likewise exclude grants, SDP and candidate addresses.
+
+Registry source for the current webrtc 0.21.0 async TURN driver skips secure and
+non-UDP TURN URLs. Backend startup and native validation now reject TCP/TLS TURN
+instead of accepting an unusable configuration. This is an explicit current
+transport limitation, not a recommendation to disable TLS elsewhere.
+
 Milestone 4 cannot finish with STUN-only local acceptance. Use existing Coturn
 REST authentication rather than static client credentials or another service.
 Coturn's [official configuration](https://github.com/coturn/coturn/blob/master/examples/etc/turnserver.conf)

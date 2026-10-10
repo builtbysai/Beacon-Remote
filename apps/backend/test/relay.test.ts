@@ -13,7 +13,7 @@ test("relay configuration rejects partial credentials and unsafe URL formats", (
     SESSION_SECRET: "a".repeat(64),
     TURN_SECRET: "b".repeat(32),
     TURN_URLS:
-      "turn:relay.example.test:3478?transport=udp, turns:relay.example.test:5349?transport=tcp",
+      "turn:relay.example.test:3478?transport=udp, turn:backup.example.test:3478?transport=udp",
   };
   assert.equal(parseConfig(env).TURN_URLS?.length, 2);
   assert.equal(
@@ -38,6 +38,8 @@ test("relay configuration rejects partial credentials and unsafe URL formats", (
     "turn:relay.example.test:0?transport=udp",
     "turn:relay.example.test:65536?transport=udp",
     "turns:relay.example.test:5349?transport=udp",
+    "turns:relay.example.test:5349?transport=tcp",
+    "turn:relay.example.test:3478?transport=tcp",
     "turn:relay.example.test:3478?transport=udp&secret=value",
   ])
     assert.throws(() => parseConfig({ ...env, TURN_URLS }));

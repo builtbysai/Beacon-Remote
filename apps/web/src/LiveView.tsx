@@ -27,11 +27,20 @@ export function LiveView({
   const [frames, setFrames] = useState(0);
   const [ended, setEnded] = useState(false);
   const [route, setRoute] = useState("Not established");
+  const [iceState, setIceState] = useState<RTCIceConnectionState>("new");
+  const [localRelays, setLocalRelays] = useState(0);
+  const [remoteRelays, setRemoteRelays] = useState(0);
+  const [iceError, setIceError] = useState<number | null>(null);
+  const [policy, setPolicy] = useState<RTCIceTransportPolicy>(
+    grant.iceTransportPolicy,
+  );
+  const [candidateTypes, setCandidateTypes] = useState("Not established");
   useEffect(() => {
     const pc = new RTCPeerConnection({
       iceServers: grant.iceServers,
       iceTransportPolicy: grant.iceTransportPolicy,
     });
+    setPolicy(pc.getConfiguration().iceTransportPolicy ?? "all");
     const url = new URL(
       `/api/sessions/${grant.id}/signal?role=viewer`,
       window.location.origin,
@@ -74,15 +83,25 @@ export function LiveView({
       ws.send(JSON.stringify(body));
     };
     pc.onicecandidate = (event) => {
-      if (event.candidate)
+      if (closed) return;
+      if (event.candidate) {
+        if (event.candidate.type === "relay") setLocalRelays((n) => n + 1);
         send({
           type: "candidate",
           candidate: event.candidate.candidate,
           sdpMid: event.candidate.sdpMid,
           sdpMLineIndex: event.candidate.sdpMLineIndex,
         });
+      }
+    };
+    pc.oniceconnectionstatechange = () => {
+      if (!closed) setIceState(pc.iceConnectionState);
+    };
+    pc.onicecandidateerror = (event) => {
+      if (!closed) setIceError(event.errorCode);
     };
     pc.onconnectionstatechange = () => {
+      if (closed) return;
       if (pc.connectionState === "connected")
         setStatus(
           grant.source === "desktop"
@@ -165,6 +184,8 @@ export function LiveView({
                 sdpMid: message.sdpMid as string | null,
                 sdpMLineIndex: message.sdpMLineIndex as number | null,
               };
+              if (/\btyp relay\b/.test(candidate.candidate))
+                setRemoteRelays((n) => n + 1);
               if (pc.remoteDescription) await pc.addIceCandidate(candidate);
               else candidates.push(candidate);
               break;
@@ -212,10 +233,18 @@ export function LiveView({
             reports.get(pair.localCandidateId ?? "")?.candidateType ?? "";
           const remote =
             reports.get(pair.remoteCandidateId ?? "")?.candidateType ?? "";
-          if (local === "relay" || remote === "relay") setRoute("Relayed");
+          setCandidateTypes(`${local || "unknown"} / ${remote || "unknown"}`);
+          // Chrome can report a peer-reflexive selected candidate even when
+          // relay-only policy is enforced. Do not label that path as direct.
+          if (
+            pc.getConfiguration().iceTransportPolicy === "relay" ||
+            local === "relay" ||
+            remote === "relay"
+          )
+            setRoute("Relayed");
           else if (
-            ["host", "srflx", "prflx"].includes(local) &&
-            ["host", "srflx", "prflx"].includes(remote)
+            ["host", "srflx"].includes(local) &&
+            ["host", "srflx"].includes(remote)
           )
             setRoute("Direct");
           else setRoute("Unavailable");
@@ -259,13 +288,18 @@ export function LiveView({
       <p role="status" data-decoded-frames={frames}>
         {status}
       </p>
-      {frames > 0 && (
-        <details>
-          <summary>Connection diagnostics</summary>
-          <p>Decoded frames: {frames}</p>
-          <p>Connection route: {route}</p>
-        </details>
-      )}
+      <details>
+        <summary>Connection diagnostics</summary>
+        <p>Decoded frames: {frames}</p>
+        <p>Connection route: {route}</p>
+        <p>ICE state: {iceState}</p>
+        <p>Browser ICE policy: {policy}</p>
+        <p>Selected candidate types: {candidateTypes}</p>
+        <p>
+          Relay candidates: browser {localRelays}, Windows {remoteRelays}
+        </p>
+        {iceError !== null && <p>ICE server error code: {iceError}</p>}
+      </details>
       {grant.source === "desktop" && !ended && (
         <div className="actions">
           <button disabled title="Pause and resume are not available yet">

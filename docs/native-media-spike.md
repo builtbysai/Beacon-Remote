@@ -109,7 +109,10 @@ Production now runs the approved product interface with media disabled; see
 supersedes the earlier deferral of redesign. Cross-network/forced-relay
 acceptance, subjective consent-focus confirmation and input remain incomplete.
 The backend relay foundation and native/browser credential integration are
-implemented in local source; native compilation and real relay acceptance remain
-pending. Release signing
+implemented; Windows native CI passed for `543988f`. Browser-only forced-relay
+synthetic decoding and Stop passed, with an existing Tailscale path on the native
+side; dual-relay and distinct-public-network desktop acceptance remain unresolved.
+UDP TURN is the current driver limit; TCP/TLS configuration is rejected explicitly.
+Release signing
 remains required; development acceptance does not replace a signed installer or
 update path. See the [delivery roadmap](roadmap.md).

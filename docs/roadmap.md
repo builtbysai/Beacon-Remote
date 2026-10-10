@@ -86,6 +86,13 @@ never inherit computer access from a camera or a public support code.
    acceptance, not proof of a successful TURN allocation. No desktop was captured.
    The attempt exposed a delayed playback rejection overwriting the ended status;
    the browser now ignores that rejection after shutdown.
+   Follow-up diagnostics confirmed both peers obtained relay candidates. Browser-
+   only forced-relay synthetic decoding and Stop passed with an existing native
+   Tailscale path, including 444 presented frames. This narrows the failure but
+   does not prove distinct-public-network desktop acceptance. Chrome's peer-
+   reflexive candidate reporting exposed a false Direct label; diagnostics now
+   honor relay-only policy and report ambiguous routes as unavailable. Unsupported
+   TCP/TLS TURN URLs are rejected rather than silently skipped by native RTC.
 4. **Failure and UX acceptance.** Verify Stop, denial, logout, browser refresh,
    machine revoke, expiry, backend restart and network loss. Reconnect requires
    fresh authorization. Confirm native focus/readability; measure startup,

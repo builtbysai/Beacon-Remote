@@ -107,13 +107,20 @@ fn validate_ice(grant: &Grant) -> Result<(), Error> {
         } else {
             return Err("Invalid or mixed ICE schemes".into());
         }
-        RTCIceServer {
+        let urls = RTCIceServer {
             urls: server.urls.clone(),
             username: server.username.clone().unwrap_or_default(),
             credential: server.credential.clone().unwrap_or_default(),
         }
         .urls()
         .map_err(|_| "Invalid ICE URL syntax")?;
+        if turn
+            && urls
+                .iter()
+                .any(|url| url.is_secure() || url.proto.to_string() != "udp")
+        {
+            return Err("Native TURN requires UDP; TCP/TLS is unsupported".into());
+        }
     }
     if grant.ice_transport_policy == "relay" && !has_relay {
         return Err("Relay-only policy requires TURN".into());
@@ -144,6 +151,8 @@ impl PeerConnectionEventHandler for Handler {
         }
     }
     async fn on_connection_state_change(&self, state: RTCPeerConnectionState) {
+        // State names are safe diagnostics; never log SDP, candidates or grants.
+        println!("Native peer connection state: {state}");
         match state {
             RTCPeerConnectionState::Connected => {
                 self.connected.store(true, Ordering::Release);
@@ -384,6 +393,7 @@ async fn stream(grant: Grant) -> Result<(), Error> {
             let last = worker_lease.load(Ordering::Acquire);
             let elapsed = epoch.elapsed().as_millis() as u64;
             if last != 0 && remaining(last, elapsed).is_none() {
+                println!("Media stopped: authorization renewal expired.");
                 break;
             }
             if !worker_connected.load(Ordering::Acquire) || last == 0 {
@@ -432,7 +442,10 @@ async fn stream(grant: Grant) -> Result<(), Error> {
         let mut next_renewal=Instant::now();
         loop {
             let last=lease.load(Ordering::Acquire);
-            if last!=0 && remaining(last,epoch.elapsed().as_millis() as u64).is_none() {break;}
+            if last!=0 && remaining(last,epoch.elapsed().as_millis() as u64).is_none() {
+                println!("Signaling stopped: authorization renewal expired.");
+                break;
+            }
             tokio::select! {
                 candidate=candidate_receiver.recv()=>{
                     let Some(candidate)=candidate else {break;};
@@ -538,6 +551,15 @@ mod tests {
     fn relay_grants_bind_credentials_to_session_and_reject_missing_or_mixed_fields() {
         let mut valid = grant();
         assert!(validate_ice(&valid).is_ok());
+        for url in [
+            "turn:relay.example.test:3478?transport=tcp",
+            "turns:relay.example.test:5349?transport=tcp",
+        ] {
+            valid = grant();
+            valid.ice_servers[0].urls[0] = url.into();
+            assert!(validate_ice(&valid).is_err());
+        }
+        valid = grant();
         valid.ice_servers[0].username = Some("121:other-session".into());
         assert!(validate_ice(&valid).is_err());
         valid = grant();
