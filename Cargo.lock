@@ -55,6 +55,7 @@ version = "0.1.0"
 dependencies = [
  "beacon-remote-core",
  "ctrlc",
+ "windows",
  "windows-capture",
  "windows-sys 0.61.2",
 ]
