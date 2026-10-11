@@ -4,6 +4,15 @@ The local development environments are separated. Production Coturn separation
 is pending. See [ADR 0011](decisions/0011-independent-relay-ownership.md) for the
 verified ownership and the missing live peer-policy/quota settings.
 
+The deployable Remote-owned candidate is now in
+[`infrastructure/oracle/remote-turn/`](../infrastructure/oracle/remote-turn/README.md).
+It passed actual authenticated allocation, IPv4 forbidden-peer permissions,
+foreign-secret rejection, combined admission limits and cleanup/recovery against
+the pinned non-root image in an isolated local Docker fixture. See
+[the validation record](relay-validation-2026-10-11.md). It is not deployed and
+Remote acceptance still uses the old relay. Oracle console authentication must
+be restored before ingress can be verified; no View restart window is agreed.
+
 ## Before changing services
 
 1. Confirm View and Remote owners agree on the common peer-denial baseline,

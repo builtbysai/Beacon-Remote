@@ -10,3 +10,5 @@ target/
 *.log
 .agent-state/
 .remote-dev/
+__pycache__/
+*.pyc
