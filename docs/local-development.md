@@ -93,6 +93,14 @@ products; never apply the View Compose wholesale for a Remote app change.
 
 ## Cleanup and retained material
 
+Validation on October 11: full formatting/lint/type checks, real Remote
+PostgreSQL regressions, backend/web builds, dependency audit and native formatting
+passed locally. Actual launcher start/readiness/stop and occupied-listener
+preservation passed. Both production products' HTTPS health/readiness passed.
+PR #11 CI could not start: GitHub reported an account payment/spending-limit
+block, before any job steps. No billing settings were changed. Keep that distinct
+from a source/test failure; rerun CI after the owner resolves account availability.
+
 October 11 cleanup moved old loose `beacon-remote-*`, Coturn research and
 `beacon-view-*` root artifacts into `C:/Dev/Archives/2026-10-11` by product and
 Evidence/Tools/Packages/Notes. The restricted local `manifest.json` records every
