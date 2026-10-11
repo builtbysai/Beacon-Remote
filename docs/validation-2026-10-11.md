@@ -61,3 +61,12 @@ Viewer diagnostics now include actual first-frame/approval timing, presented FPS
 and selected-pair RTT. Timing starts at viewer setup, not button click; approval
 includes human response and cannot establish when a native dialog appeared.
 No secrets/candidate addresses/pixels are recorded by these measurements.
+
+Matching web commit 4324907 was built and installed only in acceptance after
+the local control-plane validation passed. Actual Chrome/native synthetic
+diagnostics showed host ready at 1,346 ms, first presented frame at 5,436 ms,
+4,090 ms from host readiness to first frame, 30.5 presented FPS and 72 ms RTT,
+with relay/relay selected. These are one observation, not a sustained benchmark
+or a measurement of desktop consent-window appearance. Browser Stop ended the
+stream. The user was invited to retest actual desktop on Android/mobile data;
+no result from that next human test is claimed here.

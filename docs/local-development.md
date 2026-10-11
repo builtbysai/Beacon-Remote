@@ -106,7 +106,9 @@ passed locally. Actual launcher start/readiness/stop and occupied-listener
 preservation passed. Both production products' HTTPS health/readiness passed.
 PR #11 CI could not start: GitHub reported an account payment/spending-limit
 block, before any job steps. No billing settings were changed. Keep that distinct
-from a source/test failure; rerun CI after the owner resolves account availability.
+from a source/test failure. The owner then explicitly authorized local CI/manual
+deployment and merging PR #11; it is merged and production updated with media
+disabled. See validation-2026-10-11.md. Rerun hosted CI when account access returns.
 
 October 11 cleanup moved old loose `beacon-remote-*`, Coturn research and
 `beacon-view-*` root artifacts into `C:/Dev/Archives/2026-10-11` by product and
