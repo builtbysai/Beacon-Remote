@@ -2,6 +2,14 @@
 
 **Prepared 2026-10-10.** This is a continuation document, not a statement that every feature or release gate is complete. Recheck GitHub and the actual machines before acting.
 
+Verified October 11 update: production now runs merged
+`4ea7ad97eac00ca6b8b33f7c168aa34e5a2f4d28`, media still disabled, after local
+validation and guarded manual rollout. PR #11 is merged. Acceptance backend
+0979cd1 and diagnostic web 4324907 are running for a bounded human retest, with
+matching native binaries; prior stopped-fixture statements below are historical.
+See validation-2026-10-11.md for measured synthetic playback/recovery evidence and
+the remaining local native compiler/desktop acceptance limits.
+
 October 11 local continuation: [local-development.md](local-development.md)
 documents isolated start/stop/status commands and the shared workstation contract.
 [Verified operations supplement](local-operations-2026-10-11.md) adds the actual

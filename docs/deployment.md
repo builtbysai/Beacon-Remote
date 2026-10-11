@@ -1,5 +1,12 @@
 # Deployment gates
 
+Current manual rollout on October 11: exact merged main
+`4ea7ad97eac00ca6b8b33f7c168aa34e5a2f4d28` replaced ff452ff with media disabled,
+after local control-plane checks, encrypted backup/integrity, isolated restore,
+migration/role verification and both products' HTTPS readiness. ff452ff images
+remain tagged for rollback. See validation-2026-10-11.md. Historical release
+details below retain earlier evidence; they do not identify today's current link.
+
 The private-alpha control plane is deployed at `https://remote.builtbysai.com`.
 The approved interface now runs exact release
 `ff452ffe66dd600e9a7b18d12fccc08ac970a7d6`, with encrypted pre-rollout backup,
