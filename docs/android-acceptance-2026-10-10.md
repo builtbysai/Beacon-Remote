@@ -34,6 +34,11 @@ This is a temporary milestone 4 test, not a production media release.
 
 ## Live test operation and cleanup
 
+October 11: the loose root runner is archived. Use tracked
+`node scripts/android-acceptance-host.mjs`; it skips existing pairing, uses
+matching 0979cd1 artifacts and refuses startup while its fixture STOP marker is
+present. See local-development.md and the operations supplement before resumption.
+
 The local host runner is `C:/Dev/beacon-remote-android-host.mjs`; its isolated state
 is `C:/Users/Saiha/.beacon-remote-recovery/android-acceptance-20261010`.
 Its maximum runtime is 45 minutes. An empty `STOP` file inside that exact state
