@@ -71,6 +71,30 @@ The temporary protected View-secret fixture was then removed; actual View
 configuration and credentials were untouched. Remote production readiness passed.
 Coturn emitted a PID-path warning before falling back successfully to its writable
 `/tmp/turnserver.pid`; no invalid-option warning was observed.
+
+## Final attended Android acceptance and maintainer handoff
+
+The owner confirmed desktop viewing connected successfully on Android using
+T-Mobile mobile data and stopped successfully with the Windows local control.
+The isolated native agent reported local-consent-required desktop mode, connected
+peer state and sharing stopped. No audio, recording or input was enabled. This
+provides owner-reported separate-network desktop acceptance; the earlier exact
+selected-port visibility limitation still applies.
+
+Remote's acceptance backend and relay now operate independently of View's TURN
+secret, ports, container, configuration and volume. Production Remote media stays
+disabled. View can prepare its own ownership transfer next, but its restart must
+wait for an agreed maintenance window. Keep the old patched relay and its Remote
+override intact until View's replacement configuration and rollback are ready.
+View still needs its own relay-only camera test beyond credential lifetime,
+private-peer rejection and cross-product credential rejection after hardening.
+
+Local validation passed formatting, lint, type checking, backend/web builds,
+Python compilation, shell syntax and real TURN protocol probes. The initial
+`pnpm check` had database regressions skipped without `TEST_DATABASE_URL`; a
+separate `pnpm test` run against Remote's local `beacon_remote_test` database then
+passed those regressions without skips. Native source was unchanged; this work
+used the previously built Windows acceptance binaries rather than recompiling.
 The following local fixture record describes the earlier candidate, before this
 VM deployment.
 

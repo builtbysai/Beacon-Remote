@@ -14,7 +14,9 @@ now deployed on Oracle and passed VM protocol checks with real separate product
 secrets. Public TCP reachability and authenticated UDP relay-pair traffic passed
 from Windows after the owner approved the three narrow Oracle ingress rules.
 Remote acceptance now issues only the new relay URL/secret and passed forced-relay
-synthetic playback. Android mobile-data desktop acceptance remains pending.
+synthetic playback. The owner confirmed Android mobile-data desktop connection
+and Windows local Stop succeeded. Remote-only relay recreation preserved View's
+container ID and start time; no live View camera call was available for testing.
 No View restart window is agreed. The paired mapping
 requires a documented exception for the exact isolated relay container address.
 
