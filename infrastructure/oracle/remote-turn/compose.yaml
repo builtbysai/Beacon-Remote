@@ -1,0 +1,38 @@
+name: beacon-remote-turn
+services:
+  coturn:
+    image: coturn/coturn:4.13.0@sha256:ad82d29a60c549878ca5a062220cab737518f56814b806fac5bcb4b366b7f974
+    entrypoint: [/bin/sh, /usr/local/bin/remote-turn]
+    environment:
+      REMOTE_TURN_PUBLIC_IP: ${REMOTE_TURN_PUBLIC_IP:?required}
+    volumes:
+      - ./turnserver.conf:/etc/remote-turn/turnserver.conf:ro
+      - ./entrypoint.sh:/usr/local/bin/remote-turn:ro
+      - ${REMOTE_TURN_SECRET_FILE:?required}:/run/secrets/remote-turn.conf:ro
+      - state:/var/lib/coturn
+    ports:
+      - "3479:3479/udp"
+      - "3479:3479/tcp"
+      - "49201-49240:49201-49240/udp"
+    networks: [relay]
+    read_only: true
+    tmpfs:
+      - /run/remote-turn:mode=0700,uid=65534,gid=65534,size=1m
+      - /tmp:mode=1777,size=8m
+    cap_drop: [ALL]
+    # The upstream executable has this file capability; its bounding set must
+    # retain it even though our listener uses an unprivileged port.
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
+    restart: unless-stopped
+    logging:
+      driver: local
+      options: { max-size: 5m, max-file: "2" }
+networks:
+  relay:
+    driver: bridge
+volumes:
+  state:
