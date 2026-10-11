@@ -32,6 +32,15 @@ Starting it is a separate deployment step. Do not use `down` on View or on the
 Remote application project. The named state volume and relay bridge belong
 only to `beacon-remote-turn`; no application/database network is attached.
 
+Coturn's explicit `public/private` mapping automatically permits its exact
+container relay IP. This is an intentional exception for communication between
+allocations using the same public relay. Every other private peer remains
+subject to the denied baseline. Do not attach another workload to this bridge
+or join the relay to an application network. The exception permits targeting
+this Coturn container, so private-peer rejection must not be described as
+unconditional. Test the actual public relay IP as well as forbidden app/host
+addresses before cutover.
+
 The configuration bounds memory to 128 MiB, CPU to 0.25, per-user allocations to
 4, total allocations to 20, per-session bandwidth to 4,000,000 bytes/s and server
 capacity to 16,000,000 bytes/s. Capacity reservation may reject allocations
@@ -43,6 +52,7 @@ The IPv4-only protocol probe accepts protected own/foreign secret files:
 
 ```sh
 sudo python3 scripts/check-turn-policy.py --host 127.0.0.1 --port 3479 \
+  --public-peer 129.213.128.206 \
   --secret-file /etc/beacon-remote/turn/secret/remote.conf \
   --foreign-secret-file <protected-foreign-secret-fixture>
 ```

@@ -32,12 +32,16 @@ def secret(path):
 
 
 class Client:
-    def __init__(self, address, signing_secret, user="policy-probe"):
+    def __init__(self, address, signing_secret=None, user="policy-probe", *, credentials=None):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.settimeout(4)
         self.sock.connect(address)
-        self.username = f"{int(time.time()) + 120}:{user}".encode()
-        self.password = base64.b64encode(hmac.new(signing_secret, self.username, hashlib.sha1).digest())
+        if credentials is not None:
+            self.username = credentials["username"].encode()
+            self.password = credentials["credential"].encode()
+        else:
+            self.username = f"{int(time.time()) + 120}:{user}".encode()
+            self.password = base64.b64encode(hmac.new(signing_secret, self.username, hashlib.sha1).digest())
         self.realm = self.nonce = self.key = None
 
     def request(self, kind, attributes, authenticated=True):
@@ -74,10 +78,16 @@ class Client:
         assert code == 401 and 0x14 in fields and 0x15 in fields
         self.realm, self.nonce = fields[0x14], fields[0x15]
         self.key = hashlib.md5(self.username + b":" + self.realm + b":" + self.password).digest()
-        kind, code, _ = self.request(3, requested_transport)
+        kind, code, fields = self.request(3, requested_transport)
+        if code is None:
+            relayed = fields[0x16]
+            assert len(relayed) == 8 and relayed[1] == 1
+            port = struct.unpack("!H", relayed[2:4])[0] ^ (COOKIE >> 16)
+            ip = socket.inet_ntoa(bytes(x ^ y for x, y in zip(relayed[4:], struct.pack("!I", COOKIE))))
+            self.relayed_address = (ip, port)
         return kind, code
 
-    def permission(self, peer):
+    def peer_attribute(self, peer, port):
         address = ipaddress.ip_address(peer)
         mask = struct.pack("!I", COOKIE)
         family = 1 if address.version == 4 else 2
@@ -87,9 +97,28 @@ class Client:
             # IPv6 relay tests are deliberately not claimed by this tool.
             raise ValueError("This probe currently supports IPv4 permissions only")
         encoded = bytes(x ^ y for x, y in zip(address.packed, mask))
-        peer_attribute = attribute(0x12, struct.pack("!BBH", 0, family, 9 ^ (COOKIE >> 16)) + encoded)
-        kind, code, _ = self.request(8, [peer_attribute])
+        return attribute(0x12, struct.pack("!BBH", 0, family, port ^ (COOKIE >> 16)) + encoded)
+
+    def permission(self, peer, port=9):
+        kind, code, _ = self.request(8, [self.peer_attribute(peer, port)])
         return kind, code
+
+    def send_probe(self, destination, payload):
+        fields = self.peer_attribute(*destination) + attribute(0x13, payload)
+        self.sock.send(struct.pack("!HHI12s", 0x16, len(fields), COOKIE, os.urandom(12)) + fields)
+
+    def receive_probe(self, expected_payload):
+        response = self.sock.recv(65536)
+        kind, length, cookie = struct.unpack("!HHI", response[:8])
+        assert kind == 0x17 and cookie == COOKIE and length == len(response) - 20
+        position = 20
+        data = None
+        while position < len(response):
+            field, size = struct.unpack("!HH", response[position:position + 4])
+            if field == 0x13:
+                data = response[position + 4:position + 4 + size]
+            position += 4 + size + (-size % 4)
+        assert data == expected_payload, "Relayed probe payload mismatch"
 
     def close(self, allocated):
         try:
@@ -108,6 +137,10 @@ def main():
     parser.add_argument("--port", type=int, default=3479)
     parser.add_argument("--secret-file", required=True)
     parser.add_argument("--foreign-secret-file", required=True)
+    parser.add_argument("--public-peer", default="8.8.8.8",
+                        help="Also check the deployment's public relay IP to catch self-mapping failures")
+    parser.add_argument("--relay-pair", action="store_true",
+                        help="Exchange only random probe bytes between two allocations on this relay")
     parser.add_argument("--allocation-limit", type=int, default=4,
                         help="Expected admission limit for this credential; bandwidth reservations may bind before user quota")
     args = parser.parse_args()
@@ -123,8 +156,9 @@ def main():
         assert kind == 0x103 and code is None, f"Own credential allocation failed: {code}"
         allocated = True
         print("Own credential: allocation accepted")
-        kind, code = client.permission("8.8.8.8")
-        assert kind == 0x108 and code is None, f"Public peer permission failed: {code}"
+        for peer in {"8.8.8.8", args.public_peer}:
+            kind, code = client.permission(peer)
+            assert kind == 0x108 and code is None, f"Public peer permission failed: {code}"
         print("Public peer: permission accepted (no traffic sent)")
         for peer in ["0.0.0.1", "10.0.0.1", "100.64.0.1", "127.0.0.1", "169.254.0.1", "172.16.0.1", "192.0.0.1", "192.168.0.1", "198.18.0.1", "240.0.0.1", "224.0.0.1"]:
             _, code = client.permission(peer)
@@ -132,6 +166,26 @@ def main():
             print(f"Forbidden peer {peer}: permission rejected (403)")
     finally:
         client.close(allocated)
+    if args.relay_pair:
+        time.sleep(1)
+        clients = [Client(address, own, f"relay-pair-{index}") for index in range(2)]
+        allocated = [False, False]
+        try:
+            for index, client in enumerate(clients):
+                kind, code = client.allocate()
+                assert kind == 0x103 and code is None
+                allocated[index] = True
+            for client, peer in [(clients[0], clients[1]), (clients[1], clients[0])]:
+                kind, code = client.permission(*peer.relayed_address)
+                assert kind == 0x108 and code is None
+            for sender, receiver in [(clients[0], clients[1]), (clients[1], clients[0])]:
+                payload = os.urandom(32)
+                sender.send_probe(receiver.relayed_address, payload)
+                receiver.receive_probe(payload)
+            print("Relay pair: random probe bytes delivered in both directions")
+        finally:
+            for client, was_allocated in zip(clients, allocated):
+                client.close(was_allocated)
     # Coturn acknowledges lifetime=0 before asynchronous allocation cleanup.
     # Allow that cleanup before deliberately testing capacity exhaustion.
     time.sleep(1)

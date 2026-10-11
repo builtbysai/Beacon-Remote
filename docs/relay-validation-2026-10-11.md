@@ -1,5 +1,65 @@
 # Remote relay candidate validation — October 11, 2026
 
+## Later Oracle deployment checks
+
+The standalone `beacon-remote-turn-coturn-1` is now running on the existing VM,
+with its own secret, bridge and named volume. The isolated Remote acceptance
+backend now issues only the new UDP 3479 URL and dedicated secret; its previous
+protected settings are retained for rollback. Production media remains off and
+the shared View relay has not been restarted.
+The initial release is `/etc/beacon-remote/turn/releases/805ecbd`; a derived
+`805ecbd-paired-map` release fixes the public/self mapping described below.
+Operator settings and the dedicated secret are in protected files under
+`/etc/beacon-remote/turn/`, outside Git. No paid resource was created.
+
+Actual VM protocol checks passed own-secret allocation, forbidden IPv4 peers,
+combined admission limits and release recovery. New Remote credentials were
+rejected by the old View relay, and actual old View credentials were rejected
+by the new Remote relay. Neither real secret was printed. A protected temporary
+View-secret fixture was used solely for those checks.
+
+The single-address external mapping failed permission to the VM's own public
+IP, returning 403 after mapping it into the container's private range. The
+supported paired `public/private` mapping corrected that. Coturn's
+[versioned implementation](https://github.com/coturn/coturn/blob/4.13.0/src/apps/relay/mainrelay.c)
+automatically whitelists the exact private relay address for paired mappings.
+This is an explicit self-relay exception, not proof that all private addresses
+are denied. It is limited to this isolated Coturn container; it must never join
+an app/database network. The private deny baseline remains unchanged and the
+tested forbidden peers still returned 403. The actual VM public IP permission
+also passed after this correction. Random probe bytes passed in both directions
+between two allocations on the VM. End-to-end media remains unproven.
+
+Oracle sign-in was restored. The VCN is in the root compartment, while the VM is
+in `beacon-staging`; the subnet is `10.0.0.0/24`. Its default security list only
+permits SSH and ICMP ingress. The owner approved adding exactly three stateful
+ingress rules to its attached `beacon-nsg`: TCP 3479, UDP 3479 and UDP
+49201–49240 from `0.0.0.0/0`. Oracle visibly saved those rules; the existing View
+rules remain unchanged. From the Windows workstation, public TCP connection and
+authenticated UDP allocation passed. Both advertised relay addresses used the
+Remote public IP/range, and random probe bytes passed in both directions through
+those allocations. Only two-minute test credentials left the VM; the long-lived
+secret remained in its protected file. The temporary local credential file was
+removed after the check. This proves public protocol traffic, not browser video
+or a separate-network Android call.
+
+After confirming no unexpired live acceptance grant, only the acceptance backend
+was recreated. Chrome's synthetic video test connected with forced relay policy,
+reported relay/relay candidate types, decoded frames and approximately 30 FPS.
+Browser Stop removed the video and ended the native test. This checks no desktop
+pixels, audio or input. An owner-approved Android mobile-data desktop test remains
+pending. Exact selected candidate ports were not exposed by this viewer's UI;
+use of the new relay is supported by the backend's sole new TURN configuration
+and successful playback, rather than a displayed selected-port statistic.
+
+An admission-limit probe run during playback, and repeated immediately after
+browser Stop, returned 486 before four new allocations. Browser allocations can
+remain reserved until their TURN allocation lifetime expires. The check must run
+with no residual allocations; it must not interpret occupied capacity as a quota
+regression. Clean-state revalidation is recorded separately below.
+The following local fixture record describes the earlier candidate, before this
+VM deployment.
+
 View ADR 0114 was read from its active checkout without editing it. Its migration
 order agrees with Remote ADR 0011. One factual clarification for the View
 maintainer: the running relay has Compose ownership labels referencing both the

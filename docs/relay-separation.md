@@ -9,9 +9,14 @@ The deployable Remote-owned candidate is now in
 It passed actual authenticated allocation, IPv4 forbidden-peer permissions,
 foreign-secret rejection, combined admission limits and cleanup/recovery against
 the pinned non-root image in an isolated local Docker fixture. See
-[the validation record](relay-validation-2026-10-11.md). It is not deployed and
-Remote acceptance still uses the old relay. Oracle console authentication must
-be restored before ingress can be verified; no View restart window is agreed.
+[the validation record](relay-validation-2026-10-11.md). A standalone instance is
+now deployed on Oracle and passed VM protocol checks with real separate product
+secrets. Public TCP reachability and authenticated UDP relay-pair traffic passed
+from Windows after the owner approved the three narrow Oracle ingress rules.
+Remote acceptance now issues only the new relay URL/secret and passed forced-relay
+synthetic playback. Android mobile-data desktop acceptance remains pending.
+No View restart window is agreed. The paired mapping
+requires a documented exception for the exact isolated relay container address.
 
 ## Before changing services
 
@@ -99,4 +104,4 @@ image as routine recovery, delete volumes, or reset shared firewall rules.
 
 Record deployment hashes, actual external port reachability, security results,
 call-interruption evidence and remaining limitations before declaring separation
-complete. No production relay changes have been performed by this runbook yet.
+complete. The standalone relay is deployed; production Remote media stays off.

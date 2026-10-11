@@ -26,5 +26,9 @@ esac
 
 # Keep the authentication secret out of argv, environment and rendered Compose.
 cat /etc/remote-turn/turnserver.conf "$secret_file" > /run/remote-turn/turnserver.conf
+# Coturn's supported paired mapping whitelists this exact relay address. That
+# permits two allocations on this isolated relay to communicate after public
+# peers are mapped back to the container. Other private ranges remain denied.
+# This container must never join an application/database network.
 exec turnserver -c /run/remote-turn/turnserver.conf \
-  "--external-ip=$REMOTE_TURN_PUBLIC_IP" "--relay-ip=$relay_ip"
+  "--external-ip=$REMOTE_TURN_PUBLIC_IP/$relay_ip" "--relay-ip=$relay_ip"
