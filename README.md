@@ -20,6 +20,11 @@ disabled pending relay/network validation; mouse and keyboard input are absent.
 Requirements: Node 22, pnpm 11.9.0, Docker; stable Rust and Microsoft C++ Build
 Tools/Windows SDK for native Windows builds. Use a feature branch.
 
+On the shared Windows workstation use `pnpm dev:setup`, `pnpm dev:start`,
+`pnpm dev:status` and `pnpm dev:stop`. Remote uses strict ports 3010/5174/5433
+and its own `.remote-dev/` ownership/logs; it never stops View's processes.
+See [local coexistence and recovery](docs/local-development.md).
+
 ```sh
 pnpm install --frozen-lockfile
 docker compose -f infrastructure/compose.yaml up -d

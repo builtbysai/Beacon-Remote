@@ -9,3 +9,4 @@ target/
 *.pfx
 *.log
 .agent-state/
+.remote-dev/

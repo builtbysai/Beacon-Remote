@@ -2,6 +2,16 @@
 
 **Prepared 2026-10-10.** This is a continuation document, not a statement that every feature or release gate is complete. Recheck GitHub and the actual machines before acting.
 
+October 11 local continuation: [local-development.md](local-development.md)
+documents isolated start/stop/status commands and the shared workstation contract.
+[Verified operations supplement](local-operations-2026-10-11.md) adds the actual
+SSH alias/key path, protected environment filename, observed infrastructure,
+stopped fixture resumption and rollback procedures without revealing secrets.
+The approved ZIP is verified locally at
+`C:/Users/Saiha/Downloads/Beacon-Remote-Final-Package.zip`.
+The old root acceptance runner is archived; use tracked
+`node scripts/android-acceptance-host.mjs` after its explicit preparation steps.
+
 ## Source of truth and first 20 minutes
 
 - Repo: https://github.com/builtbysai/Beacon-Remote (private); branch: `main`.

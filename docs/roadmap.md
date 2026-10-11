@@ -66,6 +66,13 @@ never inherit computer access from a camera or a public support code.
 
 ## Current milestone 4 implementation sequence
 
+October 11 local foundation: Remote now has its own start/stop/status supervisor,
+strict API/viewer ports and isolated state; View's active work is preserved.
+Historical loose artifacts are recoverably archived with hashes. See
+[local-development.md](local-development.md). This is development isolation,
+not milestone 6 service installation or production media release. Continue
+milestone 4 consent-latency and real-desktop lifecycle acceptance next.
+
 1. **Backend relay foundation — started in this pass.** Validate paired TURN
    configuration; issue Coturn REST credentials only for an authenticated owner's
    live, nonrevoked view session, with exact Origin, rate limit and no caching.
