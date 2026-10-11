@@ -98,6 +98,13 @@ shared Oracle service. Remote changes must retain the documented relay override.
 Coordinate any shared-service deployment with the owner/Claude and verify both
 products; never apply the View Compose wholesale for a Remote app change.
 
+Production relay ownership is still split: View's Compose project/configuration
+uses a Remote-owned patched image/wrapper override. Live inspection found the
+updated local View peer-denial policy and quotas are not deployed. Follow
+[the relay separation decision](decisions/0011-independent-relay-ownership.md)
+and [maintenance runbook](relay-separation.md); local environment separation
+does not mean the live relay has already been separated or hardened.
+
 ## Cleanup and retained material
 
 Validation on October 11: full formatting/lint/type checks, real Remote
