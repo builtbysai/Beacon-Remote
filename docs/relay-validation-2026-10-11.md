@@ -8,7 +8,9 @@ backend now issues only the new UDP 3479 URL and dedicated secret; its previous
 protected settings are retained for rollback. Production media remains off and
 the shared View relay has not been restarted.
 The initial release is `/etc/beacon-remote/turn/releases/805ecbd`; a derived
-`805ecbd-paired-map` release fixes the public/self mapping described below.
+`805ecbd-paired-map` release fixed the public/self mapping described below.
+The final deployed source is immutable release
+`d9b7bc3880d18c0bf54ff99e107c899aac27fdd6` under the same releases directory.
 Operator settings and the dedicated secret are in protected files under
 `/etc/beacon-remote/turn/`, outside Git. No paid resource was created.
 
@@ -56,7 +58,19 @@ An admission-limit probe run during playback, and repeated immediately after
 browser Stop, returned 486 before four new allocations. Browser allocations can
 remain reserved until their TURN allocation lifetime expires. The check must run
 with no residual allocations; it must not interpret occupied capacity as a quota
-regression. Clean-state revalidation is recorded separately below.
+regression. After verifying no live acceptance grant, the Remote relay alone was
+recreated from the committed immutable release. The clean-state protocol check
+passed four admitted allocations, excess rejection, release recovery, private
+peer rejection, real View credential rejection and the bidirectional relay pair.
+View retained container ID
+`10db9f6387816f054c9b0f30e94de7d5b539c1ad6808b68ae92890d40b631352`
+and start time `2026-10-10T19:11:30.861346752Z` throughout. A live View camera call
+was not available for interruption testing. Forced-relay synthetic playback
+passed again after the Remote-only recreation and Browser Stop ended it.
+The temporary protected View-secret fixture was then removed; actual View
+configuration and credentials were untouched. Remote production readiness passed.
+Coturn emitted a PID-path warning before falling back successfully to its writable
+`/tmp/turnserver.pid`; no invalid-option warning was observed.
 The following local fixture record describes the earlier candidate, before this
 VM deployment.
 
