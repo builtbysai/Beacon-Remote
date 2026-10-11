@@ -35,7 +35,17 @@ export function LiveView({
     grant.iceTransportPolicy,
   );
   const [candidateTypes, setCandidateTypes] = useState("Not established");
+  const [timings, setTimings] = useState<{
+    approval?: number;
+    firstFrame?: number;
+    afterApproval?: number;
+  }>({});
+  const [presentedFps, setPresentedFps] = useState<number | null>(null);
+  const [roundTripMillis, setRoundTripMillis] = useState<number | null>(null);
   useEffect(() => {
+    const startedAt = performance.now();
+    let approvedAt: number | undefined;
+    let firstFrameAt: number | undefined;
     const pc = new RTCPeerConnection({
       iceServers: grant.iceServers,
       iceTransportPolicy: grant.iceTransportPolicy,
@@ -53,6 +63,7 @@ export function LiveView({
     const candidates: RTCIceCandidateInit[] = [];
     let frameCallback = 0;
     let lastCount = 0;
+    let previousFrames = 0;
     const element = video.current;
     function finish(reason: string) {
       if (closed) return;
@@ -120,8 +131,28 @@ export function LiveView({
       if (element.requestVideoFrameCallback) {
         const count: VideoFrameRequestCallback = (time, metadata) => {
           if (closed) return;
+          if (firstFrameAt === undefined) {
+            firstFrameAt = time;
+            setTimings((current) => ({
+              ...current,
+              firstFrame: Math.max(0, time - startedAt),
+              afterApproval:
+                approvedAt === undefined
+                  ? undefined
+                  : Math.max(0, time - approvedAt),
+            }));
+          }
           if (time - lastCount >= 1000 || lastCount === 0) {
             setFrames(metadata.presentedFrames);
+            if (lastCount !== 0)
+              setPresentedFps(
+                Math.max(
+                  0,
+                  ((metadata.presentedFrames - previousFrames) * 1000) /
+                    (time - lastCount),
+                ),
+              );
+            previousFrames = metadata.presentedFrames;
             lastCount = time;
           }
           frameCallback = element.requestVideoFrameCallback(count);
@@ -151,7 +182,14 @@ export function LiveView({
             case "consent":
               if (message.accepted !== true)
                 finish("Sharing was declined on Windows.");
-              else setStatus("Connecting video…");
+              else {
+                approvedAt ??= performance.now();
+                setTimings((current) => ({
+                  ...current,
+                  approval: approvedAt! - startedAt,
+                }));
+                setStatus("Connecting video…");
+              }
               break;
             case "offer": {
               if (
@@ -216,6 +254,7 @@ export function LiveView({
               localCandidateId?: string;
               remoteCandidateId?: string;
               candidateType?: string;
+              currentRoundTripTime?: number;
             }
           >();
           let selected: string | undefined;
@@ -229,6 +268,12 @@ export function LiveView({
           });
           const pair = selected ? reports.get(selected) : undefined;
           if (!pair) return;
+          const rtt = pair.currentRoundTripTime;
+          setRoundTripMillis(
+            typeof rtt === "number" && Number.isFinite(rtt) && rtt >= 0
+              ? rtt * 1000
+              : null,
+          );
           const local =
             reports.get(pair.localCandidateId ?? "")?.candidateType ?? "";
           const remote =
@@ -291,6 +336,39 @@ export function LiveView({
       <details>
         <summary>Connection diagnostics</summary>
         <p>Decoded frames: {frames}</p>
+        <p>
+          Presented FPS:{" "}
+          {presentedFps === null ? "Not measured" : presentedFps.toFixed(1)}
+        </p>
+        <p>
+          Round trip:{" "}
+          {roundTripMillis === null
+            ? "Not measured"
+            : `${Math.round(roundTripMillis)} ms`}
+        </p>
+        <p>
+          {grant.source === "desktop" ? "Approval received" : "Host ready"}:{" "}
+          {timings.approval === undefined
+            ? "Pending"
+            : `${Math.round(timings.approval)} ms`}
+        </p>
+        <p>
+          First presented frame:{" "}
+          {timings.firstFrame === undefined
+            ? "Not received"
+            : `${Math.round(timings.firstFrame)} ms`}
+        </p>
+        <p>
+          Approval to first frame:{" "}
+          {timings.afterApproval === undefined
+            ? "Not measured"
+            : `${Math.round(timings.afterApproval)} ms`}
+        </p>
+        <p>
+          Timings start at viewer setup. Approval time includes the person's
+          response; it does not measure when the Windows dialog appeared.
+          Presented FPS can drop when this browser tab is hidden.
+        </p>
         <p>Connection route: {route}</p>
         <p>ICE state: {iceState}</p>
         <p>Browser ICE policy: {policy}</p>

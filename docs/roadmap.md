@@ -66,6 +66,13 @@ never inherit computer access from a camera or a public support code.
 
 ## Current milestone 4 implementation sequence
 
+October 11 continuation: PR #11 merged after local validation and the control
+plane manually rolled out at 4ea7ad9, with production media still disabled.
+The long-poll backend and matching native fixture are installed in isolated
+acceptance. Actual synthetic dual-relay playback and backend restart/fresh request
+passed; no new desktop acceptance is claimed. Viewer timing/FPS/RTT diagnostics
+support remaining real-device measurement. See validation-2026-10-11.md.
+
 October 11 local foundation: Remote now has its own start/stop/status supervisor,
 strict API/viewer ports and isolated state; View's active work is preserved.
 Historical loose artifacts are recoverably archived with hashes. See

@@ -59,6 +59,13 @@ publishing credentials or request bodies.
 
 ## Tests and native fixture
 
+For GitHub runner unavailability, run
+`pwsh -NoProfile -File scripts/Test-RemoteCi.ps1`. It reproduces the control-plane
+checks and, with installed MSVC/Windows SDK, native formatting/Clippy/tests/release
+builds. `-ControlPlaneOnly` explicitly excludes native compilation/tests and is
+not full native CI. The required `_test` database must already exist. No runner
+installation, billing changes or shared View environment changes are performed.
+
 ```powershell
 $env:TEST_DATABASE_URL='postgresql://remote_dev:development-only@127.0.0.1:5433/beacon_remote_test'
 pnpm check
