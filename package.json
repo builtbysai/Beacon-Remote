@@ -12,12 +12,14 @@
     "dev:start": "node scripts/local-dev.mjs start",
     "dev:stop": "node scripts/local-dev.mjs stop",
     "dev:status": "node scripts/local-dev.mjs status",
+    "acceptance:status": "node scripts/acceptance-status.mjs",
+    "test:scripts": "node --test scripts/*.test.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "typecheck": "pnpm -r --if-present typecheck",
     "build": "pnpm -r --if-present build",
-    "test": "pnpm -r --if-present test",
+    "test": "pnpm test:scripts && pnpm -r --if-present test",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },
   "devDependencies": {

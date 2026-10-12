@@ -7,7 +7,10 @@ and owner mobile-data evidence remains recorded below. See
 
 Latest owner acceptance: the PR #25 native pair passed the guided real-device
 Decline/Escape, pending cancellation/re-request, manual desktop viewing and local
-Stop sequence, plus keyboard Stop. Fixtures are now stopped. Specific lock/expiry/recovery,
+Stop sequence, plus keyboard Stop. An updated bounded fixture subsequently passed
+owner-confirmed sign-in and automatic expiry: video ended and the Windows Stop
+window closed after two minutes. The owner also confirmed Windows lock ended
+viewing and reconnecting required a fresh session. Pending-prompt lock/expiry,
 route/performance and updated UI acceptance still remain; milestone 4 stays
 active. See [the consent validation](consent-validation-2026-10-12.md).
 
@@ -19,8 +22,8 @@ remains required; these guards do not complete milestone 4.
 
 Viewer expiry also bounds the initial remaining lifetime with a monotonic clock,
 so rolling the system clock backward during a session cannot defer local cleanup.
-Server/native leases remain authoritative. Browser sleep/resume and real expiry
-acceptance remain open.
+Server/native leases remain authoritative. Updated real-device automatic expiry
+passed; browser sleep/resume acceptance remains open.
 
 Pending viewer requests are also scoped to the original page/sign-in context.
 Late responses after navigation or sign-out cannot open a viewer; obsolete
@@ -34,7 +37,8 @@ native host design belongs with milestone 6 and the ongoing UX track. Plan an
 explicit owner setup choice for remembered personal devices, durable device
 authorization and revocation in milestones 6–7; keep guest support attended and
 view/control scopes separate. Do not reuse attended approval or a browser cookie
-as permanent desktop permission. See [the access-mode decision](decisions/0014-personal-device-access-direction.md).
+as permanent desktop permission. The owner also requested recovery after restart
+and unlock in that remembered mode. See [the access-mode decision](decisions/0014-personal-device-access-direction.md).
 
 ## Product and architecture
 
