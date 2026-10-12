@@ -34,7 +34,8 @@ and [the ruleset API](https://docs.github.com/en/rest/repos/rules).
 
 The hardened main workflow [38210455352, attempt 2](https://github.com/builtbysai/Beacon-Remote/actions/runs/38210455352/attempts/2)
 started real hosted jobs after publication. Its secret scan and RustSec audit
-passed. The control-plane job exposed a fresh-database race: multiple test files
+and native Windows formatting, Clippy, tests and release build passed. The
+control-plane job exposed a fresh-database race: multiple test files
 executed `CREATE TABLE IF NOT EXISTS` concurrently, conflicting on PostgreSQL
 catalog entries. Serializing test files fixes their shared-schema initialization;
 concurrent enrollment, invitation and signaling checks inside each test remain.
@@ -47,6 +48,23 @@ filters. This avoids duplicate feature/Dependabot push builds and limits unsigne
 development artifact uploads and native cache writes to main builds. Weekly
 Dependabot proposals are reviewed and validated individually; no automatic merge
 or production deployment is configured. Production media remains disabled.
+
+Enabling Dependabot surfaced eleven alerts across manifests and lockfiles,
+representing six distinct advisories affecting development tooling. The initial
+production-only npm audit did not cover these tools. Updated Vite from 8.0.3 to
+8.0.16 and tsx from 4.21.0 to 4.23.15, which resolves esbuild to 0.28.2 without a
+dependency override. The full npm audit now reports no known vulnerabilities,
+including development dependencies. Hosted and local CI audits now include the
+full dependency graph and reject high-severity findings. With the patched
+dependencies, frozen install, formatting, lint, types, all ten real PostgreSQL
+checks without skips and backend/web builds passed locally against another new
+isolated `_test` database. The relevant Windows
+development-server issues are documented in the
+[Vite advisory](https://github.com/vitejs/vite/security/advisories/GHSA-fx2h-pf6j-xcff)
+and [esbuild advisory](https://github.com/evanw/esbuild/security/advisories/GHSA-g7r4-m6w7-qqqr).
+This does not establish that a Windows developer was exploited or that the
+production static site exposed these development servers. GitHub alerts must
+be rechecked after the patched lockfile reaches main.
 
 ## Scope and evidence
 

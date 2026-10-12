@@ -64,7 +64,7 @@ jobs:
         with: { node-version: "22", cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
-      - run: pnpm audit --prod --audit-level high
+      - run: pnpm audit --audit-level high
   native:
     runs-on: windows-latest
     timeout-minutes: 45

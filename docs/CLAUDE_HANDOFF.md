@@ -38,8 +38,11 @@ October 12 manual production rollout: exact `74a4e6e4d6573836c3da6dfc766b4c84c90
 passed local control-plane checks and protected backup, isolated restore,
 schema/role and public readiness gates. Production media remains disabled;
 see [the rollout record](validation-2026-10-12.md). GitHub Actions could not
-start jobs because of the account spending/payment restriction. Native build
-and the remaining real desktop acceptance matrix are still open.
+start jobs because of the account spending/payment restriction at that time.
+After publication hosted jobs resumed: hardened main security and native checks
+passed; a control-plane fresh-schema race required the CI follow-up described in
+the security review. Local MSVC native builds now work. The remaining real
+desktop acceptance matrix is still open.
 
 Verified October 11 update: production now runs merged
 `4ea7ad97eac00ca6b8b33f7c168aa34e5a2f4d28`, media still disabled, after local

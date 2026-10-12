@@ -18,7 +18,7 @@ try {
         foreach ($arguments in @(
             @('install', '--frozen-lockfile'),
             @('check'),
-            @('audit', '--prod', '--audit-level', 'high')
+            @('audit', '--audit-level', 'high')
         )) {
             & pnpm.cmd @arguments
             if ($LASTEXITCODE -ne 0) { throw "Remote control-plane check failed: $($arguments -join ' ')" }
