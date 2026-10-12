@@ -355,6 +355,7 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
         connected.clone(),
         desktop,
         grant.controller.clone(),
+        deadline,
     )?;
     timeout(
         Duration::from_millis(500),

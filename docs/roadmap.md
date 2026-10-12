@@ -154,6 +154,12 @@ milestone 4 consent-latency and real-desktop lifecycle acceptance next.
    The paired Windows fixture remains stopped pending human testing. The
    follow-up fixes a stale quit message during prompt cleanup, with a real
    hidden-window regression. See [the validation record](consent-validation-2026-10-12.md).
+   PR #24 merged at `a68a430` with reviewed-head and merged-main checks passing.
+   Further native hardening makes the Stop window enforce input-desktop loss and
+   the original deadline while the browser is connecting, adds dialog keyboard
+   handling and destroys the window before releasing state on a loop exit.
+   Local native checks and a real noninput-desktop dispatcher regression pass;
+   actual physical lock/unlock and keyboard acceptance remain open.
 5. **Release decision.** Review evidence, quota impact and exact-commit rollout/
    rollback. Enable production viewing only after acceptance. Input remains
    unavailable until milestone 4 passes and milestone 5 is implemented.
