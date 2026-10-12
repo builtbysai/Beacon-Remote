@@ -235,7 +235,8 @@ export function ProductPage({
             <h2>Local approval</h2>
             <p>
               Desktop viewing requires approval on Windows. Sharing has a
-              visible Stop control and a two-minute limit.
+              visible Stop control. Access ends when stopped or authorization is
+              lost.
             </p>
           </div>
           <div>

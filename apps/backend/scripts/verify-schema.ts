@@ -43,6 +43,11 @@ try {
         throw new Error(`Missing schema column ${table}.${column}`);
     }
   }
+  const duration = await pool.query<{ is_nullable: string }>(
+    "SELECT is_nullable FROM information_schema.columns WHERE table_schema='public' AND table_name='view_sessions' AND column_name='expires_at'",
+  );
+  if (duration.rows[0]?.is_nullable !== "YES")
+    throw new Error("Missing development session duration migration");
   const requiredConstraints = [
     "view_sessions_pkey",
     "view_sessions_account_id_fkey",

@@ -14,7 +14,10 @@ on 127.0.0.1:3011/5175, creates a disposable schema in `beacon_remote_test`, mak
 a temporary test account, enrolls a fresh in-memory Ed25519 host through the real
 pairing API and signs heartbeats. It launches the matching native helper only when
 a request exists. Login details are in ignored `.remote-dev/input-development/login.json`;
-never copy that file into evidence or Git. It expires after 30 minutes. If a prior
+never copy that file into evidence or Git. The fixture runs until explicitly stopped
+and reuses those local demo credentials across restarts. Active sessions have no
+fixed duration in this loopback-only mode. A pending request still requires approval
+within two minutes. If a prior
 STOP marker exists, remove it deliberately before a new run.
 
 1. Open `http://127.0.0.1:5175`, sign into the generated development account, and
@@ -39,7 +42,7 @@ STOP marker exists, remove it deliberately before a new run.
 Use Ctrl+C in the fixture terminal, or create
 `.remote-dev/input-development/STOP` to stop it. It closes the backend/helper and
 Vite, then removes only its generated disposable schema. After a process crash,
-the helper still has its original two-minute deadline, but forced process death
+the helper stops when its short authorization renewal expires. Forced process death
 is not proof of held-state cleanup. Do not use this fixture for sensitive documents.
 
 Automated validation protects scope/token isolation, single controller, consent

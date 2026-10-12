@@ -53,6 +53,8 @@ pub struct Grant {
     capability: String,
     controller: String,
     expires_at_millis: u64,
+    #[serde(default)]
+    approval_expires_at_millis: Option<u64>,
     ice_servers: Vec<IceServer>,
     ice_transport_policy: String,
 }
@@ -295,11 +297,6 @@ pub fn run() -> Result<(), Error> {
     {
         return Err("Control disabled or invalid capability".into());
     }
-    let now = now_millis()?;
-    if grant.expires_at_millis <= now || grant.expires_at_millis - now > 120_000 {
-        return Err("Expired or excessive grant".into());
-    }
-    let deadline = Instant::now() + Duration::from_millis(grant.expires_at_millis - now);
     if grant.id.len() != 36
         || !grant.id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
         || grant.token.len() != 43
@@ -312,6 +309,24 @@ pub fn run() -> Result<(), Error> {
     }
     let origin = url::Url::parse(&grant.server)?;
     let local = matches!(origin.host_str(), Some("127.0.0.1") | Some("localhost"));
+    let now = now_millis()?;
+    let unlimited = grant.expires_at_millis == 0;
+    if unlimited
+        && (!local || std::env::var("REMOTE_DEV_SESSION_UNLIMITED").as_deref() != Ok("true"))
+    {
+        return Err("Unlimited sessions require explicit loopback development mode".into());
+    }
+    let approval_expiry = if unlimited {
+        grant
+            .approval_expires_at_millis
+            .ok_or("Missing approval deadline")?
+    } else {
+        grant.expires_at_millis
+    };
+    if approval_expiry <= now || approval_expiry - now > 120_000 {
+        return Err("Expired or excessive grant".into());
+    }
+    let deadline = Instant::now() + Duration::from_millis(approval_expiry - now);
     if (origin.scheme() != "https" && !(local && origin.scheme() == "http"))
         || !origin.username().is_empty()
         || origin.password().is_some()
@@ -337,17 +352,19 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
     let control = grant.capability == "desktop:control";
     // The absolute grant budget includes connection setup and the person's
     // response. Wall-clock changes cannot extend this monotonic deadline.
-    if Instant::now() >= deadline || now_millis()? >= grant.expires_at_millis {
+    if Instant::now() >= deadline
+        || (grant.expires_at_millis != 0 && now_millis()? >= grant.expires_at_millis)
+    {
         return Err("View grant expired before connection".into());
     }
     println!(
         "{}",
         if control {
-            "DESKTOP CONTROL REQUEST: explicit local mouse/keyboard approval required. Maximum two minutes."
+            "DESKTOP CONTROL REQUEST: explicit local mouse/keyboard approval required."
         } else if desktop {
-            "DESKTOP VIEW REQUEST: local consent required. No audio, recording or input. Maximum two minutes."
+            "DESKTOP VIEW REQUEST: local consent required. No audio, recording or input."
         } else {
-            "SYNTHETIC VIDEO TEST: no screen capture, audio, recording or input. Maximum two minutes."
+            "SYNTHETIC VIDEO TEST: no screen capture, audio, recording or input."
         }
     );
     let mut url = url::Url::parse(&grant.server)?;
@@ -368,12 +385,19 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
     )
     .await??;
     if desktop {
+        let unlimited = grant.expires_at_millis == 0;
         let controller = grant.controller.clone();
         let pending = Arc::new(AtomicBool::new(true));
         let _cancel_prompt = StopOnDrop(pending.clone());
         let dialog_pending = pending.clone();
         let mut dialog = tokio::task::spawn_blocking(move || {
-            crate::consent::request_access(&controller, dialog_pending, deadline, control)
+            crate::consent::request_access(
+                &controller,
+                dialog_pending,
+                deadline,
+                control,
+                unlimited,
+            )
         });
         let accepted = consent_while_signaling(
             &mut socket,
@@ -404,10 +428,13 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
             println!("Desktop request declined, cancelled or expired; nothing captured.");
             return Ok(());
         }
-        if Instant::now() >= deadline || now_millis()? >= grant.expires_at_millis {
+        if Instant::now() >= deadline
+            || (grant.expires_at_millis != 0 && now_millis()? >= grant.expires_at_millis)
+        {
             return Err("View grant expired during consent".into());
         }
     }
+    let deadline = (grant.expires_at_millis != 0).then_some(deadline);
     let active = Arc::new(AtomicBool::new(true));
     let connected = Arc::new(AtomicBool::new(false));
     let _stop = StopOnDrop(active.clone());
@@ -495,7 +522,7 @@ impl SignalSocket {
     fn start(
         mut raw: RawSignalSocket,
         expires_at: u64,
-        deadline: Instant,
+        deadline: Option<Instant>,
         active: Arc<AtomicBool>,
         epoch: Instant,
         lease: Arc<AtomicU64>,
@@ -514,7 +541,7 @@ impl SignalSocket {
                 loop {
                     let elapsed = epoch.elapsed().as_millis() as u64;
                     let last = lease.load(Ordering::Acquire);
-                    if !active.load(Ordering::Acquire) || Instant::now() >= deadline {
+                    if !active.load(Ordering::Acquire) || deadline.is_some_and(|end| Instant::now() >= end) {
                         break;
                     }
                     if (last != 0 && remaining(last, elapsed).is_none())
@@ -546,7 +573,7 @@ impl SignalSocket {
                                     if body["type"] == "lease" {
                                         let now = epoch.elapsed().as_millis() as u64;
                                         let last = lease.load(Ordering::Acquire);
-                                        if !active.load(Ordering::Acquire) || Instant::now() >= deadline || (last != 0 && remaining(last, now).is_none()) || (last == 0 && now >= MAX_AGE_MS) {break;}
+                                        if !active.load(Ordering::Acquire) || deadline.is_some_and(|end| Instant::now() >= end) || (last != 0 && remaining(last, now).is_none()) || (last == 0 && now >= MAX_AGE_MS) {break;}
                                         if body["expiresAtMillis"].as_u64() != Some(expires_at) || body["maxAgeMs"].as_u64() != Some(MAX_AGE_MS) {
                                             return Err("Invalid lease".into());
                                         }
@@ -608,12 +635,14 @@ impl SignalSocket {
 async fn wait_for_viewer(
     socket: &mut SignalSocket,
     _grant: &Grant,
-    deadline: Instant,
+    deadline: Option<Instant>,
     active: Arc<AtomicBool>,
     authorization: &mut MediaAuthorization,
     expected_generation: u64,
 ) -> Result<bool, Error> {
-    let until = (Instant::now() + Duration::from_secs(10)).min(deadline);
+    let until = deadline.map_or(Instant::now() + Duration::from_secs(10), |end| {
+        (Instant::now() + Duration::from_secs(10)).min(end)
+    });
     let epoch = authorization.epoch;
     let mut tick = tokio::time::interval(Duration::from_millis(100));
     loop {
@@ -648,7 +677,7 @@ async fn wait_for_viewer(
 async fn media_cycle(
     socket: &mut SignalSocket,
     grant: &Grant,
-    deadline: Instant,
+    deadline: Option<Instant>,
     session_active: Arc<AtomicBool>,
     indicator_connected: Arc<AtomicBool>,
     authorization: &mut MediaAuthorization,
@@ -795,7 +824,7 @@ async fn media_cycle(
         let mut capture = None::<crate::capture::DesktopCapture>;
         while worker_active.load(Ordering::Acquire)
             && worker_session_active.load(Ordering::Acquire)
-            && Instant::now() < deadline
+            && deadline.is_none_or(|end| Instant::now() < end)
         {
             let last = worker_lease.load(Ordering::Acquire);
             let elapsed = epoch.elapsed().as_millis() as u64;
@@ -872,7 +901,7 @@ async fn media_cycle(
                 }
                 _=tick.tick()=>{
                     indicator_connected.store(connected.load(Ordering::Acquire), Ordering::Release);
-                    if !active.load(Ordering::Acquire) || !session_active.load(Ordering::Acquire) || Instant::now()>=deadline {break;}
+                    if !active.load(Ordering::Acquire) || !session_active.load(Ordering::Acquire) || deadline.is_some_and(|end| Instant::now() >= end) {break;}
                     if failed.load(Ordering::Acquire) && !requested_retry {
                         timeout(Duration::from_millis(500),socket.send(Message::Text(json!({"type":"retry","generation":generation}).to_string().into()))).await??;
                         requested_retry=true;
@@ -887,7 +916,7 @@ async fn media_cycle(
                 }
                 packet=receiver.recv()=>{
                     let Some(packet)=packet else {break;};
-                    if !active.load(Ordering::Acquire) || !session_active.load(Ordering::Acquire) || Instant::now()>=deadline {break;}
+                    if !active.load(Ordering::Acquire) || !session_active.load(Ordering::Acquire) || deadline.is_some_and(|end| Instant::now() >= end) {break;}
                     if !connected.load(Ordering::Acquire) || viewer_generation.load(Ordering::Acquire) != generation {continue;}
                     if !answered {return Err("Media arrived before answer".into());}
                     let parameters=timeout(Duration::from_millis(500),sender.get_parameters()).await??;
@@ -896,7 +925,7 @@ async fn media_cycle(
                     let Some(lease_remaining)=remaining(lease.load(Ordering::Acquire),epoch.elapsed().as_millis() as u64) else {break;};
                     if !active.load(Ordering::Acquire) || !session_active.load(Ordering::Acquire) {break;}
                     if !connected.load(Ordering::Acquire) || viewer_generation.load(Ordering::Acquire) != generation {continue;}
-                    let budget=lease_remaining.min(deadline.saturating_duration_since(Instant::now())).min(Duration::from_millis(500));
+                    let budget=lease_remaining.min(deadline.map_or(lease_remaining, |end| end.saturating_duration_since(Instant::now()))).min(Duration::from_millis(500));
                     if budget.is_zero() {break;}
                     timeout(budget,track.sample_writer(7_230_001,payload).write_sample(&Sample{data:bytes::Bytes::from(packet.bytes),duration:Duration::from_secs_f64(1.0/30.0),..Sample::new(Instant::now())})).await??;
                     if !reported_first_packet {println!("First video packet sent: generation {generation}, {} ms.",setup_started.elapsed().as_millis()); reported_first_packet=true;}
@@ -956,7 +985,9 @@ async fn media_cycle(
         }
     );
     result?;
-    Ok(detached && session_active.load(Ordering::Acquire) && Instant::now() < deadline)
+    Ok(detached
+        && session_active.load(Ordering::Acquire)
+        && deadline.is_none_or(|end| Instant::now() < end))
 }
 
 #[cfg(test)]
@@ -988,7 +1019,7 @@ mod tests {
         let (_socket, pump) = SignalSocket::start(
             raw,
             120999,
-            Instant::now() + Duration::from_secs(20),
+            Some(Instant::now() + Duration::from_secs(20)),
             active.clone(),
             epoch,
             lease.clone(),
@@ -1050,7 +1081,7 @@ mod tests {
 
     #[tokio::test]
     async fn signaling_authorization_cannot_survive_missing_lease_or_invalid_deadline() {
-        for invalid_deadline in [false, true] {
+        for (invalid_deadline, unlimited) in [(false, false), (true, false), (false, true)] {
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let address = listener.local_addr().unwrap();
             let server = tokio::spawn(async move {
@@ -1071,7 +1102,7 @@ mod tests {
             let (_socket, pump) = SignalSocket::start(
                 raw,
                 120999,
-                Instant::now() + Duration::from_secs(20),
+                (!unlimited).then_some(Instant::now() + Duration::from_secs(20)),
                 active.clone(),
                 Instant::now(),
                 lease.clone(),
@@ -1267,7 +1298,7 @@ mod tests {
             let (mut socket, pump) = SignalSocket::start(
                 raw,
                 grant().expires_at_millis,
-                deadline,
+                Some(deadline),
                 active.clone(),
                 authorization.epoch,
                 authorization.lease.clone(),
@@ -1277,7 +1308,7 @@ mod tests {
                 wait_for_viewer(
                     &mut socket,
                     &grant(),
-                    deadline,
+                    Some(deadline),
                     active,
                     &mut authorization,
                     1,

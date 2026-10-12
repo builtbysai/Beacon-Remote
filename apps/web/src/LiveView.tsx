@@ -510,6 +510,7 @@ export function LiveView({
                 ? "Mouse and keyboard"
                 : "View only"
               : "Video test"}
+            {grant.expiresAtMillis === 0 ? " · Until stopped" : ""}
           </span>
         </div>
         <div className="viewer-actions">

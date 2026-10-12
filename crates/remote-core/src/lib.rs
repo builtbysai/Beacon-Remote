@@ -76,6 +76,25 @@ impl SessionCoordinator {
         Ok(())
     }
 
+    /// Only the same live controller can renew verified server authority.
+    pub fn renew(
+        &mut self,
+        session: &str,
+        controller: &str,
+        lifetime: Duration,
+        now: Instant,
+    ) -> Result<(), ControlError> {
+        self.authorize_input(session, controller, now)?;
+        if lifetime.is_zero() || lifetime > Duration::from_secs(300) {
+            return Err(ControlError::InvalidLease);
+        }
+        self.controller
+            .as_mut()
+            .ok_or(ControlError::NoLease)?
+            .expires_at = now + lifetime;
+        Ok(())
+    }
+
     /// Stop input immediately on local revoke, disconnect, or server revocation.
     /// Platform implementations must also release every held key/button.
     pub fn stop(&mut self) {
@@ -239,6 +258,20 @@ impl<B: InputBackend> ControlledDesktop<B> {
         }
     }
 
+    pub fn renew(
+        &mut self,
+        session: &str,
+        controller: &str,
+        lifetime: Duration,
+        now: Instant,
+    ) -> Result<(), ControlError> {
+        if let Err(error) = self.sessions.renew(session, controller, lifetime, now) {
+            self.stop();
+            return Err(error);
+        }
+        Ok(())
+    }
+
     pub fn stop(&mut self) {
         self.sessions.stop();
         self.backend.release_all();
@@ -276,6 +309,65 @@ mod tests {
             state.releases += 1;
         }
     }
+    #[test]
+    fn renewal_requires_the_same_live_controller_and_preserves_held_input() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let now = Instant::now();
+        let mut desktop = ControlledDesktop::new(Backend(state.clone()));
+        desktop
+            .start("s".into(), "c".into(), Duration::from_secs(2), now)
+            .unwrap();
+        desktop
+            .input(
+                "s",
+                "c",
+                &Input::Key {
+                    scan_code: 0x1d,
+                    extended: false,
+                    down: true,
+                },
+                now,
+            )
+            .unwrap();
+        for seconds in 1..=180 {
+            desktop
+                .renew(
+                    "s",
+                    "c",
+                    Duration::from_secs(2),
+                    now + Duration::from_secs(seconds),
+                )
+                .unwrap();
+        }
+        assert!(state.lock().unwrap().held);
+        assert_eq!(
+            desktop.renew(
+                "s",
+                "other",
+                Duration::from_secs(2),
+                now + Duration::from_secs(180)
+            ),
+            Err(ControlError::NotController)
+        );
+        assert!(!state.lock().unwrap().held);
+        desktop
+            .start("s".into(), "c".into(), Duration::from_secs(1), now)
+            .unwrap();
+        assert_eq!(
+            desktop.renew(
+                "s",
+                "c",
+                Duration::from_secs(2),
+                now + Duration::from_secs(1)
+            ),
+            Err(ControlError::Expired)
+        );
+        assert_eq!(
+            desktop.input("s", "c", &Input::KeepAlive, now),
+            Err(ControlError::NoLease)
+        );
+    }
+
     #[test]
     fn held_input_is_released_on_invalid_input_expiry_stop_and_drop() {
         let state = Arc::new(Mutex::new(State::default()));

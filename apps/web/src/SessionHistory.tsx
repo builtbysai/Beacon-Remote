@@ -8,7 +8,7 @@ export type SessionRecord = {
   capability?: "desktop:view" | "desktop:control";
   status: string;
   createdAt: string;
-  expiresAt: string;
+  expiresAt: string | null;
 };
 
 export function sessionState(status: string) {
@@ -145,6 +145,11 @@ export function SessionHistory() {
                           ? "Mouse and keyboard"
                           : "View only"
                         : "Video test"}
+                      {session.expiresAt === null
+                        ? session.status === "active"
+                          ? " · Until stopped"
+                          : " · Approval expires after two minutes"
+                        : ""}
                     </span>
                   </div>
                   <button

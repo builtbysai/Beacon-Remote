@@ -25,6 +25,7 @@ test(
         "001_identity.sql",
         "002_view_sessions.sql",
         "003_control_scope.sql",
+        "004_development_session_duration.sql",
       ])
         await pool.query(
           await readFile(

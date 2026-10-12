@@ -13,7 +13,8 @@ type Session = {
   machine_id: string;
   source: "desktop" | "synthetic";
   capability: "desktop:view" | "desktop:control";
-  expires_at: Date;
+  expires_at: Date | null;
+  created_at: Date;
   status: string;
 };
 type Role = "viewer" | "machine";
@@ -25,6 +26,8 @@ type Entry = {
   closed: boolean;
   serial: Promise<void>;
   frames: number;
+  frameWindow: number;
+  pendingFrames: number;
   resumable?: boolean;
   viewerRequest?: FastifyRequest;
   viewerTokenHash?: string;
@@ -106,6 +109,19 @@ export async function registerSessions(
   const entries = new Map<string, Entry>();
   const authorized = new WeakMap<FastifyRequest, Authorization>();
   const enabled = Boolean(config.SESSION_SECRET);
+  const unlimited =
+    enabled &&
+    config.NODE_ENV !== "production" &&
+    config.DEV_SESSION_UNLIMITED === "true" &&
+    ["127.0.0.1", "localhost"].includes(new URL(config.WEB_ORIGIN).hostname) &&
+    !config.TURN_URLS;
+  // Pending/connecting approval always expires; only accepted development
+  // sessions can continue without a fixed duration. NULL is never authority
+  // outside the explicitly enabled loopback environment.
+  function liveDuration(alias: string, seconds = 0) {
+    return `(((${alias}.expires_at IS NOT NULL AND ${alias}.expires_at>now()+interval '${seconds} seconds') OR (${unlimited ? "true" : "false"} AND ${alias}.expires_at IS NULL)) AND (${alias}.status='active' OR ${alias}.created_at>now()-interval '120 seconds'))`;
+  }
+  const expiryMillis = (session: Session) => session.expires_at?.getTime() ?? 0;
   const controlEnabled =
     enabled &&
     config.NODE_ENV !== "production" &&
@@ -150,7 +166,7 @@ export async function registerSessions(
     if (!enabled) return { available: false, sessions: [] };
     const result = await pool.query(
       `SELECT s.id, m.name AS "machineName", s.source, s.capability,
-       CASE WHEN s.expires_at<=now() AND s.status IN ('requested','connecting','active') THEN 'expired' ELSE s.status END AS status,
+       CASE WHEN NOT ${liveDuration("s")} AND s.status IN ('requested','connecting','active') THEN 'expired' ELSE s.status END AS status,
        s.created_at AS "createdAt", s.expires_at AS "expiresAt"
        FROM view_sessions s JOIN machines m ON m.id=s.machine_id AND m.account_id=s.account_id
        WHERE s.account_id=$1 AND ($2::uuid IS NULL OR s.machine_id=$2)
@@ -165,6 +181,8 @@ export async function registerSessions(
   const iceTransportPolicy = config.ICE_TRANSPORT_POLICY ?? "all";
   function sessionIce(session: Session) {
     if (!config.TURN_URLS || !config.TURN_SECRET) return iceServers;
+    if (!session.expires_at)
+      throw new Error("Unlimited sessions do not use TURN");
     const relay = relayCredentials(config, session.id, session.expires_at);
     return [
       ...iceServers,
@@ -179,7 +197,7 @@ export async function registerSessions(
     if (!config.SESSION_SECRET) throw new Error("View sessions disabled");
     return createHmac("sha256", Buffer.from(config.SESSION_SECRET, "hex"))
       .update(
-        `beacon-remote:view:v1\n${session.id}\n${session.machine_id}\n${session.source}\n${session.expires_at.getTime()}${session.capability === "desktop:control" ? "\ndesktop:control" : ""}`,
+        `beacon-remote:view:v1\n${session.id}\n${session.machine_id}\n${session.source}\n${expiryMillis(session)}${session.capability === "desktop:control" ? "\ndesktop:control" : ""}`,
       )
       .digest("base64url");
   }
@@ -238,7 +256,7 @@ export async function registerSessions(
       controlEnabled,
       iceServers,
       capability: "desktop:view",
-      maxSeconds: 120,
+      maxSeconds: unlimited ? null : 120,
     };
   });
   app.post(
@@ -280,7 +298,7 @@ export async function registerSessions(
           return reply.code(404).send({ error: "Computer unavailable" });
         }
         await client.query(
-          "UPDATE view_sessions SET status='ended' WHERE machine_id=$1 AND expires_at<=now() AND status IN ('requested','connecting','active')",
+          `UPDATE view_sessions s SET status='ended' WHERE machine_id=$1 AND NOT ${liveDuration("s")} AND status IN ('requested','connecting','active')`,
           [parsed.data.id],
         );
         const busy = await client.query(
@@ -299,7 +317,8 @@ export async function registerSessions(
           machine_id: parsed.data.id,
           source: body.data.source,
           capability: body.data.capability,
-          expires_at: new Date(Date.now() + 120000),
+          expires_at: unlimited ? null : new Date(Date.now() + 120000),
+          created_at: new Date(),
           status: "requested",
         };
         await client.query(
@@ -329,7 +348,7 @@ export async function registerSessions(
           id: session.id,
           source: session.source,
           capability: session.capability,
-          expiresAtMillis: session.expires_at.getTime(),
+          expiresAtMillis: expiryMillis(session),
           iceServers: sessionIce(session),
           iceTransportPolicy,
         };
@@ -380,7 +399,7 @@ export async function registerSessions(
     )
       return reply.code(403).send({ error: "Session unavailable" });
     const result = await pool.query<Session>(
-      "SELECT s.* FROM view_sessions s JOIN machines m ON m.id=s.machine_id WHERE s.id=$1 AND s.account_id=$2 AND s.status='active' AND s.expires_at>now() AND m.revoked_at IS NULL",
+      `SELECT s.* FROM view_sessions s JOIN machines m ON m.id=s.machine_id WHERE s.id=$1 AND s.account_id=$2 AND s.status='active' AND ${liveDuration("s")} AND m.revoked_at IS NULL`,
       [parsed.data.id, account],
     );
     const session = result.rows[0];
@@ -396,7 +415,7 @@ export async function registerSessions(
       id: session.id,
       source: session.source,
       capability: session.capability,
-      expiresAtMillis: session.expires_at.getTime(),
+      expiresAtMillis: expiryMillis(session),
       iceServers: sessionIce(session),
       iceTransportPolicy,
     };
@@ -426,6 +445,7 @@ export async function registerSessions(
       const session = result.rows[0];
       if (
         !session ||
+        !session.expires_at ||
         (session.capability === "desktop:control" && !controlEnabled)
       )
         return reply.code(404).send({ error: "Session unavailable" });
@@ -452,7 +472,7 @@ export async function registerSessions(
       if (request.headers.upgrade?.toLowerCase() !== "websocket")
         return reply.code(426).send({ error: "WebSocket required" });
       const result = await pool.query<Session>(
-        "SELECT s.* FROM view_sessions s JOIN machines m ON m.id=s.machine_id WHERE s.id=$1 AND s.expires_at>now() AND s.status IN ('requested','connecting','active') AND m.revoked_at IS NULL",
+        `SELECT s.* FROM view_sessions s JOIN machines m ON m.id=s.machine_id WHERE s.id=$1 AND ${liveDuration("s")} AND s.status IN ('requested','connecting','active') AND m.revoked_at IS NULL`,
         [parsed.data.id],
       );
       const session = result.rows[0];
@@ -481,7 +501,7 @@ export async function registerSessions(
         if (!bearer)
           return reply.code(403).send({ error: "Session unavailable" });
         const claimed = await pool.query(
-          "UPDATE view_sessions s SET status='connecting' WHERE id=$1 AND token_hash=$2 AND status='requested' AND expires_at>now() AND EXISTS (SELECT 1 FROM machines m WHERE m.id=s.machine_id AND m.revoked_at IS NULL) RETURNING id",
+          `UPDATE view_sessions s SET status='connecting' WHERE id=$1 AND token_hash=$2 AND status='requested' AND ${liveDuration("s")} AND EXISTS (SELECT 1 FROM machines m WHERE m.id=s.machine_id AND m.revoked_at IS NULL) RETURNING id`,
           [session.id, digest(bearer)],
         );
         if (!claimed.rowCount)
@@ -504,6 +524,8 @@ export async function registerSessions(
           closed: false,
           serial: Promise.resolve(),
           frames: 0,
+          frameWindow: performance.now(),
+          pendingFrames: 0,
           generation: 0,
         };
         const live = entry;
@@ -513,7 +535,7 @@ export async function registerSessions(
           checking = true;
           void (async () => {
             const valid = await pool.query(
-              "SELECT 1 FROM view_sessions s JOIN machines m ON m.id=s.machine_id WHERE s.id=$1 AND s.expires_at>now() AND s.status IN ('requested','connecting','active') AND m.revoked_at IS NULL",
+              `SELECT 1 FROM view_sessions s JOIN machines m ON m.id=s.machine_id WHERE s.id=$1 AND ${liveDuration("s")} AND s.status IN ('requested','connecting','active') AND m.revoked_at IS NULL`,
               [session.id],
             );
             const viewer = live.viewer;
@@ -566,7 +588,16 @@ export async function registerSessions(
       // Attach synchronously: upgrade clients may send immediately.
       socket.on("message", (data, binary) => {
         if (live.closed) return;
-        if (binary || ++live.frames > 256 || data.toString().length > 65536) {
+        if (performance.now() - live.frameWindow >= 60000) {
+          live.frames = 0;
+          live.frameWindow = performance.now();
+        }
+        if (
+          binary ||
+          ++live.frames > 256 ||
+          data.toString().length > 65536 ||
+          ++live.pendingFrames > 256
+        ) {
           void finish(session.id);
           return;
         }
@@ -575,7 +606,7 @@ export async function registerSessions(
             if (live.closed) return;
             if (role === "viewer" && live.viewer !== socket) return;
             const current = await pool.query(
-              "SELECT s.status FROM view_sessions s JOIN machines m ON m.id=s.machine_id WHERE s.id=$1 AND s.expires_at>now() AND s.status IN ('requested','connecting','active') AND m.revoked_at IS NULL",
+              `SELECT s.status FROM view_sessions s JOIN machines m ON m.id=s.machine_id WHERE s.id=$1 AND ${liveDuration("s")} AND s.status IN ('requested','connecting','active') AND m.revoked_at IS NULL`,
               [session.id],
             );
             if (
@@ -622,7 +653,7 @@ export async function registerSessions(
                   type: "lease",
                   nonce: body.nonce,
                   maxAgeMs: 3000,
-                  expiresAtMillis: session.expires_at.getTime(),
+                  expiresAtMillis: expiryMillis(session),
                 });
                 return;
               }
@@ -638,7 +669,7 @@ export async function registerSessions(
                 type: "lease",
                 nonce: body.nonce,
                 maxAgeMs: 3000,
-                expiresAtMillis: session.expires_at.getTime(),
+                expiresAtMillis: expiryMillis(session),
               });
               return;
             }
@@ -654,7 +685,7 @@ export async function registerSessions(
               const consent = await pool.query(
                 `WITH transitioned AS (
                   UPDATE view_sessions s SET status=$2
-                  WHERE id=$1 AND status='connecting' AND expires_at>now()
+                  WHERE id=$1 AND status='connecting' AND ${liveDuration("s")}
                   AND EXISTS (SELECT 1 FROM machines m WHERE m.id=s.machine_id AND m.revoked_at IS NULL)
                   RETURNING account_id,machine_id
                 )
@@ -703,7 +734,10 @@ export async function registerSessions(
             }
             send(role === "viewer" ? live.machine : live.viewer, body);
           })
-          .catch(() => finish(session.id).catch(() => {}));
+          .catch(() => finish(session.id).catch(() => {}))
+          .finally(() => {
+            live.pendingFrames--;
+          });
       });
       socket.on("close", () => {
         if (
@@ -747,7 +781,7 @@ export async function registerSessions(
     if (!enabled) return [];
     async function load() {
       const result = await pool.query<Session & { controller: string }>(
-        "SELECT s.*,a.email AS controller FROM view_sessions s JOIN accounts a ON a.id=s.account_id JOIN machines m ON m.id=s.machine_id WHERE s.machine_id=$1 AND m.revoked_at IS NULL AND s.status='requested' AND s.expires_at>now()+interval '1 second' ORDER BY s.created_at LIMIT 1",
+        `SELECT s.*,a.email AS controller FROM view_sessions s JOIN accounts a ON a.id=s.account_id JOIN machines m ON m.id=s.machine_id WHERE s.machine_id=$1 AND m.revoked_at IS NULL AND s.status='requested' AND ${liveDuration("s", 1)} AND s.created_at>now()-interval '119 seconds' ORDER BY s.created_at LIMIT 1`,
         [machineId],
       );
       return result.rows
@@ -758,7 +792,10 @@ export async function registerSessions(
           controller: session.controller,
           source: session.source,
           capability: session.capability,
-          expiresAtMillis: session.expires_at.getTime(),
+          expiresAtMillis: expiryMillis(session),
+          ...(session.expires_at === null
+            ? { approvalExpiresAtMillis: session.created_at.getTime() + 120000 }
+            : {}),
           iceServers: sessionIce(session),
           iceTransportPolicy,
         }));

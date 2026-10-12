@@ -22,7 +22,7 @@ struct Envelope {
 }
 pub struct Authority {
     pub session: String,
-    pub deadline: Instant,
+    pub deadline: Option<Instant>,
     pub epoch: Instant,
     pub lease: Arc<AtomicU64>,
     pub session_active: Arc<AtomicBool>,
@@ -34,7 +34,7 @@ impl Authority {
         self.session_active.load(Ordering::Acquire)
             && self.peer_active.load(Ordering::Acquire)
             && self.connected.load(Ordering::Acquire)
-            && Instant::now() < self.deadline
+            && self.deadline.is_none_or(|end| Instant::now() < end)
             && remaining(
                 self.lease.load(Ordering::Acquire),
                 self.epoch.elapsed().as_millis() as u64,
@@ -69,14 +69,6 @@ async fn run(channel: Arc<dyn DataChannel>, authority: &Authority) -> Result<(),
     // Declared after the desktop so it revokes capture/transport before any
     // bounded backend destructor waits for a temporarily blocked release.
     let _end_authority = EndAuthority(authority);
-    desktop
-        .start(
-            authority.session.clone(),
-            authority.session.clone(),
-            authority.deadline.saturating_duration_since(Instant::now()),
-            Instant::now(),
-        )
-        .map_err(|_| ())?;
     let mut tick = tokio::time::interval(Duration::from_millis(10));
     let mut opened = false;
     let mut sequence = None;
@@ -88,11 +80,17 @@ async fn run(channel: Arc<dyn DataChannel>, authority: &Authority) -> Result<(),
             _ = tick.tick() => {
                 // Before channel opening allow ICE setup; after opening, any loss
                 // of input authority releases held state, without waiting for input.
-                if !authority.session_active.load(Ordering::Acquire) || !authority.peer_active.load(Ordering::Acquire) || Instant::now() >= authority.deadline || (opened && (!authority.live() || last_message.elapsed() >= Duration::from_millis(1500))) { return Ok(()); }
+                if !authority.session_active.load(Ordering::Acquire) || !authority.peer_active.load(Ordering::Acquire) || authority.deadline.is_some_and(|end| Instant::now() >= end) || (opened && (!authority.live() || last_message.elapsed() >= Duration::from_millis(1500))) { return Ok(()); }
+                if opened {
+                    let lifetime = remaining(authority.lease.load(Ordering::Acquire), authority.epoch.elapsed().as_millis() as u64).ok_or(())?;
+                    desktop.renew(&authority.session, &authority.session, lifetime, Instant::now()).map_err(|_| ())?;
+                }
             }
             event = channel.poll() => match event {
                 Some(DataChannelEvent::OnOpen) => {
                     if !authority.live() { return Err(()); }
+                    let lifetime = remaining(authority.lease.load(Ordering::Acquire), authority.epoch.elapsed().as_millis() as u64).ok_or(())?;
+                    desktop.start(authority.session.clone(), authority.session.clone(), lifetime, Instant::now()).map_err(|_| ())?;
                     tokio::time::timeout(Duration::from_millis(500), channel.send_text(&geometry.to_string())).await.map_err(|_| ())?.map_err(|_| ())?;
                     opened = true;
                     last_message = Instant::now();

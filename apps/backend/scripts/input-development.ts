@@ -33,9 +33,21 @@ const pool = new Pool({
 const origin = "http://127.0.0.1:5175";
 const server = "http://127.0.0.1:3011";
 const account = randomUUID();
-const email = `input-${account}@example.test`;
-const password = randomBytes(32).toString("base64url");
 const state = resolve(root, ".remote-dev/input-development");
+// Keep this local demo's credentials stable across an intentional restart.
+const priorLogin: unknown = await readFile(resolve(state, "login.json"), "utf8")
+  .then((text) => JSON.parse(text) as unknown)
+  .catch(() => undefined);
+const prior = priorLogin as
+  { origin?: string; email?: string; password?: string } | undefined;
+const reusable =
+  prior?.origin === origin &&
+  /^input-[0-9a-f-]+@example\.test$/.test(prior.email ?? "") &&
+  /^[A-Za-z0-9_-]{43}$/.test(prior.password ?? "");
+const email = reusable ? prior!.email! : `input-${account}@example.test`;
+const password = reusable
+  ? prior!.password!
+  : randomBytes(32).toString("base64url");
 const keys = generateKeyPairSync("ed25519");
 let helper: ChildProcess | undefined;
 let web: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -68,6 +80,7 @@ try {
     "001_identity.sql",
     "002_view_sessions.sql",
     "003_control_scope.sql",
+    "004_development_session_duration.sql",
   ])
     await pool.query(
       await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8"),
@@ -89,6 +102,7 @@ try {
     PORT: 3011,
     SESSION_SECRET: randomBytes(32).toString("hex"),
     DEV_CONTROL_ENABLED: "true",
+    DEV_SESSION_UNLIMITED: "true",
     STUN_URL: "stun:stun.l.google.com:19302",
   });
   const enrollment = await app.inject({
@@ -129,7 +143,7 @@ try {
     JSON.stringify({ origin, email, password }),
   );
   console.log(
-    "Isolated input development: http://127.0.0.1:5175 — login in .remote-dev/input-development/login.json. Local Windows approval remains mandatory. Ends after 30 minutes.",
+    "Isolated input development: http://127.0.0.1:5175 — login in .remote-dev/input-development/login.json. Local Windows approval remains mandatory. Runs until explicitly stopped; active sessions have no fixed duration.",
   );
   const handled = new Set<string>();
   let polling = false;
@@ -173,7 +187,11 @@ try {
           resolve(root, "target/release/beacon-remote-session.exe"),
           ["media-test"],
           {
-            env: { ...process.env, REMOTE_DEV_CONTROL: "true" },
+            env: {
+              ...process.env,
+              REMOTE_DEV_CONTROL: "true",
+              REMOTE_DEV_SESSION_UNLIMITED: "true",
+            },
             stdio: ["pipe", "inherit", "inherit"],
           },
         );
@@ -194,7 +212,6 @@ try {
   }
   await heartbeat();
   tick = setInterval(() => void heartbeat(), 1000);
-  setTimeout(() => void stop(), 30 * 60_000).unref();
 } catch (error) {
   await stop();
   throw error;

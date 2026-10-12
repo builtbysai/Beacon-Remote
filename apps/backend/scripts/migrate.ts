@@ -27,6 +27,15 @@ try {
       "utf8",
     ),
   );
+  await client.query(
+    await readFile(
+      new URL(
+        "../migrations/004_development_session_duration.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
   await client.query("COMMIT");
 } catch (error) {
   await client.query("ROLLBACK");

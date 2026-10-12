@@ -138,6 +138,24 @@ resuming still validates the original login, current helper and unchanged
 deadline. Include real refresh/Stop/lock/expiry checks when staging that pair.
 The native loopback recovery regression opens no consent dialog or capture.
 
+## Sessions without a fixed development duration
+
+The isolated loopback development fixture can set `DEV_SESSION_UNLIMITED=true`
+on the backend and `REMOTE_DEV_SESSION_UNLIMITED=true` on its matching native
+helper. Backend startup rejects this mode in production, without `SESSION_SECRET`,
+with a non-loopback web origin, or with TURN configured. Ordinary deployments
+retain finite session grants. Apply migration `004_development_session_duration.sql`
+and restart the isolated backend/helper together before testing this mode.
+
+An unlimited development grant uses `expiresAtMillis: 0` and a nullable database
+expiry. The browser displays “Until stopped”; it has no fixed session timer.
+Pending approval still expires after two minutes, and accepting an old request
+is rejected. Live authorization renewals still expire after three seconds;
+Stop, revoked identity, expired browser login, lost control transport, lock and
+backend/helper restart still end access. This setting does not enable input:
+the separate development control switches and local control approval remain required.
+No relay or production deployment is changed by this fixture mode.
+
 ## Shared infrastructure contract
 
 Oracle Caddy and Coturn remain shared operational dependencies. Shared edge/TLS,

@@ -7,6 +7,7 @@ const schema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3010),
   TRUST_PROXY_CIDR: z.string().min(1).optional(),
   DEV_CONTROL_ENABLED: z.literal("true").optional(),
+  DEV_SESSION_UNLIMITED: z.literal("true").optional(),
   SESSION_SECRET: z
     .string()
     .regex(/^[a-f0-9]{64}$/)
@@ -51,6 +52,18 @@ const schema = z.object({
 export type Config = z.infer<typeof schema>;
 export function parseConfig(env: NodeJS.ProcessEnv): Config {
   const config = schema.parse(env);
+  if (config.DEV_SESSION_UNLIMITED) {
+    const origin = new URL(config.WEB_ORIGIN);
+    if (
+      config.NODE_ENV === "production" ||
+      !config.SESSION_SECRET ||
+      !["127.0.0.1", "localhost"].includes(origin.hostname) ||
+      config.TURN_URLS
+    )
+      throw new Error(
+        "Unlimited development sessions require loopback, enabled sessions, no TURN and a nonproduction environment",
+      );
+  }
   if (
     config.DEV_CONTROL_ENABLED &&
     (config.NODE_ENV === "production" || !config.SESSION_SECRET)

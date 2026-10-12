@@ -488,6 +488,7 @@ mod tests {
                     Arc::new(AtomicBool::new(true)),
                     Instant::now() + Duration::from_secs(1),
                     false,
+                    false,
                 )
                 .unwrap());
 
@@ -497,7 +498,7 @@ mod tests {
                     Arc::new(AtomicBool::new(false)),
                     true,
                     "guard-test@example.invalid".into(),
-                    Instant::now() + Duration::from_secs(1),
+                    Some(Instant::now() + Duration::from_secs(1)),
                     false,
                 )
                 .is_err());

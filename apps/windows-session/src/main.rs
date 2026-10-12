@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if command == "media-test" {
             return media::run();
         }
-        println!("Beacon Remote interactive session helper\n  displays: physical display dimensions and DPI\n  capture-benchmark: locally consent to ten seconds of primary-display capture\n  encoder-benchmark: synthetic in-memory H.264 encoding, no screen capture\n  media-test: authenticated two-minute WebRTC viewing using a stdin grant; desktop requires local consent and visible Stop\nNo recording or audio. Control requires a separate server scope, local Allow control and REMOTE_DEV_CONTROL=true.");
+        println!("Beacon Remote interactive session helper\n  displays: physical display dimensions and DPI\n  capture-benchmark: locally consent to ten seconds of primary-display capture\n  encoder-benchmark: synthetic in-memory H.264 encoding, no screen capture\n  media-test: authenticated WebRTC using a stdin grant; desktop requires local consent and visible Stop\nNo recording or audio. Control requires a separate server scope, local Allow control and REMOTE_DEV_CONTROL=true. Loopback development can run until stopped with REMOTE_DEV_SESSION_UNLIMITED=true; short authorization renewals remain mandatory.");
         Ok(())
     }
     #[cfg(not(windows))]
