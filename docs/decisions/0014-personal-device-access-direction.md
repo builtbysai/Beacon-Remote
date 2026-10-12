@@ -24,6 +24,15 @@ format, local confirmation mechanism, elevated access policy and expiry/recovery
 details require implementation design and review in those later milestones.
 This document records direction; no remembered-access endpoint is implemented.
 
+The owner subsequently requested automatic recovery after Windows restart and
+unlock. In the remembered mode, reconnect must negotiate fresh scoped server
+authorization against the enrolled controller credential and current account/
+machine revocation state. An ended attended grant is never revived. While
+Windows is locked or showing secure desktop, capture/input remain stopped;
+recovery after unlock must preserve visible sharing and local Stop. Milestone 6
+owns service/helper startup and recovery; milestone 7 owns consumer credential
+removal and account recovery. This does not authorize a lock-screen or UAC bypass.
+
 ## Current native presentation
 
 Keep attended windows focused on who is requesting access, what is shared, its

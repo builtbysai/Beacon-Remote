@@ -5,6 +5,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { requireAcceptanceReady } from "./acceptance-readiness.mjs";
 const state =
   process.env.REMOTE_ACCEPTANCE_STATE_DIR ??
   join(homedir(), ".beacon-remote-recovery", "android-acceptance-20261010");
@@ -29,6 +30,7 @@ assert.equal(
   false,
   "Fixture is stopped. Deliberately remove its STOP marker before restarting acceptance.",
 );
+await requireAcceptanceReady();
 let alreadyPaired = false;
 try {
   await access(`${state}/BeaconRemote/identity.dpapi`);

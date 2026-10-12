@@ -102,6 +102,35 @@ grants and no automated desktop approval. Run only after preparing the isolated
 Oracle acceptance services; see the operations supplement. Normal owner identity
 is never overwritten.
 
+Before each manual session, run `pnpm acceptance:status`. This read-only command
+requires `/ready` to return 200 and anonymous `/api/machines` to return 401 on
+the fixed test origin. It reports STOP-marker/identity presence without reading
+the private login or DPAPI contents. The host runner now performs the same
+backend check before pairing or launching a native process. A reachable web page
+alone is insufficient: the bounded backend can expire while the page remains
+available. Failure never restarts services or changes credentials automatically.
+Readiness is a point-in-time check, not proof of a remaining runtime budget,
+matching binaries, live agent, relay allocation or successful sign-in. Continue
+the guarded image/hash/runtime procedure in the operations supplement.
+
+For a dedicated USB Pixel, enable Developer options and USB debugging, connect
+and unlock the phone, then manually approve this computer's debugging prompt.
+Set `REMOTE_ACCEPTANCE_ADB_PATH` to the installed platform-tools `adb.exe`, or use
+`ANDROID_HOME`/PATH, and run `pnpm acceptance:status --adb` to list device states.
+No device input is sent by this command. Before any future automated device
+actions, explicitly select the observed device serial with `adb -s`; never
+assume the first device belongs to this test. Keep browser automation scoped to
+Beacon Remote's test origin/account and keep private login, browser cookies,
+screen pixels and broad device logs out of committed evidence.
+
+USB connection supports repeatable Android browser/lifecycle checks and targeted
+diagnostics; it does not prove mobile-data relay routing. Keep Wi-Fi/mobile-data
+route evidence explicit. Windows attended Allow remains a human action; automated
+backend/browser/native regressions and synthetic media cannot replace actual
+desktop acceptance. Use a dedicated test computer or VM later for disruptive
+restart/network cases rather than altering the shared View workstation. No
+hourly continuation schedule is used.
+
 ## Shared infrastructure contract
 
 Oracle Caddy and Coturn remain shared operational dependencies. Shared edge/TLS,

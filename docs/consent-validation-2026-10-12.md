@@ -154,14 +154,47 @@ from compilation or hidden-window regressions.
 
 | Scenario                               | Current evidence                                                                           | Remaining acceptance                                                |
 | -------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
-| Pending cancellation/disconnect/expiry | Owner passed Android cancellation and fresh request; loopback/deadline checks              | Actual disconnect and automatic expiry                              |
+| Pending cancellation/disconnect/expiry | Owner passed Android cancellation and fresh request; loopback/deadline checks              | Actual pending-prompt disconnect and expiry                         |
 | Window cleanup/reused thread           | Owner passed repeated request/deny/cancel sequence; hidden-window regression               | Broader lifecycle matrix                                            |
 | Local Stop while connecting            | Owner passed keyboard Stop; noninput-desktop/expiry and Enter/Escape dispatcher regression | Physical lock/unlock before peer connection and fresh request       |
 | Keyboard and readability               | Owner passed keyboard Stop; native default Decline and DPI-scaled text implemented         | Full Tab/Enter/Escape/close navigation and normal/high-DPI checks   |
 | Desktop approval and Stop              | Owner passed manual Allow, actual Android desktop video and local Stop with PR #25 helper  | Updated compact UI and broader interruption matrix                  |
-| Lock/display/network loss              | Lease and input-desktop guards; hidden desktop regression                                  | Actual interruption stops capture; fresh approval required          |
+| Lock/display/network loss              | Owner confirmed Windows lock ends viewing and a fresh session is required                  | Display/network loss, pending lock and Stop-window closure on lock  |
 | Refresh/logout/revoke/restarts         | Server authorization/recovery and helper lifetime checks                                   | Updated real-desktop interruption matrix                            |
 | Performance and routes                 | Historical direct/relay and synthetic measurements                                         | Updated desktop startup, FPS, CPU/RAM, route and sustained behavior |
+
+### Updated fixture: automatic expiry passed
+
+The owner tested the `1d58a57` acceptance backend/web with the matching compact
+`192a9c8` Windows pair after a bounded restart on October 12. They confirmed
+sign-in succeeded, video ended, and the Windows Stop window closed after two
+minutes, with the session expired accordingly. Fresh native output corroborated
+a local-consent-required request, connecting/connected peer states and desktop
+sharing stopping. The isolated backend enforces relay-only ICE policy. No
+consent was automated. This records automatic expiry on that Windows/Android
+path; exact selected-candidate, FPS/RTT and resource measurements are not inferred.
+
+The earlier sign-in failure occurred after the test backend's one-hour limit;
+the sign-in page remained available. A bounded restart and private verification
+of the saved test login resolved it without changing credentials. Production
+media remained disabled and both products' health/readiness passed.
+
+Updated UI readability/navigation, refresh/logout,
+network loss, pending-prompt expiry, revocation/restarts and broader performance
+remain pending. Milestone 4 is still active.
+
+### Updated fixture: lock/unlock passed
+
+On the same updated fixture, the owner confirmed that locking Windows ended
+the session and connecting again required starting a new session. This records
+physical lock termination and fresh-request recovery; unlocking did not restore
+the ended view. The reply did not separately confirm Stop-window closure during
+lock, prompt behavior before connection, or UI readability. Those details remain
+open. No consent or Windows lock/unlock action was automated.
+
+The owner requested seamless recovery after lock and restart for the future
+remembered personal-device mode. That direction is recorded in ADR 0014; current
+attended sessions still require fresh local approval.
 
 The operator prepares/rechecks the bounded test backend and starts only the
 paired native fixture when the person is ready. The person uses Windows
