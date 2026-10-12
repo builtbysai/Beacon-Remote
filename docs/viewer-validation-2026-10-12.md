@@ -39,6 +39,24 @@ network path or approve/capture a Windows desktop. Updated actual browser
 interruption, autoplay/gesture behavior and visual accessibility acceptance
 remain required. Milestone 4 remains active; production media stays disabled.
 
+## Viewer expiry follow-up
+
+The browser previously compared only `Date.now()` with the grant expiry. A
+backward system-clock change during viewing could defer its local cleanup until
+the server closed signaling. Viewer setup now fixes the initially remaining
+budget against `performance.now()` as well. The existing wall-clock comparison
+still ends viewing on a forward jump; either deadline ends the same request.
+Server and native lease enforcement are unchanged and remain authoritative.
+This does not synchronize clocks, extend grants or guarantee browser timer
+delivery while the browser is suspended.
+
+Focused regressions cover an hour backward clock adjustment during a two-minute
+session, a forward adjustment, an already-expired grant and a fresh request's
+independent budget. Web tests and type checking passed locally. Full local and
+exact-head hosted checks must pass before merging. Actual browser sleep/resume,
+clock-change and automatic expiry acceptance remains unverified; no desktop
+consent or capture is automated by these checks.
+
 ## Runtime preservation
 
 Read-only Oracle verification passed: all seven protected/shared container image

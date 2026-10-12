@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { playForSession } from "./playback.js";
+import { viewDeadline } from "./deadline.js";
 
 export type ViewGrant = {
   id: string;
@@ -57,6 +58,11 @@ export function LiveView({
   }, []);
   useEffect(() => {
     const startedAt = performance.now();
+    const expired = viewDeadline(
+      grant.expiresAtMillis,
+      () => Date.now(),
+      () => performance.now(),
+    );
     let approvedAt: number | undefined;
     let firstFrameAt: number | undefined;
     const pc = new RTCPeerConnection({
@@ -277,7 +283,7 @@ export function LiveView({
         .catch(() => finish("Could not establish video."));
     };
     const timer = setInterval(() => {
-      if (Date.now() >= grant.expiresAtMillis) finish("Session expired.");
+      if (expired()) finish("Session expired.");
     }, 500);
     const onPageHide = () => finish("Stopped.");
     window.addEventListener("pagehide", onPageHide);
