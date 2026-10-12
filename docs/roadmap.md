@@ -20,6 +20,13 @@ results are scoped to the original session lifetime so a late manual Play result
 cannot replace an ended status. Actual device/network interruption acceptance
 remains required; these guards do not complete milestone 4.
 
+The owner then tested refresh: it disconnected, but they explicitly requested
+that a reload keep an active authorization. The reload follow-up preserves the
+original login/approval/deadline through a short transport-recovery window with
+capture stopped while absent. Stop/lock/logout/revoke/restart still end access.
+Matching real-device reload acceptance is pending. See
+[ADR 0015](decisions/0015-active-viewer-reload-recovery.md).
+
 Viewer expiry also bounds the initial remaining lifetime with a monotonic clock,
 so rolling the system clock backward during a session cannot defer local cleanup.
 Server/native leases remain authoritative. Updated real-device automatic expiry
@@ -168,7 +175,8 @@ milestone 4 consent-latency and real-desktop lifecycle acceptance next.
    not the full network/failure/performance matrix. See `android-acceptance-2026-10-10.md`.
 4. **Failure and UX acceptance.** Verify Stop, denial, logout, browser refresh,
    machine revoke, expiry, backend restart and network loss. Reconnect requires
-   fresh authorization. Confirm native focus/readability; measure startup,
+   fresh authorization after the session ends; a reload may recover its ongoing
+   original approval under ADR 0015. Confirm native focus/readability; measure startup,
    sustained FPS/CPU/RAM and relay usage. Pause must actually stop capture before
    a Pause/Resume control is enabled.
    Backend startup now atomically ends interrupted persisted grants with audit

@@ -11,6 +11,7 @@ import { ComputerInspector } from "./ComputerInspector.js";
 import { AssistPanel } from "./AssistPanel.js";
 import { WorkspaceIcon, workspaceItems } from "./WorkspaceIcon.js";
 import { resolveViewRequest } from "./view-request.js";
+import { readView, forgetView } from "./resume-view.js";
 
 // Fragments stay out of HTTP/access logs; remove the bearer from browser history.
 const invitation = new URLSearchParams(window.location.hash.slice(1)).get(
@@ -20,6 +21,7 @@ if (invitation) window.history.replaceState(null, "", window.location.pathname);
 
 function App() {
   const viewContext = useRef({ active: false });
+  const recoveryAttempted = useRef(false);
   const [page, setPage] = useState(pageFromHash);
   const [theme, setTheme] = useState("system");
   const [search, setSearch] = useState("");
@@ -75,6 +77,19 @@ function App() {
     return () => {
       context.active = false;
     };
+  }, [page, signedIn]);
+  useEffect(() => {
+    const context = viewContext.current;
+    if (!context.active || recoveryAttempted.current) return;
+    recoveryAttempted.current = true;
+    const previous = readView();
+    if (!previous) return;
+    void resolveViewRequest(
+      api<ViewGrant>(`sessions/${previous.id}/resume`, {}),
+      () => context.active,
+      (grant) => setView({ grant, name: previous.name }),
+      (unused) => api(`sessions/${unused.id}/stop`, {}),
+    ).catch(() => forgetView());
   }, [page, signedIn]);
   const workspaceOpen =
     signedIn && page !== "home" && page !== "support" && page !== "security";
@@ -259,6 +274,7 @@ function App() {
   async function logout() {
     try {
       await api("logout", {});
+      forgetView();
       viewContext.current.active = false;
       setView(null);
       setMachines(null);

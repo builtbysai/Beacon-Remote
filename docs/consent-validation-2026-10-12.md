@@ -196,6 +196,24 @@ The owner requested seamless recovery after lock and restart for the future
 remembered personal-device mode. That direction is recorded in ADR 0014; current
 attended sessions still require fresh local approval.
 
+### Refresh feedback and recovery follow-up
+
+The owner confirmed refreshing Android disconnected the updated test view, then
+rejected that behavior: refresh should preserve an active session. This records
+the observed interruption and changed product requirement, not acceptance of the
+new recovery implementation. ADR 0015 describes a bounded reload window within
+the original consent/deadline, with capture stopped while the viewer is absent.
+Matching backend/web/helper deployment and real Windows/Android reload playback,
+original expiry, local Stop during recovery and lock/logout/revoke boundaries
+must still be verified. The old compact `192a9c8` helper does not advertise this
+recovery capability.
+
+The owner connected a dedicated Pixel 7a for Remote. Claude uses a separate
+Android emulator. Device commands must pin the observed Pixel serial; do not
+reset the shared ADB server or operate on the emulator. USB approval succeeded;
+the attempted browser/CDP setup command was blocked by execution policy before
+running. Device inventory is not browser-automation or media acceptance evidence.
+
 The operator prepares/rechecks the bounded test backend and starts only the
 paired native fixture when the person is ready. The person uses Windows
 Decline/Allow/Stop and the Android viewer on mobile data. Never automate Allow

@@ -24,16 +24,29 @@ type Entry = {
   closed: boolean;
   serial: Promise<void>;
   frames: number;
+  resumable?: boolean;
+  viewerRequest?: FastifyRequest;
+  viewerTokenHash?: string;
+  detachedUntil?: number;
+  generation: number;
 };
 const digest = (token: string) =>
   createHash("sha256").update(token).digest("hex");
 const params = z.object({ id: z.uuid() });
 const signal = z.discriminatedUnion("type", [
   z
-    .object({ type: z.literal("offer"), sdp: z.string().min(1).max(32768) })
+    .object({
+      type: z.literal("offer"),
+      sdp: z.string().min(1).max(32768),
+      generation: z.number().int().min(0).max(16).optional(),
+    })
     .strict(),
   z
-    .object({ type: z.literal("answer"), sdp: z.string().min(1).max(32768) })
+    .object({
+      type: z.literal("answer"),
+      sdp: z.string().min(1).max(32768),
+      generation: z.number().int().min(0).max(16).optional(),
+    })
     .strict(),
   z
     .object({
@@ -41,9 +54,16 @@ const signal = z.discriminatedUnion("type", [
       candidate: z.string().max(2048),
       sdpMid: z.string().max(32).nullable(),
       sdpMLineIndex: z.number().int().min(0).max(16).nullable(),
+      generation: z.number().int().min(0).max(16).optional(),
     })
     .strict(),
-  z.object({ type: z.literal("consent"), accepted: z.boolean() }).strict(),
+  z
+    .object({
+      type: z.literal("consent"),
+      accepted: z.boolean(),
+      resumable: z.boolean().optional(),
+    })
+    .strict(),
   z
     .object({
       type: z.literal("renew"),
@@ -160,6 +180,14 @@ export async function registerSessions(
       }
       socket.send(JSON.stringify(body));
     }
+  }
+  const browserHash = (request: FastifyRequest) =>
+    digest(request.cookies.remote_session ?? "");
+  function detachViewer(entry: Entry, socket: WebSocket) {
+    if (entry.closed || entry.viewer !== socket) return;
+    entry.viewer = undefined;
+    entry.detachedUntil = performance.now() + 10000;
+    send(entry.machine, { type: "viewer-detached" });
   }
   async function finish(id: string, status: "ended" | "denied" = "ended") {
     const entry = entries.get(id);
@@ -301,6 +329,48 @@ export async function registerSessions(
     return { ok: true };
   });
 
+  // Only the original browser login can recover an ongoing local approval.
+  // Nothing persisted here can revive an ended session or a restarted helper.
+  app.post("/api/sessions/:id/resume", async (request, reply) => {
+    if (request.headers.origin !== config.WEB_ORIGIN)
+      return reply.code(403).send({ error: "Origin rejected" });
+    const account = await owner(request);
+    if (!account) return reply.code(401).send({ error: "Sign in required" });
+    const parsed = params.safeParse(request.params);
+    if (!enabled || !parsed.success)
+      return reply.code(403).send({ error: "Session unavailable" });
+    const entry = entries.get(parsed.data.id);
+    if (
+      !entry?.resumable ||
+      entry.closed ||
+      entry.machine?.readyState !== 1 ||
+      entry.viewerTokenHash !== browserHash(request) ||
+      !entry.detachedUntil ||
+      performance.now() >= entry.detachedUntil
+    )
+      return reply.code(403).send({ error: "Session unavailable" });
+    const result = await pool.query<Session>(
+      "SELECT s.* FROM view_sessions s JOIN machines m ON m.id=s.machine_id WHERE s.id=$1 AND s.account_id=$2 AND s.status='active' AND s.expires_at>now() AND m.revoked_at IS NULL",
+      [parsed.data.id, account],
+    );
+    const session = result.rows[0];
+    if (
+      !session ||
+      entry.closed ||
+      entries.get(session.id) !== entry ||
+      !entry.detachedUntil ||
+      performance.now() >= entry.detachedUntil
+    )
+      return reply.code(403).send({ error: "Session unavailable" });
+    return {
+      id: session.id,
+      source: session.source,
+      expiresAtMillis: session.expires_at.getTime(),
+      iceServers: sessionIce(session),
+      iceTransportPolicy,
+    };
+  });
+
   // Reissuance never extends the existing session or relay credential deadline.
   app.post(
     "/api/sessions/:id/relay",
@@ -358,7 +428,13 @@ export async function registerSessions(
         if (
           request.headers.origin !== config.WEB_ORIGIN ||
           (await owner(request)) !== session.account_id ||
-          entries.get(session.id)?.viewer
+          entries.get(session.id)?.viewer ||
+          (entries.get(session.id)?.generation ?? 0) >= 16 ||
+          (entries.get(session.id)?.viewerTokenHash !== undefined &&
+            entries.get(session.id)?.viewerTokenHash !==
+              browserHash(request)) ||
+          (entries.get(session.id)?.detachedUntil !== undefined &&
+            performance.now() >= entries.get(session.id)!.detachedUntil!)
         )
           return reply.code(403).send({ error: "Session unavailable" });
       } else {
@@ -391,6 +467,7 @@ export async function registerSessions(
           closed: false,
           serial: Promise.resolve(),
           frames: 0,
+          generation: 0,
         };
         const live = entry;
         let checking = false;
@@ -403,14 +480,19 @@ export async function registerSessions(
               [session.id],
             );
             const viewer = live.viewer;
-            if (!valid.rowCount || (viewer && viewer.readyState !== 1)) {
+            if (viewer && viewer.readyState !== 1 && live.resumable)
+              detachViewer(live, viewer);
+            if (
+              !valid.rowCount ||
+              (live.viewer && live.viewer.readyState !== 1) ||
+              (live.detachedUntil !== undefined &&
+                performance.now() >= live.detachedUntil)
+            ) {
               await finish(session.id);
               return;
             }
-            if (viewer) {
-              const viewerAuth = (
-                viewer as WebSocket & { accountRequest?: FastifyRequest }
-              ).accountRequest;
+            if (live.viewerRequest) {
+              const viewerAuth = live.viewerRequest;
               if (
                 !viewerAuth ||
                 (await owner(viewerAuth)) !== session.account_id
@@ -433,10 +515,16 @@ export async function registerSessions(
         return;
       }
       entry[role] = socket;
-      if (role === "viewer")
+      const resuming = role === "viewer" && entry.detachedUntil !== undefined;
+      if (role === "viewer") {
+        if (resuming) entry.generation += 1;
+        entry.viewerRequest = request;
+        entry.viewerTokenHash = browserHash(request);
+        entry.detachedUntil = undefined;
         (
           socket as WebSocket & { accountRequest?: FastifyRequest }
         ).accountRequest = request;
+      }
       const live = entry;
       // Attach synchronously: upgrade clients may send immediately.
       socket.on("message", (data, binary) => {
@@ -448,6 +536,7 @@ export async function registerSessions(
         live.serial = live.serial
           .then(async () => {
             if (live.closed) return;
+            if (role === "viewer" && live.viewer !== socket) return;
             const current = await pool.query(
               "SELECT s.status FROM view_sessions s JOIN machines m ON m.id=s.machine_id WHERE s.id=$1 AND s.expires_at>now() AND s.status IN ('requested','connecting','active') AND m.revoked_at IS NULL",
               [session.id],
@@ -466,6 +555,13 @@ export async function registerSessions(
               return;
             }
             const body = message.data;
+            if (
+              (body.type === "offer" ||
+                body.type === "answer" ||
+                body.type === "candidate") &&
+              (body.generation ?? 0) !== live.generation
+            )
+              return;
             if (body.type === "renew") {
               const viewer = live.viewer as
                 (WebSocket & { accountRequest?: FastifyRequest }) | undefined;
@@ -473,7 +569,25 @@ export async function registerSessions(
                 await finish(session.id);
                 return;
               }
-              if (!viewer) return;
+              if (!viewer) {
+                if (
+                  !live.resumable ||
+                  !live.detachedUntil ||
+                  performance.now() >= live.detachedUntil ||
+                  !live.viewerRequest ||
+                  (await owner(live.viewerRequest)) !== session.account_id
+                ) {
+                  await finish(session.id);
+                  return;
+                }
+                send(socket, {
+                  type: "lease",
+                  nonce: body.nonce,
+                  maxAgeMs: 3000,
+                  expiresAtMillis: session.expires_at.getTime(),
+                });
+                return;
+              }
               if (
                 viewer.readyState !== 1 ||
                 !viewer.accountRequest ||
@@ -520,7 +634,12 @@ export async function registerSessions(
                 await finish(session.id);
                 return;
               }
-              send(live.viewer, { type: "consent", accepted: body.accepted });
+              live.resumable = body.accepted && body.resumable === true;
+              send(live.viewer, {
+                type: "consent",
+                accepted: body.accepted,
+                ...(live.resumable ? { resumable: true } : {}),
+              });
               if (!body.accepted) await finish(session.id, "denied");
               return;
             }
@@ -540,7 +659,17 @@ export async function registerSessions(
           .catch(() => finish(session.id).catch(() => {}));
       });
       socket.on("close", () => {
-        void finish(session.id).catch(() => {});
+        if (
+          role === "viewer" &&
+          live.resumable &&
+          !live.closed &&
+          live.viewer === socket
+        ) {
+          // A short transport-recovery window, bounded by original approval.
+          detachViewer(live, socket);
+        } else if (role !== "viewer" || live.viewer === socket) {
+          void finish(session.id).catch(() => {});
+        }
       });
       socket.on("error", () => {
         void finish(session.id).catch(() => {});
@@ -549,7 +678,15 @@ export async function registerSessions(
         type: "joined",
         role,
         source: session.source,
+        generation: live.generation,
       });
+      if (resuming) {
+        send(socket, { type: "consent", accepted: true, resumable: true });
+        send(live.machine, {
+          type: "viewer-resumed",
+          generation: live.generation,
+        });
+      }
     },
   });
   app.addHook("onClose", async () => {

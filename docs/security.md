@@ -34,6 +34,12 @@ remain unauthorized and unimplemented. The core interfaces themselves do not
 authenticate callers; the eventual adapter must validate signed server grants
 and local consent before creating a lease.
 
+A matching attended helper may preserve an ongoing approval through a short
+browser reload. Capture stops while the viewer is absent, and recovery requires
+the exact original browser login, live original helper and unchanged deadline.
+Stop, lock, expiry, revocation and restart still end authorization. See
+[the active reload decision](decisions/0015-active-viewer-reload-recovery.md).
+
 Local consent acceptance or denial and its audit record commit in one PostgreSQL
 statement. A failed audit insert rolls back the state transition; signaling only
 acknowledges consent after that statement succeeds. An invalid or repeated
