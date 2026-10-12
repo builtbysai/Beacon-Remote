@@ -10,6 +10,12 @@ for the delayed-promise regression, intentional old-behavior failure comparison,
 and remaining actual browser/network acceptance. Do not claim milestone 4 passes
 from these unit checks; production media and test fixtures remain disabled/stopped.
 
+The viewer expiry follow-up adds an independent monotonic deadline for the
+initial remaining grant lifetime. A backward clock adjustment cannot extend
+local viewing; a forward adjustment still expires it. Server/native leases are
+unchanged. Clock adjustment and sleep/resume behavior still need real-browser
+acceptance; do not infer those results from the focused deadline regressions.
+
 Latest owner test, October 12: PR #25 is merged at `d0bc0b9`, with required
 reviewed-head and merged-main checks passing. Matching `stop-2aa1510` binaries
 passed the owner's guided Decline/Escape, Android cancel/re-request, manual

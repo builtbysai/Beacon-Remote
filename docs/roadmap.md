@@ -17,6 +17,11 @@ results are scoped to the original session lifetime so a late manual Play result
 cannot replace an ended status. Actual device/network interruption acceptance
 remains required; these guards do not complete milestone 4.
 
+Viewer expiry also bounds the initial remaining lifetime with a monotonic clock,
+so rolling the system clock backward during a session cannot defer local cleanup.
+Server/native leases remain authoritative. Browser sleep/resume and real expiry
+acceptance remain open.
+
 The owner requested compact, polished Windows host surfaces with concise copy
 and a later one-time trusted-device setup. Current milestone 4 work simplifies
 the consent/Stop windows and shows actual remaining grant time. Full approved
