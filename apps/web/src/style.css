@@ -172,6 +172,14 @@ header nav a {
   gap: 12px;
   align-items: center;
 }
+.header-workspace {
+  white-space: nowrap;
+}
+@media (max-width: 700px) {
+  .header-workspace {
+    display: none;
+  }
+}
 .theme-label {
   font-size: 10px;
   margin: 0;
@@ -241,6 +249,159 @@ header nav a {
   font-size: 12px;
   margin: 4px 0;
 }
+/* The public preview mirrors the shape of the workspace without exposing live data. */
+.product-preview {
+  height: 482px;
+  min-height: 0;
+  padding: 10px;
+  background: #dfe7f3;
+  border-color: #bac9de;
+  border-radius: 14px;
+  overflow: hidden;
+}
+.preview-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 32px;
+  padding: 0 12px;
+  margin: 0;
+  border: 1px solid #c6d2e3;
+  border-bottom: 0;
+  border-radius: 7px 7px 0 0;
+  background: #fff;
+  color: #8794a7;
+  font-size: 10px;
+  font-weight: 400;
+}
+.preview-bar span {
+  margin: 0;
+  font-size: inherit;
+  letter-spacing: 0;
+}
+.preview-dots {
+  color: #c8d4e3;
+  letter-spacing: 3px !important;
+}
+.preview-layout {
+  display: grid;
+  grid-template-columns: 125px minmax(0, 1fr);
+  height: calc(100% - 32px);
+  border: 1px solid #c6d2e3;
+  border-radius: 0 0 7px 7px;
+  overflow: hidden;
+  color: #20304a;
+}
+.preview-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 18px 10px;
+  border-right: 1px solid #d9e1ed;
+  background: #fff;
+  font-size: 10px;
+  color: #8a98aa;
+}
+.preview-sidebar > * {
+  padding: 8px;
+  white-space: nowrap;
+}
+.preview-sidebar strong {
+  border-radius: 5px;
+  background: #e9f0fc;
+  color: #275ab7;
+}
+.preview-content {
+  min-width: 0;
+  padding: 16px;
+  background: #f2f5fa;
+}
+.preview-heading {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+.preview-heading span {
+  color: #6682ad;
+  font-size: 10px;
+}
+.preview-device {
+  height: 38px;
+  gap: 10px;
+  padding: 0 10px;
+  margin-bottom: 5px;
+  border: 1px solid #dae3f0;
+  border-radius: 5px;
+  background: #fff;
+  font-size: 10px;
+}
+.preview-device.selected {
+  border-color: #a9bee6;
+  background: #ecf3ff;
+}
+.preview-device .monitor {
+  width: 18px;
+  height: 18px;
+  color: #6682ad;
+}
+.preview-device strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.preview-device span {
+  margin-left: auto;
+  color: #75849b;
+  font-size: 9px;
+}
+.preview-device b {
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: #2056b8;
+  color: #fff;
+  font-size: 9px;
+}
+.preview-content > p {
+  margin-top: 10px;
+  color: #8296b3;
+  font-size: 9px;
+}
+@media (max-width: 650px) {
+  .product-preview {
+    height: 270px;
+    padding: 5px;
+  }
+  .preview-layout {
+    grid-template-columns: 70px minmax(0, 1fr);
+  }
+  .preview-sidebar {
+    padding: 8px 3px;
+    font-size: 7px;
+  }
+  .preview-sidebar > * {
+    padding: 6px 3px;
+  }
+  .preview-content {
+    padding: 9px;
+  }
+  .preview-heading {
+    font-size: 11px;
+  }
+  .preview-device {
+    height: 31px;
+    gap: 5px;
+    padding: 0 5px;
+    font-size: 8px;
+  }
+  .preview-device span {
+    display: none;
+  }
+  .preview-device b {
+    padding: 4px 5px;
+    font-size: 8px;
+  }
+}
 .monitor {
   width: 28px;
   height: 28px;
@@ -294,21 +455,40 @@ header nav a {
   max-width: 700px;
 }
 .login {
-  max-width: 440px;
-  margin: 56px auto;
+  max-width: 414px;
+  margin: clamp(48px, 11vh, 148px) auto;
   padding: 32px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.login-icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--blue);
+  background: var(--inner);
+}
+.login-icon svg {
+  width: 18px;
+  height: 18px;
 }
 .login h1 {
-  font-size: 30px;
+  font-size: 28px;
+  margin: 18px 0 8px;
+}
+.login > p:not(.note) {
+  font-size: 12px;
 }
 .login label {
   display: block;
   font-size: 12px;
   font-weight: 600;
-  margin: 20px 0;
+  margin: 24px 0 0;
 }
 input,
 select {
@@ -325,6 +505,34 @@ select {
 }
 .login button {
   width: 100%;
+}
+.login form > button {
+  margin-top: 24px;
+}
+.password-field {
+  position: relative;
+  display: block;
+}
+.password-field input {
+  padding-right: 58px;
+}
+.login .password-field .password-toggle {
+  position: absolute;
+  right: 8px;
+  top: 11px;
+  width: auto;
+  min-width: 45px;
+  padding: 5px;
+  border: 0;
+  background: transparent;
+  color: var(--blue);
+  font-size: 11px;
+}
+.login .note {
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
 }
 .app-shell {
   display: grid;

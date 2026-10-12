@@ -245,6 +245,11 @@ function App() {
           >
             {signedIn ? "Workspace" : "Sign in"}
           </a>
+          {page === "home" && !signedIn && (
+            <a className="button header-workspace" href="#signin">
+              Open workspace <span aria-hidden="true">→</span>
+            </a>
+          )}
         </div>
       </header>
       {signedIn &&
@@ -296,16 +301,28 @@ function App() {
         )
       ) : machines === null || invite ? (
         <section className="login">
-          <p className="eyebrow">YOUR COMPUTERS, WITHIN REACH</p>
+          <div className="login-icon" aria-hidden="true">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="5" y="10" width="14" height="11" rx="2" />
+              <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+            </svg>
+          </div>
           <h1>{invite ? "Create your account" : "Sign in"}</h1>
           <p>
             {invite
               ? "Choose a password with at least 16 characters. Your invitation expires after 30 minutes."
-              : "Sign in to see your paired computers."}
+              : "Continue to your Beacon Remote workspace."}
           </p>
           <form onSubmit={signIn}>
             <label>
-              Email
+              Email address
               <input
                 name="email"
                 type="email"
@@ -313,9 +330,10 @@ function App() {
                 required
               />
             </label>
-            <label>
-              Password
+            <label htmlFor="password">Password</label>
+            <span className="password-field">
               <input
+                id="password"
                 name="password"
                 type={showPassword ? "text" : "password"}
                 autoComplete={invite ? "new-password" : "current-password"}
@@ -323,17 +341,18 @@ function App() {
                 maxLength={512}
                 required
               />
-            </label>
-            <button
-              type="button"
-              className="secondary password-toggle"
-              aria-pressed={showPassword}
-              onClick={() => setShowPassword(!showPassword)}
-            >
-              {showPassword ? "Hide password" : "Show password"}
-            </button>
+              <button
+                type="button"
+                className="password-toggle"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-pressed={showPassword}
+                onClick={() => setShowPassword(!showPassword)}
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            </span>
             <button disabled={busy}>
-              {invite ? "Create account" : "Sign in"}
+              {invite ? "Create account" : "Continue"}
             </button>
           </form>
           <p className="note">

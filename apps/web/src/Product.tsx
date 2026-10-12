@@ -69,20 +69,46 @@ export function ProductPage({
           </div>
           <div
             className="product-preview"
-            aria-label="Product illustration, not connected"
+            aria-label="Illustration of the computer workspace; example data, not connected"
           >
             <div className="preview-bar">
-              beacon <span>REMOTE</span>
+              <span className="preview-dots" aria-hidden="true">
+                ● ● ●
+              </span>
+              <span>remote.builtbysai.com</span>
             </div>
-            <h2>Your computers, within reach.</h2>
-            <div className="preview-device">
-              <Monitor />
-              <div>
-                <strong>Your Windows computer</strong>
-                <p>Pair securely. Approve locally.</p>
+            <div className="preview-layout">
+              <div className="preview-sidebar" aria-hidden="true">
+                <strong>▣&nbsp; Computers</strong>
+                <span>◷&nbsp; Sessions</span>
+                <span>♧&nbsp; Assist</span>
+                <span>◇&nbsp; Activity</span>
+              </div>
+              <div className="preview-content">
+                <div className="preview-heading">
+                  <strong>Computers</strong>
+                  <span>6 online</span>
+                </div>
+                {[
+                  "STUDIO-WS",
+                  "ZBOOK-15",
+                  "HOME-PC",
+                  "FRONTDESK-02",
+                  "LAB-NODE-03",
+                ].map((name, index) => (
+                  <div
+                    className={`preview-device${index === 0 ? " selected" : ""}`}
+                    key={name}
+                  >
+                    <Monitor />
+                    <strong>{name}</strong>
+                    <span>{index === 4 ? "Offline" : "Online"}</span>
+                    {index === 0 && <b>Remote</b>}
+                  </div>
+                ))}
+                <p>EXAMPLE DATA · NOT CONNECTED</p>
               </div>
             </div>
-            <p className="eyebrow">ILLUSTRATION · NOT CONNECTED</p>
           </div>
         </section>
         <section className="public-section">
