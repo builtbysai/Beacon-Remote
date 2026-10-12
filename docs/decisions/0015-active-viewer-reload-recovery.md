@@ -46,6 +46,24 @@ window, with capture stopped. The explicit browser/Windows Stop controls remain
 immediate. No automatic retry after an ended session, lock or reboot is added.
 Mobile reloads that exceed the recovery window require a fresh request.
 
+The first matching real-device test returned video after refresh, but the owner
+reported a long delay and a later connection failure. That is partial recovery
+evidence, not a reliability pass. Inspection found renewal suspended during peer
+setup/cleanup and a disconnect flag that stayed set after peer recovery.
+
+Renewal now runs in a separate bounded signaling task for the original approval.
+It owns the original challenge sequence/epoch and validates replies before
+updating the shared lease; media setup and cleanup cannot postpone that task.
+Missing, expired or invalid authorization stops the original session. A viewer
+detach updates the shared transport generation immediately, denying old media
+even while the media loop is busy. Peer and worker cleanup run concurrently,
+but both finish before a replacement cycle. Safe setup/cleanup timings contain
+no SDP, candidates, tokens or pixels. The browser and helper allow at most three
+seconds for the same peer to recover a transient disconnected state; connected
+clears that timer. Failed/closed peers still end the request. Automatic fresh
+peer negotiation after a failed connection remains a separate follow-up; no
+ended approval is revived.
+
 Real PostgreSQL/socket regressions check isolation, one viewer, unchanged expiry,
 stale transport packets, Stop, logout, machine revoke, expiry and recovery timeout.
 Native loopback signaling checks original lease/deadline/local Stop and generation

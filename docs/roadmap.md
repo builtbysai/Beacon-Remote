@@ -15,7 +15,8 @@ route/performance and updated UI acceptance still remain; milestone 4 stays
 active. See [the consent validation](consent-validation-2026-10-12.md).
 
 The viewer recovery follow-up aligns browser peer-loss handling with the native
-helper: terminate the request immediately and ask for a fresh request. Playback
+helper: allow a brief disconnected state to recover on the same approved peer;
+failed/closed peers and sustained loss still end the request. Playback
 results are scoped to the original session lifetime so a late manual Play result
 cannot replace an ended status. Actual device/network interruption acceptance
 remains required; these guards do not complete milestone 4.
@@ -24,7 +25,11 @@ The owner then tested refresh: it disconnected, but they explicitly requested
 that a reload keep an active authorization. The reload follow-up preserves the
 original login/approval/deadline through a short transport-recovery window with
 capture stopped while absent. Stop/lock/logout/revoke/restart still end access.
-Matching real-device reload acceptance is pending. See
+The owner confirmed video returned after refresh on the matching fixture, but
+reported noticeable delay and a failed later connection. Reliability acceptance
+has not passed. Renewal now continues independently of media rebuild/cleanup,
+the recovered peer clears its disconnect timer, and cleanup runs concurrently.
+Matching acceptance of this corrective change remains pending. See
 [ADR 0015](decisions/0015-active-viewer-reload-recovery.md).
 
 Viewer expiry also bounds the initial remaining lifetime with a monotonic clock,
