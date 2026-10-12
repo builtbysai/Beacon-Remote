@@ -1,0 +1,8 @@
+# Review workflow, deployment and authentication changes before merging.
+/.github/ @builtbysai
+/infrastructure/ @builtbysai
+/apps/backend/src/ @builtbysai
+/apps/windows-agent/ @builtbysai
+/apps/windows-session/ @builtbysai
+/crates/remote-core/ @builtbysai
+/SECURITY.md @builtbysai

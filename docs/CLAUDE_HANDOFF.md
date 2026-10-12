@@ -2,6 +2,17 @@
 
 **Prepared 2026-10-10.** This is a continuation document, not a statement that every feature or release gate is complete. Recheck GitHub and the actual machines before acting.
 
+October 12 publication review: the owner requested a security review before
+making the source public. Read [the security review](security-review-2026-10-12.md)
+for scope, findings fixed, tested boundaries and required public GitHub settings.
+No live credential exposure was identified in inspected history, pull requests
+or available CI logs. Hardened CI and policy changes are on the continuation
+branch and must reach `main` before publication. The owner will change visibility.
+Microsoft C++ Build Tools/Windows SDK installation completed with owner-approved
+OS elevation; local native formatting, Clippy, tests and release builds passed.
+Capture now denies a noninput desktop and clears cached snapshots; actual lock,
+UAC and display-loss acceptance is still pending. Production media stays disabled.
+
 October 12 UI continuation is on `codex/remote-development`. Read
 [the current visual and validation notes](visual-gap-2026-10-12.md) before
 following historical design status below. The branch adds approved landing and

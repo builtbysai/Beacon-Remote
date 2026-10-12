@@ -5,11 +5,42 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with: { persist-credentials: false, fetch-depth: 0 }
+      - name: Scan reachable history for secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/gitleaks.tar.gz"
+          curl --fail --silent --show-error --location \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            --output "$archive"
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $archive" | sha256sum --check
+          tar -xzf "$archive" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" git . --log-opts='--all' --redact=100 --no-banner \
+            --max-archive-depth 3 --max-decode-depth 3
+      - name: Audit Rust dependencies against RustSec
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/cargo-audit.tgz"
+          curl --fail --silent --show-error --location \
+            https://github.com/rustsec/rustsec/releases/download/cargo-audit/v0.22.2/cargo-audit-x86_64-unknown-linux-gnu-v0.22.2.tgz \
+            --output "$archive"
+          echo "ab28a1bdb54db4d5d8ad5981cf1f959410370b3d28250dbd35f6a44248620e39  $archive" | sha256sum --check
+          tar -xzf "$archive" -C "$RUNNER_TEMP" --strip-components=1 \
+            cargo-audit-x86_64-unknown-linux-gnu-v0.22.2/cargo-audit
+          "$RUNNER_TEMP/cargo-audit" audit --deny warnings
   control-plane:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:17.6-alpine
@@ -24,22 +55,24 @@ jobs:
     env:
       TEST_DATABASE_URL: postgresql://remote_ci:ci-only@127.0.0.1:5432/beacon_remote_test
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with: { persist-credentials: false }
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with: { version: 11.9.0 }
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with: { node-version: "22", cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm audit --prod --audit-level high
   native:
     runs-on: windows-latest
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with: { persist-credentials: false }
       - run: rustup update stable
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        id: native-cache
         with:
           path: |
             ~/.cargo/registry
@@ -51,9 +84,18 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
       - run: cargo build --workspace --release --locked
-      - uses: actions/upload-artifact@v4
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        if: github.event_name == 'push' && steps.native-cache.outputs.cache-hit != 'true'
         with:
-          name: windows-agent-development
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: github.event_name == 'push'
+        with:
+          name: windows-agent-development-${{ github.sha }}
           path: |
             target/release/beacon-remote-agent.exe
             target/release/beacon-remote-session.exe
