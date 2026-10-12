@@ -141,10 +141,15 @@ Control disconnect consumes approval; it never inherits view reload recovery.
 The input watchdog releases state on authority loss, local Stop, desktop loss or
 missing browser heartbeat. Production configuration rejects the control switch.
 
-Actual OS input and cross-network control acceptance remain **unverified** until
-an owner approves and exercises the matching native/browser pair. Automated
-scope, exclusivity, audit, cleanup and coordinate regressions are validation,
-not that acceptance. The loopback development fixture enrolls a fresh in-memory
+Owner-approved local control now delivered actual streamed clicks and a drag
+movement to the native test window; browser Stop ended control and the helper
+exited. The owner requested removal of the demo cutoff: explicitly enabled
+loopback sessions now run until stopped while short authorization renewals remain
+mandatory. The connection stayed active past two minutes. Wheel/keyboard and
+held-input cleanup acceptance remain open because the same-PC viewer loses focus
+when remote clicks activate the target. Cross-network control remains unverified.
+Automated scope, exclusivity, audit, cleanup and coordinate regressions are
+validation, not full device acceptance. The fixture enrolls a fresh in-memory
 identity in a disposable Remote test schema; it uses no owner/production identity.
 See [input development](input-development.md) and [ADR 0016](decisions/0016-development-control-slice.md).
 

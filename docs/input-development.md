@@ -50,6 +50,21 @@ audit, disconnect consumption, held-state cleanup and physical coordinate mappin
 Those checks and successful builds do not establish actual Windows input or
 cross-network control acceptance.
 
+## October 12 local acceptance
+
+With the owner signed in and manually approving control, computer use selected
+Remote and operated the streamed test window. The fresh native counters recorded
+two clicks and one drag movement. The session remained connected beyond two
+minutes with Until stopped visible. Browser Stop control closed the viewer,
+the native helper exited, and the database recorded desktop:control as ended.
+
+Scrolling recorded no wheel events and typing was not completed. Viewer and host
+shared one Windows input desktop: remote clicks activated the native target,
+causing Chrome to lose focus and release input. Browser automation could not
+attach because its request-header policy failed to load. Full drag, wheel,
+keyboard/modifier and held-input cleanup acceptance requires a separate viewer
+device or functioning browser automation; these are not marked passed.
+
 Failed SendInput key/button releases are retried for up to three seconds on the
 ordinary input desktop after session authority has ended. A persistent UIPI/lock
 block or forceful process death can still prevent release; the helper reports
