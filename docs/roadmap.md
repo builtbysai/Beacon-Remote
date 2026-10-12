@@ -11,6 +11,12 @@ Stop sequence, plus keyboard Stop. Fixtures are now stopped. Specific lock/expir
 route/performance and updated UI acceptance still remain; milestone 4 stays
 active. See [the consent validation](consent-validation-2026-10-12.md).
 
+The viewer recovery follow-up aligns browser peer-loss handling with the native
+helper: terminate the request immediately and ask for a fresh request. Playback
+results are scoped to the original session lifetime so a late manual Play result
+cannot replace an ended status. Actual device/network interruption acceptance
+remains required; these guards do not complete milestone 4.
+
 The owner requested compact, polished Windows host surfaces with concise copy
 and a later one-time trusted-device setup. Current milestone 4 work simplifies
 the consent/Stop windows and shows actual remaining grant time. Full approved
