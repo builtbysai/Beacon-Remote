@@ -2,7 +2,7 @@
 #[path = "../../windows-session/src/window_style.rs"]
 mod window_style;
 
-use beacon_remote_agent::{HostError, HostStatus};
+use beacon_remote_agent::{HostError, HostStatus, LocalAccess};
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
@@ -36,6 +36,9 @@ const STOP: usize = 102;
 const SERVER: usize = 103;
 const NAME: usize = 104;
 const CODE: usize = 105;
+const ACCESS_ASK: usize = 110;
+const ACCESS_VIEW: usize = 111;
+const ACCESS_CONTROL: usize = 112;
 const TRAY_SHOW: usize = 201;
 const TRAY_STOP: usize = 202;
 const TRAY_QUIT: usize = 203;
@@ -65,6 +68,16 @@ struct State {
     tray: bool,
     tray_status: String,
     taskbar_created: u32,
+    access: LocalAccess,
+    radios: [HWND; 3],
+    access_job: Option<(JoinHandle<Result<(), HostError>>, LocalAccess)>,
+}
+fn access_choice(access: LocalAccess) -> usize {
+    match (access.trusted, access.allow_control) {
+        (false, _) => 0,
+        (true, false) => 1,
+        (true, true) => 2,
+    }
 }
 unsafe fn tray_data(window: HWND, status: &str) -> NOTIFYICONDATAW {
     let mut data = NOTIFYICONDATAW {
@@ -100,11 +113,52 @@ unsafe fn read(window: HWND) -> String {
     result
 }
 impl State {
+    unsafe fn show_access(&self) {
+        let chosen = access_choice(self.access);
+        for (index, &radio) in self.radios.iter().enumerate() {
+            SendMessageW(radio, BM_SETCHECK, usize::from(index == chosen), 0);
+            EnableWindow(radio, i32::from(self.access_job.is_none() && !self.closing));
+        }
+    }
+    // Trusted access can only be raised here, on the computer, after an explicit confirmation.
+    unsafe fn choose_access(&mut self, window: HWND, choice: usize) {
+        if self.access_job.is_some() || self.closing || choice == access_choice(self.access) {
+            return;
+        }
+        let target = LocalAccess {
+            trusted: choice > 0,
+            allow_control: choice == 2,
+        };
+        let raising = choice > access_choice(self.access);
+        if raising {
+            let message = if target.allow_control {
+                "Let your signed-in Beacon Remote account view and control this computer without asking each time?\r\n\r\nThe sharing indicator stays visible and you can Stop at any time. You can turn this off here or from your workspace."
+            } else {
+                "Let your signed-in Beacon Remote account view this computer without asking each time?\r\n\r\nThe sharing indicator stays visible and you can Stop at any time. Controlling this computer will still ask. You can turn this off here or from your workspace."
+            };
+            if MessageBoxW(
+                window,
+                wide(message).as_ptr(),
+                wide("Turn on trusted access").as_ptr(),
+                MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2,
+            ) != IDYES
+            {
+                self.show_access();
+                return;
+            }
+        }
+        text(self.status, "Updating trusted access…");
+        let handle = thread::spawn(move || {
+            beacon_remote_agent::set_access(target.trusted, target.allow_control)
+        });
+        self.access_job = Some((handle, target));
+        self.show_access();
+    }
     unsafe fn controls(&self) {
         text(
             self.introduction,
             if self.paired {
-                "Keep this host open while it is available. Screen viewing and control require visible local approval."
+                "Keep this host open while it is available. Requests ask for approval on this computer unless you turn on trusted access below."
             } else {
                 "Pair this computer with your workspace. Screen viewing and control require visible local approval."
             },
@@ -188,6 +242,24 @@ impl State {
             }
         }
         if self
+            .access_job
+            .as_ref()
+            .is_some_and(|(job, _)| job.is_finished())
+        {
+            let (job, target) = self.access_job.take().unwrap();
+            if matches!(job.join(), Ok(Ok(()))) {
+                self.access = target;
+                text(self.status, "Trusted access updated.");
+            } else {
+                self.access = beacon_remote_agent::local_access();
+                text(
+                    self.status,
+                    "Could not change trusted access. Check your network and try again.",
+                );
+            }
+            self.show_access();
+        }
+        if self
             .worker
             .as_ref()
             .is_some_and(|worker| worker.handle.is_finished())
@@ -251,6 +323,9 @@ unsafe extern "system" fn procedure(
             match wparam & 0xffff {
                 ACTION => (*state).start(),
                 STOP => (*state).stop(),
+                ACCESS_ASK => (*state).choose_access(window, 0),
+                ACCESS_VIEW => (*state).choose_access(window, 1),
+                ACCESS_CONTROL => (*state).choose_access(window, 2),
                 TRAY_SHOW => restore(window),
                 TRAY_STOP => (*state).stop(),
                 TRAY_QUIT => {
@@ -384,6 +459,9 @@ pub fn show() -> Result<(), io::Error> {
             tray: false,
             tray_status: String::new(),
             taskbar_created: RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()),
+            access: beacon_remote_agent::local_access(),
+            radios: [null_mut(); 3],
+            access_job: None,
         };
         let style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
         let mut bounds = RECT {
@@ -520,15 +598,39 @@ pub fn show() -> Result<(), io::Error> {
             )?);
             state.paired_details.push(child(
                 "STATIC",
-                "Access policy",
+                "Trusted access",
                 28,
-                270,
+                262,
                 524,
                 25,
                 SS_NOPREFIX,
                 0,
             )?);
-            state.paired_details.push(child("STATIC", "Every new request requires approval on this computer.\r\nStop host ends sharing and disconnects the host.", 28, 304, 524, 60, SS_NOPREFIX, 0)?);
+            for (index, (label, id)) in [
+                ("Ask me every time", ACCESS_ASK),
+                ("Trusted: my account can view without asking", ACCESS_VIEW),
+                (
+                    "Trusted: my account can view and control without asking",
+                    ACCESS_CONTROL,
+                ),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let radio = child(
+                    "BUTTON",
+                    label,
+                    28,
+                    292 + 30 * index as i32,
+                    524,
+                    26,
+                    WS_TABSTOP | BS_AUTORADIOBUTTON as u32 | if index == 0 { WS_GROUP } else { 0 },
+                    id,
+                )?;
+                state.radios[index] = radio;
+                state.paired_details.push(radio);
+            }
+            state.show_access();
             state.status = child(
                 "STATIC",
                 if state.paired {
