@@ -41,6 +41,16 @@ connected peer, live server renewal and capture desktop checks remain required.
 Disconnect/expiry/lock require a fresh request and fresh local approval. Input,
 audio, recording, secure-desktop capture and automatic approval remain absent.
 
+The local Stop window also checks the original monotonic deadline and its input
+desktop on the native timer. This applies while waiting for the browser, before
+any capture worker starts. Observed desktop loss or expiry clears the active
+flag and closes the window; unlocking cannot resume that request. Initialization
+refuses an expired, stopped or unavailable desktop before displaying controls.
+The Stop button participates in the same dialog keyboard handling: it is the
+default and a Tab target, and Enter/Escape or window close end sharing. Window
+destruction clears the active flag and its stored state pointer; message-loop
+failure also destroys the window before its state is released.
+
 ## Verification and remaining acceptance
 
 Native checks use a real loopback WebSocket to end and close an unanswered
@@ -51,6 +61,11 @@ snapshots. Cancelled/expired requests are rejected before opening a window.
 A real hidden-window regression checks destruction before, during and after
 an active-loop lifetime on one Windows thread; only active-loop destruction
 queues a quit message. It performs no approval or capture.
+A separate real Win32 regression creates windows on a temporary noninput
+desktop and uses the production message dispatcher to exercise desktop-loss,
+deadline and Enter/Escape handling while the connection flag is false. The old
+timer behavior fails the desktop-loss assertion; the guarded version passes.
+The test never switches the input desktop, sends system input or starts capture.
 
 Actual Windows acceptance must verify visible text at normal/high DPI, default
 Decline, Tab/Enter/Escape and close, cancellation while the prompt is open,

@@ -2,6 +2,17 @@
 
 **Prepared 2026-10-10.** This is a continuation document, not a statement that every feature or release gate is complete. Recheck GitHub and the actual machines before acting.
 
+Latest native Stop hardening: PR #24 merged at `a68a430` after reviewed-head and
+merged-main CI passed. The next resilience slice enforces the original deadline
+and input-desktop boundary in the Stop window even while the browser is still
+connecting, adds Enter/Escape/Tab handling and destroys the window on a loop
+exit before releasing state. Local native formatting, Clippy, tests and optimized
+build passed. A real noninput-desktop dispatcher regression fails with the old
+timer and passes with the guard, without capture, system input or approval.
+Check latest-head CI and deliberately select its matching native pair before
+human acceptance. The existing acceptance backend exited cleanly at 08:12 UTC;
+the native fixture remains stopped. Do not restart either merely to keep it warm.
+
 Latest October 12 consent evidence: PR #23 merged at `fed694d`, with security,
 control-plane and native jobs passing on both the reviewed head and merged main.
 The existing isolated acceptance backend/web now use `00135e2` images, retaining

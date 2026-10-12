@@ -22,7 +22,29 @@ that could close a later request immediately. The hidden-window regression
 exercises three successive destruction lifetimes on one real Windows thread;
 only destruction during an active loop may queue `WM_QUIT`. No window is shown,
 no consent is approved and no screen is captured. This changes no backend/web
-source or database schema. Check the latest commit's CI before using its binary.
+source or database schema. That follow-up merged in
+[PR #24](https://github.com/builtbysai/Beacon-Remote/pull/24) as `a68a430`, with
+all three jobs passing on reviewed head `afe6935` in
+[run 38236727411](https://github.com/builtbysai/Beacon-Remote/actions/runs/38236727411)
+and merged main in [run 38237145830](https://github.com/builtbysai/Beacon-Remote/actions/runs/38237145830).
+
+The next native resilience slice makes the local Stop window enforce the same
+deadline and input-desktop boundary while the browser is still connecting.
+Previously, a lock/unlock during that wait could be missed because capture had
+not started checking the desktop yet. The window now clears active state and
+closes on observed desktop loss or expiry, rejects unavailable initialization,
+supports default-button Enter/Escape and Tab navigation, and destroys its native
+window on a message-loop exit before releasing its state.
+
+Local formatting, Clippy, native tests and optimized build passed. A real Win32
+regression creates its windows on a temporary noninput desktop and dispatches
+timer/keyboard messages through the production dispatcher while disconnected.
+The old timer behavior fails; the guarded version passes for desktop loss,
+expiry and Enter/Escape. The existing hidden-desktop test also verifies that
+initial Stop-window creation is refused and active state cleared. There is no
+desktop capture, physical desktop switch, system input injection or human consent
+approval in these checks. Inspect the latest commit's hosted CI before using
+its matching binaries; real lock/unlock and keyboard acceptance remains open.
 
 ## Isolated acceptance deployment
 
@@ -47,7 +69,7 @@ Remote backend/web/PostgreSQL, View backend/PostgreSQL, shared Caddy and Coturn.
 Production Remote still has no session secret and viewing remains disabled.
 No shared edge, relay configuration or production database was changed.
 
-Acceptance backend availability is bounded and expires around 08:12 UTC.
+The acceptance backend exited cleanly at 08:12:15 UTC after its one-hour limit.
 Later readiness must be rechecked, not inferred from this record. Resume only
 these acceptance services with the same base plus versioned override. To undo
 the application replacement, stop the acceptance backend and restore the web
@@ -63,15 +85,16 @@ not started and no new desktop session was requested in this pass.
 
 ## Remaining milestone 4 gates
 
-| Scenario                               | Current evidence                                                       | Remaining acceptance                                                |
-| -------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Pending cancellation/disconnect/expiry | Loopback signaling and deadline checks                                 | Actual prompt closes, fresh request works                           |
-| Window cleanup/reused thread           | Real hidden-window queue regression                                    | Visible repeated request/deny/cancel sequence                       |
-| Keyboard and readability               | Native default Decline, dialog navigation, DPI-scaled text implemented | Human Enter/Escape/Tab/close and normal/high-DPI checks             |
-| Desktop approval and Stop              | Historical owner Android/T-Mobile pass on earlier build                | Human Allow and local Stop with updated helper                      |
-| Lock/display/network loss              | Lease and input-desktop guards; hidden desktop regression              | Actual interruption stops capture; fresh approval required          |
-| Refresh/logout/revoke/restarts         | Server authorization/recovery and helper lifetime checks               | Updated real-desktop interruption matrix                            |
-| Performance and routes                 | Historical direct/relay and synthetic measurements                     | Updated desktop startup, FPS, CPU/RAM, route and sustained behavior |
+| Scenario                               | Current evidence                                                       | Remaining acceptance                                                         |
+| -------------------------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Pending cancellation/disconnect/expiry | Loopback signaling and deadline checks                                 | Actual prompt closes, fresh request works                                    |
+| Window cleanup/reused thread           | Real hidden-window queue regression                                    | Visible repeated request/deny/cancel sequence                                |
+| Local Stop while connecting            | Noninput-desktop/expiry and Enter/Escape dispatcher regression         | Physical lock/unlock before peer connection, keyboard Stop and fresh request |
+| Keyboard and readability               | Native default Decline, dialog navigation, DPI-scaled text implemented | Human Enter/Escape/Tab/close and normal/high-DPI checks                      |
+| Desktop approval and Stop              | Historical owner Android/T-Mobile pass on earlier build                | Human Allow and local Stop with updated helper                               |
+| Lock/display/network loss              | Lease and input-desktop guards; hidden desktop regression              | Actual interruption stops capture; fresh approval required                   |
+| Refresh/logout/revoke/restarts         | Server authorization/recovery and helper lifetime checks               | Updated real-desktop interruption matrix                                     |
+| Performance and routes                 | Historical direct/relay and synthetic measurements                     | Updated desktop startup, FPS, CPU/RAM, route and sustained behavior          |
 
 The operator prepares/rechecks the bounded test backend and starts only the
 paired native fixture when the person is ready. The person uses Windows

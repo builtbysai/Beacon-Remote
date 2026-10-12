@@ -6,6 +6,7 @@ use std::{
         mpsc, Arc,
     },
     thread,
+    time::Instant,
 };
 use windows_sys::Win32::Graphics::Gdi::{GetStockObject, DEFAULT_GUI_FONT};
 use windows_sys::Win32::System::SystemServices::SS_NOPREFIX;
@@ -13,10 +14,20 @@ use windows_sys::Win32::UI::HiDpi::GetDpiForSystem;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows_sys::Win32::{System::LibraryLoader::GetModuleHandleW, UI::WindowsAndMessaging::*};
 type Error = Box<dyn std::error::Error + Send + Sync>;
+const STOP_ID: i32 = 1001;
+const STATUS_ID: i32 = 1002;
 struct WindowState {
     active: Arc<AtomicBool>,
     connected: Arc<AtomicBool>,
     desktop: bool,
+    deadline: Instant,
+}
+impl WindowState {
+    fn live(&self) -> bool {
+        self.active.load(Ordering::Acquire)
+            && Instant::now() < self.deadline
+            && (!self.desktop || crate::capture::desktop_receives_input())
+    }
 }
 pub struct Indicator {
     active: Arc<AtomicBool>,
@@ -24,6 +35,12 @@ pub struct Indicator {
 }
 fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(Some(0)).collect()
+}
+unsafe fn dispatch(window: windows_sys::Win32::Foundation::HWND, message: &MSG) {
+    if IsDialogMessageW(window, message) == 0 {
+        TranslateMessage(message);
+        DispatchMessageW(message);
+    }
 }
 unsafe extern "system" fn procedure(
     window: windows_sys::Win32::Foundation::HWND,
@@ -36,7 +53,11 @@ unsafe extern "system" fn procedure(
         SetWindowLongPtrW(window, GWLP_USERDATA, creation.lpCreateParams as isize);
     }
     let state = GetWindowLongPtrW(window, GWLP_USERDATA) as *const WindowState;
-    if (message == WM_COMMAND && (wparam & 0xffff) == 1001) || message == WM_CLOSE {
+    if (message == WM_COMMAND
+        && wparam >> 16 == BN_CLICKED as usize
+        && matches!((wparam & 0xffff) as i32, STOP_ID | IDCANCEL | IDOK))
+        || message == WM_CLOSE
+    {
         if !state.is_null() {
             (*state).active.store(false, Ordering::Release);
         }
@@ -44,7 +65,10 @@ unsafe extern "system" fn procedure(
         return 0;
     }
     if message == WM_TIMER && !state.is_null() {
-        if !(*state).active.load(Ordering::Acquire) {
+        // Enforce the lease and desktop boundary even while peer setup has no
+        // capture worker yet. Unlocking never revives this request.
+        if !(*state).live() {
+            (*state).active.store(false, Ordering::Release);
             DestroyWindow(window);
             return 0;
         }
@@ -57,12 +81,24 @@ unsafe extern "system" fn procedure(
         } else {
             "Connecting — waiting for the browser"
         });
-        SetWindowTextW(GetDlgItem(window, 1002), text.as_ptr());
+        SetWindowTextW(GetDlgItem(window, STATUS_ID), text.as_ptr());
+    }
+    if message == DM_GETDEFID {
+        return ((DC_HASDEFID as usize) << 16 | STOP_ID as usize) as isize;
+    }
+    if message == DM_SETDEFID {
+        return (wparam == STOP_ID as usize) as isize;
     }
     if message == WM_DESTROY {
+        if !state.is_null() {
+            (*state).active.store(false, Ordering::Release);
+        }
         KillTimer(window, 1);
         PostQuitMessage(0);
         return 0;
+    }
+    if message == WM_NCDESTROY {
+        SetWindowLongPtrW(window, GWLP_USERDATA, 0);
     }
     DefWindowProcW(window, message, wparam, lparam)
 }
@@ -72,13 +108,19 @@ impl Indicator {
         connected: Arc<AtomicBool>,
         desktop: bool,
         controller: String,
+        deadline: Instant,
     ) -> Result<Self, Error> {
         let (ready, received) = mpsc::channel();
         let state = Arc::new(WindowState {
             active: active.clone(),
             connected,
             desktop,
+            deadline,
         });
+        if !state.live() {
+            active.store(false, Ordering::Release);
+            return Err("View expired, stopped or input desktop unavailable".into());
+        }
         let thread = thread::spawn(move || {
             let result = (|| -> Result<(), Error> {
                 unsafe {
@@ -108,7 +150,7 @@ impl Indicator {
                         WS_EX_TOPMOST,
                         class.as_ptr(),
                         title.as_ptr(),
-                        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+                        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
                         CW_USEDEFAULT,
                         CW_USEDEFAULT,
                         scale(640),
@@ -153,7 +195,7 @@ impl Indicator {
                         scale(580),
                         scale(30),
                         window,
-                        1002usize as _,
+                        STATUS_ID as usize as _,
                         instance,
                         std::ptr::null(),
                     );
@@ -167,13 +209,13 @@ impl Indicator {
                         0,
                         button.as_ptr(),
                         caption.as_ptr(),
-                        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON as u32,
+                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON as u32,
                         scale(24),
                         scale(174),
                         scale(580),
                         scale(55),
                         window,
-                        1001usize as _,
+                        STOP_ID as usize as _,
                         instance,
                         std::ptr::null(),
                     );
@@ -185,6 +227,11 @@ impl Indicator {
                         DestroyWindow(window);
                         UnregisterClassW(class.as_ptr(), instance);
                         return Err(io::Error::last_os_error().into());
+                    }
+                    if !state.live() {
+                        DestroyWindow(window);
+                        UnregisterClassW(class.as_ptr(), instance);
+                        return Err("View expired, stopped or input desktop unavailable".into());
                     }
                     ShowWindow(window, SW_SHOW);
                     let font = GetStockObject(DEFAULT_GUI_FONT);
@@ -211,10 +258,12 @@ impl Indicator {
                         if status <= 0 {
                             break;
                         }
-                        TranslateMessage(&message);
-                        DispatchMessageW(&message);
+                        dispatch(window, &message);
                     }
                     state.active.store(false, Ordering::Release);
+                    if IsWindow(window) != 0 {
+                        DestroyWindow(window);
+                    }
                     UnregisterClassW(class.as_ptr(), instance);
                     Ok(())
                 }
@@ -242,5 +291,163 @@ impl Drop for Indicator {
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use windows_sys::Win32::{
+        Foundation::{HMODULE, HWND},
+        System::{
+            StationsAndDesktops::{
+                CloseDesktop, CreateDesktopW, GetThreadDesktop, SetThreadDesktop,
+                DESKTOP_CREATEWINDOW, DESKTOP_READOBJECTS, DESKTOP_WRITEOBJECTS,
+            },
+            Threading::GetCurrentThreadId,
+        },
+        UI::Input::KeyboardAndMouse::{VK_ESCAPE, VK_RETURN},
+    };
+
+    struct HiddenWindow {
+        window: HWND,
+        state: Box<WindowState>,
+    }
+    impl Drop for HiddenWindow {
+        fn drop(&mut self) {
+            unsafe {
+                if IsWindow(self.window) != 0 {
+                    DestroyWindow(self.window);
+                }
+                let mut message = MSG::default();
+                PeekMessageW(
+                    &mut message,
+                    std::ptr::null_mut(),
+                    WM_QUIT,
+                    WM_QUIT,
+                    PM_REMOVE,
+                );
+            }
+        }
+    }
+    unsafe fn hidden_window(
+        instance: HMODULE,
+        class: &[u16],
+        desktop: bool,
+        deadline: Instant,
+    ) -> HiddenWindow {
+        let state = Box::new(WindowState {
+            active: Arc::new(AtomicBool::new(true)),
+            connected: Arc::new(AtomicBool::new(false)),
+            desktop,
+            deadline,
+        });
+        let window = CreateWindowExW(
+            0,
+            class.as_ptr(),
+            class.as_ptr(),
+            0,
+            0,
+            0,
+            1,
+            1,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            instance,
+            std::ptr::from_ref(&*state).cast(),
+        );
+        assert!(!window.is_null());
+        let fixture = HiddenWindow { window, state };
+        let button_class = wide("BUTTON");
+        let control = CreateWindowExW(
+            0,
+            button_class.as_ptr(),
+            class.as_ptr(),
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON as u32,
+            0,
+            0,
+            1,
+            1,
+            window,
+            STOP_ID as usize as _,
+            instance,
+            std::ptr::null(),
+        );
+        assert!(!control.is_null());
+        fixture
+    }
+
+    #[test]
+    fn connecting_window_stops_on_desktop_loss_expiry_and_keyboard() {
+        // These windows live on a newly created noninput desktop. Never switch
+        // the visible desktop, approve consent, inject OS input or start capture.
+        thread::spawn(|| unsafe {
+            let original = GetThreadDesktop(GetCurrentThreadId());
+            let name = wide(&format!("BeaconStopGuardTest-{}", GetCurrentThreadId()));
+            let desktop = CreateDesktopW(
+                name.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                DESKTOP_CREATEWINDOW | DESKTOP_READOBJECTS | DESKTOP_WRITEOBJECTS,
+                std::ptr::null(),
+            );
+            assert!(!desktop.is_null());
+            assert_ne!(SetThreadDesktop(desktop), 0);
+            let instance = GetModuleHandleW(std::ptr::null());
+            let definition = WNDCLASSW {
+                lpfnWndProc: Some(procedure),
+                hInstance: instance,
+                lpszClassName: name.as_ptr(),
+                ..Default::default()
+            };
+            assert_ne!(RegisterClassW(&definition), 0);
+            let result = std::panic::catch_unwind(|| {
+                assert!(!crate::capture::desktop_receives_input());
+                for (capture, deadline) in [
+                    (true, Instant::now() + Duration::from_secs(5)),
+                    (false, Instant::now()),
+                ] {
+                    let fixture = hidden_window(instance, &name, capture, deadline);
+                    dispatch(
+                        fixture.window,
+                        &MSG {
+                            hwnd: fixture.window,
+                            message: WM_TIMER,
+                            wParam: 1,
+                            ..Default::default()
+                        },
+                    );
+                    assert!(!fixture.state.active.load(Ordering::Acquire));
+                    assert_eq!(IsWindow(fixture.window), 0);
+                }
+                for key in [VK_RETURN, VK_ESCAPE] {
+                    let fixture = hidden_window(
+                        instance,
+                        &name,
+                        false,
+                        Instant::now() + Duration::from_secs(5),
+                    );
+                    dispatch(
+                        fixture.window,
+                        &MSG {
+                            hwnd: GetDlgItem(fixture.window, STOP_ID),
+                            message: WM_KEYDOWN,
+                            wParam: key as usize,
+                            ..Default::default()
+                        },
+                    );
+                    assert!(!fixture.state.active.load(Ordering::Acquire));
+                    assert_eq!(IsWindow(fixture.window), 0);
+                }
+            });
+            assert_ne!(UnregisterClassW(name.as_ptr(), instance), 0);
+            assert_ne!(SetThreadDesktop(original), 0);
+            assert_ne!(CloseDesktop(desktop), 0);
+            result.unwrap();
+        })
+        .join()
+        .unwrap();
     }
 }

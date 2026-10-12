@@ -436,6 +436,17 @@ mod tests {
                 .unwrap());
 
                 let active = Arc::new(AtomicBool::new(true));
+                assert!(crate::indicator::Indicator::start(
+                    active.clone(),
+                    Arc::new(AtomicBool::new(false)),
+                    true,
+                    "guard-test@example.invalid".into(),
+                    Instant::now() + Duration::from_secs(1),
+                )
+                .is_err());
+                assert!(!active.load(Ordering::Acquire));
+
+                let active = Arc::new(AtomicBool::new(true));
                 assert!(DesktopCapture::start(active.clone()).is_err());
                 assert!(!active.load(Ordering::Acquire));
 
