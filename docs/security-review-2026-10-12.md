@@ -8,8 +8,45 @@ identified in the inspected material. This is a focused source/history/CI review
 not a penetration test or authorization to open the product to general consumers.
 Production desktop media remains disabled and the existing release gates remain.
 
-The owner will change repository visibility. The review did not change it, merge
-the feature branch, deploy an application release, or alter Beacon View.
+The initial review preceded publication. The owner subsequently changed source
+visibility after PR #14 merged. The completion record below distinguishes these
+repository operations from production deployment and product release.
+
+## Publication completion and CI follow-up
+
+PR #14 merged at `bd1c9625dcd2d56a7c8f1c92f37b3248c3050b5f`. The owner made
+the repository public and enabled secret scanning, push protection, private
+vulnerability reporting and a main review rule. API readback confirmed these
+settings; Dependabot alerts and approval for all external fork contributors are
+also enabled. Action allowlisting, full SHA pinning, read-only default token
+permissions and disabled Actions PR approval are verified.
+
+Main now requires the `security`, `control-plane` and `native` checks from the
+GitHub Actions integration, an up-to-date branch, one review, code-owner approval,
+stale-review dismissal and conversation resolution. A separate active
+`Main CI and integrity` ruleset has no bypass actors and enforces the same checks,
+no force pushes and no deletion for everyone, including administrators. The
+classic review rule permits administrator bypass for the sole repository owner;
+GitHub rejected user-specific review bypass allowances on this personal
+repository. This exception does not bypass the integrity ruleset's CI checks.
+See [GitHub rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets)
+and [the ruleset API](https://docs.github.com/en/rest/repos/rules).
+
+The hardened main workflow [38210455352, attempt 2](https://github.com/builtbysai/Beacon-Remote/actions/runs/38210455352/attempts/2)
+started real hosted jobs after publication. Its secret scan and RustSec audit
+passed. The control-plane job exposed a fresh-database race: multiple test files
+executed `CREATE TABLE IF NOT EXISTS` concurrently, conflicting on PostgreSQL
+catalog entries. Serializing test files fixes their shared-schema initialization;
+concurrent enrollment, invitation and signaling checks inside each test remain.
+The corrected suite passed all ten checks without skips on a newly created,
+isolated local `_test` database. This failure is not retried away or treated as
+successful CI; the fix must pass a new protected PR workflow before merging.
+
+CI pushes now target main; pull requests retain all three checks without path
+filters. This avoids duplicate feature/Dependabot push builds and limits unsigned
+development artifact uploads and native cache writes to main builds. Weekly
+Dependabot proposals are reviewed and validated individually; no automatic merge
+or production deployment is configured. Production media remains disabled.
 
 ## Scope and evidence
 

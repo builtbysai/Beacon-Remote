@@ -6,8 +6,17 @@ October 12 publication review: the owner requested a security review before
 making the source public. Read [the security review](security-review-2026-10-12.md)
 for scope, findings fixed, tested boundaries and required public GitHub settings.
 No live credential exposure was identified in inspected history, pull requests
-or available CI logs. Hardened CI and policy changes are on the continuation
-branch and must reach `main` before publication. The owner will change visibility.
+or available CI logs. Hardened CI and policy changes merged in PR #14 at
+`bd1c9625dcd2d56a7c8f1c92f37b3248c3050b5f`; the owner made the source public.
+Secret scanning, push protection, private vulnerability reporting and Dependabot
+alerts are enabled. Actions require SHA pinning, read-only default permissions
+and approval for all external fork contributors. Main requires the three named
+GitHub Actions checks, stale-review dismissal and code-owner approval. A separate
+active `Main CI and integrity` ruleset has no bypass actors, enforcing the checks
+and blocking force pushes/deletion even for administrators. The classic review
+rule retains administrator bypass for the sole owner; personal repositories do
+not support user-specific review bypass allowances. Verify current rules before
+merging; do not remove CI requirements to get a merge through.
 Microsoft C++ Build Tools/Windows SDK installation completed with owner-approved
 OS elevation; local native formatting, Clippy, tests and release builds passed.
 Capture now denies a noninput desktop and clears cached snapshots; actual lock,
@@ -52,7 +61,7 @@ The old root acceptance runner is archived; use tracked
 
 ## Source of truth and first 20 minutes
 
-- Repo: https://github.com/builtbysai/Beacon-Remote (private); branch: `main`.
+- Repo: https://github.com/builtbysai/Beacon-Remote (public source, private-alpha product); branch: `main`.
 - PR #8 attended media: **merged** as `d6c40c807948a4bbc991fdc048a2699746f1d6cf`.
 - PR #9 product UI/relay/backend recovery: **merged** as `6d8d7496cb87d919f0b8a7dbdb02177a816d74ae` from head `0979cd12f3371f5eabec2fbc703808eb5b53213b`. Its head passed Windows/control-plane GitHub Actions run `38083605846`. Revalidate any later commits.
 - The last documented **deployed Remote release** is `ff452ffe66dd600e9a7b18d12fccc08ac970a7d6` (blue/slate private-alpha interface; **media disabled**). Repository merges are **not** production deployments. Current production commit/container state must be checked on the VM.
