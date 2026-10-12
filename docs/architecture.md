@@ -64,7 +64,10 @@ and scroll/state changes reliable. Bound message sizes and text lengths. Release
 held input and stop capture on revoke/expiry/disconnect; a local timer must enforce
 this even during a network partition. Windows SendInput must respect UIPI and
 secure desktop. Reconnect negotiates fresh authorization rather than restoring
-a controller implicitly. Start adaptive bitrate from actual RTT/loss/encoder
+a controller implicitly. A reload may recover the original still-active
+controller/approval within a bounded transport window; it never revives an ended
+grant. See [ADR 0015](decisions/0015-active-viewer-reload-recovery.md).
+Start adaptive bitrate from actual RTT/loss/encoder
 measurements; neither a screenshot endpoint nor a browser video element defines
 the capability core.
 

@@ -1,0 +1,54 @@
+# Recover a browser reload within an active attended approval
+
+## Context
+
+The owner tested browser refresh on October 12. It disconnected the desktop
+session, as the previous lifecycle implementation intended, but the owner
+explicitly requested that refreshing preserve an active session. This is a
+milestone 4 transport requirement, distinct from remembered personal-device
+access after Windows lock/reboot in ADR 0014.
+
+## Decision
+
+A matching helper advertises resumable transport only after local consent and
+creation of the visible Stop window. When that viewer disconnects, the backend
+retains the existing approval for at most ten seconds, bounded by its original
+two-minute deadline. The native helper destroys its old peer/capture worker and
+cached frames, keeps the same visible Stop window and monotonic deadline, and
+waits for a replacement viewer. No local Allow action is automated or repeated.
+The browser stores only the session identifier and display name in tab-local
+session storage; it does not store a machine token, consent bearer or TURN
+credential. On reload it asks the backend to resume the ongoing view.
+
+Recovery requires the exact original authenticated browser login, same origin,
+active session, unrevoked machine, live original helper and unexpired recovery
+window. Another login on the same account cannot replace that controller. Only
+one viewer socket may exist. The backend continues checking the original login
+while the viewer is absent; logout/session revocation stops recovery. A browser
+identifier alone conveys no access. Transport generations discard delayed SDP/
+ICE packets from older connections. Existing message budgets remain bounded.
+
+The helper uses one renewal challenge sequence and monotonic epoch across media
+cycles. Recovery does not reset challenge age or extend consent. While paused,
+capture is destroyed; newly connected media requires a valid renewal and the
+original local session flag. Local Stop denies capture and queued media across
+all cycles. Lock, secure desktop, grant expiry, backend/helper restart, failed
+authorization or a missed recovery window ends the session. An ended grant
+cannot resume; a fresh attended request still needs manual Allow.
+
+## Compatibility and limits
+
+Helpers that do not advertise recovery retain immediate termination on viewer
+disconnect. A matching backend/web/helper deployment is required to test the
+new behavior. Page unload cannot reliably distinguish refresh from closing a
+tab: closing a resumable tab leaves the Stop window for the same short recovery
+window, with capture stopped. The explicit browser/Windows Stop controls remain
+immediate. No automatic retry after an ended session, lock or reboot is added.
+Mobile reloads that exceed the recovery window require a fresh request.
+
+Real PostgreSQL/socket regressions check isolation, one viewer, unchanged expiry,
+stale transport packets, Stop, logout, machine revoke, expiry and recovery timeout.
+Native loopback signaling checks original lease/deadline/local Stop and generation
+guards without opening a consent dialog or capturing. These checks do not prove
+actual desktop reload playback, Windows capture-border cleanup, relay routing or
+performance; those remain guarded Windows/Android acceptance gates.

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { playForSession } from "./playback.js";
 import { viewDeadline } from "./deadline.js";
+import { rememberView, forgetView } from "./resume-view.js";
 
 export type ViewGrant = {
   id: string;
@@ -77,6 +78,8 @@ export function LiveView({
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(url);
     let closed = false;
+    let resumable = false;
+    let generation = 0;
     let messages = 0;
     let serial = Promise.resolve();
     const candidates: RTCIceCandidateInit[] = [];
@@ -84,9 +87,10 @@ export function LiveView({
     let lastCount = 0;
     let previousFrames = 0;
     const element = video.current;
-    function finish(reason: string) {
+    function finish(reason: string, reloading = false) {
       if (closed) return;
       closed = true;
+      if (!reloading) forgetView();
       setStatus(reason);
       setEnded(true);
       setNeedsPlay(false);
@@ -98,13 +102,14 @@ export function LiveView({
         element.pause();
         element.srcObject = null;
       }
-      void fetch(`/api/sessions/${grant.id}/stop`, {
-        method: "POST",
-        credentials: "same-origin",
-        keepalive: true,
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-      }).catch(() => {});
+      if (!reloading)
+        void fetch(`/api/sessions/${grant.id}/stop`, {
+          method: "POST",
+          credentials: "same-origin",
+          keepalive: true,
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        }).catch(() => {});
     }
     stop.current = () => finish("Stopped.");
     play.current = () =>
@@ -125,13 +130,13 @@ export function LiveView({
           setStatus("Press Play to view the stream.");
         },
       );
-    const send = (body: unknown) => {
+    const send = (body: Record<string, unknown>) => {
       if (closed || ws.readyState !== WebSocket.OPEN) return;
       if (ws.bufferedAmount > 131072) {
         finish("Connection stalled.");
         return;
       }
-      ws.send(JSON.stringify(body));
+      ws.send(JSON.stringify({ ...body, generation }));
     };
     pc.onicecandidate = (event) => {
       if (closed) return;
@@ -223,11 +228,20 @@ export function LiveView({
           const message = JSON.parse(event.data) as Record<string, unknown>;
           switch (message.type) {
             case "joined":
+              if (
+                typeof message.generation === "number" &&
+                Number.isInteger(message.generation) &&
+                message.generation >= 0 &&
+                message.generation <= 16
+              )
+                generation = message.generation;
               break;
             case "consent":
               if (message.accepted !== true)
                 finish("Sharing was declined on Windows.");
               else {
+                resumable = message.resumable === true;
+                if (resumable) rememberView({ id: grant.id, name });
                 approvedAt ??= performance.now();
                 setTimings((current) => ({
                   ...current,
@@ -237,6 +251,7 @@ export function LiveView({
               }
               break;
             case "offer": {
+              if ((message.generation ?? 0) !== generation) break;
               if (
                 pc.remoteDescription ||
                 typeof message.sdp !== "string" ||
@@ -256,6 +271,7 @@ export function LiveView({
               break;
             }
             case "candidate": {
+              if ((message.generation ?? 0) !== generation) break;
               if (
                 typeof message.candidate !== "string" ||
                 message.candidate.length > 2048 ||
@@ -285,7 +301,7 @@ export function LiveView({
     const timer = setInterval(() => {
       if (expired()) finish("Session expired.");
     }, 500);
-    const onPageHide = () => finish("Stopped.");
+    const onPageHide = () => finish("Reconnecting…", resumable);
     window.addEventListener("pagehide", onPageHide);
     let inspecting = false;
     const diagnostics = setInterval(() => {

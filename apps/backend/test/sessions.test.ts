@@ -330,6 +330,169 @@ test(
         );
         assert.deepEqual(await beat(), []);
       }
+      // A reload may replace only its original browser transport, within the
+      // same approval/deadline. A second login on the same account is not it.
+      const otherBrowser = randomBytes(32).toString("base64url");
+      await pool.query(
+        "INSERT INTO browser_sessions VALUES ($1,$2,now()+interval '1 hour')",
+        [digest(otherBrowser), account],
+      );
+      const reloadGrant = await create();
+      const reloadId = reloadGrant.json().id as string;
+      const reloadToken = (await beat())[0]!.token;
+      const reloadViewer = await connect(reloadId, "viewer", headers);
+      const reloadNative = await connect(reloadId, "machine", {
+        authorization: `Bearer ${reloadToken}`,
+      });
+      const resume = (resumeHeaders = headers) =>
+        app.inject({
+          method: "POST",
+          url: `/api/sessions/${reloadId}/resume`,
+          headers: resumeHeaders,
+          payload: {},
+        });
+      assert.equal((await resume()).statusCode, 403);
+      await received(reloadViewer, () =>
+        reloadNative.send(
+          JSON.stringify({ type: "consent", accepted: true, resumable: true }),
+        ),
+      );
+      const detached = await received(reloadNative, () =>
+        reloadViewer.terminate(),
+      );
+      assert.equal(detached.type, "viewer-detached");
+      const recovered = await resume();
+      assert.equal(recovered.statusCode, 200);
+      assert.equal(
+        recovered.json().expiresAtMillis,
+        reloadGrant.json().expiresAtMillis,
+      );
+      assert.equal((await resume(alien)).statusCode, 403);
+      assert.equal(
+        (await resume({ origin, cookie: `remote_session=${otherBrowser}` }))
+          .statusCode,
+        403,
+      );
+      assert.equal(
+        (await resume({ ...headers, origin: "https://evil.example.test" }))
+          .statusCode,
+        403,
+      );
+      await assert.rejects(
+        connect(reloadId, "viewer", {
+          origin,
+          cookie: `remote_session=${otherBrowser}`,
+        }),
+      );
+      const resumedMessage = once(reloadNative, "message", {
+        signal: AbortSignal.timeout(3000),
+      });
+      const replacementViewer = await connect(reloadId, "viewer", headers);
+      assert.equal(
+        JSON.parse((await resumedMessage)[0].toString()).type,
+        "viewer-resumed",
+      );
+      await assert.rejects(connect(reloadId, "viewer", headers));
+      assert.equal((await resume()).statusCode, 403);
+      assert.deepEqual(
+        await received(replacementViewer, () => {
+          reloadNative.send(
+            JSON.stringify({ type: "offer", sdp: "stale", generation: 0 }),
+          );
+          reloadNative.send(
+            JSON.stringify({ type: "offer", sdp: "fresh", generation: 1 }),
+          );
+        }),
+        { type: "offer", sdp: "fresh", generation: 1 },
+      );
+      assert.equal(
+        (
+          await pool.query(
+            "SELECT count(*)::int AS total FROM audit_events WHERE machine_id=$1 AND action='desktop.view.accepted' AND occurred_at >= (SELECT created_at FROM view_sessions WHERE id=$2)",
+            [machine, reloadId],
+          )
+        ).rows[0].total,
+        1,
+      );
+      await received(reloadNative, () => replacementViewer.terminate());
+      const recoveryEnded = once(reloadNative, "close", {
+        signal: AbortSignal.timeout(3000),
+      });
+      await app.inject({
+        method: "POST",
+        url: `/api/sessions/${reloadId}/stop`,
+        headers,
+        payload: {},
+      });
+      await recoveryEnded;
+      assert.equal((await resume()).statusCode, 403);
+      await assert.rejects(connect(reloadId, "viewer", headers));
+
+      for (const boundary of [
+        "expiry",
+        "revoke",
+        "recovery-timeout",
+      ] as const) {
+        const grant = await create();
+        const boundaryId = grant.json().id as string;
+        const token = (await beat())[0]!.token;
+        const viewer = await connect(boundaryId, "viewer", headers);
+        const native = await connect(boundaryId, "machine", {
+          authorization: `Bearer ${token}`,
+        });
+        await received(viewer, () =>
+          native.send(
+            JSON.stringify({
+              type: "consent",
+              accepted: true,
+              resumable: true,
+            }),
+          ),
+        );
+        await received(native, () => viewer.terminate());
+        const stopped = once(native, "close", {
+          signal: AbortSignal.timeout(12000),
+        });
+        if (boundary === "expiry")
+          await pool.query(
+            "UPDATE view_sessions SET expires_at=now()-interval '1 second' WHERE id=$1",
+            [boundaryId],
+          );
+        if (boundary === "revoke")
+          await pool.query("UPDATE machines SET revoked_at=now() WHERE id=$1", [
+            machine,
+          ]);
+        if (boundary !== "recovery-timeout")
+          assert.equal(
+            (
+              await app.inject({
+                method: "POST",
+                url: `/api/sessions/${boundaryId}/resume`,
+                headers,
+                payload: {},
+              })
+            ).statusCode,
+            403,
+          );
+        await stopped;
+        assert.equal(
+          (
+            await app.inject({
+              method: "POST",
+              url: `/api/sessions/${boundaryId}/resume`,
+              headers,
+              payload: {},
+            })
+          ).statusCode,
+          403,
+        );
+        await assert.rejects(connect(boundaryId, "viewer", headers));
+        await pool.query(
+          "UPDATE machines SET revoked_at=NULL,last_seen_at=now() WHERE id=$1",
+          [machine],
+        );
+      }
+
       const logoutGrant = await create();
       assert.equal(logoutGrant.statusCode, 200);
       const logoutId = logoutGrant.json().id as string;
@@ -339,9 +502,12 @@ test(
         authorization: `Bearer ${logoutToken}`,
       });
       await received(logoutViewer, () =>
-        logoutNative.send(JSON.stringify({ type: "consent", accepted: true })),
+        logoutNative.send(
+          JSON.stringify({ type: "consent", accepted: true, resumable: true }),
+        ),
       );
-      const ended = once(logoutViewer, "message", {
+      await received(logoutNative, () => logoutViewer.terminate());
+      const ended = once(logoutNative, "close", {
         signal: AbortSignal.timeout(3000),
       });
       assert.equal(
@@ -355,7 +521,7 @@ test(
         ).statusCode,
         200,
       );
-      assert.equal(JSON.parse((await ended)[0].toString()).type, "ended");
+      await ended;
       assert.equal(
         (
           await pool.query("SELECT status FROM view_sessions WHERE id=$1", [

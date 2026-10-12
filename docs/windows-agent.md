@@ -77,6 +77,15 @@ monotonic deadline. Late approval cannot revive an ended request. See
 [the consent lifecycle decision](decisions/0013-cancellable-attended-consent.md)
 for protocol verification and the remaining actual Windows checks.
 
+The matching helper can retain that original approval through a short browser
+reload. It destroys the previous peer/capture worker and waits with visible Stop
+for the original browser login, without extending the two-minute deadline.
+Each media cycle owns its connection flag, so late callbacks from a closed peer
+cannot authorize capture by its replacement. Local Stop gates both capture and
+queued frames across cycles. Lock, expiry, revocation, missed renewal and restart
+still terminate. See [ADR 0015](decisions/0015-active-viewer-reload-recovery.md);
+actual matching Windows/Android reload acceptance remains required.
+
 The later signed MSI should install a least-privilege service and interactive
 helper, create restricted IPC, offer pairing/status/clean uninstall, and use
 Service Control Manager recovery. Secure updates need a signed manifest, pinned

@@ -41,7 +41,7 @@ use webrtc::{
 };
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Grant {
     id: String,
@@ -53,7 +53,7 @@ pub struct Grant {
     ice_servers: Vec<IceServer>,
     ice_transport_policy: String,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct IceServer {
     urls: Vec<String>,
@@ -131,6 +131,7 @@ struct Handler {
     candidates: mpsc::Sender<RTCIceCandidateInit>,
     connected: Arc<AtomicBool>,
     active: Arc<AtomicBool>,
+    disconnected: Arc<AtomicBool>,
 }
 #[async_trait::async_trait]
 impl PeerConnectionEventHandler for Handler {
@@ -157,9 +158,11 @@ impl PeerConnectionEventHandler for Handler {
             RTCPeerConnectionState::Connected => {
                 self.connected.store(true, Ordering::Release);
             }
-            RTCPeerConnectionState::Failed
-            | RTCPeerConnectionState::Disconnected
-            | RTCPeerConnectionState::Closed => {
+            RTCPeerConnectionState::Disconnected => {
+                self.connected.store(false, Ordering::Release);
+                self.disconnected.store(true, Ordering::Release);
+            }
+            RTCPeerConnectionState::Failed | RTCPeerConnectionState::Closed => {
                 self.active.store(false, Ordering::Release);
             }
             _ => {}
@@ -360,13 +363,131 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
     timeout(
         Duration::from_millis(500),
         socket.send(Message::Text(
-            json!({"type":"consent","accepted":true}).to_string().into(),
+            json!({"type":"consent","accepted":true,"resumable":true})
+                .to_string()
+                .into(),
         )),
     )
     .await??;
+    let mut authorization = MediaAuthorization {
+        epoch: Instant::now(),
+        lease: Arc::new(AtomicU64::new(0)),
+        renewals: Renewals::default(),
+    };
+    let mut generation = 0;
+    loop {
+        if !media_cycle(
+            &mut socket,
+            &grant,
+            deadline,
+            active.clone(),
+            connected.clone(),
+            &mut authorization,
+            generation,
+        )
+        .await?
+        {
+            break;
+        }
+        if !wait_for_viewer(
+            &mut socket,
+            &grant,
+            deadline,
+            active.clone(),
+            &mut authorization,
+            generation + 1,
+        )
+        .await?
+        {
+            break;
+        }
+        generation += 1;
+    }
+    active.store(false, Ordering::Release);
+    let _ = timeout(Duration::from_millis(500), socket.close(None)).await;
+    println!("Viewing session ended.");
+    Ok(())
+}
+
+type SignalSocket =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+struct MediaAuthorization {
+    epoch: Instant,
+    lease: Arc<AtomicU64>,
+    renewals: Renewals,
+}
+
+// Capture is fully stopped while waiting; only the original visible local
+// approval survives a bounded browser reload. Stop/lock/expiry still terminate.
+async fn wait_for_viewer(
+    socket: &mut SignalSocket,
+    grant: &Grant,
+    deadline: Instant,
+    active: Arc<AtomicBool>,
+    authorization: &mut MediaAuthorization,
+    expected_generation: u64,
+) -> Result<bool, Error> {
+    let until = (Instant::now() + Duration::from_secs(10)).min(deadline);
+    let epoch = authorization.epoch;
+    let mut next = Instant::now();
+    let mut tick = tokio::time::interval(Duration::from_millis(100));
+    loop {
+        if !active.load(Ordering::Acquire)
+            || Instant::now() >= until
+            || remaining(
+                authorization.lease.load(Ordering::Acquire),
+                epoch.elapsed().as_millis() as u64,
+            )
+            .is_none()
+        {
+            return Ok(false);
+        }
+        tokio::select! {
+            _ = tick.tick() => {
+                if Instant::now() >= next {
+                    let nonce = authorization.renewals.issue(epoch.elapsed().as_millis() as u64);
+                    timeout(Duration::from_millis(500), socket.send(Message::Text(json!({"type":"renew","nonce":nonce}).to_string().into()))).await??;
+                    next = Instant::now() + Duration::from_secs(1);
+                }
+            }
+            message = socket.next() => {
+                let text = match message { Some(Ok(Message::Text(text))) if text.len() <= 65536 => text,
+                    Some(Ok(Message::Ping(_) | Message::Pong(_))) => continue, _ => return Ok(false) };
+                let body: Value = serde_json::from_str(&text)?;
+                match body["type"].as_str() {
+                    Some("viewer-resumed") => return Ok(body["generation"].as_u64() == Some(expected_generation) && expected_generation <= 16 && active.load(Ordering::Acquire) && Instant::now() < until),
+                    Some("lease") => {
+                        if body["expiresAtMillis"].as_u64() != Some(grant.expires_at_millis) || body["maxAgeMs"].as_u64() != Some(MAX_AGE_MS) { return Err("Invalid recovery lease".into()); }
+                        if let Some(issued) = authorization.renewals.acknowledge(body["nonce"].as_str().ok_or("Missing lease challenge")?, epoch.elapsed().as_millis() as u64) { authorization.lease.fetch_max(issued, Ordering::Release); }
+                    }
+                    Some("ended") => return Ok(false),
+                    // Packets from the old transport cannot start capture.
+                    Some("candidate" | "answer" | "viewer-detached") => {},
+                    _ => return Err("Unexpected recovery signaling".into()),
+                }
+            }
+        }
+    }
+}
+
+async fn media_cycle(
+    socket: &mut SignalSocket,
+    grant: &Grant,
+    deadline: Instant,
+    session_active: Arc<AtomicBool>,
+    indicator_connected: Arc<AtomicBool>,
+    authorization: &mut MediaAuthorization,
+    generation: u64,
+) -> Result<bool, Error> {
+    let desktop = grant.source == "desktop";
+    indicator_connected.store(false, Ordering::Release);
+    let connected = Arc::new(AtomicBool::new(false));
+    let active = Arc::new(AtomicBool::new(true));
+    let _stop = StopOnDrop(active.clone());
+    let disconnected = Arc::new(AtomicBool::new(false));
     let (local_candidates, mut candidate_receiver) = mpsc::channel(16);
-    let lease = Arc::new(AtomicU64::new(0));
-    let epoch = Instant::now();
+    let lease = authorization.lease.clone();
+    let epoch = authorization.epoch;
     let mut engine = MediaEngine::default();
     let codec = RTCRtpCodecParameters {
         rtp_codec: RTCRtpCodec {
@@ -390,6 +511,7 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
         .with_ice_servers(
             grant
                 .ice_servers
+                .clone()
                 .into_iter()
                 .map(|s| RTCIceServer {
                     urls: s.urls,
@@ -408,6 +530,7 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
             candidates: local_candidates,
             connected: connected.clone(),
             active: active.clone(),
+            disconnected: disconnected.clone(),
         }))
         .with_udp_addrs(vec!["0.0.0.0:0".to_owned()])
         .build()
@@ -443,7 +566,7 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
     timeout(
         Duration::from_millis(500),
         socket.send(Message::Text(
-            json!({"type":"offer","sdp":description.sdp})
+            json!({"type":"offer","sdp":description.sdp,"generation":generation})
                 .to_string()
                 .into(),
         )),
@@ -453,12 +576,16 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
     let worker_active = active.clone();
     let worker_connected = connected.clone();
     let worker_lease = lease.clone();
+    let worker_session_active = session_active.clone();
     let worker = tokio::task::spawn_blocking(move || -> Result<(), Error> {
         let mut encoder = Encoder::new(1280, 720, 30, 2_500_000)?;
         let mut nv12 = vec![128; 1280 * 720 * 3 / 2];
         let mut index = 0;
         let mut capture = None::<crate::capture::DesktopCapture>;
-        while worker_active.load(Ordering::Acquire) && Instant::now() < deadline {
+        while worker_active.load(Ordering::Acquire)
+            && worker_session_active.load(Ordering::Acquire)
+            && Instant::now() < deadline
+        {
             let last = worker_lease.load(Ordering::Acquire);
             let elapsed = epoch.elapsed().as_millis() as u64;
             if last != 0 && remaining(last, elapsed).is_none() {
@@ -466,14 +593,18 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
                 break;
             }
             if !worker_connected.load(Ordering::Acquire) || last == 0 {
+                // Drop the capture source, including cached pixels, while the
+                // viewer is absent. Its lifetime is independent of local Stop.
+                capture.take();
                 std::thread::sleep(Duration::from_millis(10));
                 continue;
             }
             let started = Instant::now();
             if desktop {
                 if capture.is_none() {
-                    capture = Some(crate::capture::DesktopCapture::start(
-                        worker_active.clone(),
+                    capture = Some(crate::capture::DesktopCapture::start_with_session(
+                        Arc::new(AtomicBool::new(true)),
+                        worker_session_active.clone(),
                     )?);
                 }
                 let Some(frame) = capture.as_mut().ok_or("Capture unavailable")?.snapshot()? else {
@@ -486,7 +617,9 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
                     *pixel = 16 + ((offset / 1280 + index as usize * 4) % 220) as u8;
                 }
             }
-            if !worker_active.load(Ordering::Acquire) {
+            if !worker_active.load(Ordering::Acquire)
+                || !worker_session_active.load(Ordering::Acquire)
+            {
                 break;
             }
             for packet in encoder.encode(&nv12, index)? {
@@ -503,12 +636,13 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
         worker_active.store(false, Ordering::Release);
         Ok(())
     });
+    let mut detached = false;
     let result:Result<(),Error> = async {
         let mut tick=tokio::time::interval(Duration::from_millis(100));
         let mut answered=false;
         let mut remote_candidates=Vec::<RTCIceCandidateInit>::new();
-        let mut renewals=Renewals::default();
         let mut next_renewal=Instant::now();
+        let mut disconnected_at=None::<Instant>;
         loop {
             let last=lease.load(Ordering::Acquire);
             if last!=0 && remaining(last,epoch.elapsed().as_millis() as u64).is_none() {
@@ -518,25 +652,31 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
             tokio::select! {
                 candidate=candidate_receiver.recv()=>{
                     let Some(candidate)=candidate else {break;};
-                    timeout(Duration::from_millis(500),socket.send(Message::Text(json!({"type":"candidate","candidate":candidate.candidate,"sdpMid":candidate.sdp_mid,"sdpMLineIndex":candidate.sdp_mline_index}).to_string().into()))).await??;
+                    timeout(Duration::from_millis(500),socket.send(Message::Text(json!({"type":"candidate","candidate":candidate.candidate,"sdpMid":candidate.sdp_mid,"sdpMLineIndex":candidate.sdp_mline_index,"generation":generation}).to_string().into()))).await??;
                 }
                 _=tick.tick()=>{
-                    if !active.load(Ordering::Acquire) || Instant::now()>=deadline {break;}
+                    indicator_connected.store(connected.load(Ordering::Acquire), Ordering::Release);
+                    if !active.load(Ordering::Acquire) || !session_active.load(Ordering::Acquire) || Instant::now()>=deadline {break;}
+                    if disconnected.load(Ordering::Acquire) {
+                        let lost = disconnected_at.get_or_insert_with(Instant::now);
+                        if lost.elapsed() >= Duration::from_secs(3) {break;}
+                    }
                     if Instant::now()>=next_renewal {
-                        let nonce=renewals.issue(epoch.elapsed().as_millis() as u64);
+                        let nonce=authorization.renewals.issue(epoch.elapsed().as_millis() as u64);
                         timeout(Duration::from_millis(500), socket.send(Message::Text(json!({"type":"renew","nonce":nonce}).to_string().into()))).await??;
                         next_renewal=Instant::now()+Duration::from_secs(1);
                     }
                 }
                 packet=receiver.recv()=>{
                     let Some(packet)=packet else {break;};
-                    if !active.load(Ordering::Acquire) || !connected.load(Ordering::Acquire) || Instant::now()>=deadline {break;}
+                    if !active.load(Ordering::Acquire) || !session_active.load(Ordering::Acquire) || Instant::now()>=deadline {break;}
+                    if !connected.load(Ordering::Acquire) {continue;}
                     if !answered {return Err("Media arrived before answer".into());}
                     let parameters=timeout(Duration::from_millis(500),sender.get_parameters()).await??;
                     let payload=parameters.rtp_parameters.codecs.first().ok_or("No negotiated codec")?.payload_type;
                     // Queued packets must not outlive renewal or the absolute grant deadline.
                     let Some(lease_remaining)=remaining(lease.load(Ordering::Acquire),epoch.elapsed().as_millis() as u64) else {break;};
-                    if !active.load(Ordering::Acquire) {break;}
+                    if !active.load(Ordering::Acquire) || !session_active.load(Ordering::Acquire) || !connected.load(Ordering::Acquire) {break;}
                     let budget=lease_remaining.min(deadline.saturating_duration_since(Instant::now())).min(Duration::from_millis(500));
                     if budget.is_zero() {break;}
                     timeout(budget,track.sample_writer(7_230_001,payload).write_sample(&Sample{data:bytes::Bytes::from(packet.bytes),duration:Duration::from_secs_f64(1.0/30.0),..Sample::new(Instant::now())})).await??;
@@ -547,6 +687,7 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
                     let body:Value=serde_json::from_str(&text)?;
                     match body["type"].as_str() {
                         Some("answer")=>{
+                            if body["generation"].as_u64().unwrap_or(0) != generation {continue;}
                             if answered{return Err("Repeated answer".into());}
                             let sdp=body["sdp"].as_str().filter(|s|s.len()<=32768).ok_or("Invalid answer")?;
                             timeout(Duration::from_secs(2),pc.set_remote_description(RTCSessionDescription::answer(sdp.into())?)).await??;
@@ -554,6 +695,7 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
                             for candidate in remote_candidates.drain(..) {timeout(Duration::from_millis(500),pc.add_ice_candidate(candidate)).await??;}
                         }
                         Some("candidate")=>{
+                            if body["generation"].as_u64().unwrap_or(0) != generation {continue;}
                             let candidate=body["candidate"].as_str().filter(|s|s.len()<=2048).ok_or("Invalid candidate")?;
                             if !candidate.is_empty(){
                                 let candidate=RTCIceCandidateInit{candidate:candidate.into(),sdp_mid:body["sdpMid"].as_str().map(String::from),sdp_mline_index:body["sdpMLineIndex"].as_u64().map(|v|v as u16),..Default::default()};
@@ -566,12 +708,13 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
                             if last!=0 && remaining(last,epoch.elapsed().as_millis() as u64).is_none() {break;}
                             if body["expiresAtMillis"].as_u64()!=Some(grant.expires_at_millis) || body["maxAgeMs"].as_u64()!=Some(MAX_AGE_MS) {return Err("Invalid lease".into());}
                             let nonce=body["nonce"].as_str().ok_or("Missing lease challenge")?;
-                            if let Some(issued)=renewals.acknowledge(nonce,epoch.elapsed().as_millis() as u64){
+                            if let Some(issued)=authorization.renewals.acknowledge(nonce,epoch.elapsed().as_millis() as u64){
                                     // Age starts when our challenge was sent, never when a delayed reply arrives.
                                     lease.fetch_max(issued,Ordering::Release);
                             }
                         }
                         Some("ended")=>break,
+                        Some("viewer-detached")=>{ detached = true; break; },
                         Some("joined")=>{},
                         _=>return Err("Unexpected signaling".into())
                     }
@@ -580,8 +723,8 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
         } Ok(())
     }.await;
     active.store(false, Ordering::Release);
+    indicator_connected.store(false, Ordering::Release);
     let _ = timeout(Duration::from_secs(2), pc.close()).await;
-    let _ = timeout(Duration::from_millis(500), socket.close(None)).await;
     timeout(Duration::from_secs(3), worker).await???;
     println!(
         "{}",
@@ -591,7 +734,8 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
             "Synthetic video stopped. Nothing recorded or captured."
         }
     );
-    result
+    result?;
+    Ok(detached && session_active.load(Ordering::Acquire) && Instant::now() < deadline)
 }
 
 #[cfg(test)]
@@ -709,6 +853,72 @@ mod tests {
             }]
         }))
         .unwrap()
+    }
+
+    #[tokio::test]
+    async fn browser_recovery_obeys_original_lease_stop_deadline_and_generation() {
+        // Real signaling sockets only: no consent dialog, capture or media.
+        for mode in [
+            "resume",
+            "wrong-generation",
+            "stop",
+            "deadline",
+            "lease",
+            "ended",
+        ] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (connection, _) = listener.accept().await.unwrap();
+                let mut peer = tokio_tungstenite::accept_async(connection).await.unwrap();
+                let body = if mode == "ended" {
+                    json!({"type":"ended"})
+                } else {
+                    json!({"type":"viewer-resumed", "generation":if mode == "wrong-generation" { 0 } else { 1 }})
+                };
+                let _ = peer.send(Message::Text(body.to_string().into())).await;
+                while let Some(Ok(message)) = peer.next().await {
+                    if matches!(message, Message::Close(_)) {
+                        break;
+                    }
+                }
+            });
+            let (mut socket, _) = tokio_tungstenite::connect_async(format!("ws://{address}"))
+                .await
+                .unwrap();
+            let active = Arc::new(AtomicBool::new(mode != "stop"));
+            let mut authorization = MediaAuthorization {
+                epoch: Instant::now()
+                    - Duration::from_millis(if mode == "lease" { MAX_AGE_MS + 1 } else { 10 }),
+                lease: Arc::new(AtomicU64::new(1)),
+                renewals: Renewals::default(),
+            };
+            let deadline = if mode == "deadline" {
+                Instant::now()
+            } else {
+                Instant::now() + Duration::from_secs(20)
+            };
+            let resumed = timeout(
+                Duration::from_secs(1),
+                wait_for_viewer(
+                    &mut socket,
+                    &grant(),
+                    deadline,
+                    active,
+                    &mut authorization,
+                    1,
+                ),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(resumed, mode == "resume", "{mode}");
+            let _ = socket.close(None).await;
+            timeout(Duration::from_secs(1), server)
+                .await
+                .unwrap()
+                .unwrap();
+        }
     }
 
     #[test]

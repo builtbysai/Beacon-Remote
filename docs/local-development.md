@@ -131,6 +131,13 @@ desktop acceptance. Use a dedicated test computer or VM later for disruptive
 restart/network cases rather than altering the shared View workstation. No
 hourly continuation schedule is used.
 
+Active-view reload recovery requires a matching backend/web/native pair; see
+[ADR 0015](decisions/0015-active-viewer-reload-recovery.md). An older helper keeps
+the previous disconnect behavior. The browser keeps a tab-local identifier;
+resuming still validates the original login, current helper and unchanged
+deadline. Include real refresh/Stop/lock/expiry checks when staging that pair.
+The native loopback recovery regression opens no consent dialog or capture.
+
 ## Shared infrastructure contract
 
 Oracle Caddy and Coturn remain shared operational dependencies. Shared edge/TLS,

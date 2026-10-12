@@ -124,6 +124,7 @@ struct FrameState {
 struct CaptureFlags {
     state: Arc<Mutex<FrameState>>,
     active: Arc<AtomicBool>,
+    session_active: Arc<AtomicBool>,
     display_id: String,
     started: Instant,
 }
@@ -143,7 +144,10 @@ impl GraphicsCaptureApiHandler for Handler {
         frame: &mut Frame,
         control: InternalCaptureControl,
     ) -> Result<(), Self::Error> {
-        if !self.flags.active.load(Ordering::Acquire) || !desktop_receives_input() {
+        if !self.flags.active.load(Ordering::Acquire)
+            || !self.flags.session_active.load(Ordering::Acquire)
+            || !desktop_receives_input()
+        {
             self.flags.active.store(false, Ordering::Release);
             self.flags
                 .state
@@ -171,7 +175,10 @@ impl GraphicsCaptureApiHandler for Handler {
             .state
             .lock()
             .map_err(|_| "Capture state unavailable")?;
-        if !self.flags.active.load(Ordering::Acquire) || !desktop_receives_input() {
+        if !self.flags.active.load(Ordering::Acquire)
+            || !self.flags.session_active.load(Ordering::Acquire)
+            || !desktop_receives_input()
+        {
             self.flags.active.store(false, Ordering::Release);
             state.latest = None;
             control.stop();
@@ -216,8 +223,18 @@ pub struct DesktopCapture {
     control: Option<CaptureControl<Handler, Error>>,
 }
 impl DesktopCapture {
+    #[cfg(test)]
     pub fn start(active: Arc<AtomicBool>) -> Result<Self, Error> {
-        if !desktop_receives_input() {
+        Self::start_with_session(active.clone(), active)
+    }
+    pub fn start_with_session(
+        active: Arc<AtomicBool>,
+        session_active: Arc<AtomicBool>,
+    ) -> Result<Self, Error> {
+        if !active.load(Ordering::Acquire)
+            || !session_active.load(Ordering::Acquire)
+            || !desktop_receives_input()
+        {
             active.store(false, Ordering::Release);
             return Err("The local desktop is unavailable for attended sharing".into());
         }
@@ -225,6 +242,7 @@ impl DesktopCapture {
         let flags = CaptureFlags {
             state: Arc::new(Mutex::new(FrameState::default())),
             active,
+            session_active,
             display_id: monitor.device_name()?,
             started: Instant::now(),
         };
@@ -288,7 +306,12 @@ impl ScreenCapture for CaptureSource {
             }
             return Err(ControlError::PlatformUnavailable);
         }
-        if !self.flags.active.load(Ordering::Acquire) {
+        if !self.flags.active.load(Ordering::Acquire)
+            || !self.flags.session_active.load(Ordering::Acquire)
+        {
+            if let Ok(mut state) = self.flags.state.lock() {
+                state.latest = None;
+            }
             return Err(ControlError::NoLease);
         }
         if display_id != self.flags.display_id {
@@ -343,6 +366,7 @@ pub fn benchmark() -> Result<(), Error> {
     let flags = CaptureFlags {
         state: Arc::new(Mutex::new(FrameState::default())),
         active: Arc::new(AtomicBool::new(true)),
+        session_active: Arc::new(AtomicBool::new(true)),
         display_id,
         started: Instant::now(),
     };
@@ -404,6 +428,29 @@ pub fn benchmark() -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn local_stop_denies_cached_pixels_even_when_transport_token_is_live() {
+        let state = Arc::new(Mutex::new(FrameState {
+            latest: Some(Snapshot {
+                display_id: "test".into(),
+                width: 1,
+                height: 1,
+                bgra: vec![0; 4],
+            }),
+            ..Default::default()
+        }));
+        let mut source = CaptureSource {
+            flags: CaptureFlags {
+                state: state.clone(),
+                active: Arc::new(AtomicBool::new(true)),
+                session_active: Arc::new(AtomicBool::new(false)),
+                display_id: "test".into(),
+                started: Instant::now(),
+            },
+        };
+        assert!(source.capture_snapshot("test").is_err());
+        assert!(state.lock().unwrap().latest.is_none());
+    }
     use windows_sys::Win32::System::StationsAndDesktops::{
         CloseDesktop, CreateDesktopW, SetThreadDesktop, DESKTOP_CREATEWINDOW, DESKTOP_READOBJECTS,
     };
@@ -464,6 +511,7 @@ mod tests {
                     flags: CaptureFlags {
                         state: state.clone(),
                         active: active.clone(),
+                        session_active: active.clone(),
                         display_id: "test".into(),
                         started: Instant::now(),
                     },
