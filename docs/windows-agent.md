@@ -32,18 +32,17 @@ The media branch now offers a two-minute primary-display view request. The nativ
 helper requires a valid server grant, local Yes consent, a visible Stop sharing
 window, a connected peer and a live renewable lease before starting WGC. No
 microphone, input or recording is enabled. The synthetic video path and local
-Stop passed; actual local desktop viewing acceptance also passed. Cross-network
-and forced-relay acceptance remain pending. Local source now validates and passes
+Stop passed; actual local desktop viewing acceptance also passed. The owner later reported Android/T-Mobile forced-relay desktop viewing and Stop; the complete interruption and sustained-performance matrix remains pending. Source validates and passes
 session-bound TURN credentials and the all/relay policy to native RTC configuration.
 Use matching agent/helper and backend versions; previous helper artifacts reject
 the new strict grant fields. Native compilation, Clippy and tests passed Windows
-CI for `543988f`; local MSVC `link.exe` remains unavailable. UDP TURN is supported;
+CI for `543988f`; Microsoft C++ Build Tools and the Windows SDK are now installed locally; see the latest security review for current native validation. UDP TURN is supported;
 TCP/TLS TURN is rejected because the current RTC driver skips those transports.
 Browser-only forced-relay synthetic decoding and Stop passed on this Windows PC,
 with an existing Tailscale route on the native side. Dual-relay and distinct-public-
 network desktop acceptance remained unresolved at that point. The later concrete
 relay-address fix passed dual-relay synthetic decoding with relay/relay selected;
-distinct-network desktop acceptance is still pending. Native diagnostics expose state names
+the later Android/T-Mobile desktop report covers one distinct-network session. Native diagnostics expose state names
 and lease-expiry reasons only, never grants, SDP or candidate addresses.
 
 Development helpers now belong to an unnamed, non-inheritable Windows job with
@@ -63,6 +62,12 @@ Next measure streaming FPS, memory/CPU, acquisition latency, DPI,
 rotation, cursor, desktop lock, display disconnect and device loss on real Windows.
 Protect Windows Session 0/UAC/UIPI; do not capture secure desktop or inject into
 higher-integrity windows by bypassing protections.
+
+The attended capture path now denies consent/startup and clears cached frames
+when Windows reports that the helper's desktop no longer receives local input.
+Query failure also stops sharing. Unlocking never resumes an old request. See
+[the desktop availability decision](decisions/0012-attended-desktop-availability.md)
+for the OS-boundary regression and remaining real lock/secure-desktop acceptance.
 
 The later signed MSI should install a least-privilege service and interactive
 helper, create restricted IPC, offer pairing/status/clean uninstall, and use
