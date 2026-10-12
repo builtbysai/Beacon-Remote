@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./api.js";
 
-type SessionRecord = {
+export type SessionRecord = {
   id: string;
   machineName: string;
   source: "desktop" | "synthetic";
@@ -10,7 +10,7 @@ type SessionRecord = {
   expiresAt: string;
 };
 
-function sessionState(status: string) {
+export function sessionState(status: string) {
   switch (status) {
     case "requested":
       return "Waiting for approval";

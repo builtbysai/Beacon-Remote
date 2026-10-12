@@ -7,7 +7,8 @@ October 12 UI continuation is on `codex/remote-development`. Read
 following historical design status below. The branch adds approved landing and
 sign-in styling, responsive workspace navigation, pairing UI, a full-window
 viewer, compact public mobile navigation, and real-data Sessions/Activity
-layouts. Local development media remains disabled. The live desktop and
+layouts. Machine-scoped history is available in the computer inspector.
+Local development media remains disabled. The live desktop and
 populated-history interactions still require real acceptance fixtures; these
 frontend changes are not a production media release.
 

@@ -6,16 +6,16 @@ The browser blocked opening the local `file:` prototypes; interaction with those
 static pages remains unverified. The actual production landing and local Vite
 frontend were inspected in the browser. Production media remains disabled.
 
-| Screen                     | Current implementation and next gap                                                                                                                                                                                                                                                                                                                                              |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Public landing             | Replaced the generic card with a responsive workspace-shaped React illustration labeled as example data. Added the desktop workspace action and a one-row mobile header with appearance, workspace and menu controls. The hero hierarchy now more closely follows the approved render. The lower access/support section still differs.                                           |
-| Sign in                    | Centered card, lock mark, compact copy and inline password visibility now follow the reference. Authentication remains the real backend flow. Invitation-only setup remains explicit; recovery and MFA links cannot be exposed until implemented.                                                                                                                                |
-| Downloads and enrollment   | Current page truthfully says no signed production installer exists. Reference has a full installer and pairing journey. Native installer, release metadata and pairing status APIs are dependencies.                                                                                                                                                                             |
-| Workspace shell            | Desktop now has a 208px icon sidebar with a 72px collapsed state, active/hover/focus states and topbar appearance control. Phones and narrow landscape use bottom navigation with a More menu. Account identity and the remaining approved topbar details still need real data/design work.                                                                                      |
-| Computers                  | Real API-backed inventory, pairing and inspector exist. Empty and filtered-no-result states are inside the inventory panel, with real device/online counts. Synthetic video testing is gone from the consumer row, and revocation is in the inspector with inline confirmation. Search/filter density and device detail layout need more work.                                   |
-| Viewer                     | Real WebRTC viewing and diagnostics exist behind the media gate. The viewer now has a full-window canvas, compact toolbar, Fit/100% scale, full screen, connection panel, playback action when autoplay is blocked, and a clear Stop action. Live desktop and mobile visual QA requires an accepted media session; control and display selection require backend/native support. |
-| Sessions, Assist, Activity | Sessions now has peer Active/Recent panels using real backend session states and an owner-authorized Stop action. Activity has the approved table hierarchy, real audit event filters and export of loaded rows. Assist still uses an honest unavailable state; guest support requires server/native authorization work.                                                         |
-| Windows host               | Native consent and local Stop exist. Approved tray, pairing, active-state and control-approval interfaces need native implementation and hardware QA.                                                                                                                                                                                                                            |
+| Screen                     | Current implementation and next gap                                                                                                                                                                                                                                                                                                                                                                                          |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Public landing             | Replaced the generic card with a responsive workspace-shaped React illustration labeled as example data. Added the desktop workspace action and a one-row mobile header with appearance, workspace and menu controls. The hero hierarchy now more closely follows the approved render. The lower access/support section still differs.                                                                                       |
+| Sign in                    | Centered card, lock mark, compact copy and inline password visibility now follow the reference. Authentication remains the real backend flow. Invitation-only setup remains explicit; recovery and MFA links cannot be exposed until implemented.                                                                                                                                                                            |
+| Downloads and enrollment   | Current page truthfully says no signed production installer exists. Reference has a full installer and pairing journey. Native installer, release metadata and pairing status APIs are dependencies.                                                                                                                                                                                                                         |
+| Workspace shell            | Desktop now has a 208px icon sidebar with a 72px collapsed state, active/hover/focus states and topbar appearance control. Phones and narrow landscape use bottom navigation with a More menu. Account identity and the remaining approved topbar details still need real data/design work.                                                                                                                                  |
+| Computers                  | Real API-backed inventory, pairing and inspector exist. Empty and filtered-no-result states are inside the inventory panel, with real device/online counts. The inspector loads machine-scoped activity and session history on expansion. Synthetic video testing is gone from the consumer row, and revocation is in the inspector with inline confirmation. Search/filter density and device detail layout need more work. |
+| Viewer                     | Real WebRTC viewing and diagnostics exist behind the media gate. The viewer now has a full-window canvas, compact toolbar, Fit/100% scale, full screen, connection panel, playback action when autoplay is blocked, and a clear Stop action. Live desktop and mobile visual QA requires an accepted media session; control and display selection require backend/native support.                                             |
+| Sessions, Assist, Activity | Sessions now has peer Active/Recent panels using real backend session states and an owner-authorized Stop action. Activity has the approved table hierarchy, real audit event filters and export of loaded rows. Assist still uses an honest unavailable state; guest support requires server/native authorization work.                                                                                                     |
+| Windows host               | Native consent and local Stop exist. Approved tray, pairing, active-state and control-approval interfaces need native implementation and hardware QA.                                                                                                                                                                                                                                                                        |
 
 Validation of this checkpoint: `pnpm check` passed formatting, ESLint, TypeScript
 and builds after the final changes. Its PostgreSQL integration tests were skipped
@@ -26,7 +26,7 @@ review covered desktop landing, 390px and 320px landing, dark mode, desktop and
 Password visibility was tested in both directions after moving the toggle out
 of its label.
 
-The latest GitHub Actions run 38174053285 did not start either job: GitHub
+An earlier GitHub Actions run 38174053285 did not start either job: GitHub
 reported failed recent account payments or a spending limit. No hosted CI pass
 is claimed. This checkpoint does not enable production media or change the
 remaining real Windows/Android acceptance matrix.
@@ -76,3 +76,20 @@ mobile actions were reduced to their content width to match the approved render.
 separate local PostgreSQL test database: formatting, lint, type checks, all ten
 backend integration tests, and web/backend builds. Native Windows compilation
 and a real desktop sharing session were not part of this UI checkpoint.
+The push of `779951b` produced CI run 38190224093. Both jobs had zero steps;
+GitHub again reported failed recent account payments or a spending limit, not a
+source or test failure. Billing settings were not changed.
+
+## Machine-scoped inspector history
+
+The existing Activity and Sessions APIs now accept an optional UUID machine
+filter. Both queries retain the authenticated account condition. A PostgreSQL
+regression checks own-machine results, another account's machine ID returning
+no records, and malformed filters returning 400. The inspector fetches these
+records only when its History section opens, shows five recent events and view
+requests, and offers a refresh action. Chrome verified the real API rows with a
+temporary machine, audit event and ended session in the isolated local Remote
+database at desktop and 390px widths. Media remains disabled there, so the
+session section truthfully reported unavailable. The exact temporary rows were
+removed and the machine count returned to zero. A live accepted session still
+needs hardware validation.

@@ -2,14 +2,14 @@ import { useEffect, useState } from "react";
 import { api } from "./api.js";
 
 type BrowserSession = { expiresAt: string; current: boolean };
-type Activity = {
+export type Activity = {
   id: string;
   action: string;
   occurredAt: string;
   machineName: string | null;
 };
 
-function activityLabel(action: string) {
+export function activityLabel(action: string) {
   switch (action) {
     case "machine.enrolled":
       return "Computer paired";

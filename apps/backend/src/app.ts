@@ -241,11 +241,18 @@ export async function createApp(pool: Pool, config: Config) {
   app.get("/api/activity", async (request, reply) => {
     const account = await owner(request);
     if (!account) return reply.code(401).send({ error: "Sign in required" });
+    const query = z
+      .object({ machineId: z.uuid().optional() })
+      .strict()
+      .safeParse(request.query);
+    if (!query.success)
+      return reply.code(400).send({ error: "Invalid activity filter" });
     const result = await pool.query(
       `SELECT a.id::text, a.action, a.occurred_at AS "occurredAt", m.name AS "machineName"
        FROM audit_events a LEFT JOIN machines m ON m.id=a.machine_id AND m.account_id=a.account_id
-       WHERE a.account_id=$1 ORDER BY a.occurred_at DESC,a.id DESC LIMIT 100`,
-      [account],
+       WHERE a.account_id=$1 AND ($2::uuid IS NULL OR a.machine_id=$2)
+       ORDER BY a.occurred_at DESC,a.id DESC LIMIT 100`,
+      [account, query.data.machineId ?? null],
     );
     return { events: result.rows };
   });

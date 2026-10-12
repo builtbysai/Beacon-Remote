@@ -31,6 +31,7 @@ function App() {
       setPage(pageFromHash());
       setMobileMore(false);
       setPublicMenuOpen(false);
+      setSelected(null);
     };
     window.addEventListener("hashchange", change);
     return () => window.removeEventListener("hashchange", change);

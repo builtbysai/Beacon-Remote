@@ -90,6 +90,25 @@ test(
       assert.equal(history.json().sessions[0].machineName, "My computer");
       assert.equal(history.json().sessions[0].status, "expired");
       assert.ok(!history.body.includes("token_hash"));
+      const ownHistory = await app.inject({
+        url: `/api/sessions?machineId=${ownMachine}`,
+        headers,
+      });
+      assert.equal(ownHistory.json().sessions.length, 1);
+      assert.equal(
+        (
+          await app.inject({
+            url: `/api/sessions?machineId=${alienMachine}`,
+            headers,
+          })
+        ).json().sessions.length,
+        0,
+      );
+      assert.equal(
+        (await app.inject({ url: "/api/sessions?machineId=bad", headers }))
+          .statusCode,
+        400,
+      );
       for (const path of [
         "/api/account/sessions",
         "/api/activity",
@@ -141,6 +160,30 @@ test(
         (await app.inject({ url: "/api/machines", headers })).json().machines[0]
           .name,
         "Renamed computer",
+      );
+      const ownActivity = await app.inject({
+        url: `/api/activity?machineId=${ownMachine}`,
+        headers,
+      });
+      assert.deepEqual(
+        ownActivity
+          .json()
+          .events.map((event: { action: string }) => event.action),
+        ["machine.renamed"],
+      );
+      assert.equal(
+        (
+          await app.inject({
+            url: `/api/activity?machineId=${alienMachine}`,
+            headers,
+          })
+        ).json().events.length,
+        0,
+      );
+      assert.equal(
+        (await app.inject({ url: "/api/activity?machineId=bad", headers }))
+          .statusCode,
+        400,
       );
       assert.equal(
         (

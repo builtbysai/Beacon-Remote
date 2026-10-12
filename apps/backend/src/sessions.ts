@@ -110,14 +110,21 @@ export async function registerSessions(
   app.get("/api/sessions", async (request, reply) => {
     const account = await owner(request);
     if (!account) return reply.code(401).send({ error: "Sign in required" });
+    const query = z
+      .object({ machineId: z.uuid().optional() })
+      .strict()
+      .safeParse(request.query);
+    if (!query.success)
+      return reply.code(400).send({ error: "Invalid session filter" });
     if (!enabled) return { available: false, sessions: [] };
     const result = await pool.query(
       `SELECT s.id, m.name AS "machineName", s.source,
        CASE WHEN s.expires_at<=now() AND s.status IN ('requested','connecting','active') THEN 'expired' ELSE s.status END AS status,
        s.created_at AS "createdAt", s.expires_at AS "expiresAt"
        FROM view_sessions s JOIN machines m ON m.id=s.machine_id AND m.account_id=s.account_id
-       WHERE s.account_id=$1 ORDER BY s.created_at DESC,s.id LIMIT 100`,
-      [account],
+       WHERE s.account_id=$1 AND ($2::uuid IS NULL OR s.machine_id=$2)
+       ORDER BY s.created_at DESC,s.id LIMIT 100`,
+      [account, query.data.machineId ?? null],
     );
     return { available: true, sessions: result.rows };
   });
