@@ -111,7 +111,7 @@ export function ProductPage({
             </div>
           </div>
         </section>
-        <section className="public-section">
+        <div className="public-steps-band">
           <div className="steps">
             <p>
               <strong>01</strong> Install the Windows agent
@@ -120,33 +120,53 @@ export function ProductPage({
               <strong>02</strong> Pair with your account
             </p>
             <p>
-              <strong>03</strong> Approve and view
+              <strong>03</strong> Connect from the browser
             </p>
           </div>
-          <h2>Access and support</h2>
-          <div className="feature-columns">
+        </div>
+        <section className="public-section access-section">
+          <div className="access-heading">
+            <h2>Access and support</h2>
+            <a href="#support">Get support →</a>
+          </div>
+          <div className="feature-columns access-features">
             <div>
+              <Monitor />
               <h3>Your computers</h3>
               <p>
-                Keep enrolled computers together. See connection status and
-                revoke access from your workspace.
+                Enrolled computers appear in your workspace. See connection
+                status and revoke access when needed.
               </p>
             </div>
             <div>
-              <h3>Visible access</h3>
+              <span className="access-feature-icon" aria-hidden="true">
+                ◎
+              </span>
+              <h3>Attended viewing</h3>
               <p>
-                Desktop viewing requires local approval and a visible Stop
-                sharing control. Development sessions end after two minutes.
+                The person at the Windows computer approves each view request
+                and can stop sharing locally.
               </p>
             </div>
             <div>
-              <h3>One-time support</h3>
+              <span className="access-feature-icon" aria-hidden="true">
+                ◇
+              </span>
+              <h3>Connection controls</h3>
               <p>
-                Guest support is being built. This alpha currently supports
-                enrolled computers only.
+                Device identity, revocation, session history and a visible Stop
+                control protect access. Guest support is still being built.
               </p>
-              <a href="#support">Support availability →</a>
             </div>
+          </div>
+          <div className="setup-callout">
+            <div>
+              <h3>Set up your first computer</h3>
+              <p>Windows development agent and account pairing.</p>
+            </div>
+            <a className="button" href="#downloads">
+              Windows setup →
+            </a>
           </div>
         </section>
       </>

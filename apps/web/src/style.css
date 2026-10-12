@@ -810,6 +810,89 @@ header nav a {
   color: var(--blue);
   margin-right: 12px;
 }
+.public-steps-band {
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.public-steps-band .steps {
+  max-width: 1200px;
+  margin: 0 auto;
+  border: 0;
+  padding: 18px 24px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.public-steps-band .steps p {
+  margin: 0;
+}
+.public-steps-band .steps strong {
+  display: inline-block;
+  padding: 6px;
+  border-radius: 5px;
+  background: var(--soft);
+  color: var(--text);
+}
+.access-section {
+  padding-top: 64px;
+  padding-bottom: 76px;
+}
+.access-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+.access-heading h2 {
+  margin: 0;
+}
+.access-heading a {
+  color: var(--blue);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.access-features {
+  gap: 14px;
+  margin: 26px 0 56px;
+}
+.access-features > div,
+.setup-callout {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+}
+.access-features > div {
+  padding: 20px;
+}
+.access-features .monitor,
+.access-feature-icon {
+  display: block;
+  width: 20px;
+  height: 20px;
+  color: var(--blue);
+  margin-bottom: 18px;
+}
+.access-feature-icon {
+  font-size: 20px;
+  line-height: 20px;
+}
+.access-features h3,
+.setup-callout h3 {
+  margin: 0 0 8px;
+}
+.access-features p,
+.setup-callout p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.setup-callout {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 24px;
+}
 .feature-columns {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1576,12 +1659,23 @@ li {
     display: block;
     padding: 12px 0;
   }
+  .public-steps-band .steps {
+    display: grid;
+    gap: 8px;
+  }
   .feature-columns {
     grid-template-columns: 1fr;
     gap: 20px;
   }
   .public-section {
     padding: 32px 24px;
+  }
+  .access-features {
+    margin-bottom: 28px;
+  }
+  .setup-callout {
+    align-items: flex-start;
+    flex-direction: column;
   }
   .login {
     margin: 32px auto;

@@ -8,7 +8,7 @@ frontend were inspected in the browser. Production media remains disabled.
 
 | Screen                     | Current implementation and next gap                                                                                                                                                                                                                                                                                                                                                                                          |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Public landing             | Replaced the generic card with a responsive workspace-shaped React illustration labeled as example data. Added the desktop workspace action and a one-row mobile header with appearance, workspace and menu controls. The hero hierarchy now more closely follows the approved render. The lower access/support section still differs.                                                                                       |
+| Public landing             | Replaced the generic card with a responsive workspace-shaped React illustration labeled as example data. Added the desktop workspace action and a one-row mobile header with appearance, workspace and menu controls. The hero and lower steps, access cards, and setup callout now follow the approved layout with alpha-accurate copy.                                                                                     |
 | Sign in                    | Centered card, lock mark, compact copy and inline password visibility now follow the reference. Authentication remains the real backend flow. Invitation-only setup remains explicit; recovery and MFA links cannot be exposed until implemented.                                                                                                                                                                            |
 | Downloads and enrollment   | Current page truthfully says no signed production installer exists. Reference has a full installer and pairing journey. Native installer, release metadata and pairing status APIs are dependencies.                                                                                                                                                                                                                         |
 | Workspace shell            | Desktop now has a 208px icon sidebar with a 72px collapsed state, active/hover/focus states and topbar appearance control. Phones and narrow landscape use bottom navigation with a More menu. Account identity and the remaining approved topbar details still need real data/design work.                                                                                                                                  |
@@ -104,3 +104,12 @@ review covered 320px, 390px, and 1440px widths, plus dark mode. The two links
 navigated to their intended workspace pages, and no horizontal overflow was
 observed. This is interface work only; it does not add one-time support or
 change the media gate.
+
+## Public landing lower section
+
+The lower landing page now has the approved full-width steps band, three bordered
+access cards, support link, and setup callout. Copy describes the available
+paired-computer attended flow and explicitly marks guest support as unfinished.
+Chrome visual review covered 1440px, 390px, and 320px. The 320px document did
+not overflow, and the setup callout opened Downloads. No installer availability
+or media setting changed.
