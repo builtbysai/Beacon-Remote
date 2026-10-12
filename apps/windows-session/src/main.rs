@@ -1,6 +1,8 @@
 #[cfg(windows)]
 mod capture;
 #[cfg(windows)]
+mod consent;
+#[cfg(windows)]
 mod encoder;
 #[cfg(windows)]
 mod indicator;

@@ -100,8 +100,9 @@ milestone 4 consent-latency and real-desktop lifecycle acceptance next.
    Backend/web checks and Windows native formatting, Clippy, tests and release
    build passed for `d64854f` in
    [CI run 38066791856](https://github.com/builtbysai/Beacon-Remote/actions/runs/38066791856).
-   The local MSVC linker remains absent; matching CI binaries were used for the
-   actual browser/native relay attempts.
+   The local MSVC linker was absent during those attempts; matching CI binaries
+   were used. Local C++ Build Tools and the Windows SDK are now installed and
+   native formatting, Clippy, tests and release builds pass.
 3. **Real relay acceptance.** Use existing Coturn without changing protected-peer
    restrictions or buying resources. Verify relay candidates and decoded native
    video on a reachable external peer; test a distinct-network path. A credential
@@ -138,6 +139,12 @@ milestone 4 consent-latency and real-desktop lifecycle acceptance next.
    before listening, releasing busy computers after a crash. Real PostgreSQL
    checks passed for rollback on audit failure, rejection of old grants and fresh
    pending authorization. This does not replace actual Windows outage acceptance.
+   October 12 continuation adds cancellable native approval: the helper reads
+   signaling while the prompt is open, closes it on cancellation/disconnect/
+   expiry/desktop loss, defaults to Decline and preserves the original monotonic
+   deadline. Real loopback cancellation/close checks pass without approving or
+   capturing a desktop. See [the consent decision](decisions/0013-cancellable-attended-consent.md).
+   Actual prompt keyboard/DPI/lifecycle and desktop/network acceptance remains.
 5. **Release decision.** Review evidence, quota impact and exact-commit rollout/
    rollback. Enable production viewing only after acceptance. Input remains
    unavailable until milestone 4 passes and milestone 5 is implemented.
