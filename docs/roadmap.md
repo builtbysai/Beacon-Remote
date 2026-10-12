@@ -1,8 +1,9 @@
 # Beacon Remote delivery roadmap
 
-Updated 2026-10-10 after consolidating PR #8 (attended media) and PR #9
-(approved UI, relay, recovery), reviewing the design package, CI and owner
-mobile-data acceptance. See [Claude handoff](CLAUDE_HANDOFF.md).
+Updated 2026-10-12 after the public-source security review, restored hosted CI
+and attended-consent lifecycle work. Earlier PR #8/#9 media, interface, relay
+and owner mobile-data evidence remains recorded below. See
+[Claude handoff](CLAUDE_HANDOFF.md).
 
 ## Product and architecture
 
@@ -145,6 +146,14 @@ milestone 4 consent-latency and real-desktop lifecycle acceptance next.
    deadline. Real loopback cancellation/close checks pass without approving or
    capturing a desktop. See [the consent decision](decisions/0013-cancellable-attended-consent.md).
    Actual prompt keyboard/DPI/lifecycle and desktop/network acceptance remains.
+   PR #23 merged at `fed694d`; all three required merged-main jobs passed in
+   [run 38215310190](https://github.com/builtbysai/Beacon-Remote/actions/runs/38215310190).
+   Matching acceptance backend/web images were installed in the existing
+   isolated account/database with their one-hour limit preserved; schema/role,
+   readiness, unauthenticated rejection and both products' health passed.
+   The paired Windows fixture remains stopped pending human testing. The
+   follow-up fixes a stale quit message during prompt cleanup, with a real
+   hidden-window regression. See [the validation record](consent-validation-2026-10-12.md).
 5. **Release decision.** Review evidence, quota impact and exact-commit rollout/
    rollback. Enable production viewing only after acceptance. Input remains
    unavailable until milestone 4 passes and milestone 5 is implemented.

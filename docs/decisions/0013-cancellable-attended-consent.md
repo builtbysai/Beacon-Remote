@@ -31,6 +31,11 @@ The two-minute monotonic grant budget begins before signaling setup and includes
 the person's response. Neither consent time nor a backwards wall-clock change
 adds time to the grant.
 
+Only destruction during an active message loop posts `WM_QUIT`. Cancellation
+or an initialization failure before the loop starts must leave no quit message
+for the next consent request on a reused blocking-pool thread. Error cleanup
+after leaving the loop follows the same rule.
+
 An approved prompt still creates no capture by itself. The visible Stop window,
 connected peer, live server renewal and capture desktop checks remain required.
 Disconnect/expiry/lock require a fresh request and fresh local approval. Input,
@@ -43,6 +48,9 @@ consent wait. Deadline and late-result fixtures cover expiry and cancellation
 precedence, with no real dialog approval or screen capture. The hidden noninput
 desktop regression also denies the new consent prompt, capture and cached
 snapshots. Cancelled/expired requests are rejected before opening a window.
+A real hidden-window regression checks destruction before, during and after
+an active-loop lifetime on one Windows thread; only active-loop destruction
+queues a quit message. It performs no approval or capture.
 
 Actual Windows acceptance must verify visible text at normal/high DPI, default
 Decline, Tab/Enter/Escape and close, cancellation while the prompt is open,
