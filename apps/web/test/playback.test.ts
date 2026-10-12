@@ -24,6 +24,8 @@ test("late playback cannot change an ended or replacement session", async () => 
         needsPlay = true;
       },
     );
+    assert.equal(status, "Connecting");
+    assert.equal(needsPlay, false);
     // Stop or grant replacement occurs while the browser's play() is pending.
     live = false;
     status = "Stopped";
