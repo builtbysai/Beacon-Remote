@@ -13,6 +13,8 @@ import { z } from "zod";
 import type { Pool } from "pg";
 // Relative import compiles into the same deployment tree; no runtime TS loader.
 import {
+  accessMessage,
+  accessRequest,
   enrollment,
   heartbeat,
   heartbeatMessage,
@@ -73,6 +75,33 @@ export async function createApp(pool: Pool, config: Config) {
   }
   function sameOrigin(request: FastifyRequest) {
     return request.headers.origin === config.WEB_ORIGIN;
+  }
+  // True only when the signature is by the enrolled, unrevoked computer's own key.
+  async function signedByMachine(
+    machineId: string,
+    message: string,
+    signature: string,
+  ): Promise<boolean> {
+    const result = await pool.query<{ public_key: Buffer }>(
+      "SELECT public_key FROM machines WHERE id=$1 AND revoked_at IS NULL",
+      [machineId],
+    );
+    const rawKey = result.rows[0]?.public_key;
+    if (!rawKey) return false;
+    const key = createPublicKey({
+      key: Buffer.concat([
+        Buffer.from("302a300506032b6570032100", "hex"),
+        rawKey,
+      ]),
+      type: "spki",
+      format: "der",
+    });
+    return verifySignature(
+      null,
+      Buffer.from(message),
+      key,
+      Buffer.from(signature, "base64"),
+    );
   }
   const sessionRequests = await registerSessions(app, pool, config, owner);
 
@@ -184,9 +213,11 @@ export async function createApp(pool: Pool, config: Config) {
     const account = await owner(request);
     if (!account) return reply.code(401).send({ error: "Sign in required" });
     const result = await pool.query(
-      `SELECT id,name,last_seen_at AS "lastSeenAt",revoked_at AS "revokedAt",
-       COALESCE((revoked_at IS NULL AND last_seen_at>now()-interval '45 seconds'),false) AS online
-       FROM machines WHERE account_id=$1 ORDER BY created_at`,
+      `SELECT m.id,m.name,m.last_seen_at AS "lastSeenAt",m.revoked_at AS "revokedAt",
+       COALESCE((m.revoked_at IS NULL AND m.last_seen_at>now()-interval '45 seconds'),false) AS online,
+       COALESCE(a.mode,'attended') AS "accessMode",COALESCE(a.allow_control,false) AS "allowControl"
+       FROM machines m LEFT JOIN machine_access a ON a.machine_id=m.id
+       WHERE m.account_id=$1 ORDER BY m.created_at`,
       [account],
     );
     return { machines: result.rows };
@@ -332,29 +363,12 @@ export async function createApp(pool: Pool, config: Config) {
     const body = parsed.data;
     if (Math.abs(Date.now() - body.timestamp) > 30_000)
       return reply.code(401).send({ error: "Heartbeat rejected" });
-    const result = await pool.query<{ public_key: Buffer }>(
-      "SELECT public_key FROM machines WHERE id=$1 AND revoked_at IS NULL",
-      [body.machineId],
-    );
-    const rawKey = result.rows[0]?.public_key;
-    if (!rawKey) return reply.code(401).send({ error: "Heartbeat rejected" });
-    const key = createPublicKey({
-      key: Buffer.concat([
-        Buffer.from("302a300506032b6570032100", "hex"),
-        rawKey,
-      ]),
-      type: "spki",
-      format: "der",
-    });
     if (
-      !verifySignature(
-        null,
-        Buffer.from(
-          heartbeatMessage(body.machineId, body.timestamp, body.nonce),
-        ),
-        key,
-        Buffer.from(body.signature, "base64"),
-      )
+      !(await signedByMachine(
+        body.machineId,
+        heartbeatMessage(body.machineId, body.timestamp, body.nonce),
+        body.signature,
+      ))
     ) {
       return reply.code(401).send({ error: "Heartbeat rejected" });
     }
@@ -398,9 +412,23 @@ export async function createApp(pool: Pool, config: Config) {
     reply.raw.once("close", disconnect);
     try {
       const wait = query.data.wait === "1" && sessionRequests.enabled;
+      const policy = await pool.query<{
+        mode: string;
+        allow_control: boolean;
+        version: number;
+      }>(
+        "SELECT mode,allow_control,version FROM machine_access WHERE machine_id=$1",
+        [body.machineId],
+      );
       return {
         ok: true,
         version: 1,
+        // The computer follows a lowering done from the web; it never raises itself from this.
+        access: {
+          mode: policy.rows[0]?.mode ?? "attended",
+          allowControl: policy.rows[0]?.allow_control ?? false,
+          version: policy.rows[0]?.version ?? 0,
+        },
         pollAfterMillis: wait ? 0 : 15000,
         sessions: await sessionRequests.pending(body.machineId, {
           wait,
@@ -411,6 +439,121 @@ export async function createApp(pool: Pool, config: Config) {
     } finally {
       reply.raw.removeListener("close", disconnect);
     }
+  });
+
+  // The computer raises or lowers its own policy, signed with its identity key. This is the only
+  // way a computer becomes reachable without a local Allow (ADR 0021).
+  app.post(
+    "/api/agent/access",
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      const parsed = accessRequest.safeParse(request.body);
+      if (!parsed.success)
+        return reply.code(400).send({ error: "Invalid access request" });
+      const body = parsed.data;
+      if (Math.abs(Date.now() - body.timestamp) > 30_000)
+        return reply.code(401).send({ error: "Access request rejected" });
+      if (
+        !(await signedByMachine(
+          body.machineId,
+          accessMessage(
+            body.machineId,
+            body.timestamp,
+            body.nonce,
+            body.mode,
+            body.allowControl,
+          ),
+          body.signature,
+        ))
+      )
+        return reply.code(401).send({ error: "Access request rejected" });
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const machine = await client.query<{ account_id: string }>(
+          "SELECT account_id FROM machines WHERE id=$1 AND revoked_at IS NULL FOR UPDATE",
+          [body.machineId],
+        );
+        if (!machine.rowCount) {
+          await client.query("ROLLBACK");
+          return reply.code(401).send({ error: "Access request rejected" });
+        }
+        const nonce = await client.query(
+          "INSERT INTO heartbeat_nonces(machine_id,nonce) VALUES ($1,$2) ON CONFLICT DO NOTHING RETURNING nonce",
+          [body.machineId, body.nonce],
+        );
+        if (!nonce.rowCount) {
+          await client.query("ROLLBACK");
+          return reply.code(409).send({ error: "Access request rejected" });
+        }
+        const saved = await client.query<{ version: number }>(
+          `INSERT INTO machine_access(machine_id,mode,allow_control) VALUES ($1,$2,$3)
+           ON CONFLICT (machine_id) DO UPDATE SET mode=$2,allow_control=$3,updated_at=now(),
+             version=CASE WHEN machine_access.mode=$2 AND machine_access.allow_control=$3
+               THEN machine_access.version ELSE machine_access.version+1 END
+           RETURNING version`,
+          [body.machineId, body.mode, body.allowControl],
+        );
+        await client.query(
+          "INSERT INTO audit_events(account_id,machine_id,action) VALUES ($1,$2,$3)",
+          [
+            machine.rows[0]!.account_id,
+            body.machineId,
+            body.mode === "trusted"
+              ? body.allowControl
+                ? "machine.access.trusted-control"
+                : "machine.access.trusted-view"
+              : "machine.access.attended",
+          ],
+        );
+        await client.query("COMMIT");
+        return {
+          ok: true,
+          access: {
+            mode: body.mode,
+            allowControl: body.allowControl,
+            version: saved.rows[0]!.version,
+          },
+        };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+  );
+
+  // The signed-in owner can always lower a computer's access. Raising it needs the computer.
+  app.post("/api/machines/:id/access", async (request, reply) => {
+    if (!sameOrigin(request))
+      return reply.code(403).send({ error: "Origin rejected" });
+    const account = await owner(request);
+    if (!account) return reply.code(401).send({ error: "Sign in required" });
+    const path = z.object({ id: z.uuid() }).safeParse(request.params);
+    const body = z
+      .union([
+        z.object({ mode: z.literal("attended") }).strict(),
+        z.object({ allowControl: z.literal(false) }).strict(),
+      ])
+      .safeParse(request.body);
+    if (!path.success || !body.success)
+      return reply.code(400).send({ error: "Invalid access change" });
+    const attended = "mode" in body.data;
+    const result = await pool.query(
+      `WITH lowered AS (
+         UPDATE machine_access a SET
+           mode=CASE WHEN $3 THEN 'attended' ELSE a.mode END,
+           allow_control=false,updated_at=now(),version=a.version+1
+         FROM machines m WHERE a.machine_id=m.id AND m.id=$1 AND m.account_id=$2 AND m.revoked_at IS NULL
+           AND (a.mode<>'attended' OR a.allow_control)
+         RETURNING m.id)
+       INSERT INTO audit_events(account_id,machine_id,action)
+       SELECT $2,id,CASE WHEN $3 THEN 'machine.access.attended' ELSE 'machine.access.control-off' END FROM lowered RETURNING machine_id`,
+      [path.data.id, account, attended],
+    );
+    // Nothing to lower is still a success: the computer is already at or below that level.
+    return { ok: true, changed: (result.rowCount ?? 0) > 0 };
   });
 
   app.post("/api/machines/:id/revoke", async (request, reply) => {

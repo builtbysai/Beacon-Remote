@@ -5,7 +5,7 @@ import type { Pool } from "pg";
 import type { WebSocket } from "ws";
 import { z } from "zod";
 import type { Config } from "./config.js";
-import { relayCredentials } from "./relay.js";
+import { relayCredentials, relayExpiry } from "./relay.js";
 
 type Session = {
   id: string;
@@ -16,6 +16,8 @@ type Session = {
   expires_at: Date | null;
   created_at: Date;
   status: string;
+  approval: "local" | "policy";
+  policy_version: number | null;
 };
 type Role = "viewer" | "machine";
 type Authorization = { session: Session; role: Role; request: FastifyRequest };
@@ -32,8 +34,15 @@ type Entry = {
   viewerRequest?: FastifyRequest;
   viewerTokenHash?: string;
   detachedUntil?: number;
+  relayRefreshAt?: number;
+  // How long a session waits for its viewer to come back after the connection drops.
+  reconnectMs: number;
   generation: number;
 };
+// Attended sessions wait two minutes, trusted ones five (ADR 0021). Capture and input stay
+// stopped while nobody is attached, and nothing in this window can revive an ended session.
+const RECONNECT_ATTENDED_MS = 120_000;
+const RECONNECT_TRUSTED_MS = 300_000;
 const digest = (token: string) =>
   createHash("sha256").update(token).digest("hex");
 const params = z.object({ id: z.uuid() });
@@ -109,23 +118,20 @@ export async function registerSessions(
   const entries = new Map<string, Entry>();
   const authorized = new WeakMap<FastifyRequest, Authorization>();
   const enabled = Boolean(config.SESSION_SECRET);
-  const unlimited =
-    enabled &&
-    config.NODE_ENV !== "production" &&
-    config.DEV_SESSION_UNLIMITED === "true" &&
-    ["127.0.0.1", "localhost"].includes(new URL(config.WEB_ORIGIN).hostname) &&
-    !config.TURN_URLS;
-  // Pending/connecting approval always expires; only accepted development
-  // sessions can continue without a fixed duration. NULL is never authority
-  // outside the explicitly enabled loopback environment.
+  // What keeps a session alive (ADR 0021): it has not passed its absolute cap, an unanswered
+  // request is under two minutes old, and, for a policy session, the computer's policy still
+  // allows what was granted. Sign-in and revocation are re-checked on every lease renewal.
   function liveDuration(alias: string, seconds = 0) {
-    return `(((${alias}.expires_at IS NOT NULL AND ${alias}.expires_at>now()+interval '${seconds} seconds') OR (${unlimited ? "true" : "false"} AND ${alias}.expires_at IS NULL)) AND (${alias}.status='active' OR ${alias}.created_at>now()-interval '120 seconds'))`;
+    return `(${alias}.expires_at>now()+interval '${seconds} seconds' AND (${alias}.status='active' OR ${alias}.created_at>now()-interval '120 seconds') AND (${alias}.approval='local' OR EXISTS (SELECT 1 FROM machine_access pa WHERE pa.machine_id=${alias}.machine_id AND pa.mode='trusted' AND pa.version=${alias}.policy_version AND (${alias}.capability<>'desktop:control' OR pa.allow_control))))`;
   }
-  const expiryMillis = (session: Session) => session.expires_at?.getTime() ?? 0;
-  const controlEnabled =
-    enabled &&
-    config.NODE_ENV !== "production" &&
-    config.DEV_CONTROL_ENABLED === "true";
+  // Clients are told 0, meaning no fixed expiry: the cap is enforced here and the lease is the clock.
+  const expiryMillis = (_session: Session) => 0;
+  const controlEnabled = enabled && config.CONTROL_ENABLED === "true";
+  const reconnectSeconds = (session: Session) =>
+    config.RECONNECT_WINDOW_SECONDS ??
+    (session.approval === "policy"
+      ? RECONNECT_TRUSTED_MS / 1000
+      : RECONNECT_ATTENDED_MS / 1000);
   let closing = false;
   const waiters = new Map<string, () => void>();
   function wake(machineId: string) {
@@ -181,9 +187,11 @@ export async function registerSessions(
   const iceTransportPolicy = config.ICE_TRANSPORT_POLICY ?? "all";
   function sessionIce(session: Session) {
     if (!config.TURN_URLS || !config.TURN_SECRET) return iceServers;
-    if (!session.expires_at)
-      throw new Error("Unlimited sessions do not use TURN");
-    const relay = relayCredentials(config, session.id, session.expires_at);
+    const relay = relayCredentials(
+      config,
+      session.id,
+      relayExpiry(session.expires_at ?? new Date(0)),
+    );
     return [
       ...iceServers,
       {
@@ -215,7 +223,7 @@ export async function registerSessions(
   function detachViewer(entry: Entry, socket: WebSocket) {
     if (entry.closed || entry.viewer !== socket) return;
     entry.viewer = undefined;
-    entry.detachedUntil = performance.now() + 10000;
+    entry.detachedUntil = performance.now() + entry.reconnectMs;
     send(entry.machine, { type: "viewer-detached" });
   }
   async function finish(id: string, status: "ended" | "denied" = "ended") {
@@ -256,7 +264,7 @@ export async function registerSessions(
       controlEnabled,
       iceServers,
       capability: "desktop:view",
-      maxSeconds: unlimited ? null : 120,
+      maxSeconds: null,
     };
   });
   app.post(
@@ -311,18 +319,37 @@ export async function registerSessions(
             .code(409)
             .send({ error: "A view session is already active" });
         }
+        // Trusted personal access skips the local Allow only when the computer itself said so, for
+        // the desktop, and (for control) only when it allowed control.
+        const access = await client.query<{
+          mode: string;
+          allow_control: boolean;
+          version: number;
+        }>(
+          "SELECT mode,allow_control,version FROM machine_access WHERE machine_id=$1",
+          [parsed.data.id],
+        );
+        const policy = access.rows[0];
+        const byPolicy =
+          policy?.mode === "trusted" &&
+          body.data.source === "desktop" &&
+          (body.data.capability === "desktop:view" || policy.allow_control);
         const session: Session = {
           id: randomUUID(),
           account_id: account,
           machine_id: parsed.data.id,
           source: body.data.source,
           capability: body.data.capability,
-          expires_at: unlimited ? null : new Date(Date.now() + 120000),
+          expires_at: new Date(
+            Date.now() + (config.SESSION_MAX_HOURS ?? 12) * 3_600_000,
+          ),
           created_at: new Date(),
           status: "requested",
+          approval: byPolicy ? "policy" : "local",
+          policy_version: byPolicy ? policy.version : null,
         };
         await client.query(
-          "INSERT INTO view_sessions(id,account_id,machine_id,source,token_hash,expires_at,status,capability) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+          "INSERT INTO view_sessions(id,account_id,machine_id,source,token_hash,expires_at,status,capability,approval,policy_version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
           [
             session.id,
             account,
@@ -332,6 +359,8 @@ export async function registerSessions(
             session.expires_at,
             session.status,
             session.capability,
+            session.approval,
+            session.policy_version,
           ],
         );
         await client.query(
@@ -452,7 +481,7 @@ export async function registerSessions(
       const { expiresAtMillis, ...server } = relayCredentials(
         config,
         session.id,
-        session.expires_at,
+        relayExpiry(session.expires_at),
       );
       return { iceServers: [server], expiresAtMillis };
     },
@@ -527,6 +556,7 @@ export async function registerSessions(
           frameWindow: performance.now(),
           pendingFrames: 0,
           generation: 0,
+          reconnectMs: reconnectSeconds(session) * 1000,
         };
         const live = entry;
         let checking = false;
@@ -585,6 +615,22 @@ export async function registerSessions(
         ).accountRequest = request;
       }
       const live = entry;
+      // Short relay credentials are re-issued inside lease replies, so a long session can always
+      // rebuild its peer. The lease is already authenticated and checked on every renewal.
+      const leaseReply = (nonce: string) => ({
+        type: "lease",
+        nonce,
+        maxAgeMs: 3000,
+        expiresAtMillis: expiryMillis(session),
+        ...(config.TURN_URLS &&
+        (!live.relayRefreshAt || performance.now() >= live.relayRefreshAt)
+          ? {
+              iceServers:
+                ((live.relayRefreshAt = performance.now() + 600_000),
+                sessionIce(session)),
+            }
+          : {}),
+      });
       // Attach synchronously: upgrade clients may send immediately.
       socket.on("message", (data, binary) => {
         if (live.closed) return;
@@ -649,12 +695,7 @@ export async function registerSessions(
                   await finish(session.id);
                   return;
                 }
-                send(socket, {
-                  type: "lease",
-                  nonce: body.nonce,
-                  maxAgeMs: 3000,
-                  expiresAtMillis: expiryMillis(session),
-                });
+                send(socket, leaseReply(body.nonce));
                 return;
               }
               if (
@@ -665,12 +706,7 @@ export async function registerSessions(
                 await finish(session.id);
                 return;
               }
-              send(socket, {
-                type: "lease",
-                nonce: body.nonce,
-                maxAgeMs: 3000,
-                expiresAtMillis: expiryMillis(session),
-              });
+              send(socket, leaseReply(body.nonce));
               return;
             }
             if (body.type === "stop") {
@@ -707,10 +743,7 @@ export async function registerSessions(
                 await finish(session.id);
                 return;
               }
-              live.resumable =
-                session.capability !== "desktop:control" &&
-                body.accepted &&
-                body.resumable === true;
+              live.resumable = body.accepted && body.resumable === true;
               send(live.viewer, {
                 type: "consent",
                 accepted: body.accepted,
@@ -793,9 +826,9 @@ export async function registerSessions(
           source: session.source,
           capability: session.capability,
           expiresAtMillis: expiryMillis(session),
-          ...(session.expires_at === null
-            ? { approvalExpiresAtMillis: session.created_at.getTime() + 120000 }
-            : {}),
+          approval: session.approval,
+          approvalExpiresAtMillis: session.created_at.getTime() + 120000,
+          reconnectSeconds: reconnectSeconds(session),
           iceServers: sessionIce(session),
           iceTransportPolicy,
         }));

@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
+import { applyMigrations } from "../src/migrations.js";
 
 if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL required");
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -9,33 +9,7 @@ try {
   await client.query(
     "SELECT pg_advisory_xact_lock(hashtext('beacon-remote-migrations'))",
   );
-  await client.query(
-    await readFile(
-      new URL("../migrations/001_identity.sql", import.meta.url),
-      "utf8",
-    ),
-  );
-  await client.query(
-    await readFile(
-      new URL("../migrations/002_view_sessions.sql", import.meta.url),
-      "utf8",
-    ),
-  );
-  await client.query(
-    await readFile(
-      new URL("../migrations/003_control_scope.sql", import.meta.url),
-      "utf8",
-    ),
-  );
-  await client.query(
-    await readFile(
-      new URL(
-        "../migrations/004_development_session_duration.sql",
-        import.meta.url,
-      ),
-      "utf8",
-    ),
-  );
+  await applyMigrations(client);
   await client.query("COMMIT");
 } catch (error) {
   await client.query("ROLLBACK");

@@ -30,6 +30,32 @@ export function heartbeatMessage(
   return `beacon-remote:heartbeat:v1\n${machineId}\n${timestamp}\n${nonce}`;
 }
 
+// A computer raises or lowers its own access policy with the same key that signs presence.
+// Only the computer can make itself reachable without a local Allow; the web app can only lower it.
+export const accessPolicy = z.enum(["attended", "trusted"]);
+export const accessRequest = z
+  .object({
+    version: z.literal(PROTOCOL_VERSION),
+    machineId: z.string().uuid(),
+    timestamp: z.number().int().positive(),
+    nonce: z.string().uuid(),
+    mode: accessPolicy,
+    allowControl: z.boolean(),
+    signature: z.string().regex(/^[A-Za-z0-9+/]{86}==$/),
+  })
+  .strict()
+  .refine((request) => request.mode === "trusted" || !request.allowControl);
+
+export function accessMessage(
+  machineId: string,
+  timestamp: number,
+  nonce: string,
+  mode: "attended" | "trusted",
+  allowControl: boolean,
+): string {
+  return `beacon-remote:access:v1\n${machineId}\n${timestamp}\n${nonce}\n${mode}\n${allowControl}`;
+}
+
 export interface Machine {
   id: string;
   name: string;

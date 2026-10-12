@@ -15,6 +15,7 @@ import { hash } from "@node-rs/argon2";
 import { createServer } from "../../web/node_modules/vite/dist/node/index.js";
 import { createApp } from "../src/app.js";
 import { heartbeatMessage } from "../../../packages/protocol/src/index.js";
+import { applyMigrations } from "../src/migrations.js";
 
 if (process.env.REMOTE_DEV_CONTROL !== "true")
   throw new Error("Set REMOTE_DEV_CONTROL=true for this development fixture");
@@ -76,15 +77,7 @@ async function stop() {
 process.once("SIGINT", () => void stop());
 process.once("SIGTERM", () => void stop());
 try {
-  for (const file of [
-    "001_identity.sql",
-    "002_view_sessions.sql",
-    "003_control_scope.sql",
-    "004_development_session_duration.sql",
-  ])
-    await pool.query(
-      await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8"),
-    );
+  await applyMigrations(pool);
   await pool.query(
     "INSERT INTO accounts(id,email,password_hash) VALUES ($1,$2,$3)",
     [account, email, await hash(password)],
@@ -101,8 +94,7 @@ try {
     HOST: "127.0.0.1",
     PORT: 3011,
     SESSION_SECRET: randomBytes(32).toString("hex"),
-    DEV_CONTROL_ENABLED: "true",
-    DEV_SESSION_UNLIMITED: "true",
+    CONTROL_ENABLED: "true",
     STUN_URL: "stun:stun.l.google.com:19302",
   });
   const enrollment = await app.inject({
@@ -190,7 +182,6 @@ try {
             env: {
               ...process.env,
               REMOTE_DEV_CONTROL: "true",
-              REMOTE_DEV_SESSION_UNLIMITED: "true",
             },
             stdio: ["pipe", "inherit", "inherit"],
           },

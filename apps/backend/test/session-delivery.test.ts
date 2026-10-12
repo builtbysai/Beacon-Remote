@@ -12,6 +12,7 @@ import { test } from "node:test";
 import { Pool } from "pg";
 import { createApp } from "../src/app.js";
 import { heartbeatMessage } from "../../../packages/protocol/src/index.js";
+import { applyMigrations } from "../src/migrations.js";
 
 test(
   "signed long polls deliver fresh requests without holding database connections or repeating handled grants",
@@ -20,18 +21,7 @@ test(
     const url = process.env.TEST_DATABASE_URL!;
     assert.match(new URL(url).pathname, /_test$/);
     const pool = new Pool({ connectionString: url, max: 1 });
-    for (const file of [
-      "001_identity.sql",
-      "002_view_sessions.sql",
-      "003_control_scope.sql",
-      "004_development_session_duration.sql",
-    ])
-      await pool.query(
-        await readFile(
-          new URL(`../migrations/${file}`, import.meta.url),
-          "utf8",
-        ),
-      );
+    await applyMigrations(pool);
     const account = randomUUID(),
       machine = randomUUID(),
       other = randomUUID();

@@ -6,18 +6,25 @@ import { test } from "node:test";
 import { Pool } from "pg";
 import { createApp } from "../src/app.js";
 import { parseConfig } from "../src/config.js";
+import { applyMigrations } from "../src/migrations.js";
 
-test("production configuration rejects the development control switch", () => {
+test("remote control is an operator switch that also needs enabled sessions", () => {
+  const base = {
+    DATABASE_URL: "postgresql://localhost/unused",
+    WEB_ORIGIN: "https://remote.example.test",
+    NODE_ENV: "production",
+  };
+  assert.equal(
+    parseConfig({
+      ...base,
+      SESSION_SECRET: "a".repeat(64),
+      CONTROL_ENABLED: "true",
+    }).CONTROL_ENABLED,
+    "true",
+  );
   assert.throws(
-    () =>
-      parseConfig({
-        DATABASE_URL: "postgresql://localhost/unused",
-        WEB_ORIGIN: "https://remote.example.test",
-        NODE_ENV: "production",
-        SESSION_SECRET: "a".repeat(64),
-        DEV_CONTROL_ENABLED: "true",
-      }),
-    /Development control/,
+    () => parseConfig({ ...base, CONTROL_ENABLED: "true" }),
+    /requires enabled view sessions/,
   );
 });
 
@@ -28,18 +35,7 @@ test(
     const url = process.env.TEST_DATABASE_URL!;
     assert.match(new URL(url).pathname, /_test$/);
     const pool = new Pool({ connectionString: url });
-    for (const file of [
-      "001_identity.sql",
-      "002_view_sessions.sql",
-      "003_control_scope.sql",
-      "004_development_session_duration.sql",
-    ])
-      await pool.query(
-        await readFile(
-          new URL(`../migrations/${file}`, import.meta.url),
-          "utf8",
-        ),
-      );
+    await applyMigrations(pool);
     const account = randomUUID(),
       stranger = randomUUID(),
       machine = randomUUID();
@@ -92,7 +88,7 @@ test(
       );
       assert.equal((await request("desktop:control")).statusCode, 403);
       await app.close();
-      app = await createApp(pool, { ...config, DEV_CONTROL_ENABLED: "true" });
+      app = await createApp(pool, { ...config, CONTROL_ENABLED: "true" });
       await app.ready();
       assert.equal(
         (await request("desktop:control", "synthetic")).statusCode,
@@ -125,7 +121,7 @@ test(
         await pool.query("SELECT * FROM view_sessions WHERE id=$1", [id])
       ).rows[0];
       const { createHmac } = await import("node:crypto");
-      const canonical = `beacon-remote:view:v1\n${id}\n${machine}\ndesktop\n${new Date(session.expires_at).getTime()}`;
+      const canonical = `beacon-remote:view:v1\n${id}\n${machine}\ndesktop\n0`;
       const sign = (scope: string) =>
         createHmac("sha256", Buffer.from(config.SESSION_SECRET, "hex"))
           .update(canonical + scope)
@@ -158,6 +154,7 @@ test(
       assert.deepEqual(JSON.parse((await consent)[0].toString()), {
         type: "consent",
         accepted: true,
+        resumable: true,
       });
       assert.equal(
         (
@@ -168,10 +165,36 @@ test(
         ).rowCount,
         1,
       );
-      const closed = once(native, "close", {
+      // A dropped viewer waits for the same browser (control reconnects like viewing)...
+      const detached = once(native, "message", {
         signal: AbortSignal.timeout(3000),
       });
       viewer.close();
+      assert.equal(
+        JSON.parse((await detached)[0].toString()).type,
+        "viewer-detached",
+      );
+      assert.equal(
+        (
+          await app.inject({
+            method: "POST",
+            url: `/api/sessions/${id}/resume`,
+            headers,
+            payload: {},
+          })
+        ).statusCode,
+        200,
+      );
+      // ...but Stop still consumes the authority at once.
+      const closed = once(native, "close", {
+        signal: AbortSignal.timeout(3000),
+      });
+      await app.inject({
+        method: "POST",
+        url: `/api/sessions/${id}/stop`,
+        headers,
+        payload: {},
+      });
       await closed;
       assert.equal(
         (await pool.query("SELECT status FROM view_sessions WHERE id=$1", [id]))

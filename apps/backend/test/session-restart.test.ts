@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { Pool } from "pg";
 import { createApp } from "../src/app.js";
 import { endInterruptedSessions } from "../src/sessions.js";
+import { applyMigrations } from "../src/migrations.js";
 
 test(
   "backend restart ends interrupted grants and permits fresh authorization",
@@ -21,18 +22,7 @@ test(
     });
     let app: Awaited<ReturnType<typeof createApp>> | undefined;
     try {
-      for (const file of [
-        "001_identity.sql",
-        "002_view_sessions.sql",
-        "003_control_scope.sql",
-        "004_development_session_duration.sql",
-      ])
-        await pool.query(
-          await readFile(
-            new URL(`../migrations/${file}`, import.meta.url),
-            "utf8",
-          ),
-        );
+      await applyMigrations(pool);
       const account = randomUUID();
       const browserToken = randomBytes(32).toString("base64url");
       await pool.query(

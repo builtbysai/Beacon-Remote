@@ -55,6 +55,15 @@ pub struct Grant {
     expires_at_millis: u64,
     #[serde(default)]
     approval_expires_at_millis: Option<u64>,
+    // "policy" when the server relied on the computer's trusted-access policy (ADR 0021).
+    #[serde(default)]
+    approval: Option<String>,
+    // Added by the local agent only when this computer's own setting also allows trusted access.
+    #[serde(default)]
+    local_trusted: bool,
+    // How long the server waits for the viewer to reconnect; capture stays off meanwhile.
+    #[serde(default)]
+    reconnect_seconds: Option<u64>,
     ice_servers: Vec<IceServer>,
     ice_transport_policy: String,
 }
@@ -68,20 +77,26 @@ struct IceServer {
 fn view_capability() -> String {
     "desktop:view".into()
 }
+// A relay username is "<expiry seconds>:beacon-remote:<session id>" with a short future expiry.
+fn valid_turn_username(username: &str, id: &str, now_secs: u64) -> bool {
+    let Some((expiry, rest)) = username.split_once(':') else {
+        return false;
+    };
+    let Ok(expiry) = expiry.parse::<u64>() else {
+        return false;
+    };
+    rest == format!("beacon-remote:{id}") && expiry + 120 > now_secs && expiry <= now_secs + 2100
+}
 fn validate_ice(grant: &Grant) -> Result<(), Error> {
-    if !matches!(grant.ice_transport_policy.as_str(), "all" | "relay")
-        || grant.ice_servers.is_empty()
-        || grant.ice_servers.len() > 2
-    {
+    validate_ice_servers(&grant.id, &grant.ice_transport_policy, &grant.ice_servers)
+}
+fn validate_ice_servers(id: &str, policy: &str, servers: &[IceServer]) -> Result<(), Error> {
+    if !matches!(policy, "all" | "relay") || servers.is_empty() || servers.len() > 2 {
         return Err("Invalid ICE policy or servers".into());
     }
-    let expected = format!(
-        "{}:beacon-remote:{}",
-        grant.expires_at_millis / 1000,
-        grant.id
-    );
+    let now_secs = now_millis()? / 1000;
     let mut has_relay = false;
-    for server in &grant.ice_servers {
+    for server in servers {
         if server.urls.is_empty()
             || server.urls.len() > 3
             || server.urls.iter().any(|url| url.len() > 256)
@@ -102,7 +117,10 @@ fn validate_ice(grant: &Grant) -> Result<(), Error> {
                 .credential
                 .as_deref()
                 .ok_or("Missing TURN credential")?;
-            if server.username.as_deref() != Some(expected.as_str())
+            if !server
+                .username
+                .as_deref()
+                .is_some_and(|name| valid_turn_username(name, id, now_secs))
                 || credential.len() != 28
                 || !credential.ends_with('=')
                 || !credential[..27]
@@ -130,7 +148,7 @@ fn validate_ice(grant: &Grant) -> Result<(), Error> {
             return Err("Native TURN requires UDP; TCP/TLS is unsupported".into());
         }
     }
-    if grant.ice_transport_policy == "relay" && !has_relay {
+    if policy == "relay" && !has_relay {
         return Err("Relay-only policy requires TURN".into());
     }
     Ok(())
@@ -316,11 +334,9 @@ fn run_grant(input: String, parent_active: Arc<AtomicBool>) -> Result<(), Error>
     if !matches!(
         grant.capability.as_str(),
         "desktop:view" | "desktop:control"
-    ) || (grant.capability == "desktop:control"
-        && (grant.source != "desktop"
-            || std::env::var("REMOTE_DEV_CONTROL").as_deref() != Ok("true")))
+    ) || (grant.capability == "desktop:control" && grant.source != "desktop")
     {
-        return Err("Control disabled or invalid capability".into());
+        return Err("Invalid capability for this source".into());
     }
     if grant.id.len() != 36
         || !grant.id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
@@ -335,12 +351,8 @@ fn run_grant(input: String, parent_active: Arc<AtomicBool>) -> Result<(), Error>
     let origin = url::Url::parse(&grant.server)?;
     let local = matches!(origin.host_str(), Some("127.0.0.1") | Some("localhost"));
     let now = now_millis()?;
+    // expiresAtMillis 0 means no fixed expiry: the lease, not a timer, ends the session.
     let unlimited = grant.expires_at_millis == 0;
-    if unlimited
-        && (!local || std::env::var("REMOTE_DEV_SESSION_UNLIMITED").as_deref() != Ok("true"))
-    {
-        return Err("Unlimited sessions require explicit loopback development mode".into());
-    }
     let approval_expiry = if unlimited {
         grant
             .approval_expires_at_millis
@@ -414,7 +426,16 @@ async fn stream(
         connect_async_with_config(request, Some(limits), true),
     )
     .await??;
-    if desktop {
+    // The server said "policy" and this computer's own setting agrees. Sharing stays visible
+    // through the Stop window below, and Stop, sign-out or revocation still end it.
+    let by_policy = desktop && grant.approval.as_deref() == Some("policy") && grant.local_trusted;
+    if by_policy {
+        println!(
+            "TRUSTED ACCESS: {} connected under this computer's trusted-access setting.",
+            grant.controller
+        );
+    }
+    if desktop && !by_policy {
         let unlimited = grant.expires_at_millis == 0;
         let controller = grant.controller.clone();
         let pending = Arc::new(AtomicBool::new(true));
@@ -479,7 +500,7 @@ async fn stream(
     timeout(
         Duration::from_millis(500),
         socket.send(Message::Text(
-            json!({"type":"consent","accepted":true,"resumable":!control})
+            json!({"type":"consent","accepted":true,"resumable":true})
                 .to_string()
                 .into(),
         )),
@@ -488,6 +509,7 @@ async fn stream(
     let mut authorization = MediaAuthorization {
         epoch: Instant::now(),
         lease: Arc::new(AtomicU64::new(0)),
+        ice: Arc::new(std::sync::Mutex::new(grant.ice_servers.clone())),
     };
     let (mut socket, signaling) = SignalSocket::start(
         socket,
@@ -496,6 +518,11 @@ async fn stream(
         active.clone(),
         authorization.epoch,
         authorization.lease.clone(),
+        (
+            grant.id.clone(),
+            grant.ice_transport_policy.clone(),
+            authorization.ice.clone(),
+        ),
     );
     let mut generation = 0;
     loop {
@@ -538,6 +565,8 @@ type RawSignalSocket =
 struct MediaAuthorization {
     epoch: Instant,
     lease: Arc<AtomicU64>,
+    // Current ICE servers. The server re-issues short relay credentials inside lease replies.
+    ice: Arc<std::sync::Mutex<Vec<IceServer>>>,
 }
 
 // Renewal must not wait behind peer setup, encoder creation or peer cleanup.
@@ -555,6 +584,7 @@ impl SignalSocket {
         active: Arc<AtomicBool>,
         epoch: Instant,
         lease: Arc<AtomicU64>,
+        ice: (String, String, Arc<std::sync::Mutex<Vec<IceServer>>>),
     ) -> (Self, tokio::task::JoinHandle<()>) {
         let (incoming, receiver) = mpsc::channel(32);
         let (outgoing, mut sender) = mpsc::channel(32);
@@ -605,6 +635,14 @@ impl SignalSocket {
                                         if !active.load(Ordering::Acquire) || deadline.is_some_and(|end| Instant::now() >= end) || (last != 0 && remaining(last, now).is_none()) || (last == 0 && now >= MAX_AGE_MS) {break;}
                                         if body["expiresAtMillis"].as_u64() != Some(expires_at) || body["maxAgeMs"].as_u64() != Some(MAX_AGE_MS) {
                                             return Err("Invalid lease".into());
+                                        }
+                                        // Fresh relay credentials ride on the lease; a bad set is refused whole.
+                                        if let Some(servers) = body.get("iceServers") {
+                                            let servers: Vec<IceServer> = serde_json::from_value(servers.clone())?;
+                                            validate_ice_servers(&ice.0, &ice.1, &servers)?;
+                                            if let Ok(mut current) = ice.2.lock() {
+                                                *current = servers;
+                                            }
                                         }
                                         if let Some(issued) = renewals.acknowledge(body["nonce"].as_str().ok_or("Missing lease challenge")?, epoch.elapsed().as_millis() as u64) {
                                             lease.fetch_max(issued, Ordering::Release);
@@ -663,14 +701,15 @@ impl SignalSocket {
 // approval survives a bounded browser reload. Stop/lock/expiry still terminate.
 async fn wait_for_viewer(
     socket: &mut SignalSocket,
-    _grant: &Grant,
+    grant: &Grant,
     deadline: Option<Instant>,
     active: Arc<AtomicBool>,
     authorization: &mut MediaAuthorization,
     expected_generation: u64,
 ) -> Result<bool, Error> {
-    let until = deadline.map_or(Instant::now() + Duration::from_secs(10), |end| {
-        (Instant::now() + Duration::from_secs(10)).min(end)
+    let window = Duration::from_secs(grant.reconnect_seconds.unwrap_or(120).clamp(5, 900));
+    let until = deadline.map_or(Instant::now() + window, |end| {
+        (Instant::now() + window).min(end)
     });
     let epoch = authorization.epoch;
     let mut tick = tokio::time::interval(Duration::from_millis(100));
@@ -744,8 +783,10 @@ async fn media_cycle(
             RTCIceTransportPolicy::All
         })
         .with_ice_servers(
-            grant
-                .ice_servers
+            authorization
+                .ice
+                .lock()
+                .map_err(|_| "ICE servers unavailable")?
                 .clone()
                 .into_iter()
                 .map(|s| RTCIceServer {
@@ -1052,6 +1093,11 @@ mod tests {
             active.clone(),
             epoch,
             lease.clone(),
+            (
+                grant().id,
+                grant().ice_transport_policy,
+                Arc::new(std::sync::Mutex::new(grant().ice_servers)),
+            ),
         );
         // Reproduce a rebuild/cleanup that lasts longer than one lease. No
         // media consumer reads signaling, and no desktop or consent is opened.
@@ -1135,6 +1181,11 @@ mod tests {
                 active.clone(),
                 Instant::now(),
                 lease.clone(),
+                (
+                    grant().id,
+                    grant().ice_transport_policy,
+                    Arc::new(std::sync::Mutex::new(grant().ice_servers)),
+                ),
             );
             timeout(Duration::from_secs(4), pump)
                 .await
@@ -1259,7 +1310,7 @@ mod tests {
             "iceTransportPolicy": "relay",
             "iceServers": [{
                 "urls": ["turn:relay.example.test:3478?transport=udp"],
-                "username": "120:beacon-remote:12345678-1234-1234-1234-123456789abc",
+                "username": format!("{}:beacon-remote:12345678-1234-1234-1234-123456789abc", now_millis().unwrap() / 1000 + 600),
                 "credential": "a".repeat(27) + "="
             }]
         }))
@@ -1318,6 +1369,7 @@ mod tests {
                 epoch: Instant::now()
                     - Duration::from_millis(if mode == "lease" { MAX_AGE_MS + 1 } else { 10 }),
                 lease: Arc::new(AtomicU64::new(1)),
+                ice: Arc::new(std::sync::Mutex::new(grant().ice_servers)),
             };
             let deadline = if mode == "deadline" {
                 Instant::now()
@@ -1331,6 +1383,11 @@ mod tests {
                 active.clone(),
                 authorization.epoch,
                 authorization.lease.clone(),
+                (
+                    grant().id,
+                    grant().ice_transport_policy,
+                    authorization.ice.clone(),
+                ),
             );
             let resumed = timeout(
                 Duration::from_secs(1),
@@ -1369,7 +1426,10 @@ mod tests {
             assert!(validate_ice(&valid).is_err());
         }
         valid = grant();
-        valid.ice_servers[0].username = Some("121:other-session".into());
+        valid.ice_servers[0].username = Some(format!(
+            "{}:beacon-remote:another-session",
+            now_millis().unwrap() / 1000 + 600
+        ));
         assert!(validate_ice(&valid).is_err());
         valid = grant();
         valid.ice_servers[0].credential = None;

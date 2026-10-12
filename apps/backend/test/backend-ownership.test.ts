@@ -6,6 +6,7 @@ import { createServer } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import { Pool } from "pg";
+import { applyMigrations } from "../src/migrations.js";
 
 async function unusedPort() {
   const server = createServer();
@@ -33,18 +34,7 @@ test(
     const children: ChildProcess[] = [];
     await admin.query(`CREATE SCHEMA ${schema}`);
     try {
-      for (const file of [
-        "001_identity.sql",
-        "002_view_sessions.sql",
-        "003_control_scope.sql",
-        "004_development_session_duration.sql",
-      ])
-        await pool.query(
-          await readFile(
-            new URL(`../migrations/${file}`, import.meta.url),
-            "utf8",
-          ),
-        );
+      await applyMigrations(pool);
       const childUrl = new URL(url);
       childUrl.searchParams.set("options", `-c search_path=${schema}`);
       function start(port: number) {

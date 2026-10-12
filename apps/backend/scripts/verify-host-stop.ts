@@ -15,6 +15,7 @@ import { Pool } from "pg";
 import { hash } from "@node-rs/argon2";
 import { createApp } from "../src/app.js";
 import { heartbeatMessage } from "../../../packages/protocol/src/index.js";
+import { applyMigrations } from "../src/migrations.js";
 
 assert.equal(process.platform, "win32");
 const database = process.env.TEST_DATABASE_URL;
@@ -39,15 +40,7 @@ async function wait(check: () => Promise<boolean>) {
   throw new Error("Native graceful stop did not complete");
 }
 try {
-  for (const file of [
-    "001_identity.sql",
-    "002_view_sessions.sql",
-    "003_control_scope.sql",
-    "004_development_session_duration.sql",
-  ])
-    await pool.query(
-      await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8"),
-    );
+  await applyMigrations(pool);
   const account = randomUUID();
   const machine = randomUUID();
   const keys = generateKeyPairSync("ed25519");
