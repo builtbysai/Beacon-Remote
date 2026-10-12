@@ -21,6 +21,7 @@ struct WindowState {
     active: Arc<AtomicBool>,
     connected: Arc<AtomicBool>,
     desktop: bool,
+    control: bool,
     deadline: Instant,
 }
 impl WindowState {
@@ -80,7 +81,11 @@ unsafe extern "system" fn procedure(
         let seconds = remaining.as_secs() + u64::from(remaining.subsec_nanos() > 0);
         let status = if (*state).connected.load(Ordering::Acquire) {
             if (*state).desktop {
-                "Sharing your screen · View only"
+                if (*state).control {
+                    "Sharing your screen · Mouse and keyboard control"
+                } else {
+                    "Sharing your screen · View only"
+                }
             } else {
                 "Synthetic video test · No desktop"
             }
@@ -121,18 +126,20 @@ unsafe extern "system" fn procedure(
     DefWindowProcW(window, message, wparam, lparam)
 }
 impl Indicator {
-    pub fn start(
+    pub fn start_access(
         active: Arc<AtomicBool>,
         connected: Arc<AtomicBool>,
         desktop: bool,
         controller: String,
         deadline: Instant,
+        control: bool,
     ) -> Result<Self, Error> {
         let (ready, received) = mpsc::channel();
         let state = Arc::new(WindowState {
             active: active.clone(),
             connected,
             desktop,
+            control,
             deadline,
         });
         if !state.live() {
@@ -388,6 +395,7 @@ mod tests {
             active: Arc::new(AtomicBool::new(true)),
             connected: Arc::new(AtomicBool::new(false)),
             desktop,
+            control: false,
             deadline,
         });
         let window = CreateWindowExW(

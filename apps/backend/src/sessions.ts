@@ -12,6 +12,7 @@ type Session = {
   account_id: string;
   machine_id: string;
   source: "desktop" | "synthetic";
+  capability: "desktop:view" | "desktop:control";
   expires_at: Date;
   status: string;
 };
@@ -86,10 +87,10 @@ export async function endInterruptedSessions(pool: Pool) {
   await pool.query(`WITH interrupted AS (
     UPDATE view_sessions SET status='ended'
     WHERE status IN ('requested','connecting','active')
-    RETURNING account_id,machine_id
+    RETURNING account_id,machine_id,capability
   )
   INSERT INTO audit_events(account_id,machine_id,action)
-  SELECT account_id,machine_id,'desktop.view.interrupted:backend-restart'
+  SELECT account_id,machine_id,CASE WHEN capability='desktop:control' THEN 'desktop.control.interrupted:backend-restart' ELSE 'desktop.view.interrupted:backend-restart' END
   FROM interrupted`);
 }
 
@@ -105,6 +106,10 @@ export async function registerSessions(
   const entries = new Map<string, Entry>();
   const authorized = new WeakMap<FastifyRequest, Authorization>();
   const enabled = Boolean(config.SESSION_SECRET);
+  const controlEnabled =
+    enabled &&
+    config.NODE_ENV !== "production" &&
+    config.DEV_CONTROL_ENABLED === "true";
   let closing = false;
   const waiters = new Map<string, () => void>();
   function wake(machineId: string) {
@@ -144,7 +149,7 @@ export async function registerSessions(
       return reply.code(400).send({ error: "Invalid session filter" });
     if (!enabled) return { available: false, sessions: [] };
     const result = await pool.query(
-      `SELECT s.id, m.name AS "machineName", s.source,
+      `SELECT s.id, m.name AS "machineName", s.source, s.capability,
        CASE WHEN s.expires_at<=now() AND s.status IN ('requested','connecting','active') THEN 'expired' ELSE s.status END AS status,
        s.created_at AS "createdAt", s.expires_at AS "expiresAt"
        FROM view_sessions s JOIN machines m ON m.id=s.machine_id AND m.account_id=s.account_id
@@ -174,7 +179,7 @@ export async function registerSessions(
     if (!config.SESSION_SECRET) throw new Error("View sessions disabled");
     return createHmac("sha256", Buffer.from(config.SESSION_SECRET, "hex"))
       .update(
-        `beacon-remote:view:v1\n${session.id}\n${session.machine_id}\n${session.source}\n${session.expires_at.getTime()}`,
+        `beacon-remote:view:v1\n${session.id}\n${session.machine_id}\n${session.source}\n${session.expires_at.getTime()}${session.capability === "desktop:control" ? "\ndesktop:control" : ""}`,
       )
       .digest("base64url");
   }
@@ -228,7 +233,13 @@ export async function registerSessions(
   app.get("/api/media/config", async (request, reply) => {
     if (!(await owner(request)))
       return reply.code(401).send({ error: "Sign in required" });
-    return { enabled, iceServers, capability: "desktop:view", maxSeconds: 120 };
+    return {
+      enabled,
+      controlEnabled,
+      iceServers,
+      capability: "desktop:view",
+      maxSeconds: 120,
+    };
   });
   app.post(
     "/api/machines/:id/sessions",
@@ -242,11 +253,21 @@ export async function registerSessions(
         return reply.code(503).send({ error: "View sessions disabled" });
       const parsed = params.safeParse(request.params);
       const body = z
-        .object({ source: z.enum(["desktop", "synthetic"]) })
+        .object({
+          source: z.enum(["desktop", "synthetic"]),
+          capability: z
+            .enum(["desktop:view", "desktop:control"])
+            .default("desktop:view"),
+        })
         .strict()
         .safeParse(request.body);
       if (!parsed.success || !body.success)
         return reply.code(400).send({ error: "Invalid session" });
+      if (
+        body.data.capability === "desktop:control" &&
+        (!controlEnabled || body.data.source !== "desktop")
+      )
+        return reply.code(403).send({ error: "Control unavailable" });
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
@@ -277,11 +298,12 @@ export async function registerSessions(
           account_id: account,
           machine_id: parsed.data.id,
           source: body.data.source,
+          capability: body.data.capability,
           expires_at: new Date(Date.now() + 120000),
           status: "requested",
         };
         await client.query(
-          "INSERT INTO view_sessions(id,account_id,machine_id,source,token_hash,expires_at,status) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+          "INSERT INTO view_sessions(id,account_id,machine_id,source,token_hash,expires_at,status,capability) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
           [
             session.id,
             account,
@@ -290,6 +312,7 @@ export async function registerSessions(
             digest(token(session)),
             session.expires_at,
             session.status,
+            session.capability,
           ],
         );
         await client.query(
@@ -297,7 +320,7 @@ export async function registerSessions(
           [
             account,
             session.machine_id,
-            `desktop.view.requested:${session.source}`,
+            `${session.capability === "desktop:control" ? "desktop.control" : "desktop.view"}.requested:${session.source}`,
           ],
         );
         await client.query("COMMIT");
@@ -305,6 +328,7 @@ export async function registerSessions(
         return {
           id: session.id,
           source: session.source,
+          capability: session.capability,
           expiresAtMillis: session.expires_at.getTime(),
           iceServers: sessionIce(session),
           iceTransportPolicy,
@@ -371,6 +395,7 @@ export async function registerSessions(
     return {
       id: session.id,
       source: session.source,
+      capability: session.capability,
       expiresAtMillis: session.expires_at.getTime(),
       iceServers: sessionIce(session),
       iceTransportPolicy,
@@ -399,7 +424,10 @@ export async function registerSessions(
         [parsed.data.id, account],
       );
       const session = result.rows[0];
-      if (!session)
+      if (
+        !session ||
+        (session.capability === "desktop:control" && !controlEnabled)
+      )
         return reply.code(404).send({ error: "Session unavailable" });
       const { expiresAtMillis, ...server } = relayCredentials(
         config,
@@ -428,7 +456,10 @@ export async function registerSessions(
         [parsed.data.id],
       );
       const session = result.rows[0];
-      if (!session)
+      if (
+        !session ||
+        (session.capability === "desktop:control" && !controlEnabled)
+      )
         return reply.code(403).send({ error: "Session unavailable" });
       if (query.data.role === "viewer") {
         if (
@@ -633,15 +664,22 @@ export async function registerSessions(
                   session.id,
                   body.accepted ? "active" : "denied",
                   body.accepted
-                    ? "desktop.view.accepted"
-                    : "desktop.view.denied",
+                    ? session.capability === "desktop:control"
+                      ? "desktop.control.accepted"
+                      : "desktop.view.accepted"
+                    : session.capability === "desktop:control"
+                      ? "desktop.control.denied"
+                      : "desktop.view.denied",
                 ],
               );
               if (!consent.rowCount) {
                 await finish(session.id);
                 return;
               }
-              live.resumable = body.accepted && body.resumable === true;
+              live.resumable =
+                session.capability !== "desktop:control" &&
+                body.accepted &&
+                body.resumable === true;
               send(live.viewer, {
                 type: "consent",
                 accepted: body.accepted,
@@ -687,6 +725,7 @@ export async function registerSessions(
         type: "joined",
         role,
         source: session.source,
+        capability: session.capability,
         generation: live.generation,
       });
       if (resuming) {
@@ -718,6 +757,7 @@ export async function registerSessions(
           token: token(session),
           controller: session.controller,
           source: session.source,
+          capability: session.capability,
           expiresAtMillis: session.expires_at.getTime(),
           iceServers: sessionIce(session),
           iceTransportPolicy,

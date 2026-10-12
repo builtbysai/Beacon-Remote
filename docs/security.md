@@ -29,7 +29,7 @@ The media branch issues short-lived `desktop:view` grants, requires local deskto
 consent and a visible Stop sharing control, checks account/machine revocation,
 and enforces one live session plus monotonic renewal expiry. Capture starts only
 after peer connection and a live lease. Viewing grants confer no input access.
-`desktop:control` remains a separate later authorization. Future clipboard/file-transfer/admin scopes
+`desktop:control` is a separate, development-only server scope and local Allow control. Production rejects the development switch. Future clipboard/file-transfer/admin scopes
 remain unauthorized and unimplemented. The core interfaces themselves do not
 authenticate callers; the eventual adapter must validate signed server grants
 and local consent before creating a lease.

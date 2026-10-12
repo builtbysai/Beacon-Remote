@@ -110,10 +110,19 @@ unsafe extern "system" fn procedure(
     DefWindowProcW(window, message, wparam, lparam)
 }
 
+#[cfg(test)]
 pub fn request(
     controller: &str,
     pending: Arc<AtomicBool>,
     deadline: Instant,
+) -> Result<bool, Error> {
+    request_access(controller, pending, deadline, false)
+}
+pub fn request_access(
+    controller: &str,
+    pending: Arc<AtomicBool>,
+    deadline: Instant,
+    control: bool,
 ) -> Result<bool, Error> {
     let mut state = State {
         pending,
@@ -216,7 +225,7 @@ pub fn request(
                 let details = CreateWindowExW(
                     0,
                     label_class.as_ptr(),
-                    wide("View only · Primary display · Up to two minutes\nStop sharing anytime, or lock Windows.").as_ptr(),
+                    wide(if control { "View and control · Mouse and keyboard · Up to two minutes\nStop sharing anytime, or lock Windows." } else { "View only · Primary display · Up to two minutes\nStop sharing anytime, or lock Windows." }).as_ptr(),
                     WS_CHILD | WS_VISIBLE | SS_NOPREFIX,
                     scale(24),
                     scale(100),
@@ -243,7 +252,11 @@ pub fn request(
                     instance,
                     std::ptr::null(),
                 );
-                let allow = wide("Allow viewing");
+                let allow = wide(if control {
+                    "Allow control"
+                } else {
+                    "Allow viewing"
+                });
                 let yes = CreateWindowExW(
                     0,
                     button_class.as_ptr(),

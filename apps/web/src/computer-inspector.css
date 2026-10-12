@@ -1,0 +1,154 @@
+.inventory-layout .device-inspector {
+  padding: 22px;
+}
+.device-row.is-selected {
+  background: var(--bluewash);
+  box-shadow: inset 2px 0 var(--focus);
+}
+@media (min-width: 1201px) {
+  .inventory-layout .device-inspector {
+    max-height: calc(100dvh - 174px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+.device-inspector .inspector-heading {
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 15px;
+}
+.inspector-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  margin-right: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--inner);
+  color: var(--muted);
+}
+.inspector-avatar .workspace-icon {
+  width: 26px;
+  height: 26px;
+}
+.device-inspector .inspector-heading button {
+  width: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 7px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+.device-inspector .inspector-heading button:hover {
+  background: var(--soft);
+  border-color: var(--line);
+}
+.device-inspector .inspector-name {
+  margin: 0 0 5px;
+  font-size: 19px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.inspector-machine-id {
+  margin: 0;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.inspector-state {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 12px 0 16px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.inspector-state.is-online {
+  color: var(--green);
+}
+.inspector-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+}
+.inspector-command {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.inspector-command button {
+  min-height: 40px;
+  padding: 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.inspector-availability {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--inner);
+  font-size: 11px;
+}
+.inspector-detail-group {
+  padding-top: 20px;
+}
+.inspector-detail-group h3 {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.device-inspector .inspector-detail-group dl {
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 0;
+  margin: 0;
+  font-size: 11px;
+}
+.inspector-detail-group dt,
+.inspector-detail-group dd {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.inspector-detail-group dd {
+  padding-left: 8px;
+  text-align: right;
+}
+.device-inspector .note {
+  margin: 16px 0;
+  font-size: 11px;
+}
+.inspector-revoke {
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.inspector-revoke > button {
+  min-height: 40px;
+  padding: 8px 0;
+  background: transparent;
+  border-color: transparent;
+  color: var(--red);
+  font-size: 12px;
+}
+.inspector-revoke p {
+  font-size: 12px;
+}
+.device-inspector .error {
+  padding: 10px 0;
+  font-size: 12px;
+}
+@media (max-width: 900px) {
+  .device-inspector .inspector-heading button {
+    width: 44px;
+    min-height: 44px;
+  }
+  .inspector-command button {
+    min-height: 44px;
+  }
+}

@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let command = std::env::args().nth(1).unwrap_or_else(|| "help".into());
     if command == "help" {
-        println!("Beacon Remote development agent\n  pair: enroll using an interactive one-use code\n  run: visible signed presence (Ctrl+C to stop)\n  forget: remove this user's local identity after server-side revocation\nNo screen capture, input control, service, or startup persistence is installed.");
+        println!("Beacon Remote development agent\n  pair: enroll using an interactive one-use code\n  run: visible signed presence (Ctrl+C to stop)\n  forget: remove this user's local identity after server-side revocation\nNo service or startup persistence is installed. Desktop viewing/control use the matching interactive helper with separate authorization and local consent.");
         return Ok(());
     }
     let path = state_path()?;

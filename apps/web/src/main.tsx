@@ -63,6 +63,7 @@ function App() {
   const [stale, setStale] = useState(false);
   const [clock, setClock] = useState(Date.now());
   const [mediaEnabled, setMediaEnabled] = useState(false);
+  const [controlEnabled, setControlEnabled] = useState(false);
   const [view, setView] = useState<{ grant: ViewGrant; name: string } | null>(
     null,
   );
@@ -112,15 +113,22 @@ function App() {
   useEffect(() => {
     let disposed = false;
     if (signedIn)
-      void api<{ enabled: boolean }>("media/config")
+      void api<{ enabled: boolean; controlEnabled?: boolean }>("media/config")
         .then((data) => {
-          if (!disposed) setMediaEnabled(data.enabled);
+          if (!disposed) {
+            setMediaEnabled(data.enabled);
+            setControlEnabled(data.controlEnabled === true);
+          }
         })
         .catch(() => {
-          if (!disposed) setMediaEnabled(false);
+          if (!disposed) {
+            setMediaEnabled(false);
+            setControlEnabled(false);
+          }
         });
     else {
       setMediaEnabled(false);
+      setControlEnabled(false);
       setView(null);
     }
     return () => {
@@ -128,7 +136,10 @@ function App() {
     };
   }, [signedIn]);
 
-  async function testVideo(machine: Machine) {
+  async function testVideo(
+    machine: Machine,
+    capability: "desktop:view" | "desktop:control" = "desktop:view",
+  ) {
     const context = viewContext.current;
     if (!context.active) return;
     setBusy(true);
@@ -137,6 +148,7 @@ function App() {
       await resolveViewRequest(
         api<ViewGrant>(`machines/${machine.id}/sessions`, {
           source: "desktop",
+          capability,
         }),
         () => context.active,
         (grant) => setView({ grant, name: machine.name }),
@@ -524,7 +536,6 @@ function App() {
         <section>
           <div className="heading">
             <div>
-              <p className="eyebrow">YOUR WORKSPACE</p>
               <h1>Computers</h1>
               <p className="workspace-summary">
                 {machines.length}{" "}
@@ -639,7 +650,10 @@ function App() {
                 </div>
               )}
               {visibleMachines.map((machine) => (
-                <article key={machine.id} className="device-row">
+                <article
+                  key={machine.id}
+                  className={`device-row${selected === machine.id ? " is-selected" : ""}`}
+                >
                   <Monitor />
                   <button
                     id={`device-${machine.id}`}
@@ -686,6 +700,21 @@ function App() {
                 <ComputerInspector
                   key={selected}
                   stale={stale}
+                  viewEnabled={mediaEnabled}
+                  controlEnabled={controlEnabled}
+                  requesting={busy}
+                  sessionActive={view !== null}
+                  onRequestView={() => {
+                    void testVideo(
+                      machines.find((machine) => machine.id === selected)!,
+                    );
+                  }}
+                  onRequestControl={() => {
+                    void testVideo(
+                      machines.find((machine) => machine.id === selected)!,
+                      "desktop:control",
+                    );
+                  }}
                   machine={machines.find((machine) => machine.id === selected)!}
                   onClose={() => {
                     setSelected(null);

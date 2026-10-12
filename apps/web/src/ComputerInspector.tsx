@@ -3,6 +3,8 @@ import type { Machine } from "@beacon-remote/protocol";
 import { api } from "./api.js";
 import { activityLabel, type Activity } from "./AccountPanels.js";
 import { sessionState, type SessionRecord } from "./SessionHistory.js";
+import { WorkspaceIcon } from "./WorkspaceIcon.js";
+import "./computer-inspector.css";
 
 export function ComputerInspector({
   machine,
@@ -10,12 +12,24 @@ export function ComputerInspector({
   onUpdated,
   onRevoke,
   stale,
+  onRequestView,
+  onRequestControl,
+  viewEnabled = false,
+  controlEnabled = false,
+  requesting = false,
+  sessionActive = false,
 }: {
   machine: Machine;
   onClose: () => void;
   onUpdated: () => Promise<void>;
   onRevoke: () => Promise<void>;
   stale: boolean;
+  onRequestView?: () => void;
+  onRequestControl?: () => void;
+  viewEnabled?: boolean;
+  controlEnabled?: boolean;
+  requesting?: boolean;
+  sessionActive?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(machine.name);
@@ -31,6 +45,18 @@ export function ComputerInspector({
   } | null>(null);
   const [historyError, setHistoryError] = useState("");
   const [historyLoading, setHistoryLoading] = useState(false);
+  const unavailable = machine.revokedAt
+    ? "Access is revoked. Pair this computer again to connect."
+    : stale
+      ? "Status is unavailable. Refresh computers before requesting access."
+      : !machine.online
+        ? "This computer is offline. Check its power, network and Windows agent."
+        : sessionActive
+          ? "End the current session before requesting another connection."
+          : !viewEnabled
+            ? "Desktop access is unavailable on this server."
+            : "";
+  const cannotConnect = Boolean(unavailable) || requesting || busy;
   useEffect(() => {
     if (!historyOpen) return;
     let disposed = false;
@@ -93,7 +119,21 @@ export function ComputerInspector({
       }}
     >
       <div className="inspector-heading">
-        <h2>{machine.name}</h2>
+        <span className="inspector-avatar">
+          <WorkspaceIcon name="computers" />
+        </span>
+        <button
+          className="secondary inspector-edit"
+          aria-label={`Edit ${machine.name}`}
+          title="Edit computer name"
+          disabled={busy || Boolean(machine.revokedAt)}
+          onClick={() => {
+            setName(machine.name);
+            setEditing(true);
+          }}
+        >
+          <WorkspaceIcon name="settings" />
+        </button>
         <button
           className="secondary"
           aria-label="Close computer details"
@@ -102,7 +142,12 @@ export function ComputerInspector({
           ×
         </button>
       </div>
-      <p>
+      <h2 className="inspector-name">{machine.name}</h2>
+      <p className="inspector-machine-id">{machine.id}</p>
+      <p
+        className={`inspector-state${machine.online && !stale && !machine.revokedAt ? " is-online" : ""}`}
+      >
+        <span className="inspector-status-dot" aria-hidden="true" />
         {machine.revokedAt
           ? "Access revoked"
           : stale
@@ -111,6 +156,31 @@ export function ComputerInspector({
               ? "Online"
               : "Offline"}
       </p>
+      <div className="inspector-command">
+        <button
+          disabled={cannotConnect || !controlEnabled || !onRequestControl}
+          onClick={onRequestControl}
+          title={
+            controlEnabled
+              ? "Request keyboard and mouse control with local approval"
+              : "Keyboard and mouse control are unavailable on this server"
+          }
+        >
+          <WorkspaceIcon name="computers" /> Remote
+        </button>
+        <button
+          className="secondary"
+          disabled={cannotConnect || !onRequestView}
+          onClick={onRequestView}
+        >
+          {requesting ? "Requesting…" : "View only"}
+        </button>
+      </div>
+      {unavailable && (
+        <p className="inspector-availability" role="status">
+          {unavailable}
+        </p>
+      )}
       {editing ? (
         <form
           onSubmit={(event) => {
@@ -139,35 +209,36 @@ export function ComputerInspector({
             </button>
           </div>
         </form>
-      ) : (
-        <button
-          className="secondary"
-          disabled={Boolean(machine.revokedAt)}
-          onClick={() => {
-            setName(machine.name);
-            setEditing(true);
-          }}
-        >
-          Edit name
-        </button>
-      )}
+      ) : null}
       {error && (
         <p className="error" role="alert">
           {error}
         </p>
       )}
-      <dl>
-        <dt>Machine ID</dt>
-        <dd>{machine.id}</dd>
-        <dt>Last seen</dt>
-        <dd>
-          {machine.lastSeenAt
-            ? new Date(machine.lastSeenAt).toLocaleString()
-            : "Not reported"}
-        </dd>
-        <dt>Access</dt>
-        <dd>Attended · View only</dd>
-      </dl>
+      <div className="inspector-detail-group">
+        <h3>Device</h3>
+        <dl>
+          <dt>Access</dt>
+          <dd>
+            {controlEnabled
+              ? "Attended · View or control"
+              : "Attended · View only"}
+          </dd>
+          <dt>Approval</dt>
+          <dd>Required on Windows</dd>
+        </dl>
+      </div>
+      <div className="inspector-detail-group">
+        <h3>Last report</h3>
+        <dl>
+          <dt>Last seen</dt>
+          <dd>
+            {machine.lastSeenAt
+              ? new Date(machine.lastSeenAt).toLocaleString()
+              : "Not reported"}
+          </dd>
+        </dl>
+      </div>
       <details
         className="inspector-history"
         onToggle={(event) => setHistoryOpen(event.currentTarget.open)}
@@ -226,8 +297,9 @@ export function ComputerInspector({
         </div>
       </details>
       <p className="note">
-        Desktop viewing requires local approval. Keyboard and mouse control are
-        unavailable.
+        {controlEnabled
+          ? "Each connection requires local approval. The person at the computer can stop sharing at any time."
+          : "Desktop viewing requires local approval. Keyboard and mouse control are unavailable."}
       </p>
       {!machine.revokedAt && (
         <div className="inspector-revoke">

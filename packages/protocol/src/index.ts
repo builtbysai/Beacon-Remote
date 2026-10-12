@@ -45,12 +45,12 @@ export const inputEnvelope = z
     version: z.literal(PROTOCOL_VERSION),
     sessionId: z.string().uuid(),
     leaseId: z.string().uuid(),
-    sequence: z.number().int().nonnegative(),
+    sequence: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
     input: z.discriminatedUnion("type", [
       z
         .object({
           type: z.literal("move_pointer"),
-          displayId: z.string().max(80),
+          displayId: z.string().min(1).max(80),
           x: z.number().int().nonnegative(),
           y: z.number().int().nonnegative(),
         })
@@ -65,14 +65,31 @@ export const inputEnvelope = z
       z
         .object({
           type: z.literal("scroll"),
-          horizontal: z.number().int().min(-32768).max(32767),
-          vertical: z.number().int().min(-32768).max(32767),
+          horizontal: z.number().int().min(-32767).max(32767),
+          vertical: z.number().int().min(-32767).max(32767),
+        })
+        .strict(),
+      z.object({ type: z.literal("release_all") }).strict(),
+      z.object({ type: z.literal("keep_alive") }).strict(),
+      z
+        .object({
+          type: z.literal("type_text"),
+          text: z
+            .string()
+            .min(1)
+            .max(256)
+            .refine((text) =>
+              Array.from(text).every((character) => {
+                const code = character.charCodeAt(0);
+                return code >= 32 && (code < 127 || code > 159);
+              }),
+            ),
         })
         .strict(),
       z
         .object({
           type: z.literal("key"),
-          scanCode: z.number().int().min(0).max(65535),
+          scanCode: z.number().int().min(1).max(127),
           extended: z.boolean(),
           down: z.boolean(),
         })

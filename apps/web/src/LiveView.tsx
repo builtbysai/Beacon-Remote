@@ -4,11 +4,13 @@ import { viewDeadline } from "./deadline.js";
 import { rememberView, forgetView } from "./resume-view.js";
 import { peerLifetime } from "./peer-lifetime.js";
 import { recoverTransport } from "./recover-transport.js";
+import { attachRemoteInput } from "./remote-input.js";
 import { api } from "./api.js";
 
 export type ViewGrant = {
   id: string;
   source: "synthetic" | "desktop";
+  capability?: "desktop:view" | "desktop:control";
   expiresAtMillis: number;
   iceServers: RTCIceServer[];
   iceTransportPolicy: RTCIceTransportPolicy;
@@ -38,6 +40,8 @@ export function LiveView({
   );
   const [frames, setFrames] = useState(0);
   const [ended, setEnded] = useState(false);
+  const [controlReady, setControlReady] = useState(false);
+  const controlling = grant.capability === "desktop:control";
   const [route, setRoute] = useState("Not established");
   const [iceState, setIceState] = useState<RTCIceConnectionState>("new");
   const [localRelays, setLocalRelays] = useState(0);
@@ -89,6 +93,8 @@ export function LiveView({
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(url);
     let closed = false;
+    let detachInput: (() => void) | undefined;
+    let inputChannel: RTCDataChannel | undefined;
     let finished = false;
     let recovering = false;
     let replaced = false;
@@ -110,6 +116,7 @@ export function LiveView({
     function closeTransport() {
       if (closed) return;
       closed = true;
+      detachInput?.();
       peer.dispose();
       pc.close();
       ws.close();
@@ -198,7 +205,9 @@ export function LiveView({
           if (pc.connectionState === "connected")
             setStatus(
               grant.source === "desktop"
-                ? "Connected — view only."
+                ? controlling
+                  ? "Connected — click the desktop to control. Escape releases input."
+                  : "Connected — view only."
                 : "Connected — synthetic video only.",
             );
         },
@@ -214,6 +223,29 @@ export function LiveView({
         return;
       }
       ws.send(JSON.stringify({ ...body, generation }));
+    };
+    pc.ondatachannel = (event) => {
+      if (
+        !controlling ||
+        !element ||
+        inputChannel ||
+        event.channel.label !== "beacon-input-v1" ||
+        !event.channel.ordered ||
+        event.channel.maxRetransmits !== null ||
+        event.channel.maxPacketLifeTime !== null
+      ) {
+        event.channel.close();
+        finish("Unexpected input channel.");
+        return;
+      }
+      inputChannel = event.channel;
+      detachInput = attachRemoteInput(
+        event.channel,
+        grant.id,
+        element,
+        setControlReady,
+        () => finish("Control connection ended. Request control again."),
+      );
     };
     pc.onicecandidate = (event) => {
       if (closed) return;
@@ -235,11 +267,20 @@ export function LiveView({
     };
     pc.onconnectionstatechange = () => {
       if (closed) return;
+      if (
+        controlling &&
+        ["disconnected", "failed", "closed"].includes(pc.connectionState)
+      ) {
+        finish("Control connection ended. Request control again.");
+        return;
+      }
       peer.update(pc.connectionState);
       if (pc.connectionState === "connected") {
         setStatus(
           grant.source === "desktop"
-            ? "Connected — view only."
+            ? controlling
+              ? "Connected — click the desktop to control. Escape releases input."
+              : "Connected — view only."
             : "Connected — synthetic video only.",
         );
       }
@@ -463,7 +504,13 @@ export function LiveView({
       <header className="viewer-toolbar">
         <div className="viewer-identity">
           <strong>{name}</strong>
-          <span>{grant.source === "desktop" ? "View only" : "Video test"}</span>
+          <span>
+            {grant.source === "desktop"
+              ? controlling
+                ? "Mouse and keyboard"
+                : "View only"
+              : "Video test"}
+          </span>
         </div>
         <div className="viewer-actions">
           <label className="viewer-scale">
@@ -556,7 +603,9 @@ export function LiveView({
             {ended
               ? "Close"
               : grant.source === "desktop"
-                ? "Stop viewing"
+                ? controlling
+                  ? "Stop control"
+                  : "Stop viewing"
                 : "Stop video test"}
           </button>
         </div>
@@ -567,6 +616,8 @@ export function LiveView({
           autoPlay
           muted
           playsInline
+          tabIndex={controlReady && !ended ? 0 : -1}
+          className={controlReady && !ended ? "input-enabled" : undefined}
           aria-label={
             grant.source === "desktop"
               ? "Windows desktop video"

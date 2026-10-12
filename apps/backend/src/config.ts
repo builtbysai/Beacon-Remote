@@ -6,6 +6,7 @@ const schema = z.object({
   HOST: z.string().default("127.0.0.1"),
   PORT: z.coerce.number().int().min(1).max(65535).default(3010),
   TRUST_PROXY_CIDR: z.string().min(1).optional(),
+  DEV_CONTROL_ENABLED: z.literal("true").optional(),
   SESSION_SECRET: z
     .string()
     .regex(/^[a-f0-9]{64}$/)
@@ -50,6 +51,14 @@ const schema = z.object({
 export type Config = z.infer<typeof schema>;
 export function parseConfig(env: NodeJS.ProcessEnv): Config {
   const config = schema.parse(env);
+  if (
+    config.DEV_CONTROL_ENABLED &&
+    (config.NODE_ENV === "production" || !config.SESSION_SECRET)
+  ) {
+    throw new Error(
+      "Development control requires enabled sessions and a nonproduction environment",
+    );
+  }
   if (Boolean(config.TURN_URLS) !== Boolean(config.TURN_SECRET)) {
     throw new Error("TURN_URLS and TURN_SECRET must be configured together");
   }

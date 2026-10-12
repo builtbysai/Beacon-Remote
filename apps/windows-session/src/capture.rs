@@ -89,6 +89,14 @@ fn displays() -> Result<Vec<Display>, Error> {
         .collect()
 }
 
+pub(crate) fn primary_display() -> Result<Display, Error> {
+    let id = Monitor::primary()?.device_name()?;
+    displays()?
+        .into_iter()
+        .find(|display| display.id == id)
+        .ok_or_else(|| "Primary display unavailable".into())
+}
+
 pub fn dpi_awareness() -> Result<(), Error> {
     if unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) } == 0 {
         return Err(io::Error::last_os_error().into());
@@ -475,20 +483,22 @@ mod tests {
             let result = std::panic::catch_unwind(|| {
                 assert_ne!(SetThreadDesktop(desktop), 0);
                 assert!(!desktop_receives_input());
-                assert!(!crate::consent::request(
+                assert!(!crate::consent::request_access(
                     "guard-test@example.invalid",
                     Arc::new(AtomicBool::new(true)),
                     Instant::now() + Duration::from_secs(1),
+                    false,
                 )
                 .unwrap());
 
                 let active = Arc::new(AtomicBool::new(true));
-                assert!(crate::indicator::Indicator::start(
+                assert!(crate::indicator::Indicator::start_access(
                     active.clone(),
                     Arc::new(AtomicBool::new(false)),
                     true,
                     "guard-test@example.invalid".into(),
                     Instant::now() + Duration::from_secs(1),
+                    false,
                 )
                 .is_err());
                 assert!(!active.load(Ordering::Acquire));

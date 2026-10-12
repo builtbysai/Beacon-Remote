@@ -21,7 +21,11 @@ test(
     });
     let app: Awaited<ReturnType<typeof createApp>> | undefined;
     try {
-      for (const file of ["001_identity.sql", "002_view_sessions.sql"])
+      for (const file of [
+        "001_identity.sql",
+        "002_view_sessions.sql",
+        "003_control_scope.sql",
+      ])
         await pool.query(
           await readFile(
             new URL(`../migrations/${file}`, import.meta.url),

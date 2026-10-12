@@ -49,6 +49,8 @@ pub struct Grant {
     token: String,
     server: String,
     source: String,
+    #[serde(default = "view_capability")]
+    capability: String,
     controller: String,
     expires_at_millis: u64,
     ice_servers: Vec<IceServer>,
@@ -60,6 +62,9 @@ struct IceServer {
     urls: Vec<String>,
     username: Option<String>,
     credential: Option<String>,
+}
+fn view_capability() -> String {
+    "desktop:view".into()
 }
 fn validate_ice(grant: &Grant) -> Result<(), Error> {
     if !matches!(grant.ice_transport_policy.as_str(), "all" | "relay")
@@ -224,6 +229,7 @@ async fn consent_while_signaling<S, E, F>(
     socket: &mut S,
     decision: F,
     deadline: Instant,
+    control: bool,
 ) -> Result<bool, Error>
 where
     S: futures_util::Stream<Item = Result<Message, E>> + Unpin,
@@ -245,7 +251,7 @@ where
                     Some(Ok(Message::Text(text))) if text.len() <= 65536 => {
                         let body: Value = serde_json::from_str(&text)?;
                         match body["type"].as_str() {
-                            Some("joined") if !joined && body["role"] == "machine" && body["source"] == "desktop" => joined = true,
+                            Some("joined") if !joined && body["role"] == "machine" && body["source"] == "desktop" && (!control || body["capability"] == "desktop:control") => joined = true,
                             Some("ended") => return Ok(false),
                             _ => return Err("Unexpected signaling during local consent".into()),
                         }
@@ -279,6 +285,15 @@ pub fn run() -> Result<(), Error> {
         || grant.controller.len() > 254
     {
         return Err("Invalid view source or controller".into());
+    }
+    if !matches!(
+        grant.capability.as_str(),
+        "desktop:view" | "desktop:control"
+    ) || (grant.capability == "desktop:control"
+        && (grant.source != "desktop"
+            || std::env::var("REMOTE_DEV_CONTROL").as_deref() != Ok("true")))
+    {
+        return Err("Control disabled or invalid capability".into());
     }
     let now = now_millis()?;
     if grant.expires_at_millis <= now || grant.expires_at_millis - now > 120_000 {
@@ -319,6 +334,7 @@ pub fn run() -> Result<(), Error> {
 
 async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
     let desktop = grant.source == "desktop";
+    let control = grant.capability == "desktop:control";
     // The absolute grant budget includes connection setup and the person's
     // response. Wall-clock changes cannot extend this monotonic deadline.
     if Instant::now() >= deadline || now_millis()? >= grant.expires_at_millis {
@@ -326,7 +342,9 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
     }
     println!(
         "{}",
-        if desktop {
+        if control {
+            "DESKTOP CONTROL REQUEST: explicit local mouse/keyboard approval required. Maximum two minutes."
+        } else if desktop {
             "DESKTOP VIEW REQUEST: local consent required. No audio, recording or input. Maximum two minutes."
         } else {
             "SYNTHETIC VIDEO TEST: no screen capture, audio, recording or input. Maximum two minutes."
@@ -355,10 +373,15 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
         let _cancel_prompt = StopOnDrop(pending.clone());
         let dialog_pending = pending.clone();
         let mut dialog = tokio::task::spawn_blocking(move || {
-            crate::consent::request(&controller, dialog_pending, deadline)
+            crate::consent::request_access(&controller, dialog_pending, deadline, control)
         });
-        let accepted =
-            consent_while_signaling(&mut socket, async { (&mut dialog).await? }, deadline).await;
+        let accepted = consent_while_signaling(
+            &mut socket,
+            async { (&mut dialog).await? },
+            deadline,
+            control,
+        )
+        .await;
         pending.store(false, Ordering::Release);
         if !dialog.is_finished() {
             // A cancelled prompt observes its flag in the native timer. Join it
@@ -389,17 +412,18 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
     let connected = Arc::new(AtomicBool::new(false));
     let _stop = StopOnDrop(active.clone());
     // Refuse media if a visible local Stop control cannot be created.
-    let _indicator = crate::indicator::Indicator::start(
+    let _indicator = crate::indicator::Indicator::start_access(
         active.clone(),
         connected.clone(),
         desktop,
         grant.controller.clone(),
         deadline,
+        control,
     )?;
     timeout(
         Duration::from_millis(500),
         socket.send(Message::Text(
-            json!({"type":"consent","accepted":true,"resumable":true})
+            json!({"type":"consent","accepted":true,"resumable":!control})
                 .to_string()
                 .into(),
         )),
@@ -713,6 +737,31 @@ async fn media_cycle(
         ),
     )?);
     let sender = pc.add_track(track.clone() as Arc<dyn TrackLocal>).await?;
+    let input_worker = if grant.capability == "desktop:control" {
+        let channel = pc
+            .create_data_channel(
+                "beacon-input-v1",
+                Some(webrtc::data_channel::RTCDataChannelInit {
+                    ordered: true,
+                    ..Default::default()
+                }),
+            )
+            .await?;
+        Some(crate::input_transport::start(
+            channel,
+            crate::input_transport::Authority {
+                session: grant.id.clone(),
+                deadline,
+                epoch,
+                lease: lease.clone(),
+                session_active: session_active.clone(),
+                peer_active: active.clone(),
+                connected: connected.clone(),
+            },
+        ))
+    } else {
+        None
+    };
     pc.set_local_description(pc.create_offer(None).await?)
         .await?;
     let description = pc
@@ -884,6 +933,9 @@ async fn media_cycle(
         } Ok(())
     }.await;
     active.store(false, Ordering::Release);
+    if let Some(input_worker) = input_worker {
+        let _ = timeout(Duration::from_secs(1), input_worker).await;
+    }
     indicator_connected.store(false, Ordering::Release);
     let cleanup_started = Instant::now();
     let (_, worker) = tokio::join!(
@@ -1070,6 +1122,7 @@ mod tests {
                     &mut socket,
                     std::future::pending::<Result<bool, Error>>(),
                     Instant::now() + Duration::from_secs(10),
+                    false,
                 ),
             )
             .await
@@ -1092,6 +1145,7 @@ mod tests {
                 &mut silent,
                 std::future::pending::<Result<bool, Error>>(),
                 Instant::now() + Duration::from_millis(20),
+                false,
             )
         )
         .await
@@ -1114,7 +1168,8 @@ mod tests {
         assert!(!consent_while_signaling(
             &mut ended,
             async { Ok(true) },
-            Instant::now() + Duration::from_secs(1)
+            Instant::now() + Duration::from_secs(1),
+            false,
         )
         .await
         .unwrap());
@@ -1126,7 +1181,8 @@ mod tests {
         assert!(consent_while_signaling(
             &mut wrong_role,
             async { Ok(true) },
-            Instant::now() + Duration::from_secs(1)
+            Instant::now() + Duration::from_secs(1),
+            false,
         )
         .await
         .is_err());
@@ -1148,6 +1204,22 @@ mod tests {
             }]
         }))
         .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_view_scope_handshake_cannot_authorize_control() {
+        // No native dialog or OS input; checks the authenticated server join.
+        let mut socket = futures_util::stream::iter([Ok::<_, io::Error>(Message::Text(
+            json!({"type":"joined", "role":"machine", "source":"desktop", "capability":"desktop:view"}).to_string().into(),
+        ))]);
+        assert!(consent_while_signaling(
+            &mut socket,
+            async { Ok(true) },
+            Instant::now() + Duration::from_secs(1),
+            true
+        )
+        .await
+        .is_err());
     }
 
     #[tokio::test]

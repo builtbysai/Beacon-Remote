@@ -19,6 +19,14 @@ export function activityLabel(action: string) {
       return "Computer renamed";
     case "desktop.view.accepted":
       return "Viewing approved";
+    case "desktop.control.accepted":
+      return "Control approved";
+    case "desktop.control.denied":
+      return "Control declined";
+    case "desktop.control.requested:desktop":
+      return "Control requested";
+    case "desktop.control.interrupted:backend-restart":
+      return "Control interrupted";
     case "desktop.view.denied":
       return "Viewing declined";
     case "desktop.view.interrupted:backend-restart":

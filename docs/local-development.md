@@ -189,3 +189,13 @@ no uncommitted work is hidden by dropping the stash.
 View's active checkout was inspected only and left to Claude. The workspace
 inventory in `C:/Dev/WORKSPACE.md` lets both agents find current projects and
 recover old artifacts without editing each other's repository.
+
+## Isolated input development
+
+See [input-development.md](input-development.md). The explicit fixture uses
+loopback 3011/5175 and a fresh disposable schema in Remote's `_test` database,
+without modifying the ordinary 3010/5174 launcher or its ownership state. Native
+control is disabled unless `REMOTE_DEV_CONTROL=true`; backend control additionally
+requires `DEV_CONTROL_ENABLED=true` outside production. Ordinary local startup
+strips both switches along with media configuration. Matching helper binaries
+and manual Windows Allow control are required. No production rollout.

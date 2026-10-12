@@ -21,7 +21,11 @@ test(
     const url = process.env.TEST_DATABASE_URL!;
     assert.match(new URL(url).pathname, /_test$/);
     const pool = new Pool({ connectionString: url });
-    for (const file of ["001_identity.sql", "002_view_sessions.sql"]) {
+    for (const file of [
+      "001_identity.sql",
+      "002_view_sessions.sql",
+      "003_control_scope.sql",
+    ]) {
       await pool.query(
         await readFile(
           new URL(`../migrations/${file}`, import.meta.url),

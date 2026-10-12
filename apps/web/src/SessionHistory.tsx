@@ -5,6 +5,7 @@ export type SessionRecord = {
   id: string;
   machineName: string;
   source: "desktop" | "synthetic";
+  capability?: "desktop:view" | "desktop:control";
   status: string;
   createdAt: string;
   expiresAt: string;
@@ -92,7 +93,7 @@ export function SessionHistory() {
       <div className="workspace-page-heading">
         <div>
           <h1>Sessions</h1>
-          <p>Current connections and recent view requests</p>
+          <p>Current connections and recent access requests</p>
         </div>
         <button
           className="secondary"
@@ -140,7 +141,9 @@ export function SessionHistory() {
                     <span>
                       {sessionState(session.status)} ·{" "}
                       {session.source === "desktop"
-                        ? "View only"
+                        ? session.capability === "desktop:control"
+                          ? "Mouse and keyboard"
+                          : "View only"
                         : "Video test"}
                     </span>
                   </div>
@@ -177,7 +180,9 @@ export function SessionHistory() {
                     <strong>{session.machineName}</strong>
                     <span>
                       {session.source === "desktop"
-                        ? "Desktop view"
+                        ? session.capability === "desktop:control"
+                          ? "Desktop control"
+                          : "Desktop view"
                         : "Video test"}{" "}
                       · {sessionState(session.status)}
                     </span>
