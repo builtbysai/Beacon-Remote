@@ -59,6 +59,20 @@ publishing credentials or request bodies.
 
 ## Tests and native fixture
 
+`pnpm --filter @beacon-remote/backend exec tsx scripts/host-development.ts`
+opens the native host with a real paired, disposable identity under
+`.remote-dev/host-development/profile-<uuid>`. Its isolated backend uses port
+13011 and a generated schema in Remote's test database. Start/Stop and tray
+actions report real signed presence. Close the host to finish and remove that
+schema. The fixture enables no desktop media and never changes the real user's
+pairing identity. `fixture.json` and `presence.json` contain test metadata only.
+
+On Windows, `scripts/verify-host-stop.ts` with `TEST_DATABASE_URL` set to Remote's
+`_test` database checks the matching release helper through a real anonymous
+host pipe and authenticated signaling on port 13012. Stop ends a synthetic
+session; pipe EOF cancels pending native desktop consent without clicking Allow.
+No desktop capture or remote input is accepted in that check.
+
 `pnpm --filter @beacon-remote/web test` runs the focused browser-playback
 lifetime, pending-request context and clock-adjustment expiry regressions with the same pinned `tsx`
 tooling already used by the backend. It is included in `pnpm check`. These checks start no

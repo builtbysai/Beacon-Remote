@@ -1,0 +1,261 @@
+mod credentials;
+#[cfg(windows)]
+mod helper_lifetime;
+mod sessions;
+
+use base64::{engine::general_purpose::STANDARD, Engine};
+use ed25519_dalek::{Signer, SigningKey};
+use rand::rngs::OsRng;
+use serde::{Deserialize, Serialize};
+use std::{
+    fs,
+    io::{self, Write},
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::SyncSender,
+        Arc,
+    },
+    thread,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+use zeroize::Zeroize;
+
+#[derive(Deserialize, Serialize)]
+struct Identity {
+    machine_id: String,
+    server: String,
+    secret_key: [u8; 32],
+}
+impl Drop for Identity {
+    fn drop(&mut self) {
+        self.secret_key.zeroize();
+    }
+}
+
+fn state_path() -> io::Result<PathBuf> {
+    let local = std::env::var_os("LOCALAPPDATA")
+        .ok_or_else(|| io::Error::other("LOCALAPPDATA required"))?;
+    Ok(PathBuf::from(local)
+        .join("BeaconRemote")
+        .join("identity.dpapi"))
+}
+
+fn validate_server(server: &str) -> Result<reqwest::Url, HostError> {
+    let url = reqwest::Url::parse(server)?;
+    let local = matches!(url.host_str(), Some("127.0.0.1") | Some("localhost"));
+    if (url.scheme() != "https" && !(url.scheme() == "http" && local))
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || url.path() != "/"
+    {
+        return Err("Server must be an HTTPS origin (HTTP allowed only on loopback)".into());
+    }
+    Ok(url)
+}
+
+fn prompt(label: &str) -> io::Result<String> {
+    print!("{label}: ");
+    io::stdout().flush()?;
+    let mut line = String::new();
+    io::stdin().read_line(&mut line)?;
+    Ok(line.trim().to_owned())
+}
+
+pub type HostError = Box<dyn std::error::Error + Send + Sync>;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostStatus {
+    Connecting,
+    Online,
+    Retrying,
+    Stopped,
+    Rejected,
+}
+pub fn is_paired() -> bool {
+    state_path().is_ok_and(|path| path.is_file())
+}
+
+pub fn pair(server: &str, name: &str, code: String) -> Result<(), HostError> {
+    let mut code = zeroize::Zeroizing::new(code);
+    let path = state_path()?;
+    let client = client()?;
+    if path.exists() {
+        return Err(
+            "Already paired; revoke and forget the old identity before pairing again".into(),
+        );
+    }
+    let server = validate_server(server)?;
+    if name.trim().is_empty() || name.chars().count() > 80 || code.len() > 256 {
+        return Err("Enter a computer name and a valid pairing code".into());
+    }
+    let key = SigningKey::generate(&mut OsRng);
+    let response = client.post(server.join("/api/agent/enroll")?).json(&serde_json::json!({
+            "version": 1, "code": &*code, "name": name, "publicKey": STANDARD.encode(key.verifying_key().as_bytes()),
+        })).send()?;
+    code.zeroize();
+    if !response.status().is_success() {
+        return Err("Enrollment rejected; obtain a new code and try again".into());
+    }
+    let body: serde_json::Value = response.json()?;
+    let machine_id = body["machineId"]
+        .as_str()
+        .ok_or("Enrollment response missing identity")?
+        .to_owned();
+    uuid::Uuid::parse_str(&machine_id)?;
+    let identity = Identity {
+        machine_id,
+        server: server.to_string(),
+        secret_key: key.to_bytes(),
+    };
+    let mut plaintext = serde_json::to_vec(&identity)?;
+    let protected_result = credentials::protect(&plaintext);
+    plaintext.zeroize();
+    let protected = protected_result?;
+    fs::create_dir_all(path.parent().ok_or("State directory missing")?)?;
+    // create_new prevents silently replacing another running instance's identity.
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)?;
+    file.write_all(&protected)?;
+    file.sync_all()?;
+    Ok(())
+}
+pub fn run(cancel: Arc<AtomicBool>, status: SyncSender<HostStatus>) -> Result<(), HostError> {
+    let _ = status.try_send(HostStatus::Connecting);
+    let client = client()?;
+    let path = state_path()?;
+    #[cfg(windows)]
+    let _presence_lock = {
+        use std::os::windows::fs::OpenOptionsExt;
+        // A Windows sharing lock releases on crash; its empty file holds no
+        // credentials. GUI and CLI cannot report presence from the same identity
+        // concurrently, and no stale PID/lockfile needs manual deletion.
+        fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .share_mode(0)
+            .open(path.with_file_name("presence.lock"))
+            .map_err(|_| "This host is already running, or its state directory is unavailable")?
+    };
+    let mut decrypted = credentials::unprotect(&fs::read(&path)?)?;
+    let identity_result = serde_json::from_slice::<Identity>(&decrypted);
+    decrypted.zeroize();
+    let identity = identity_result?;
+    let server = validate_server(&identity.server)?;
+    let key = SigningKey::from_bytes(&identity.secret_key);
+    let mut failures: u32 = 0;
+    let mut helpers = sessions::Helpers::new(cancel.clone());
+    let mut handled_request: Option<String> = None;
+    println!("Beacon Remote is reporting presence. No desktop capture or remote control is active. Ctrl+C stops this process.");
+    while !cancel.load(Ordering::Acquire) {
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
+        let nonce = uuid::Uuid::new_v4().to_string();
+        let message = format!(
+            "beacon-remote:heartbeat:v1\n{}\n{}\n{}",
+            identity.machine_id, timestamp, nonce
+        );
+        let mut query = vec![("wait", "1")];
+        if let Some(id) = handled_request.as_deref() {
+            query.push(("handled", id));
+        }
+        let response = client.post(server.join("/api/agent/heartbeat")?)
+        .timeout(Duration::from_secs(25)).query(&query).json(&serde_json::json!({
+            "version": 1, "machineId": identity.machine_id, "timestamp": timestamp,
+            "nonce": nonce, "signature": STANDARD.encode(key.sign(message.as_bytes()).to_bytes()),
+        })).send();
+        match response {
+            Ok(response) if response.status().is_success() => {
+                let body: serde_json::Value = response.json()?;
+                let mut poll_after = body["pollAfterMillis"]
+                    .as_u64()
+                    .filter(|delay| matches!(delay, 0 | 15000))
+                    .unwrap_or(15000);
+                let request_id = body["sessions"]
+                    .as_array()
+                    .and_then(|grants| grants.first())
+                    .and_then(|grant| grant["id"].as_str())
+                    .map(str::to_owned);
+                helpers.update(body, &identity.server)?;
+                if let Some(id) = request_id {
+                    if helpers.handled(&id) {
+                        handled_request = Some(id);
+                    } else {
+                        // A previous helper may still be closing after local Stop.
+                        // Keep the new request pending and retry without a busy loop.
+                        poll_after = 1000;
+                    }
+                }
+                if failures > 0 {
+                    println!("Connection restored.");
+                }
+                failures = 0;
+                let _ = status.try_send(HostStatus::Online);
+                pause(&cancel, Duration::from_millis(poll_after));
+            }
+            Ok(response) if response.status() == reqwest::StatusCode::UNAUTHORIZED => {
+                let _ = status.try_send(HostStatus::Rejected);
+                return Err("Identity rejected or clock out of sync. Presence stopped; check revocation and Windows time.".into());
+            }
+            _ => {
+                failures = failures.saturating_add(1);
+                let base = 2_u64.pow(failures.min(6));
+                let jitter = u64::from(rand::random::<u16>()) % 1000;
+                println!("Connection unavailable; retrying.");
+                let _ = status.try_send(HostStatus::Retrying);
+                pause(&cancel, Duration::from_millis(base * 1000 + jitter));
+            }
+        }
+    }
+    drop(helpers);
+    let _ = status.try_send(HostStatus::Stopped);
+    Ok(())
+}
+
+fn client() -> Result<reqwest::blocking::Client, HostError> {
+    Ok(reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?)
+}
+fn pause(cancel: &AtomicBool, duration: Duration) {
+    let end = std::time::Instant::now() + duration;
+    while !cancel.load(Ordering::Acquire) && std::time::Instant::now() < end {
+        thread::sleep(
+            Duration::from_millis(50).min(end.saturating_duration_since(std::time::Instant::now())),
+        );
+    }
+}
+
+pub fn cli() -> Result<(), HostError> {
+    let command = std::env::args().nth(1).unwrap_or_else(|| "help".into());
+    match command.as_str() {
+        "pair" => {
+            pair(
+                &prompt("Beacon Remote server origin")?,
+                &prompt("Computer name")?,
+                prompt("Pairing code")?,
+            )?;
+            println!("Paired. Open Beacon Remote Host or run the agent.");
+            Ok(())
+        }
+        "run" => {
+            let (status, _receiver) = std::sync::mpsc::sync_channel(8);
+            run(Arc::new(AtomicBool::new(false)), status)
+        }
+        "forget" => {
+            fs::remove_file(state_path()?)?;
+            println!("Local identity removed. Revoke the computer in Beacon Remote to disable its server identity.");
+            Ok(())
+        }
+        "help" => {
+            println!("Beacon Remote development agent\n  pair: enroll using an interactive one-use code\n  run: signed presence\n  forget: remove this user local identity after server-side revocation\nUse beacon-remote-host for the native attended host window. No Windows service or startup persistence is installed.");
+            Ok(())
+        }
+        _ => Err("Unknown command; use help".into()),
+    }
+}

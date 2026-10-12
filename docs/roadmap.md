@@ -132,6 +132,13 @@ never inherit computer access from a camera or a public support code.
 
 ## October 12 delivery pass: input and approved inspector
 
+The installation follow-up adds a native per-user pairing/status window and tray,
+real signed presence, shared GUI/CLI identity locking, Start/Stop and graceful
+helper cancellation through a private anonymous child pipe. Installer v2 opens
+the native Host directly. Service/session-0 IPC, logon/reboot startup and signed
+updates remain unbuilt. Web appearance now uses one compact System/Light/Dark
+picker across public/auth/workspace headers with safe preference persistence.
+
 Implemented behind two explicit development switches: separate `desktop:control`
 requests, scope-bound server token, local Allow control and visible Stop,
 ordered WebRTC DataChannel, physical primary-display pointer mapping, mouse

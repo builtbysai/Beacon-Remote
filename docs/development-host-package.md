@@ -18,19 +18,22 @@ Never bypass SmartScreen, UAC or execution policy. Unsigned scripts may be block
 by local policy; signing/distribution remains a separate gate.
 
 Installation copies into the current user's
-`%LOCALAPPDATA%/Programs/BeaconRemoteDevelopment` and creates Pair, Run and
-Uninstall Start menu shortcuts. Pair uses the real one-use enrollment code and
-DPAPI identity path; the visible Run console reports presence and dispatches the
-matching interactive consent/helper. The installed launcher clears development
-control enablement. The running host must be stopped before uninstalling.
+`%LOCALAPPDATA%/Programs/BeaconRemoteDevelopment` and creates Host and Uninstall
+Start menu shortcuts. Host opens a native pairing/status window with a tray icon.
+Pairing uses the real one-use enrollment code and DPAPI identity path. Start host
+reports signed presence and dispatches the matching interactive consent/helper.
+Stop host, Quit and closing the window cancel presence and tell the helper to
+stop through its private anonymous stdin pipe; shutdown waits for helper cleanup.
+Minimize leaves a tray icon with Show, Stop host and Quit. The host clears
+development capability/duration flags. Stop it before uninstalling.
 
 Plain uninstall preserves pairing identity and unknown files. Revoke the computer
 in Beacon Remote first, then explicitly run the installed `Uninstall.ps1
 -ForgetIdentity` to remove the current user's local identity too. No credentials
 are carried in the archive, manifest, shortcut arguments or command lines.
 
-The package provides no Windows service, tray, restricted IPC, startup/reboot
-recovery, automatic updates or rollback. Those remain independent installation
+The package provides no Windows service, service IPC, startup/reboot recovery,
+automatic updates or rollback. Those remain independent installation
 work. It does not enable production media/input or claim consumer readiness.
 
 Acceptance: verify payload hashes and tamper refusal, install into an isolated
@@ -42,7 +45,7 @@ that latter journey or reboot recovery.
 
 2026-10-12 workstation evidence: native formatting, Clippy, regressions and
 release build passed. The generated package installed in an isolated profile;
-Pair/Run/Uninstall shortcut targets and both installed executable help commands
+The earlier console package's Pair/Run/Uninstall shortcut targets and both installed executable help commands
 were verified. Uninstall removed owned files/shortcuts and preserved an unknown
 file. Altered payload was rejected before any installation directory was created.
 No live pairing identity was installed or removed during that check.

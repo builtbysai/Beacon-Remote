@@ -9,6 +9,7 @@ import { AccountPanels } from "./AccountPanels.js";
 import { SessionHistory } from "./SessionHistory.js";
 import { ComputerInspector } from "./ComputerInspector.js";
 import { AssistPanel } from "./AssistPanel.js";
+import { ThemePicker, readTheme, saveTheme } from "./ThemePicker.js";
 import { WorkspaceIcon, workspaceItems } from "./WorkspaceIcon.js";
 import { resolveViewRequest } from "./view-request.js";
 import { readView, forgetView } from "./resume-view.js";
@@ -23,7 +24,7 @@ function App() {
   const viewContext = useRef({ active: false });
   const recoveryAttempted = useRef(false);
   const [page, setPage] = useState(pageFromHash);
-  const [theme, setTheme] = useState("system");
+  const [theme, setTheme] = useState(readTheme);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState<string | null>(null);
@@ -43,6 +44,7 @@ function App() {
     return () => window.removeEventListener("hashchange", change);
   }, []);
   useEffect(() => {
+    saveTheme(theme);
     const preference = window.matchMedia("(prefers-color-scheme: dark)");
     const apply = () => {
       document.documentElement.dataset.theme =
@@ -369,18 +371,7 @@ function App() {
               </strong>
             </span>
             <div className="header-end">
-              <label className="theme-label">
-                <span>Appearance</span>
-                <select
-                  aria-label="Appearance"
-                  value={theme}
-                  onChange={(event) => setTheme(event.target.value)}
-                >
-                  <option value="system">System</option>
-                  <option value="light">Light</option>
-                  <option value="dark">Dark</option>
-                </select>
-              </label>
+              <ThemePicker theme={theme} onChange={setTheme} />
             </div>
           </header>
         </>
@@ -399,18 +390,7 @@ function App() {
             <a href="#security">Security</a>
           </nav>
           <div className="header-end">
-            <label className="theme-label public-theme">
-              <span>Appearance</span>
-              <select
-                aria-label="Appearance"
-                value={theme}
-                onChange={(event) => setTheme(event.target.value)}
-              >
-                <option value="system">System</option>
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-              </select>
-            </label>
+            <ThemePicker theme={theme} onChange={setTheme} />
             <a
               className="button secondary"
               href={signedIn ? "#computers" : "#signin"}

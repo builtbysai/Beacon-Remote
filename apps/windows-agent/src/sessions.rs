@@ -2,32 +2,72 @@ use serde_json::Value;
 use std::{
     collections::HashMap,
     io::Write,
-    process::{Child, Command, Stdio},
-    time::{SystemTime, UNIX_EPOCH},
+    process::{Child, ChildStdin, Command, Stdio},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex, Weak,
+    },
+    thread,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-#[derive(Default)]
 pub struct Helpers {
     #[cfg(windows)]
     job: Option<crate::helper_lifetime::Job>,
-    children: HashMap<String, (u64, Child)>,
+    children: HashMap<String, (u64, Child, Arc<Mutex<ChildStdin>>)>,
     handled: HashMap<String, u64>,
+    cancel: Arc<AtomicBool>,
+    watcher: Option<thread::JoinHandle<()>>,
+    stops: Arc<Mutex<Vec<Weak<Mutex<ChildStdin>>>>>,
 }
 impl Helpers {
+    pub fn new(cancel: Arc<AtomicBool>) -> Self {
+        let stops: Arc<Mutex<Vec<Weak<Mutex<ChildStdin>>>>> = Arc::new(Mutex::new(Vec::new()));
+        let writers = stops.clone();
+        let stopping = cancel.clone();
+        let watcher = thread::spawn(move || {
+            while !stopping.load(Ordering::Acquire) {
+                thread::sleep(Duration::from_millis(50));
+            }
+            if let Ok(writers) = writers.lock() {
+                for writer in writers.iter().filter_map(Weak::upgrade) {
+                    if let Ok(mut pipe) = writer.lock() {
+                        let _ = pipe.write_all(b"stop\n");
+                    }
+                }
+            }
+        });
+        Self {
+            #[cfg(windows)]
+            job: None,
+            children: HashMap::new(),
+            handled: HashMap::new(),
+            cancel,
+            watcher: Some(watcher),
+            stops,
+        }
+    }
     pub fn handled(&self, id: &str) -> bool {
         self.handled.contains_key(id)
     }
 
-    pub fn update(&mut self, body: Value, server: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn update(
+        &mut self,
+        body: Value,
+        server: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if self.cancel.load(Ordering::Acquire) {
+            return Ok(());
+        }
         let now: u64 = SystemTime::now()
             .duration_since(UNIX_EPOCH)?
             .as_millis()
             .try_into()?;
-        self.children.retain(|_, (expiry, child)| {
+        self.children.retain(|_, (expiry, child, pipe)| {
             if *expiry <= now {
-                let _ = child.kill();
-                let _ = child.wait();
-                return false;
+                if let Ok(mut pipe) = pipe.lock() {
+                    let _ = pipe.write_all(b"stop\n");
+                }
             }
             match child.try_wait() {
                 Ok(None) => true,
@@ -80,7 +120,7 @@ impl Helpers {
                 .ok_or("Agent directory missing")?
                 .join("beacon-remote-session.exe");
             let mut child = match Command::new(helper)
-                .arg("media-test")
+                .arg("media-host")
                 .stdin(Stdio::piped())
                 .stdout(Stdio::inherit())
                 .stderr(Stdio::inherit())
@@ -105,30 +145,55 @@ impl Helpers {
                 println!("Video helper could not be bound to the agent lifetime.");
                 continue;
             }
-            let sent = child
-                .stdin
-                .take()
-                .ok_or("Helper input unavailable")
-                .and_then(|mut input| {
-                    input
-                        .write_all(&bytes)
-                        .map_err(|_| "Could not pass session grant")
-                });
+            let mut pipe = child.stdin.take().ok_or("Helper input unavailable")?;
+            let sent = pipe.write_all(&bytes).and_then(|()| pipe.write_all(b"\n"));
             if sent.is_err() {
                 let _ = child.kill();
                 let _ = child.wait();
                 println!("Video helper could not start.");
                 continue;
             }
-            self.children.insert(id.into(), (expiry, child));
+            let pipe = Arc::new(Mutex::new(pipe));
+            {
+                let mut stops = self
+                    .stops
+                    .lock()
+                    .map_err(|_| "Helper control unavailable")?;
+                stops.retain(|stop| stop.strong_count() > 0);
+                stops.push(Arc::downgrade(&pipe));
+            }
+            if self.cancel.load(Ordering::Acquire) {
+                if let Ok(mut pipe) = pipe.lock() {
+                    let _ = pipe.write_all(b"stop\n");
+                }
+            }
+            self.children.insert(id.into(), (expiry, child, pipe));
         }
         Ok(())
     }
 }
 impl Drop for Helpers {
     fn drop(&mut self) {
-        for (_, child) in self.children.values_mut() {
-            let _ = child.kill();
+        self.cancel.store(true, Ordering::Release);
+        for (_, _, pipe) in self.children.values() {
+            if let Ok(mut pipe) = pipe.lock() {
+                let _ = pipe.write_all(b"stop\n");
+            }
+        }
+        if let Some(watcher) = self.watcher.take() {
+            let _ = watcher.join();
+        }
+        let until = Instant::now() + Duration::from_secs(10);
+        for (_, child, _) in self.children.values_mut() {
+            while Instant::now() < until && matches!(child.try_wait(), Ok(None)) {
+                thread::sleep(Duration::from_millis(50));
+            }
+            if matches!(child.try_wait(), Ok(None) | Err(_)) {
+                println!(
+                    "Helper did not finish graceful shutdown; held-input cleanup is unverified."
+                );
+                let _ = child.kill();
+            }
             let _ = child.wait();
         }
     }

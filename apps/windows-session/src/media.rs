@@ -18,7 +18,7 @@ use rtc::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
-    io::{self, Read},
+    io::{self, BufRead, BufReader, Read},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
@@ -278,6 +278,31 @@ where
 pub fn run() -> Result<(), Error> {
     let mut input = String::new();
     io::stdin().take(8193).read_to_string(&mut input)?;
+    run_grant(input, Arc::new(AtomicBool::new(true)))
+}
+
+// The host owns an anonymous child stdin pipe. No discoverable local endpoint,
+// browser message or remote peer can use it to grant capture/input authority.
+// Stop or EOF only revoke; the initial server grant and local consent still apply.
+pub fn run_host() -> Result<(), Error> {
+    let mut reader = BufReader::new(io::stdin());
+    let mut input = String::new();
+    Read::take(&mut reader, 8193).read_line(&mut input)?;
+    if !input.ends_with('\n') {
+        return Err("Missing framed host grant".into());
+    }
+    let active = Arc::new(AtomicBool::new(true));
+    let stopping = active.clone();
+    std::thread::spawn(move || {
+        let mut command = [0_u8; 5];
+        // Any Stop, malformed control or pipe EOF fails closed.
+        let _ = reader.read_exact(&mut command);
+        stopping.store(false, Ordering::Release);
+    });
+    run_grant(input, active)
+}
+
+fn run_grant(input: String, parent_active: Arc<AtomicBool>) -> Result<(), Error> {
     if input.len() > 8192 {
         return Err("Grant exceeds size limit".into());
     }
@@ -344,15 +369,20 @@ pub fn run() -> Result<(), Error> {
         .worker_threads(2)
         .enable_all()
         .build()?
-        .block_on(stream(grant, deadline))
+        .block_on(stream(grant, deadline, parent_active))
 }
 
-async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
+async fn stream(
+    grant: Grant,
+    deadline: Instant,
+    parent_active: Arc<AtomicBool>,
+) -> Result<(), Error> {
     let desktop = grant.source == "desktop";
     let control = grant.capability == "desktop:control";
     // The absolute grant budget includes connection setup and the person's
     // response. Wall-clock changes cannot extend this monotonic deadline.
-    if Instant::now() >= deadline
+    if !parent_active.load(Ordering::Acquire)
+        || Instant::now() >= deadline
         || (grant.expires_at_millis != 0 && now_millis()? >= grant.expires_at_millis)
     {
         return Err("View grant expired before connection".into());
@@ -399,13 +429,12 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
                 unlimited,
             )
         });
-        let accepted = consent_while_signaling(
-            &mut socket,
-            async { (&mut dialog).await? },
-            deadline,
-            control,
-        )
-        .await;
+        let accepted = tokio::select! {
+            accepted = consent_while_signaling(&mut socket, async { (&mut dialog).await? }, deadline, control) => accepted,
+            _ = async {
+                while parent_active.load(Ordering::Acquire) { tokio::time::sleep(Duration::from_millis(50)).await; }
+            } => Ok(false),
+        };
         pending.store(false, Ordering::Release);
         if !dialog.is_finished() {
             // A cancelled prompt observes its flag in the native timer. Join it
@@ -435,7 +464,7 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
         }
     }
     let deadline = (grant.expires_at_millis != 0).then_some(deadline);
-    let active = Arc::new(AtomicBool::new(true));
+    let active = parent_active;
     let connected = Arc::new(AtomicBool::new(false));
     let _stop = StopOnDrop(active.clone());
     // Refuse media if a visible local Stop control cannot be created.
