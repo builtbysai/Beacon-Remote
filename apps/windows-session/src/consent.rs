@@ -78,7 +78,22 @@ unsafe extern "system" fn procedure(
                 return ((DC_HASDEFID as usize) << 16 | (*state).default_button) as isize
             }
             DM_SETDEFID => {
+                if !matches!(wparam as i32, IDNO | IDYES) {
+                    return 0;
+                }
+                SendMessageW(
+                    GetDlgItem(window, (*state).default_button as i32),
+                    BM_SETSTYLE,
+                    BS_PUSHBUTTON as usize,
+                    1,
+                );
                 (*state).default_button = wparam;
+                SendMessageW(
+                    GetDlgItem(window, wparam as i32),
+                    BM_SETSTYLE,
+                    BS_DEFPUSHBUTTON as usize,
+                    1,
+                );
                 return 1;
             }
             _ => {}
