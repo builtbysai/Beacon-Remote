@@ -6,7 +6,6 @@ import {
   randomUUID,
   sign,
 } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import { Pool } from "pg";

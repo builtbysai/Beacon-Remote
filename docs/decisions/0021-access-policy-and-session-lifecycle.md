@@ -11,17 +11,17 @@ the limits without weakening the protections.
 
 ## What each existing limit is
 
-| Limit | Kind | Decision |
-| --- | --- | --- |
-| Session `expires_at` = now + 120 s | Test restriction | Becomes an absolute cap, default 12 h (`SESSION_MAX_HOURS`), never shorter than the sign-in it rides on. |
-| Approval window for a pending request, 120 s | Real | Keep: a request nobody answers must not stay open. Applies only to a local Allow. |
-| 1 s renewal, 3 s lease, checked against the database each time | Real | Keep. This is what makes revocation, sign-out and a revoked computer take effect within seconds, and it is why the hard cap can be long. |
-| Relay (TURN) credentials end with the session | Test restriction | Relay credentials live 30 minutes and are re-issued while the session is valid. |
-| Reconnect window 10 s, view only | Test restriction | 120 s attended and 300 s trusted, for control too. Capture and input stay stopped while no viewer is attached. |
-| Local Allow on every request | Attended mode only | Trusted personal access skips it; see below. |
-| One live session per computer, one controller | Real | Keep. |
-| Ended, denied, revoked or expired sessions cannot be revived | Real | Keep, for every mode. |
-| Development flags for unlimited sessions and control | Test scaffolding | Replaced by the model here. Production control and media stay behind an explicit operator switch until accepted. |
+| Limit                                                          | Kind               | Decision                                                                                                                                 |
+| -------------------------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Session `expires_at` = now + 120 s                             | Test restriction   | Becomes an absolute cap, default 12 h (`SESSION_MAX_HOURS`), never shorter than the sign-in it rides on.                                 |
+| Approval window for a pending request, 120 s                   | Real               | Keep: a request nobody answers must not stay open. Applies only to a local Allow.                                                        |
+| 1 s renewal, 3 s lease, checked against the database each time | Real               | Keep. This is what makes revocation, sign-out and a revoked computer take effect within seconds, and it is why the hard cap can be long. |
+| Relay (TURN) credentials end with the session                  | Test restriction   | Relay credentials live 30 minutes and are re-issued while the session is valid.                                                          |
+| Reconnect window 10 s, view only                               | Test restriction   | 120 s attended and 300 s trusted, for control too. Capture and input stay stopped while no viewer is attached.                           |
+| Local Allow on every request                                   | Attended mode only | Trusted personal access skips it; see below.                                                                                             |
+| One live session per computer, one controller                  | Real               | Keep.                                                                                                                                    |
+| Ended, denied, revoked or expired sessions cannot be revived   | Real               | Keep, for every mode.                                                                                                                    |
+| Development flags for unlimited sessions and control           | Test scaffolding   | Replaced by the model here. Production control and media stay behind an explicit operator switch until accepted.                         |
 
 ## Lifecycles that no longer expire together
 

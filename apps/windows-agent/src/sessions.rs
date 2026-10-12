@@ -11,10 +11,13 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+type HelperEntry = (Option<u64>, Child, Arc<Mutex<ChildStdin>>);
+
 pub struct Helpers {
     #[cfg(windows)]
     job: Option<crate::helper_lifetime::Job>,
-    children: HashMap<String, (u64, Child, Arc<Mutex<ChildStdin>>)>,
+    // None: no fixed expiry. The helper ends itself on Stop, revocation or a lapsed lease.
+    children: HashMap<String, HelperEntry>,
     handled: HashMap<String, u64>,
     cancel: Arc<AtomicBool>,
     watcher: Option<thread::JoinHandle<()>>,
@@ -55,6 +58,7 @@ impl Helpers {
         &mut self,
         body: Value,
         server: &str,
+        local: crate::LocalAccess,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if self.cancel.load(Ordering::Acquire) {
             return Ok(());
@@ -64,7 +68,7 @@ impl Helpers {
             .as_millis()
             .try_into()?;
         self.children.retain(|_, (expiry, child, pipe)| {
-            if *expiry <= now {
+            if expiry.is_some_and(|end| end <= now) {
                 if let Ok(mut pipe) = pipe.lock() {
                     let _ = pipe.write_all(b"stop\n");
                 }
@@ -92,7 +96,15 @@ impl Helpers {
             let expiry = grant["expiresAtMillis"]
                 .as_u64()
                 .ok_or("Invalid session expiry")?;
-            if expiry <= now || expiry - now > 120_000 || self.handled.contains_key(id) {
+            // A request is answered within two minutes; the session it opens is not capped by that.
+            let approval = if expiry == 0 {
+                grant["approvalExpiresAtMillis"]
+                    .as_u64()
+                    .ok_or("Missing approval deadline")?
+            } else {
+                expiry
+            };
+            if approval <= now || approval - now > 120_000 || self.handled.contains_key(id) {
                 continue;
             }
             if self.handled.len() >= 8 || !self.children.is_empty() {
@@ -102,15 +114,18 @@ impl Helpers {
                 continue;
             }
             let mut payload = grant.clone();
-            payload
-                .as_object_mut()
-                .ok_or("Invalid session grant")?
-                .insert("server".into(), Value::String(server.into()));
+            let object = payload.as_object_mut().ok_or("Invalid session grant")?;
+            object.insert("server".into(), Value::String(server.into()));
+            // This computer's own setting: both it and the server must agree before the helper
+            // skips the local Allow.
+            let trusted_here = local.trusted
+                && (grant["capability"].as_str() != Some("desktop:control") || local.allow_control);
+            object.insert("localTrusted".into(), Value::Bool(trusted_here));
             let bytes = serde_json::to_vec(&payload)?;
             if bytes.len() > 8192 {
                 return Err("Session grant too large".into());
             }
-            self.handled.insert(id.into(), expiry);
+            self.handled.insert(id.into(), approval);
             #[cfg(windows)]
             if self.job.is_none() {
                 self.job = Some(crate::helper_lifetime::Job::new()?);
@@ -167,7 +182,8 @@ impl Helpers {
                     let _ = pipe.write_all(b"stop\n");
                 }
             }
-            self.children.insert(id.into(), (expiry, child, pipe));
+            self.children
+                .insert(id.into(), ((expiry != 0).then_some(expiry), child, pipe));
         }
         Ok(())
     }

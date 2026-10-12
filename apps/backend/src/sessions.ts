@@ -42,6 +42,9 @@ type Entry = {
 // Attended sessions wait two minutes, trusted ones five (ADR 0021). Capture and input stay
 // stopped while nobody is attached, and nothing in this window can revive an ended session.
 const RECONNECT_ATTENDED_MS = 120_000;
+// Peers replaced within one session (each reconnect is one). Generous: a long session on a poor
+// network reconnects often, and each one is bounded by the lease and the reconnect window.
+const MAX_GENERATIONS = 1024;
 const RECONNECT_TRUSTED_MS = 300_000;
 const digest = (token: string) =>
   createHash("sha256").update(token).digest("hex");
@@ -50,21 +53,21 @@ const signal = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("retry"),
-      generation: z.number().int().min(0).max(16),
+      generation: z.number().int().min(0).max(MAX_GENERATIONS),
     })
     .strict(),
   z
     .object({
       type: z.literal("offer"),
       sdp: z.string().min(1).max(32768),
-      generation: z.number().int().min(0).max(16).optional(),
+      generation: z.number().int().min(0).max(MAX_GENERATIONS).optional(),
     })
     .strict(),
   z
     .object({
       type: z.literal("answer"),
       sdp: z.string().min(1).max(32768),
-      generation: z.number().int().min(0).max(16).optional(),
+      generation: z.number().int().min(0).max(MAX_GENERATIONS).optional(),
     })
     .strict(),
   z
@@ -73,7 +76,7 @@ const signal = z.discriminatedUnion("type", [
       candidate: z.string().max(2048),
       sdpMid: z.string().max(32).nullable(),
       sdpMLineIndex: z.number().int().min(0).max(16).nullable(),
-      generation: z.number().int().min(0).max(16).optional(),
+      generation: z.number().int().min(0).max(MAX_GENERATIONS).optional(),
     })
     .strict(),
   z
@@ -125,7 +128,7 @@ export async function registerSessions(
     return `(${alias}.expires_at>now()+interval '${seconds} seconds' AND (${alias}.status='active' OR ${alias}.created_at>now()-interval '120 seconds') AND (${alias}.approval='local' OR EXISTS (SELECT 1 FROM machine_access pa WHERE pa.machine_id=${alias}.machine_id AND pa.mode='trusted' AND pa.version=${alias}.policy_version AND (${alias}.capability<>'desktop:control' OR pa.allow_control))))`;
   }
   // Clients are told 0, meaning no fixed expiry: the cap is enforced here and the lease is the clock.
-  const expiryMillis = (_session: Session) => 0;
+  const expiryMillis = () => 0;
   const controlEnabled = enabled && config.CONTROL_ENABLED === "true";
   const reconnectSeconds = (session: Session) =>
     config.RECONNECT_WINDOW_SECONDS ??
@@ -205,7 +208,7 @@ export async function registerSessions(
     if (!config.SESSION_SECRET) throw new Error("View sessions disabled");
     return createHmac("sha256", Buffer.from(config.SESSION_SECRET, "hex"))
       .update(
-        `beacon-remote:view:v1\n${session.id}\n${session.machine_id}\n${session.source}\n${expiryMillis(session)}${session.capability === "desktop:control" ? "\ndesktop:control" : ""}`,
+        `beacon-remote:view:v1\n${session.id}\n${session.machine_id}\n${session.source}\n${expiryMillis()}${session.capability === "desktop:control" ? "\ndesktop:control" : ""}`,
       )
       .digest("base64url");
   }
@@ -377,7 +380,8 @@ export async function registerSessions(
           id: session.id,
           source: session.source,
           capability: session.capability,
-          expiresAtMillis: expiryMillis(session),
+          expiresAtMillis: expiryMillis(),
+          reconnectSeconds: reconnectSeconds(session),
           iceServers: sessionIce(session),
           iceTransportPolicy,
         };
@@ -418,6 +422,18 @@ export async function registerSessions(
     if (!enabled || !parsed.success)
       return reply.code(403).send({ error: "Session unavailable" });
     const entry = entries.get(parsed.data.id);
+    // A half-open connection can look attached long after the network dropped. The same browser
+    // login replaces it; any other login is refused below because the token hash differs.
+    if (
+      entry?.viewer &&
+      entry.resumable &&
+      !entry.closed &&
+      entry.viewerTokenHash === browserHash(request)
+    ) {
+      const stale = entry.viewer;
+      detachViewer(entry, stale);
+      stale.terminate();
+    }
     if (
       !entry?.resumable ||
       entry.closed ||
@@ -444,7 +460,8 @@ export async function registerSessions(
       id: session.id,
       source: session.source,
       capability: session.capability,
-      expiresAtMillis: expiryMillis(session),
+      expiresAtMillis: expiryMillis(),
+      reconnectSeconds: reconnectSeconds(session),
       iceServers: sessionIce(session),
       iceTransportPolicy,
     };
@@ -514,8 +531,11 @@ export async function registerSessions(
         if (
           request.headers.origin !== config.WEB_ORIGIN ||
           (await owner(request)) !== session.account_id ||
-          entries.get(session.id)?.viewer ||
-          (entries.get(session.id)?.generation ?? 0) >= 16 ||
+          (entries.get(session.id)?.viewer &&
+            (!entries.get(session.id)?.resumable ||
+              entries.get(session.id)?.viewerTokenHash !==
+                browserHash(request))) ||
+          (entries.get(session.id)?.generation ?? 0) >= MAX_GENERATIONS ||
           (entries.get(session.id)?.viewerTokenHash !== undefined &&
             entries.get(session.id)?.viewerTokenHash !==
               browserHash(request)) ||
@@ -599,6 +619,12 @@ export async function registerSessions(
         entry.timer.unref();
         entries.set(session.id, entry);
       }
+      if (role === "viewer" && entry.viewer && entry.resumable) {
+        // Same browser, replacing a viewer that died without closing (checked before upgrade).
+        const stale = entry.viewer;
+        detachViewer(entry, stale);
+        stale.terminate();
+      }
       if (entry[role]) {
         socket.close(1008);
         return;
@@ -621,7 +647,7 @@ export async function registerSessions(
         type: "lease",
         nonce,
         maxAgeMs: 3000,
-        expiresAtMillis: expiryMillis(session),
+        expiresAtMillis: expiryMillis(),
         ...(config.TURN_URLS &&
         (!live.relayRefreshAt || performance.now() >= live.relayRefreshAt)
           ? {
@@ -825,7 +851,7 @@ export async function registerSessions(
           controller: session.controller,
           source: session.source,
           capability: session.capability,
-          expiresAtMillis: expiryMillis(session),
+          expiresAtMillis: expiryMillis(),
           approval: session.approval,
           approvalExpiresAtMillis: session.created_at.getTime() + 120000,
           reconnectSeconds: reconnectSeconds(session),

@@ -1,7 +1,7 @@
 // Native GUI acceptance with real enrollment/presence and disposable user state.
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { readFile, mkdir, writeFile, access } from "node:fs/promises";
+import { mkdir, writeFile, access } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Pool } from "pg";
 import { hash } from "@node-rs/argon2";

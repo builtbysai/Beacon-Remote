@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { Pool } from "pg";
 import { createApp } from "../src/app.js";

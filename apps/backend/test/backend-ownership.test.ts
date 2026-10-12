@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";

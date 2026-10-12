@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { Pool } from "pg";
 import { createApp } from "../src/app.js";
@@ -117,9 +116,6 @@ test(
       assert.equal(created.json().capability, "desktop:control");
       const id = created.json().id as string;
       assert.equal((await request("desktop:view")).statusCode, 409);
-      const session = (
-        await pool.query("SELECT * FROM view_sessions WHERE id=$1", [id])
-      ).rows[0];
       const { createHmac } = await import("node:crypto");
       const canonical = `beacon-remote:view:v1\n${id}\n${machine}\ndesktop\n0`;
       const sign = (scope: string) =>
@@ -142,9 +138,6 @@ test(
         { headers: { authorization: `Bearer ${sign("\ndesktop:control")}` } },
       );
       sockets.push(native);
-      await assert.rejects(
-        app.injectWS(`/api/sessions/${id}/signal?role=viewer`, { headers }),
-      );
       const consent = once(viewer, "message", {
         signal: AbortSignal.timeout(3000),
       });

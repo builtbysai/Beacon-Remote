@@ -42,6 +42,8 @@ use webrtc::{
 };
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
+// Peers replaced within one session; matches the server (ADR 0021).
+const MAX_GENERATIONS: u64 = 1024;
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Grant {
@@ -653,7 +655,7 @@ impl SignalSocket {
                                     if body["type"] == "viewer-detached" {
                                         viewer.store(u64::MAX, Ordering::Release);
                                     } else if body["type"] == "viewer-resumed" {
-                                        if body["generation"].as_u64() != Some(generation + 1) || generation >= 16 {return Err("Invalid recovery generation".into());}
+                                        if body["generation"].as_u64() != Some(generation + 1) || generation >= MAX_GENERATIONS {return Err("Invalid recovery generation".into());}
                                         generation += 1;
                                         viewer.store(generation, Ordering::Release);
                                     }
@@ -731,7 +733,7 @@ async fn wait_for_viewer(
                     Some(Ok(Message::Ping(_) | Message::Pong(_))) => continue, _ => return Ok(false) };
                 let body: Value = serde_json::from_str(&text)?;
                 match body["type"].as_str() {
-                    Some("viewer-resumed") => return Ok(body["generation"].as_u64() == Some(expected_generation) && expected_generation <= 16 && active.load(Ordering::Acquire) && Instant::now() < until),
+                    Some("viewer-resumed") => return Ok(body["generation"].as_u64() == Some(expected_generation) && expected_generation <= MAX_GENERATIONS && active.load(Ordering::Acquire) && Instant::now() < until),
                     Some("ended") => return Ok(false),
                     // Packets from the old transport cannot start capture.
                     Some("candidate" | "answer" | "viewer-detached") => {},

@@ -7,7 +7,6 @@ import {
   sign,
 } from "node:crypto";
 import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type { WebSocket } from "ws";

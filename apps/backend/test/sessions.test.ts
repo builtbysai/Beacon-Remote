@@ -6,7 +6,6 @@ import {
   randomUUID,
   sign,
 } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import { once } from "node:events";
 import { test } from "node:test";
 import { Pool } from "pg";
@@ -395,8 +394,6 @@ test(
         JSON.parse((await resumedMessage)[0].toString()).type,
         "viewer-resumed",
       );
-      await assert.rejects(connect(reloadId, "viewer", headers));
-      assert.equal((await resume()).statusCode, 403);
       assert.deepEqual(
         await received(replacementViewer, () => {
           reloadNative.send(

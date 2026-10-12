@@ -4,6 +4,7 @@ import { viewDeadline } from "./deadline.js";
 import { rememberView, forgetView } from "./resume-view.js";
 import { peerLifetime } from "./peer-lifetime.js";
 import { recoverTransport } from "./recover-transport.js";
+import { reconnectUntil } from "./reconnect.js";
 import { attachRemoteInput } from "./remote-input.js";
 import { api } from "./api.js";
 
@@ -12,6 +13,8 @@ export type ViewGrant = {
   source: "synthetic" | "desktop";
   capability?: "desktop:view" | "desktop:control";
   expiresAtMillis: number;
+  // How long the server holds the session for a viewer that dropped; the viewer retries that long.
+  reconnectSeconds?: number;
   iceServers: RTCIceServer[];
   iceTransportPolicy: RTCIceTransportPolicy;
 };
@@ -59,7 +62,10 @@ export function LiveView({
   const [presentedFps, setPresentedFps] = useState<number | null>(null);
   const [roundTripMillis, setRoundTripMillis] = useState<number | null>(null);
   const [transportAttempt, setTransportAttempt] = useState(0);
-  const attempts = useRef(0);
+  // Relay credentials are short; each resume brings fresh ones for the next transport.
+  const ice = useRef({ id: grant.id, servers: grant.iceServers });
+  if (ice.current.id !== grant.id)
+    ice.current = { id: grant.id, servers: grant.iceServers };
   useEffect(() => {
     const sync = () =>
       setIsFullscreen(document.fullscreenElement === shell.current);
@@ -81,7 +87,7 @@ export function LiveView({
     setTimings({});
     if (transportAttempt > 0) setStatus("Reconnecting video…");
     const pc = new RTCPeerConnection({
-      iceServers: grant.iceServers,
+      iceServers: ice.current.servers,
       iceTransportPolicy: grant.iceTransportPolicy,
       iceCandidatePoolSize: 1,
     });
@@ -150,13 +156,12 @@ export function LiveView({
     }
     async function reconnect() {
       if (finished || recovering) return;
-      if (!resumable || attempts.current >= 2 || expired()) {
+      if (!resumable || expired()) {
         finish("Video connection interrupted. Request viewing again.");
         return;
       }
       recovering = true;
-      attempts.current++;
-      setStatus("Reconnecting video…");
+      setStatus("Reconnecting…");
       setFrames(0);
       const closedSocket = new Promise<void>((resolve) => {
         socketClosed = resolve;
@@ -170,25 +175,29 @@ export function LiveView({
           closedSocket,
           new Promise<void>((resolve) => setTimeout(resolve, 500)),
         ]);
-        if (finished || expired()) return;
-        const recoveryTimer = setTimeout(() => recoveryAbort.abort(), 2000);
-        let resumed: ViewGrant | null;
-        try {
-          resumed = await recoverTransport(
-            grant,
-            () =>
-              api<ViewGrant>(
-                `sessions/${grant.id}/resume`,
-                {},
-                recoveryAbort.signal,
-              ),
-            () => !finished && !expired(),
-            stopRequest,
-          );
-        } finally {
-          clearTimeout(recoveryTimer);
-        }
+        // A network outage is retried for as long as the server holds the session. Only the
+        // server refusing (signed out, revoked, stopped, expired) ends it.
+        const resumed = await reconnectUntil({
+          attempt: () =>
+            recoverTransport(
+              grant,
+              () => {
+                const abort = new AbortController();
+                const timer = setTimeout(() => abort.abort(), 5000);
+                return api<ViewGrant>(
+                  `sessions/${grant.id}/resume`,
+                  {},
+                  abort.signal,
+                ).finally(() => clearTimeout(timer));
+              },
+              () => !finished && !expired(),
+              stopRequest,
+            ),
+          isCurrent: () => !finished && !expired(),
+          windowMs: (grant.reconnectSeconds ?? 120) * 1000,
+        });
         if (!resumed) return;
+        ice.current = { id: grant.id, servers: resumed.iceServers };
         replaced = true;
         setTransportAttempt((value) => value + 1);
       } catch {
@@ -269,6 +278,7 @@ export function LiveView({
       if (closed) return;
       if (
         controlling &&
+        !resumable &&
         ["disconnected", "failed", "closed"].includes(pc.connectionState)
       ) {
         finish("Control connection ended. Request control again.");
@@ -321,12 +331,17 @@ export function LiveView({
         frameCallback = element.requestVideoFrameCallback(count);
       }
     };
+    // A dropped signaling connection is a network problem, not the end of the session.
     ws.onerror = () => {
-      if (!recovering) finish("Signaling connection failed.");
+      if (recovering) return;
+      if (resumable) void reconnect();
+      else finish("Signaling connection failed.");
     };
     ws.onclose = () => {
       socketClosed();
-      if (!recovering) finish("Session ended.");
+      if (recovering) return;
+      if (resumable && !closed) void reconnect();
+      else finish("Session ended.");
     };
     ws.onmessage = (event) => {
       if (closed) return;
@@ -352,7 +367,7 @@ export function LiveView({
                 typeof message.generation === "number" &&
                 Number.isInteger(message.generation) &&
                 message.generation >= 0 &&
-                message.generation <= 16
+                message.generation <= 1024
               )
                 generation = message.generation;
               break;
