@@ -1,6 +1,13 @@
 # Deployment gates
 
-Current manual rollout on October 11: exact merged main
+October 12 manual rollout: exact feature-branch source
+`74a4e6e4d6573836c3da6dfc766b4c84c90c02e7` is the current Remote
+production release, media disabled, after local control-plane validation,
+encrypted backup/integrity, isolated restore, schema/role verification, and
+both products' HTTPS health/readiness. The predecessor `4ea7ad9` images remain
+tagged for rollback. See [the October 12 record](validation-2026-10-12.md).
+
+Previous manual rollout on October 11: exact merged main
 `4ea7ad97eac00ca6b8b33f7c168aa34e5a2f4d28` replaced ff452ff with media disabled,
 after local control-plane checks, encrypted backup/integrity, isolated restore,
 migration/role verification and both products' HTTPS readiness. ff452ff images

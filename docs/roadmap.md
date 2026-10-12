@@ -32,7 +32,13 @@ database and permissions even when infrastructure is shared.
 | Approved interface       | Real inventory/inspector/naming, activity/history/browser sessions; responsive/theme checks                       | Complete native host states, permission focus/readability feedback and backend-dependent flows |
 | Deployment               | Isolated Oracle control plane, HTTPS, encrypted backup/restore and rollback                                       | Production media intentionally disabled; input absent                                          |
 
-The last documented deployed interface is release `ff452ffe66dd600e9a7b18d12fccc08ac970a7d6`.
+October 12 update: the private-alpha control plane and interface were manually
+rolled out at exact `74a4e6e4d6573836c3da6dfc766b4c84c90c02e7` after local
+control-plane validation, encrypted backup/integrity, isolated restore, and
+schema/role verification. Production media remains disabled. See
+[October 12 validation](validation-2026-10-12.md). The earlier
+`ff452ffe66dd600e9a7b18d12fccc08ac970a7d6` interface release below is
+historical.
 PR #8 was merged as `d6c40c8`, PR #9 as `6d8d7496` into main. CI was
 successful at PR #9 head `0979cd1` (run 38083605846); merged code is **not**
 proof of a new deployment or production media approval.
