@@ -22,6 +22,11 @@ so rolling the system clock backward during a session cannot defer local cleanup
 Server/native leases remain authoritative. Browser sleep/resume and real expiry
 acceptance remain open.
 
+Pending viewer requests are also scoped to the original page/sign-in context.
+Late responses after navigation or sign-out cannot open a viewer; obsolete
+grants get a best-effort Stop attempt. Actual browser/prompt acceptance and the
+original expiry fallback remain relevant after authentication or network loss.
+
 The owner requested compact, polished Windows host surfaces with concise copy
 and a later one-time trusted-device setup. Current milestone 4 work simplifies
 the consent/Stop windows and shows actual remaining grant time. Full approved
