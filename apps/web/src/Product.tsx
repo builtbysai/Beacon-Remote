@@ -69,23 +69,49 @@ export function ProductPage({
           </div>
           <div
             className="product-preview"
-            aria-label="Product illustration, not connected"
+            aria-label="Illustration of the computer workspace; example data, not connected"
           >
             <div className="preview-bar">
-              beacon <span>REMOTE</span>
+              <span className="preview-dots" aria-hidden="true">
+                ● ● ●
+              </span>
+              <span>remote.builtbysai.com</span>
             </div>
-            <h2>Your computers, within reach.</h2>
-            <div className="preview-device">
-              <Monitor />
-              <div>
-                <strong>Your Windows computer</strong>
-                <p>Pair securely. Approve locally.</p>
+            <div className="preview-layout">
+              <div className="preview-sidebar" aria-hidden="true">
+                <strong>▣&nbsp; Computers</strong>
+                <span>◷&nbsp; Sessions</span>
+                <span>♧&nbsp; Assist</span>
+                <span>◇&nbsp; Activity</span>
+              </div>
+              <div className="preview-content">
+                <div className="preview-heading">
+                  <strong>Computers</strong>
+                  <span>6 online</span>
+                </div>
+                {[
+                  "STUDIO-WS",
+                  "ZBOOK-15",
+                  "HOME-PC",
+                  "FRONTDESK-02",
+                  "LAB-NODE-03",
+                ].map((name, index) => (
+                  <div
+                    className={`preview-device${index === 0 ? " selected" : ""}`}
+                    key={name}
+                  >
+                    <Monitor />
+                    <strong>{name}</strong>
+                    <span>{index === 4 ? "Offline" : "Online"}</span>
+                    {index === 0 && <b>Remote</b>}
+                  </div>
+                ))}
+                <p>EXAMPLE DATA · NOT CONNECTED</p>
               </div>
             </div>
-            <p className="eyebrow">ILLUSTRATION · NOT CONNECTED</p>
           </div>
         </section>
-        <section className="public-section">
+        <div className="public-steps-band">
           <div className="steps">
             <p>
               <strong>01</strong> Install the Windows agent
@@ -94,33 +120,53 @@ export function ProductPage({
               <strong>02</strong> Pair with your account
             </p>
             <p>
-              <strong>03</strong> Approve and view
+              <strong>03</strong> Connect from the browser
             </p>
           </div>
-          <h2>Access and support</h2>
-          <div className="feature-columns">
+        </div>
+        <section className="public-section access-section">
+          <div className="access-heading">
+            <h2>Access and support</h2>
+            <a href="#support">Get support →</a>
+          </div>
+          <div className="feature-columns access-features">
             <div>
+              <Monitor />
               <h3>Your computers</h3>
               <p>
-                Keep enrolled computers together. See connection status and
-                revoke access from your workspace.
+                Enrolled computers appear in your workspace. See connection
+                status and revoke access when needed.
               </p>
             </div>
             <div>
-              <h3>Visible access</h3>
+              <span className="access-feature-icon" aria-hidden="true">
+                ◎
+              </span>
+              <h3>Attended viewing</h3>
               <p>
-                Desktop viewing requires local approval and a visible Stop
-                sharing control. Development sessions end after two minutes.
+                The person at the Windows computer approves each view request
+                and can stop sharing locally.
               </p>
             </div>
             <div>
-              <h3>One-time support</h3>
+              <span className="access-feature-icon" aria-hidden="true">
+                ◇
+              </span>
+              <h3>Connection controls</h3>
               <p>
-                Guest support is being built. This alpha currently supports
-                enrolled computers only.
+                Device identity, revocation, session history and a visible Stop
+                control protect access. Guest support is still being built.
               </p>
-              <a href="#support">Support availability →</a>
             </div>
+          </div>
+          <div className="setup-callout">
+            <div>
+              <h3>Set up your first computer</h3>
+              <p>Windows development agent and account pairing.</p>
+            </div>
+            <a className="button" href="#downloads">
+              Windows setup →
+            </a>
           </div>
         </section>
       </>
@@ -211,10 +257,10 @@ export function ProductPage({
         <div className="quiet-panel">
           <h2>Alpha limitations</h2>
           <p>
-            MFA, password recovery, signed installation and cross-network relay
-            acceptance are unfinished. WebRTC uses transport encryption; this
-            alpha does not claim end-to-end peer authentication against the
-            signaling service.
+            MFA, password recovery, signed installation and the full
+            cross-network recovery test matrix are unfinished. WebRTC uses
+            transport encryption; this alpha does not claim end-to-end peer
+            authentication against the signaling service.
           </p>
         </div>
       </section>

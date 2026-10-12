@@ -7,6 +7,14 @@ target/
 *.pem
 *.key
 *.pfx
+*.dpapi
+*.dump
+*.sqlite
+*.sqlite3
+*.db
+*.bak
+login.json
+credentials.json
 *.log
 .agent-state/
 .remote-dev/

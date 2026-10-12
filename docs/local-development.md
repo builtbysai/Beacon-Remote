@@ -63,7 +63,10 @@ For GitHub runner unavailability, run
 `pwsh -NoProfile -File scripts/Test-RemoteCi.ps1`. It reproduces the control-plane
 checks and, with installed MSVC/Windows SDK, native formatting/Clippy/tests/release
 builds. `-ControlPlaneOnly` explicitly excludes native compilation/tests and is
-not full native CI. The required `_test` database must already exist. No runner
+not full native CI. `-NativeOnly` runs only native formatting/Clippy/tests/release
+builds; the two switches are mutually exclusive. Use it when only native source
+changes need verification. The required `_test` database must already exist for
+control-plane checks. No runner
 installation, billing changes or shared View environment changes are performed.
 
 ```powershell

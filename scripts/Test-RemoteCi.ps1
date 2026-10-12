@@ -1,6 +1,9 @@
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = 'All')]
 param(
-    [switch]$ControlPlaneOnly
+    [Parameter(ParameterSetName = 'ControlPlane')]
+    [switch]$ControlPlaneOnly,
+    [Parameter(ParameterSetName = 'Native')]
+    [switch]$NativeOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -9,15 +12,17 @@ Push-Location $repositoryRoot
 $previousEnvironment = @{}
 Get-ChildItem Env: | ForEach-Object { $previousEnvironment[$_.Name] = $_.Value }
 try {
-    # Fixed Remote test database, never inherited View or production credentials.
-    $env:TEST_DATABASE_URL = 'postgresql://remote_dev:development-only@127.0.0.1:5433/beacon_remote_test'
-    foreach ($arguments in @(
-        @('install', '--frozen-lockfile'),
-        @('check'),
-        @('audit', '--prod', '--audit-level', 'high')
-    )) {
-        & pnpm.cmd @arguments
-        if ($LASTEXITCODE -ne 0) { throw "Remote control-plane check failed: $($arguments -join ' ')" }
+    if (-not $NativeOnly) {
+        # Fixed Remote test database, never inherited View or production credentials.
+        $env:TEST_DATABASE_URL = 'postgresql://remote_dev:development-only@127.0.0.1:5433/beacon_remote_test'
+        foreach ($arguments in @(
+            @('install', '--frozen-lockfile'),
+            @('check'),
+            @('audit', '--prod', '--audit-level', 'high')
+        )) {
+            & pnpm.cmd @arguments
+            if ($LASTEXITCODE -ne 0) { throw "Remote control-plane check failed: $($arguments -join ' ')" }
+        }
     }
     & cargo fmt --all -- --check
     if ($LASTEXITCODE -ne 0) { throw 'Rust formatting failed' }
@@ -33,7 +38,7 @@ try {
     if (-not $installation) { throw 'No installed MSVC C++ workload found' }
     $developerEnvironment = Join-Path $installation 'VC\Auxiliary\Build\vcvars64.bat'
     # Environment is imported only into this script process, never system settings.
-    $lines = & $env:ComSpec /d /s /c "`"`"$developerEnvironment`" >nul && set`""
+    $lines = & $env:ComSpec /d /c "call `"$developerEnvironment`" >nul && set"
     if ($LASTEXITCODE -ne 0) { throw 'Could not initialize MSVC/Windows SDK environment' }
     foreach ($line in $lines) {
         if ($line -match '^([^=]+)=(.*)$') { [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process') }
@@ -46,7 +51,11 @@ try {
         & cargo @arguments
         if ($LASTEXITCODE -ne 0) { throw "Remote native check failed: $($arguments -join ' ')" }
     }
-    Write-Host 'Local Remote control-plane and native CI commands passed. Real desktop acceptance is a separate gate.'
+    if ($NativeOnly) {
+        Write-Host 'Local Remote native CI commands passed. Control-plane checks were explicitly not run; real desktop acceptance is a separate gate.'
+    } else {
+        Write-Host 'Local Remote control-plane and native CI commands passed. Real desktop acceptance is a separate gate.'
+    }
 } finally {
     foreach ($variable in @(Get-ChildItem Env:)) {
         if (-not $previousEnvironment.ContainsKey($variable.Name)) {

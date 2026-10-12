@@ -1,5 +1,9 @@
 # Security boundaries
 
+See the [October 12 public-source security review](security-review-2026-10-12.md)
+for inspected history, CI hardening, publication settings and remaining gates.
+Public source visibility does not authorize a general-consumer or media release.
+
 Machine private keys never leave the endpoint. User-scoped DPAPI protects the
 development agent's serialized identity at rest; this is not proof against a
 compromised Windows user or administrator. The later service uses a separate
