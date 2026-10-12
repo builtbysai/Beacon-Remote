@@ -275,6 +275,14 @@ test counts, screenshots and CI alone do not prove remote control is ready.
 
 ## Ongoing UI/UX fidelity track (parallel with technical gates)
 
+An unsigned per-user development package now copies the matching native endpoint
+pair, creates Pair/Run/Uninstall shortcuts and verifies payload integrity.
+`scripts/Build-DevelopmentHost.ps1` builds and validates the native source before
+packaging. It does not install service/tray/startup/update behavior. Isolated
+package copy/shortcuts/executable launch/removal, unknown-file preservation and
+tampered-payload rejection passed on this workstation. Owner-machine pairing/view
+acceptance remains open; see [development host package](development-host-package.md).
+
 The visual target is the owner-supplied `Beacon-Remote-Final-Package.zip` (external
 attachment, **not checked into the repo**). UI completeness and backend
 availability are different measures. A feature can match the target visually

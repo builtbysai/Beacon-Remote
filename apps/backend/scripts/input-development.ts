@@ -51,7 +51,7 @@ async function stop() {
   if (helper && helper.exitCode === null) {
     await Promise.race([
       new Promise<void>((done) => helper!.once("exit", () => done())),
-      new Promise<void>((done) => setTimeout(done, 2000)),
+      new Promise<void>((done) => setTimeout(done, 5000)),
     ]);
     if (helper.exitCode === null) helper.kill();
   }

@@ -199,3 +199,10 @@ control is disabled unless `REMOTE_DEV_CONTROL=true`; backend control additional
 requires `DEV_CONTROL_ENABLED=true` outside production. Ordinary local startup
 strips both switches along with media configuration. Matching helper binaries
 and manual Windows Allow control are required. No production rollout.
+
+## Internal Windows development package
+
+The [per-user development installer](development-host-package.md) bundles the
+validated agent and interactive helper with Pair/Run shortcuts and explicit
+uninstall. It requires no elevation or automatic startup. Service, tray and
+reboot recovery remain unimplemented; this is not a signed consumer release.
