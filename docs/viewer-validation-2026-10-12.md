@@ -57,6 +57,27 @@ exact-head hosted checks must pass before merging. Actual browser sleep/resume,
 clock-change and automatic expiry acceptance remains unverified; no desktop
 consent or capture is automated by these checks.
 
+## Pending desktop request follow-up
+
+A delayed session-creation response previously opened a viewer after leaving
+Computers or signing out. Each page/authentication context now owns its pending
+request. Hash navigation, confirmed sign-out, authentication loss and context
+cleanup invalidate the original context. Returning to Computers creates a new
+context rather than reviving the old request. Current successes open the viewer;
+obsolete failures do not replace the new page's error state. Each accepted grant
+also keys its viewer state independently.
+
+A grant returned to an obsolete context gets a best-effort authenticated Stop
+request instead of opening a viewer. Sign-out or network loss can prevent that
+cleanup request from succeeding; no server cancellation guarantee is claimed.
+The original server/native deadlines and local consent still apply. No credential
+is retained to bypass sign-out, and no backend/schema/lease authority changes.
+
+Focused delayed-response regressions exercise context replacement, current
+success/failure, obsolete failure and rejected late-grant cleanup. Full local
+checks and exact-head hosted CI must pass before merge. Actual React navigation,
+logout and Windows pending-prompt acceptance remain required.
+
 ## Runtime preservation
 
 Read-only Oracle verification passed: all seven protected/shared container image

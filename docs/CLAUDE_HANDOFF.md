@@ -16,6 +16,12 @@ local viewing; a forward adjustment still expires it. Server/native leases are
 unchanged. Clock adjustment and sleep/resume behavior still need real-browser
 acceptance; do not infer those results from the focused deadline regressions.
 
+Pending desktop requests are now scoped to their original page/authentication
+context. A late response after navigation or confirmed sign-out cannot reopen a
+viewer, and its grant gets a best-effort Stop attempt. After logout/network loss
+that attempt may fail; original server/native expiry and local consent remain.
+Real browser navigation/logout acceptance is still pending.
+
 Latest owner test, October 12: PR #25 is merged at `d0bc0b9`, with required
 reviewed-head and merged-main checks passing. Matching `stop-2aa1510` binaries
 passed the owner's guided Decline/Escape, Android cancel/re-request, manual

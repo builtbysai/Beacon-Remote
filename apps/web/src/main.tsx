@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import type { Machine } from "@beacon-remote/protocol";
 import "./style.css";
@@ -10,6 +10,7 @@ import { SessionHistory } from "./SessionHistory.js";
 import { ComputerInspector } from "./ComputerInspector.js";
 import { AssistPanel } from "./AssistPanel.js";
 import { WorkspaceIcon, workspaceItems } from "./WorkspaceIcon.js";
+import { resolveViewRequest } from "./view-request.js";
 
 // Fragments stay out of HTTP/access logs; remove the bearer from browser history.
 const invitation = new URLSearchParams(window.location.hash.slice(1)).get(
@@ -18,6 +19,7 @@ const invitation = new URLSearchParams(window.location.hash.slice(1)).get(
 if (invitation) window.history.replaceState(null, "", window.location.pathname);
 
 function App() {
+  const viewContext = useRef({ active: false });
   const [page, setPage] = useState(pageFromHash);
   const [theme, setTheme] = useState("system");
   const [search, setSearch] = useState("");
@@ -29,6 +31,7 @@ function App() {
   const [publicMenuOpen, setPublicMenuOpen] = useState(false);
   useEffect(() => {
     const change = () => {
+      viewContext.current.active = false;
       setPage(pageFromHash());
       setMobileMore(false);
       setPublicMenuOpen(false);
@@ -66,6 +69,13 @@ function App() {
     setError("");
   }, [page]);
   const signedIn = machines !== null;
+  useEffect(() => {
+    const context = { active: signedIn && page === "computers" };
+    viewContext.current = context;
+    return () => {
+      context.active = false;
+    };
+  }, [page, signedIn]);
   const workspaceOpen =
     signedIn && page !== "home" && page !== "support" && page !== "security";
   useEffect(() => {
@@ -104,17 +114,24 @@ function App() {
   }, [signedIn]);
 
   async function testVideo(machine: Machine) {
+    const context = viewContext.current;
+    if (!context.active) return;
     setBusy(true);
     setError("");
     try {
-      const grant = await api<ViewGrant>(`machines/${machine.id}/sessions`, {
-        source: "desktop",
-      });
-      setView({ grant, name: machine.name });
-    } catch {
-      setError(
-        "Could not start video. Check that your computer is online and no session is active.",
+      await resolveViewRequest(
+        api<ViewGrant>(`machines/${machine.id}/sessions`, {
+          source: "desktop",
+        }),
+        () => context.active,
+        (grant) => setView({ grant, name: machine.name }),
+        (unused) => api(`sessions/${unused.id}/stop`, {}),
       );
+    } catch {
+      if (context.active)
+        setError(
+          "Could not start video. Check that your computer is online and no session is active.",
+        );
     } finally {
       setBusy(false);
     }
@@ -135,8 +152,14 @@ function App() {
       } catch (failure) {
         if (!disposed) {
           setStale(true);
-          if (failure instanceof Error && failure.message === "Please sign in.")
+          if (
+            failure instanceof Error &&
+            failure.message === "Please sign in."
+          ) {
+            viewContext.current.active = false;
+            setView(null);
             setMachines(null);
+          }
         }
       } finally {
         pending = false;
@@ -236,6 +259,8 @@ function App() {
   async function logout() {
     try {
       await api("logout", {});
+      viewContext.current.active = false;
+      setView(null);
       setMachines(null);
       setCode(null);
     } catch {
@@ -662,6 +687,7 @@ function App() {
           </div>
           {view && (
             <LiveView
+              key={view.grant.id}
               grant={view.grant}
               name={view.name}
               onClose={() => setView(null)}

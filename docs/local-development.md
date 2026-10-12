@@ -60,7 +60,7 @@ publishing credentials or request bodies.
 ## Tests and native fixture
 
 `pnpm --filter @beacon-remote/web test` runs the focused browser-playback
-lifetime and clock-adjustment expiry regressions with the same pinned `tsx`
+lifetime, pending-request context and clock-adjustment expiry regressions with the same pinned `tsx`
 tooling already used by the backend. It is included in `pnpm check`. These checks start no
 browser/native capture or consent prompt; actual Windows/Android playback and
 interruption acceptance remains separate.
