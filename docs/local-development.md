@@ -59,6 +59,11 @@ publishing credentials or request bodies.
 
 ## Tests and native fixture
 
+Backend test files run serially because they initialize a shared test schema.
+Individual tests still exercise concurrent invitation/enrollment requests and
+signaling peers. Validate against an empty `_test` database when changing schema
+or fixture initialization; an already initialized database can conceal DDL races.
+
 For GitHub runner unavailability, run
 `pwsh -NoProfile -File scripts/Test-RemoteCi.ps1`. It reproduces the control-plane
 checks and, with installed MSVC/Windows SDK, native formatting/Clippy/tests/release

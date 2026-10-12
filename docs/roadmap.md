@@ -25,7 +25,7 @@ database and permissions even when infrastructure is shared.
 
 | Area                     | Working evidence                                                                                                  | Remaining gate                                                                                 |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Foundation               | Backend/web and native Windows CI builds                                                                          | Local native linker absent; use Windows CI for compilation                                     |
+| Foundation               | Backend/web and native Windows builds, including local MSVC checks                                                | Keep required hosted CI green and validate fresh test databases                                |
 | Account/machine identity | Private invitations/login, actual pairing, DPAPI persistence, signed presence, restart and revoke                 | Public account lifecycle, MFA/recovery and retention/deletion                                  |
 | Capture                  | Actual attended primary-display WGC capture, snapshot interface and measurements                                  | Sustained performance, lock/display-loss behavior, broader hardware                            |
 | Media                    | Real native H.264 in Chrome, local Stop; owner confirmed Android/T-Mobile separate-network desktop viewing + Stop | Full interruption/recovery, sustained performance, broader route/hardware acceptance           |
