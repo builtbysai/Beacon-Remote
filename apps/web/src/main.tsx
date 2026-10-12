@@ -8,6 +8,7 @@ import { api, ApiError } from "./api.js";
 import { AccountPanels } from "./AccountPanels.js";
 import { SessionHistory } from "./SessionHistory.js";
 import { ComputerInspector } from "./ComputerInspector.js";
+import { AssistPanel } from "./AssistPanel.js";
 import { WorkspaceIcon, workspaceItems } from "./WorkspaceIcon.js";
 
 // Fragments stay out of HTTP/access logs; remove the bearer from browser history.
@@ -410,6 +411,8 @@ function App() {
       page !== "computers" ? (
         page === "sessions" ? (
           <SessionHistory />
+        ) : page === "assist" ? (
+          <AssistPanel />
         ) : page === "settings" || page === "activity" ? (
           <AccountPanels activity={page === "activity"} />
         ) : (

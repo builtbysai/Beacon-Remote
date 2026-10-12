@@ -93,3 +93,14 @@ database at desktop and 390px widths. Media remains disabled there, so the
 session section truthfully reported unavailable. The exact temporary rows were
 removed and the machine count returned to zero. A live accepted session still
 needs hardware validation.
+
+## Signed-in Assist route
+
+The Assist workspace route now has its own two-panel layout for connecting with
+a code and sharing this computer. Both panels state that one-time codes and guest
+invitations are unavailable; they link to the existing paired-computer and
+Windows development-agent flows instead of presenting a nonworking form. Chrome
+review covered 320px, 390px, and 1440px widths, plus dark mode. The two links
+navigated to their intended workspace pages, and no horizontal overflow was
+observed. This is interface work only; it does not add one-time support or
+change the media gate.
