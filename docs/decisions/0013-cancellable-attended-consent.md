@@ -53,6 +53,15 @@ failure also destroys the window before its state is released.
 
 ## Verification and remaining acceptance
 
+The browser follows the native helper's immediate terminal handling of a
+disconnected, failed or closed peer. It ends the request and tells the person to
+request viewing again instead of offering an eight-second reconnect period for
+a grant the helper has already stopped. Ending pauses/detaches video, removes
+the playback prompt and displays the terminal reason; diagnostic counters remain
+available. Autoplay and explicit Play retry share a guard tied to the original
+effect/session lifetime. A late playback resolution or rejection cannot replace
+Stop, expiry, disconnect or a replacement session's state.
+
 Native checks use a real loopback WebSocket to end and close an unanswered
 consent wait. Deadline and late-result fixtures cover expiry and cancellation
 precedence, with no real dialog approval or screen capture. The hidden noninput

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5174",
     "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
     "build": "vite build"
   },
   "dependencies": {
@@ -14,8 +15,10 @@
     "react-dom": "19.2.4"
   },
   "devDependencies": {
+    "@types/node": "26.1.1",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
-    "vite": "8.0.16"
+    "vite": "8.0.16",
+    "tsx": "4.23.15"
   }
 }

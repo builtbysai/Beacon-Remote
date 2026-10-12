@@ -2,6 +2,14 @@
 
 **Prepared 2026-10-10.** This is a continuation document, not a statement that every feature or release gate is complete. Recheck GitHub and the actual machines before acting.
 
+The next viewer recovery slice ends a browser request on peer loss immediately,
+matching the native helper, and scopes autoplay/manual Play results to the
+original session lifetime. It clears ended playback controls and preserves
+terminal status and diagnostic counters. See [viewer validation](viewer-validation-2026-10-12.md)
+for the delayed-promise regression, intentional old-behavior failure comparison,
+and remaining actual browser/network acceptance. Do not claim milestone 4 passes
+from these unit checks; production media and test fixtures remain disabled/stopped.
+
 Latest owner test, October 12: PR #25 is merged at `d0bc0b9`, with required
 reviewed-head and merged-main checks passing. Matching `stop-2aa1510` binaries
 passed the owner's guided Decline/Escape, Android cancel/re-request, manual

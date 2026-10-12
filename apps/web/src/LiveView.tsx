@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { playForSession } from "./playback.js";
 
 export type ViewGrant = {
   id: string;
@@ -20,6 +21,7 @@ export function LiveView({
   const video = useRef<HTMLVideoElement>(null);
   const shell = useRef<HTMLElement>(null);
   const stop = useRef<() => void>(() => {});
+  const play = useRef<() => Promise<void>>(async () => {});
   const [scale, setScale] = useState<"fit" | "actual">("fit");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [needsPlay, setNeedsPlay] = useState(false);
@@ -75,19 +77,19 @@ export function LiveView({
     let frameCallback = 0;
     let lastCount = 0;
     let previousFrames = 0;
-    let disconnectTimer: ReturnType<typeof setTimeout> | undefined;
     const element = video.current;
     function finish(reason: string) {
       if (closed) return;
       closed = true;
-      if (disconnectTimer) clearTimeout(disconnectTimer);
       setStatus(reason);
       setEnded(true);
+      setNeedsPlay(false);
       pc.close();
       ws.close();
       candidates.length = 0;
       if (element) {
         element.cancelVideoFrameCallback?.(frameCallback);
+        element.pause();
         element.srcObject = null;
       }
       void fetch(`/api/sessions/${grant.id}/stop`, {
@@ -99,6 +101,24 @@ export function LiveView({
       }).catch(() => {});
     }
     stop.current = () => finish("Stopped.");
+    play.current = () =>
+      playForSession(
+        () => element?.play() ?? Promise.resolve(),
+        () => !closed && element !== null,
+        () => {
+          setNeedsPlay(false);
+          if (pc.connectionState === "connected")
+            setStatus(
+              grant.source === "desktop"
+                ? "Connected — view only."
+                : "Connected — synthetic video only.",
+            );
+        },
+        () => {
+          setNeedsPlay(true);
+          setStatus("Press Play to view the stream.");
+        },
+      );
     const send = (body: unknown) => {
       if (closed || ws.readyState !== WebSocket.OPEN) return;
       if (ws.bufferedAmount > 131072) {
@@ -128,33 +148,25 @@ export function LiveView({
     pc.onconnectionstatechange = () => {
       if (closed) return;
       if (pc.connectionState === "connected") {
-        if (disconnectTimer) clearTimeout(disconnectTimer);
-        disconnectTimer = undefined;
         setStatus(
           grant.source === "desktop"
             ? "Connected — view only."
             : "Connected — synthetic video only.",
         );
       }
-      if (pc.connectionState === "disconnected" && !disconnectTimer) {
-        setStatus("Reconnecting video…");
-        disconnectTimer = setTimeout(
-          () => finish("Video connection interrupted."),
-          8000,
-        );
-      }
-      if (pc.connectionState === "failed")
-        finish("Video connection interrupted.");
+      // The native helper ends the lease on disconnection. Never suggest
+      // that this already-ended request can reconnect without fresh approval.
+      if (
+        pc.connectionState === "disconnected" ||
+        pc.connectionState === "failed" ||
+        pc.connectionState === "closed"
+      )
+        finish("Video connection interrupted. Request viewing again.");
     };
     pc.ontrack = (event) => {
       if (!element || closed || event.track.kind !== "video") return;
       element.srcObject = new MediaStream([event.track]);
-      void element.play().catch(() => {
-        if (!closed) {
-          setNeedsPlay(true);
-          setStatus("Press Play to view the stream.");
-        }
-      });
+      void play.current();
       if (element.requestVideoFrameCallback) {
         const count: VideoFrameRequestCallback = (time, metadata) => {
           if (closed) return;
@@ -456,23 +468,13 @@ export function LiveView({
               : "Synthetic Windows video"
           }
         />
-        {frames === 0 && (
+        {(frames === 0 || ended) && (
           <p className="viewer-placeholder" aria-hidden="true">
             {status}
           </p>
         )}
         {needsPlay && !ended && (
-          <button
-            className="viewer-play"
-            onClick={async () => {
-              try {
-                await video.current?.play();
-                setNeedsPlay(false);
-              } catch {
-                setStatus("Playback is blocked by the browser.");
-              }
-            }}
-          >
+          <button className="viewer-play" onClick={() => void play.current()}>
             Play video
           </button>
         )}

@@ -59,6 +59,12 @@ publishing credentials or request bodies.
 
 ## Tests and native fixture
 
+`pnpm --filter @beacon-remote/web test` runs the focused browser-playback
+lifetime regressions with the same pinned `tsx` tooling already used by the
+backend. It is included in `pnpm check`. These delayed-promise checks start no
+browser/native capture or consent prompt; actual Windows/Android playback and
+interruption acceptance remains separate.
+
 Backend test files run serially because they initialize a shared test schema.
 Individual tests still exercise concurrent invitation/enrollment requests and
 signaling peers. Validate against an empty `_test` database when changing schema
