@@ -17,20 +17,39 @@ foreach ($name in $expected) {
 $links = Join-Path ([Environment]::GetFolderPath('Programs')) 'Beacon Remote Development'
 if (Test-Path -LiteralPath $links) { throw 'Existing development shortcuts require review before installation' }
 # No elevation, startup task, service, firewall change or security-policy override.
-New-Item -ItemType Directory -Path $destination | Out-Null
-foreach ($name in $expected) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination $destination }
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'manifest.json') -Destination $destination
-New-Item -ItemType Directory -Path $links | Out-Null
-$shell = New-Object -ComObject WScript.Shell
-foreach ($action in @('Pair', 'Run', 'Uninstall')) {
-    $shortcut = $shell.CreateShortcut((Join-Path $links "$action.lnk"))
-    $shortcut.TargetPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $script = if ($action -eq 'Uninstall') { 'Uninstall.ps1' } else { 'Host.ps1' }
-    $shortcut.Arguments = '-NoProfile -File "' + (Join-Path $destination $script) + '"'
-    if ($action -ne 'Uninstall') { $shortcut.Arguments += " -Command $($action.ToLowerInvariant())" }
-    $shortcut.WorkingDirectory = $destination
-    $shortcut.Description = 'Beacon Remote unsigned internal development host'
-    $shortcut.Save()
+try {
+    New-Item -ItemType Directory -Path $destination | Out-Null
+    foreach ($name in $expected) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination $destination }
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'manifest.json') -Destination $destination
+    New-Item -ItemType Directory -Path $links | Out-Null
+    $shell = New-Object -ComObject WScript.Shell
+    foreach ($action in @('Pair', 'Run', 'Uninstall')) {
+        $shortcut = $shell.CreateShortcut((Join-Path $links "$action.lnk"))
+        $shortcut.TargetPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $script = if ($action -eq 'Uninstall') { 'Uninstall.ps1' } else { 'Host.ps1' }
+        $shortcut.Arguments = '-NoProfile -File "' + (Join-Path $destination $script) + '"'
+        if ($action -ne 'Uninstall') { $shortcut.Arguments += " -Command $($action.ToLowerInvariant())" }
+        $shortcut.WorkingDirectory = $destination
+        $shortcut.Description = 'Beacon Remote unsigned internal development host'
+        $shortcut.Save()
+    }
+} catch {
+    # Both roots were absent before this attempt. Remove only known artifacts;
+    # preserve unknown files and never recursively delete a computed directory.
+    foreach ($name in ($expected + @('manifest.json'))) {
+        $path = Join-Path $destination $name
+        if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -ErrorAction Continue }
+    }
+    foreach ($action in @('Pair', 'Run', 'Uninstall')) {
+        $path = Join-Path $links "$action.lnk"
+        if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -ErrorAction Continue }
+    }
+    foreach ($directory in @($links, $destination)) {
+        if ((Test-Path -LiteralPath $directory) -and -not (Get-ChildItem -LiteralPath $directory -Force)) {
+            Remove-Item -LiteralPath $directory -ErrorAction Continue
+        }
+    }
+    throw
 }
 Write-Host "Installed unsigned development build $($manifest.commit) for this user."
 Write-Host 'Use Start menu > Beacon Remote Development > Pair, then Run. Keep the visible Run console open.'
