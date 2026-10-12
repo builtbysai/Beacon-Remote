@@ -43,6 +43,13 @@ for (const [letters, first] of [
 for (let n = 1; n <= 10; n++) scans[`F${n}`] = 0x3a + n;
 scans.F11 = 0x57;
 scans.F12 = 0x58;
+scans.IntlBackslash = 0x56;
+scans.NumpadEqual = 0x59;
+scans.F13 = 0x64;
+scans.F14 = 0x65;
+scans.F15 = 0x66;
+scans.IntlRo = 0x73;
+scans.IntlYen = 0x7d;
 const extended: Record<string, number> = {
   ControlRight: 0x1d,
   AltRight: 0x38,
@@ -61,6 +68,7 @@ const extended: Record<string, number> = {
   ArrowRight: 0x4d,
   NumpadEnter: 0x1c,
   NumpadDivide: 0x35,
+  PrintScreen: 0x37,
 };
 [0x52, 0x4f, 0x50, 0x51, 0x4b, 0x4c, 0x4d, 0x47, 0x48, 0x49].forEach(
   (scan, n) => {
@@ -335,6 +343,13 @@ export function attachRemoteInput(
       )
         throw new Error();
       display = data;
+      // Ask the browser to deliver Alt+Tab, Win and similar keys to the remote computer while it
+      // is full screen. Unsupported browsers keep their own shortcuts; Ctrl+Alt+Del cannot be sent.
+      void (
+        navigator as Navigator & { keyboard?: { lock?: () => Promise<void> } }
+      ).keyboard
+        ?.lock?.()
+        .catch(() => undefined);
       onState(true);
       send({ type: "keep_alive" });
     } catch {
@@ -381,6 +396,9 @@ export function attachRemoteInput(
     disposed = true;
     clearInterval(heartbeat);
     clearInterval(longPress);
+    (
+      navigator as Navigator & { keyboard?: { unlock?: () => void } }
+    ).keyboard?.unlock?.();
     onState(false);
     channel.onmessage = null;
     channel.onclose = null;
