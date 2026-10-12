@@ -8,7 +8,8 @@ use std::{
     thread,
     time::Instant,
 };
-use windows_sys::Win32::Graphics::Gdi::{GetStockObject, DEFAULT_GUI_FONT};
+use windows_sys::Win32::Foundation::RECT;
+use windows_sys::Win32::Graphics::Gdi::COLOR_WINDOW;
 use windows_sys::Win32::System::SystemServices::SS_NOPREFIX;
 use windows_sys::Win32::UI::HiDpi::GetDpiForSystem;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
@@ -48,6 +49,9 @@ unsafe extern "system" fn procedure(
     wparam: usize,
     lparam: isize,
 ) -> isize {
+    if message == WM_CTLCOLORSTATIC {
+        return crate::window_style::static_background(wparam);
+    }
     if message == WM_NCCREATE {
         let creation = &*(lparam as *const CREATESTRUCTW);
         SetWindowLongPtrW(window, GWLP_USERDATA, creation.lpCreateParams as isize);
@@ -72,16 +76,30 @@ unsafe extern "system" fn procedure(
             DestroyWindow(window);
             return 0;
         }
-        let text = wide(if (*state).connected.load(Ordering::Acquire) {
+        let remaining = (*state).deadline.saturating_duration_since(Instant::now());
+        let seconds = remaining.as_secs() + u64::from(remaining.subsec_nanos() > 0);
+        let status = if (*state).connected.load(Ordering::Acquire) {
             if (*state).desktop {
-                "Connected — desktop sharing · View only"
+                "Sharing your screen · View only"
             } else {
-                "Connected — synthetic video only"
+                "Synthetic video test · No desktop"
             }
         } else {
-            "Connecting — waiting for the browser"
-        });
-        SetWindowTextW(GetDlgItem(window, STATUS_ID), text.as_ptr());
+            "Connecting to viewer"
+        };
+        let text = wide(&format!(
+            "{status} · {}:{:02} left",
+            seconds / 60,
+            seconds % 60
+        ));
+        let control = GetDlgItem(window, STATUS_ID);
+        let mut current = [0_u16; 128];
+        let length = GetWindowTextW(control, current.as_mut_ptr(), current.len() as i32).max(0);
+        // Keep the fast safety timer, but only repaint/announce a changed status
+        // or whole second instead of resetting accessible text ten times a second.
+        if current[..length as usize] != text[..text.len() - 1] {
+            SetWindowTextW(control, text.as_ptr());
+        }
     }
     if message == DM_GETDEFID {
         return ((DC_HASDEFID as usize) << 16 | STOP_ID as usize) as isize;
@@ -131,30 +149,43 @@ impl Indicator {
                     let class = wide("BeaconRemoteVisibleStop");
                     let dpi = GetDpiForSystem().max(96) as i32;
                     let scale = |value: i32| value * dpi / 96;
+                    let font = crate::window_style::Font::new(scale(16))?;
                     let definition = WNDCLASSW {
                         lpfnWndProc: Some(procedure),
                         hInstance: instance,
                         lpszClassName: class.as_ptr(),
                         hCursor: LoadCursorW(std::ptr::null_mut(), IDC_ARROW),
+                        hbrBackground: (COLOR_WINDOW + 1) as _,
                         ..Default::default()
                     };
                     if RegisterClassW(&definition) == 0 {
                         return Err(io::Error::last_os_error().into());
                     }
                     let title = wide(if desktop {
-                        "Beacon Remote — attended desktop view"
+                        "Beacon Remote — screen sharing"
                     } else {
                         "Beacon Remote — synthetic video test (no desktop)"
                     });
+                    let style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;
+                    let mut bounds = RECT {
+                        left: 0,
+                        top: 0,
+                        right: scale(560),
+                        bottom: scale(204),
+                    };
+                    if AdjustWindowRectEx(&mut bounds, style, 0, WS_EX_TOPMOST) == 0 {
+                        UnregisterClassW(class.as_ptr(), instance);
+                        return Err(io::Error::last_os_error().into());
+                    }
                     let window = CreateWindowExW(
                         WS_EX_TOPMOST,
                         class.as_ptr(),
                         title.as_ptr(),
-                        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
+                        style,
                         CW_USEDEFAULT,
                         CW_USEDEFAULT,
-                        scale(640),
-                        scale(310),
+                        bounds.right - bounds.left,
+                        bounds.bottom - bounds.top,
                         std::ptr::null_mut(),
                         std::ptr::null_mut(),
                         instance,
@@ -169,31 +200,49 @@ impl Indicator {
                         .chars()
                         .filter(|character| !character.is_control())
                         .collect::<String>();
-                    let details = wide(&format!("Beacon Remote\nController: {controller}\nView only · Ends within two minutes\nMicrophone, recording and remote input are disabled."));
+                    let details = wide("Viewer");
                     let identity = CreateWindowExW(
                         0,
                         label.as_ptr(),
                         details.as_ptr(),
                         WS_CHILD | WS_VISIBLE | SS_NOPREFIX,
                         scale(24),
-                        scale(16),
-                        scale(580),
-                        scale(100),
+                        scale(20),
+                        scale(512),
+                        scale(24),
                         window,
                         std::ptr::null_mut(),
                         instance,
                         std::ptr::null(),
                     );
-                    let status = wide("Connecting — waiting for the browser");
+                    let requester = CreateWindowExW(
+                        0,
+                        wide("EDIT").as_ptr(),
+                        wide(&controller).as_ptr(),
+                        WS_CHILD
+                            | WS_VISIBLE
+                            | WS_TABSTOP
+                            | ES_READONLY as u32
+                            | ES_AUTOHSCROLL as u32,
+                        scale(24),
+                        scale(48),
+                        scale(512),
+                        scale(28),
+                        window,
+                        std::ptr::null_mut(),
+                        instance,
+                        std::ptr::null(),
+                    );
+                    let status = wide("Connecting to viewer");
                     let status_control = CreateWindowExW(
                         0,
                         label.as_ptr(),
                         status.as_ptr(),
                         WS_CHILD | WS_VISIBLE | SS_NOPREFIX,
                         scale(24),
-                        scale(124),
-                        scale(580),
-                        scale(30),
+                        scale(96),
+                        scale(512),
+                        scale(28),
                         window,
                         STATUS_ID as usize as _,
                         instance,
@@ -201,7 +250,7 @@ impl Indicator {
                     );
                     let button = wide("BUTTON");
                     let caption = wide(if desktop {
-                        "Stop sharing now"
+                        "Stop sharing"
                     } else {
                         "Stop video test"
                     });
@@ -211,15 +260,16 @@ impl Indicator {
                         caption.as_ptr(),
                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON as u32,
                         scale(24),
-                        scale(174),
-                        scale(580),
-                        scale(55),
+                        scale(144),
+                        scale(512),
+                        scale(40),
                         window,
                         STOP_ID as usize as _,
                         instance,
                         std::ptr::null(),
                     );
                     if identity.is_null()
+                        || requester.is_null()
                         || status_control.is_null()
                         || control.is_null()
                         || SetTimer(window, 1, 100, None) == 0
@@ -233,13 +283,10 @@ impl Indicator {
                         UnregisterClassW(class.as_ptr(), instance);
                         return Err("View expired, stopped or input desktop unavailable".into());
                     }
-                    ShowWindow(window, SW_SHOW);
-                    let font = GetStockObject(DEFAULT_GUI_FONT);
-                    if !font.is_null() {
-                        for child in [identity, status_control, control] {
-                            SendMessageW(child, WM_SETFONT, font as usize, 1);
-                        }
+                    for child in [identity, requester, status_control, control] {
+                        SendMessageW(child, WM_SETFONT, font.0 as usize, 1);
                     }
+                    ShowWindow(window, SW_SHOW);
                     if SetForegroundWindow(window) == 0 {
                         let attention = FLASHWINFO {
                             cbSize: std::mem::size_of::<FLASHWINFO>() as u32,

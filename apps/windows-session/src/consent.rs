@@ -9,7 +9,7 @@ use std::{
 };
 use windows_sys::Win32::{
     Foundation::{HWND, RECT},
-    Graphics::Gdi::{CreateFontW, DeleteObject, COLOR_WINDOW, DEFAULT_CHARSET, HFONT},
+    Graphics::Gdi::COLOR_WINDOW,
     System::{
         LibraryLoader::GetModuleHandleW, SystemServices::SS_NOPREFIX, Threading::GetCurrentThreadId,
     },
@@ -17,14 +17,6 @@ use windows_sys::Win32::{
 };
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
-struct Font(HFONT);
-impl Drop for Font {
-    fn drop(&mut self) {
-        unsafe {
-            DeleteObject(self.0);
-        }
-    }
-}
 struct State {
     pending: Arc<AtomicBool>,
     deadline: Instant,
@@ -48,6 +40,9 @@ unsafe extern "system" fn procedure(
     wparam: usize,
     lparam: isize,
 ) -> isize {
+    if message == WM_CTLCOLORSTATIC {
+        return crate::window_style::static_background(wparam);
+    }
     if message == WM_NCCREATE {
         let creation = &*(lparam as *const CREATESTRUCTW);
         SetWindowLongPtrW(window, GWLP_USERDATA, creation.lpCreateParams as isize);
@@ -151,36 +146,18 @@ pub fn request(
         }
         let result = (|| -> Result<bool, Error> {
             let scale = |value: i32| value * GetDpiForSystem().max(96) as i32 / 96;
-            let font = Font(CreateFontW(
-                -scale(16),
-                0,
-                0,
-                0,
-                400,
-                0,
-                0,
-                0,
-                DEFAULT_CHARSET as u32,
-                0,
-                0,
-                0,
-                0,
-                wide("Segoe UI").as_ptr(),
-            ));
-            if font.0.is_null() {
-                return Err(io::Error::last_os_error().into());
-            }
+            let font = crate::window_style::Font::new(scale(16))?;
             let style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;
             let mut bounds = RECT {
                 left: 0,
                 top: 0,
-                right: scale(680),
-                bottom: scale(400),
+                right: scale(560),
+                bottom: scale(246),
             };
             if AdjustWindowRectEx(&mut bounds, style, 0, WS_EX_TOPMOST) == 0 {
                 return Err(io::Error::last_os_error().into());
             }
-            let title = wide("Beacon Remote — allow desktop viewing?");
+            let title = wide("Beacon Remote — share your screen?");
             let window = CreateWindowExW(
                 WS_EX_TOPMOST,
                 class.as_ptr(),
@@ -203,7 +180,7 @@ pub fn request(
                     .chars()
                     .filter(|character| !character.is_control())
                     .collect::<String>();
-                let text = wide(&format!("Requested by: {controller}\n\nAllow this browser to view your primary display for at most two minutes. A Windows capture border and local Stop sharing control stay visible.\n\nMicrophone, recording and remote input are disabled.\nLocking Windows ends sharing. A cancelled or expired request closes this prompt."));
+                let text = wide("Requested by");
                 let label_class = wide("STATIC");
                 let label = CreateWindowExW(
                     0,
@@ -212,8 +189,39 @@ pub fn request(
                     WS_CHILD | WS_VISIBLE | SS_NOPREFIX,
                     scale(24),
                     scale(20),
-                    scale(632),
-                    scale(292),
+                    scale(512),
+                    scale(24),
+                    window,
+                    std::ptr::null_mut(),
+                    instance,
+                    std::ptr::null(),
+                );
+                // Keep the complete account identity available even when it is
+                // too long for this compact window. Read-only text can be
+                // selected/scrolled; it can never change the granted requester.
+                let requester = CreateWindowExW(
+                    0,
+                    wide("EDIT").as_ptr(),
+                    wide(&controller).as_ptr(),
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_READONLY as u32 | ES_AUTOHSCROLL as u32,
+                    scale(24),
+                    scale(48),
+                    scale(512),
+                    scale(28),
+                    window,
+                    std::ptr::null_mut(),
+                    instance,
+                    std::ptr::null(),
+                );
+                let details = CreateWindowExW(
+                    0,
+                    label_class.as_ptr(),
+                    wide("View only · Primary display · Up to two minutes\nStop sharing anytime, or lock Windows.").as_ptr(),
+                    WS_CHILD | WS_VISIBLE | SS_NOPREFIX,
+                    scale(24),
+                    scale(100),
+                    scale(512),
+                    scale(64),
                     window,
                     std::ptr::null_mut(),
                     instance,
@@ -227,8 +235,8 @@ pub fn request(
                     decline.as_ptr(),
                     WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON as u32,
                     scale(24),
-                    scale(336),
-                    scale(300),
+                    scale(184),
+                    scale(244),
                     scale(42),
                     window,
                     IDNO as usize as _,
@@ -241,9 +249,9 @@ pub fn request(
                     button_class.as_ptr(),
                     allow.as_ptr(),
                     WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON as u32,
-                    scale(356),
-                    scale(336),
-                    scale(300),
+                    scale(292),
+                    scale(184),
+                    scale(244),
                     scale(42),
                     window,
                     IDYES as usize as _,
@@ -251,13 +259,15 @@ pub fn request(
                     std::ptr::null(),
                 );
                 if label.is_null()
+                    || requester.is_null()
+                    || details.is_null()
                     || no.is_null()
                     || yes.is_null()
                     || SetTimer(window, 1, 100, None) == 0
                 {
                     return Err(io::Error::last_os_error().into());
                 }
-                for child in [label, no, yes] {
+                for child in [label, requester, details, no, yes] {
                     SendMessageW(child, WM_SETFONT, font.0 as usize, 1);
                 }
                 // Recheck before showing: cancellation during initialization cannot

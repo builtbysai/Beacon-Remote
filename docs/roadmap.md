@@ -5,6 +5,21 @@ and attended-consent lifecycle work. Earlier PR #8/#9 media, interface, relay
 and owner mobile-data evidence remains recorded below. See
 [Claude handoff](CLAUDE_HANDOFF.md).
 
+Latest owner acceptance: the PR #25 native pair passed the guided real-device
+Decline/Escape, pending cancellation/re-request, manual desktop viewing and local
+Stop sequence, plus keyboard Stop. Fixtures are now stopped. Specific lock/expiry/recovery,
+route/performance and updated UI acceptance still remain; milestone 4 stays
+active. See [the consent validation](consent-validation-2026-10-12.md).
+
+The owner requested compact, polished Windows host surfaces with concise copy
+and a later one-time trusted-device setup. Current milestone 4 work simplifies
+the consent/Stop windows and shows actual remaining grant time. Full approved
+native host design belongs with milestone 6 and the ongoing UX track. Plan an
+explicit owner setup choice for remembered personal devices, durable device
+authorization and revocation in milestones 6–7; keep guest support attended and
+view/control scopes separate. Do not reuse attended approval or a browser cookie
+as permanent desktop permission. See [the access-mode decision](decisions/0014-personal-device-access-direction.md).
+
 ## Product and architecture
 
 The goal is Windows computer → authenticated browser → responsive desktop

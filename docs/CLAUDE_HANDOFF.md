@@ -2,6 +2,23 @@
 
 **Prepared 2026-10-10.** This is a continuation document, not a statement that every feature or release gate is complete. Recheck GitHub and the actual machines before acting.
 
+Latest owner test, October 12: PR #25 is merged at `d0bc0b9`, with required
+reviewed-head and merged-main checks passing. Matching `stop-2aa1510` binaries
+passed the owner's guided Decline/Escape, Android cancel/re-request, manual
+desktop viewing, local Stop and keyboard Stop checks. Both acceptance containers and the native
+fixture are stopped; STOP is restored and private identity retained. The owner
+cancelled the hourly automation, which was deleted. Continue only from owner
+prompts; do not recreate a schedule. Production media remains disabled.
+
+Current follow-up simplifies native consent/Stop copy and layout, aligns their
+DPI-scaled fonts/system colors and displays the original deadline's remaining
+time. This updated UI needs its own human appearance/navigation acceptance.
+Record physical lock/expiry/recovery and performance results only when actually
+observed. One-time personal-device setup is an approved product direction for
+later installation/account work, not automatic approval in attended mode.
+See [current consent evidence](consent-validation-2026-10-12.md) and
+[access-mode direction](decisions/0014-personal-device-access-direction.md).
+
 Latest native Stop hardening: PR #24 merged at `a68a430` after reviewed-head and
 merged-main CI passed. The next resilience slice enforces the original deadline
 and input-desktop boundary in the Stop window even while the browser is still
