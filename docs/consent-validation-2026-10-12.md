@@ -85,16 +85,79 @@ not started and no new desktop session was requested in this pass.
 
 ## Remaining milestone 4 gates
 
-| Scenario                               | Current evidence                                                       | Remaining acceptance                                                         |
-| -------------------------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Pending cancellation/disconnect/expiry | Loopback signaling and deadline checks                                 | Actual prompt closes, fresh request works                                    |
-| Window cleanup/reused thread           | Real hidden-window queue regression                                    | Visible repeated request/deny/cancel sequence                                |
-| Local Stop while connecting            | Noninput-desktop/expiry and Enter/Escape dispatcher regression         | Physical lock/unlock before peer connection, keyboard Stop and fresh request |
-| Keyboard and readability               | Native default Decline, dialog navigation, DPI-scaled text implemented | Human Enter/Escape/Tab/close and normal/high-DPI checks                      |
-| Desktop approval and Stop              | Historical owner Android/T-Mobile pass on earlier build                | Human Allow and local Stop with updated helper                               |
-| Lock/display/network loss              | Lease and input-desktop guards; hidden desktop regression              | Actual interruption stops capture; fresh approval required                   |
-| Refresh/logout/revoke/restarts         | Server authorization/recovery and helper lifetime checks               | Updated real-desktop interruption matrix                                     |
-| Performance and routes                 | Historical direct/relay and synthetic measurements                     | Updated desktop startup, FPS, CPU/RAM, route and sustained behavior          |
+### Owner acceptance with the PR #25 native pair
+
+The owner reported that all guided tests worked after this chat prepared the
+isolated acceptance backend and paired Windows fixture. The guided sequence
+covered default Decline/Escape with no desktop frames, Android cancellation of
+an open Windows prompt followed by a fresh request, manual Allow with actual
+desktop video, and local Stop. The supplied images show the real consent and
+connected Stop windows. The owner's feedback requests shorter copy, better
+native visual design, and later one-time trusted-device setup.
+
+Native status corroborates connected desktop sessions stopping and other
+requests ending as declined/cancelled/expired without capture. The status log
+does not distinguish those three denial causes or prove Android frame delivery;
+the owner's report supplies the human acceptance evidence. No pixels or
+credentials were retained as runtime evidence. This report applies to source
+`2aa1510eb69c80cb3d572ef2be7dbc8ed244bd45`, not subsequent UI changes.
+
+The backend/web used the unchanged `00135e2` acceptance images. Resume at
+12:37:25 UTC passed isolated origin/database/role, exact image labels, no published
+ports, preserved relay/session configuration and one-hour shutdown-command
+checks. Landing/health/ready returned 200; anonymous machines returned 401.
+Remote and View production health/readiness returned 200, and image IDs/start
+times matched for every protected/shared container. Production media remained
+disabled. Protected baseline/receipt files are
+`/etc/beacon-remote/acceptance-resume-20261012-chat13019-{baseline,receipt}.json`.
+
+After the owner's report, both acceptance application containers were stopped;
+the Windows runner exited and its STOP marker was restored. The original DPAPI
+identity and private test login were preserved. The owner cancelled the hourly
+continuation automation; it was deleted, with no replacement schedule.
+
+Physical lock/unlock, keyboard Stop, automatic expiry, refresh/logout/revoke,
+restarts, network/display loss, measured routes and sustained performance remain
+unverified for this pair unless the owner supplies specific additional results.
+Milestone 4 remains active and production media remains disabled.
+
+### Compact native follow-up
+
+The follow-up reduces consent/Stop client areas to 560×246 and 560×204 logical
+pixels, respectively. Both use DPI-scaled Segoe UI and system text/background
+colors, including high contrast. Requester identity is a read-only scrollable
+field so a long account name remains inspectable. Consent retains focused/default
+Decline, explicit Allow, view-only/primary-display/duration text and local
+Stop/lock guidance. The Stop window has a remaining-time display derived from
+the original monotonic deadline; its safety timer still runs every 100 ms while
+accessible status text changes only when the displayed value changes.
+
+Local Rust formatting, MSVC Clippy, native regressions and optimized build passed
+for this follow-up; repository Prettier formatting also passed. Existing checks
+cover real hidden-window destruction/queue reuse, noninput-desktop denial,
+connecting Stop expiry and Enter/Escape, real loopback consent cancellation,
+late replies and helper job termination. No human consent was automated and no
+desktop was captured by validation. Backend/web/protocol/schema and production
+deployment are unchanged; local control-plane tests were not rerun for this
+native-only implementation. Hosted required CI must pass at the reviewed head
+before merging.
+
+The screenshots supplied by the owner show the predecessor layout, not this
+follow-up. Updated native appearance, high-DPI/high-contrast and full keyboard
+navigation need human verification. This compact revision is not the full
+approved branded host/tray UI. Never claim those remaining appearance checks
+from compilation or hidden-window regressions.
+
+| Scenario                               | Current evidence                                                                          | Remaining acceptance                                                         |
+| -------------------------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Pending cancellation/disconnect/expiry | Owner passed Android cancellation and fresh request; loopback/deadline checks             | Actual disconnect and automatic expiry                                       |
+| Window cleanup/reused thread           | Owner passed repeated request/deny/cancel sequence; hidden-window regression              | Broader lifecycle matrix                                                     |
+| Local Stop while connecting            | Noninput-desktop/expiry and Enter/Escape dispatcher regression                            | Physical lock/unlock before peer connection, keyboard Stop and fresh request |
+| Keyboard and readability               | Native default Decline, dialog navigation, DPI-scaled text implemented                    | Human Enter/Escape/Tab/close and normal/high-DPI checks                      |
+| Desktop approval and Stop              | Owner passed manual Allow, actual Android desktop video and local Stop with PR #25 helper | Updated compact UI and broader interruption matrix                           |
+| Lock/display/network loss              | Lease and input-desktop guards; hidden desktop regression                                 | Actual interruption stops capture; fresh approval required                   |
+| Refresh/logout/revoke/restarts         | Server authorization/recovery and helper lifetime checks                                  | Updated real-desktop interruption matrix                                     |
+| Performance and routes                 | Historical direct/relay and synthetic measurements                                        | Updated desktop startup, FPS, CPU/RAM, route and sustained behavior          |
 
 The operator prepares/rechecks the bounded test backend and starts only the
 paired native fixture when the person is ready. The person uses Windows

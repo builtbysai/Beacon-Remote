@@ -12,6 +12,8 @@ mod media;
 mod pixels;
 #[cfg(any(windows, test))]
 mod renewal;
+#[cfg(windows)]
+mod window_style;
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     #[cfg(windows)]
