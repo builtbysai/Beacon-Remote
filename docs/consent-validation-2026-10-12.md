@@ -94,6 +94,10 @@ an open Windows prompt followed by a fresh request, manual Allow with actual
 desktop video, and local Stop. The supplied images show the real consent and
 connected Stop windows. The owner's feedback requests shorter copy, better
 native visual design, and later one-time trusted-device setup.
+In a follow-up, the owner also confirmed keyboard Stop worked, and explicitly
+said lock/unlock, automatic expiry, refresh/logout and network loss were not
+tested. The exact keyboard action was not specified; this is not evidence for
+every Tab/Enter/Escape navigation path.
 
 Native status corroborates connected desktop sessions stopping and other
 requests ending as declined/cancelled/expired without capture. The status log
@@ -116,7 +120,7 @@ the Windows runner exited and its STOP marker was restored. The original DPAPI
 identity and private test login were preserved. The owner cancelled the hourly
 continuation automation; it was deleted, with no replacement schedule.
 
-Physical lock/unlock, keyboard Stop, automatic expiry, refresh/logout/revoke,
+Physical lock/unlock, automatic expiry, refresh/logout/revoke,
 restarts, network/display loss, measured routes and sustained performance remain
 unverified for this pair unless the owner supplies specific additional results.
 Milestone 4 remains active and production media remains disabled.
@@ -148,16 +152,16 @@ navigation need human verification. This compact revision is not the full
 approved branded host/tray UI. Never claim those remaining appearance checks
 from compilation or hidden-window regressions.
 
-| Scenario                               | Current evidence                                                                          | Remaining acceptance                                                         |
-| -------------------------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Pending cancellation/disconnect/expiry | Owner passed Android cancellation and fresh request; loopback/deadline checks             | Actual disconnect and automatic expiry                                       |
-| Window cleanup/reused thread           | Owner passed repeated request/deny/cancel sequence; hidden-window regression              | Broader lifecycle matrix                                                     |
-| Local Stop while connecting            | Noninput-desktop/expiry and Enter/Escape dispatcher regression                            | Physical lock/unlock before peer connection, keyboard Stop and fresh request |
-| Keyboard and readability               | Native default Decline, dialog navigation, DPI-scaled text implemented                    | Human Enter/Escape/Tab/close and normal/high-DPI checks                      |
-| Desktop approval and Stop              | Owner passed manual Allow, actual Android desktop video and local Stop with PR #25 helper | Updated compact UI and broader interruption matrix                           |
-| Lock/display/network loss              | Lease and input-desktop guards; hidden desktop regression                                 | Actual interruption stops capture; fresh approval required                   |
-| Refresh/logout/revoke/restarts         | Server authorization/recovery and helper lifetime checks                                  | Updated real-desktop interruption matrix                                     |
-| Performance and routes                 | Historical direct/relay and synthetic measurements                                        | Updated desktop startup, FPS, CPU/RAM, route and sustained behavior          |
+| Scenario                               | Current evidence                                                                           | Remaining acceptance                                                |
+| -------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| Pending cancellation/disconnect/expiry | Owner passed Android cancellation and fresh request; loopback/deadline checks              | Actual disconnect and automatic expiry                              |
+| Window cleanup/reused thread           | Owner passed repeated request/deny/cancel sequence; hidden-window regression               | Broader lifecycle matrix                                            |
+| Local Stop while connecting            | Owner passed keyboard Stop; noninput-desktop/expiry and Enter/Escape dispatcher regression | Physical lock/unlock before peer connection and fresh request       |
+| Keyboard and readability               | Owner passed keyboard Stop; native default Decline and DPI-scaled text implemented         | Full Tab/Enter/Escape/close navigation and normal/high-DPI checks   |
+| Desktop approval and Stop              | Owner passed manual Allow, actual Android desktop video and local Stop with PR #25 helper  | Updated compact UI and broader interruption matrix                  |
+| Lock/display/network loss              | Lease and input-desktop guards; hidden desktop regression                                  | Actual interruption stops capture; fresh approval required          |
+| Refresh/logout/revoke/restarts         | Server authorization/recovery and helper lifetime checks                                   | Updated real-desktop interruption matrix                            |
+| Performance and routes                 | Historical direct/relay and synthetic measurements                                         | Updated desktop startup, FPS, CPU/RAM, route and sustained behavior |
 
 The operator prepares/rechecks the bounded test backend and starts only the
 paired native fixture when the person is ready. The person uses Windows

@@ -7,7 +7,7 @@ and owner mobile-data evidence remains recorded below. See
 
 Latest owner acceptance: the PR #25 native pair passed the guided real-device
 Decline/Escape, pending cancellation/re-request, manual desktop viewing and local
-Stop sequence. Fixtures are now stopped. Specific lock/expiry/recovery,
+Stop sequence, plus keyboard Stop. Fixtures are now stopped. Specific lock/expiry/recovery,
 route/performance and updated UI acceptance still remain; milestone 4 stays
 active. See [the consent validation](consent-validation-2026-10-12.md).
 

@@ -5,7 +5,7 @@
 Latest owner test, October 12: PR #25 is merged at `d0bc0b9`, with required
 reviewed-head and merged-main checks passing. Matching `stop-2aa1510` binaries
 passed the owner's guided Decline/Escape, Android cancel/re-request, manual
-desktop viewing and local Stop checks. Both acceptance containers and the native
+desktop viewing, local Stop and keyboard Stop checks. Both acceptance containers and the native
 fixture are stopped; STOP is restored and private identity retained. The owner
 cancelled the hourly automation, which was deleted. Continue only from owner
 prompts; do not recreate a schedule. Production media remains disabled.
