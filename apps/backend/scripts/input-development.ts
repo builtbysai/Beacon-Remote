@@ -78,7 +78,7 @@ try {
   );
   const loginToken = randomBytes(32).toString("base64url");
   await pool.query(
-    "INSERT INTO browser_sessions VALUES ($1,$2,now()+interval '15 minutes')",
+    "INSERT INTO browser_sessions VALUES ($1,$2,now()+interval '30 minutes')",
     [createHash("sha256").update(loginToken).digest("hex"), account],
   );
   app = await createApp(pool, {
@@ -129,7 +129,7 @@ try {
     JSON.stringify({ origin, email, password }),
   );
   console.log(
-    "Isolated input development: http://127.0.0.1:5175 — login in .remote-dev/input-development/login.json. Local Windows approval remains mandatory. Ends after 15 minutes.",
+    "Isolated input development: http://127.0.0.1:5175 — login in .remote-dev/input-development/login.json. Local Windows approval remains mandatory. Ends after 30 minutes.",
   );
   const handled = new Set<string>();
   let polling = false;
@@ -194,7 +194,7 @@ try {
   }
   await heartbeat();
   tick = setInterval(() => void heartbeat(), 1000);
-  setTimeout(() => void stop(), 15 * 60_000).unref();
+  setTimeout(() => void stop(), 30 * 60_000).unref();
 } catch (error) {
   await stop();
   throw error;
