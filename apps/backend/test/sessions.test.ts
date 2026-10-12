@@ -100,12 +100,20 @@ test(
       sockets.push(socket);
       return socket;
     };
-    const received = async (socket: WebSocket, send: () => void) => {
+    const received = async (
+      socket: WebSocket,
+      send: () => void,
+      label = "signal",
+    ) => {
       const message = once(socket, "message", {
         signal: AbortSignal.timeout(3000),
       });
       send();
-      return JSON.parse((await message)[0].toString());
+      try {
+        return JSON.parse((await message)[0].toString());
+      } catch (cause) {
+        throw new Error(`Timed out waiting for ${label}`, { cause });
+      }
     };
     try {
       await pool.query(
@@ -405,6 +413,13 @@ test(
         }),
         { type: "offer", sdp: "fresh", generation: 1 },
       );
+      assert.deepEqual(
+        await received(replacementViewer, () => {
+          reloadNative.send(JSON.stringify({ type: "retry", generation: 0 }));
+          reloadNative.send(JSON.stringify({ type: "retry", generation: 1 }));
+        }),
+        { type: "retry", generation: 1 },
+      );
       assert.equal(
         (
           await pool.query(
@@ -493,6 +508,48 @@ test(
         );
       }
 
+      for (const boundary of ["before-consent", "viewer-role"]) {
+        const retryGrant = await create();
+        assert.equal(retryGrant.statusCode, 200);
+        const retryId = retryGrant.json().id as string;
+        const retryToken = (await beat())[0]!.token;
+        const retryViewer = await connect(retryId, "viewer", headers);
+        const retryNative = await connect(retryId, "machine", {
+          authorization: `Bearer ${retryToken}`,
+        });
+        if (boundary === "viewer-role") {
+          await received(retryViewer, () =>
+            retryNative.send(
+              JSON.stringify({
+                type: "consent",
+                accepted: true,
+                resumable: true,
+              }),
+            ),
+          );
+        }
+        const destination = retryViewer;
+        const sender = boundary === "viewer-role" ? retryViewer : retryNative;
+        assert.equal(
+          (
+            await received(
+              destination,
+              () =>
+                sender.send(JSON.stringify({ type: "retry", generation: 0 })),
+              boundary,
+            )
+          ).type,
+          "ended",
+        );
+        assert.equal(
+          (
+            await pool.query("SELECT status FROM view_sessions WHERE id=$1", [
+              retryId,
+            ])
+          ).rows[0].status,
+          "ended",
+        );
+      }
       const logoutGrant = await create();
       assert.equal(logoutGrant.statusCode, 200);
       const logoutId = logoutGrant.json().id as string;

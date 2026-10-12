@@ -21,7 +21,7 @@ export function peerLifetime(
           interrupted();
           cancel = schedule(() => {
             if (!disposed) ended();
-          }, 3000);
+          }, 2000);
         }
       } else {
         cancel?.();

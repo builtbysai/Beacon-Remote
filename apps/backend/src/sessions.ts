@@ -36,6 +36,12 @@ const params = z.object({ id: z.uuid() });
 const signal = z.discriminatedUnion("type", [
   z
     .object({
+      type: z.literal("retry"),
+      generation: z.number().int().min(0).max(16),
+    })
+    .strict(),
+  z
+    .object({
       type: z.literal("offer"),
       sdp: z.string().min(1).max(32768),
       generation: z.number().int().min(0).max(16).optional(),
@@ -558,7 +564,8 @@ export async function registerSessions(
             if (
               (body.type === "offer" ||
                 body.type === "answer" ||
-                body.type === "candidate") &&
+                body.type === "candidate" ||
+                body.type === "retry") &&
               (body.generation ?? 0) !== live.generation
             )
               return;
@@ -645,6 +652,8 @@ export async function registerSessions(
             }
             if (
               (body.type === "offer" && role !== "machine") ||
+              (body.type === "retry" &&
+                (role !== "machine" || !live.resumable)) ||
               (body.type === "answer" && role !== "viewer")
             ) {
               await finish(session.id);
