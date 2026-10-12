@@ -853,24 +853,232 @@ footer {
   text-align: center;
 }
 .live-view {
-  margin: 24px 0;
-  padding: 20px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--surface);
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  background: #0b1119;
+  color: #eef4fc;
 }
-video {
-  display: block;
-  width: 100%;
-  max-height: 70vh;
-  background: #000;
-  border-radius: 7px;
+.live-view .viewer-toolbar {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 8px 16px;
+  background: #172331;
+  border: 0;
+  border-bottom: 1px solid #34475c;
+  color: #eef4fc;
 }
-.live-view p {
+.viewer-identity {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+.viewer-identity strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+.viewer-identity span {
+  color: #aac0d8;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.viewer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.viewer-scale {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #b7c7d9;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.viewer-scale select {
+  width: auto;
+  min-width: 64px;
+  padding: 6px 9px;
+  background: #22344a;
+  border-color: #40536a;
+  color: #fff;
+}
+.viewer-control,
+.viewer-diagnostics summary,
+.viewer-stop {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  padding: 6px 11px;
   font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
 }
-.live-view button {
-  margin-top: 12px;
+.viewer-control,
+.viewer-diagnostics summary {
+  background: #22344a;
+  border: 1px solid #40536a;
+  color: #eef4fc;
+}
+.viewer-control:hover,
+.viewer-diagnostics summary:hover {
+  background: #304760;
+}
+.viewer-stop {
+  border: 1px solid #d55b62;
+  background: #b6373d;
+  color: #fff;
+}
+.viewer-stop:hover {
+  background: #982c33;
+}
+.viewer-diagnostics {
+  position: relative;
+}
+.viewer-diagnostics summary {
+  cursor: pointer;
+  list-style: none;
+}
+.viewer-diagnostics summary::-webkit-details-marker {
+  display: none;
+}
+.viewer-diagnostics-panel {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  top: calc(100% + 10px);
+  width: min(330px, calc(100vw - 24px));
+  max-height: min(560px, calc(100dvh - 95px));
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid #40536a;
+  border-radius: 8px;
+  background: #172331;
+  box-shadow: 0 18px 48px #0008;
+}
+.viewer-diagnostics-panel p {
+  margin: 0 0 9px;
+  color: #d0dce9;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.viewer-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #080c12;
+}
+.viewer-stage video {
+  display: block;
+  background: #000;
+}
+.viewer-stage.fit video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.viewer-stage.actual {
+  display: block;
+  text-align: center;
+}
+.viewer-stage.actual video {
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  margin: auto;
+}
+.viewer-placeholder {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(360px, calc(100% - 32px));
+  text-align: center;
+  color: #d0dce9;
+  font-size: 13px;
+  pointer-events: none;
+}
+.viewer-play {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 34px);
+  transform: translateX(-50%);
+  padding: 9px 16px;
+  border: 1px solid #7ca5de;
+  border-radius: 6px;
+  background: #2158bd;
+  color: #fff;
+  font-weight: 650;
+}
+.live-view .viewer-status {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 7px 16px;
+  background: #172331;
+  border: 0;
+  border-top: 1px solid #34475c;
+  color: #c1d0e1;
+  font-size: 11px;
+  text-align: left;
+}
+.viewer-status [role="alert"] {
+  color: #ffb8bd;
+}
+@media (max-width: 650px) {
+  .live-view .viewer-toolbar {
+    flex-wrap: wrap;
+    gap: 7px;
+    padding: 7px 10px;
+  }
+  .viewer-identity {
+    width: 100%;
+  }
+  .viewer-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 5px;
+  }
+  .viewer-scale {
+    font-size: 0;
+  }
+  .viewer-scale select {
+    font-size: 12px;
+  }
+  .viewer-control,
+  .viewer-diagnostics summary,
+  .viewer-stop {
+    padding-inline: 8px;
+    font-size: 11px;
+  }
+  .viewer-diagnostics-panel {
+    right: -64px;
+  }
+  .live-view .viewer-status {
+    padding-bottom: calc(7px + env(safe-area-inset-bottom));
+  }
 }
 li {
   margin: 10px 0;

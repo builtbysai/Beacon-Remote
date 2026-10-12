@@ -18,7 +18,12 @@ export function LiveView({
   onClose: () => void;
 }) {
   const video = useRef<HTMLVideoElement>(null);
+  const shell = useRef<HTMLElement>(null);
   const stop = useRef<() => void>(() => {});
+  const [scale, setScale] = useState<"fit" | "actual">("fit");
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [needsPlay, setNeedsPlay] = useState(false);
+  const [displayError, setDisplayError] = useState("");
   const [status, setStatus] = useState(
     grant.source === "desktop"
       ? "Approve this request on your Windows computer…"
@@ -43,6 +48,12 @@ export function LiveView({
   const [presentedFps, setPresentedFps] = useState<number | null>(null);
   const [roundTripMillis, setRoundTripMillis] = useState<number | null>(null);
   useEffect(() => {
+    const sync = () =>
+      setIsFullscreen(document.fullscreenElement === shell.current);
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+  useEffect(() => {
     const startedAt = performance.now();
     let approvedAt: number | undefined;
     let firstFrameAt: number | undefined;
@@ -64,10 +75,12 @@ export function LiveView({
     let frameCallback = 0;
     let lastCount = 0;
     let previousFrames = 0;
+    let disconnectTimer: ReturnType<typeof setTimeout> | undefined;
     const element = video.current;
     function finish(reason: string) {
       if (closed) return;
       closed = true;
+      if (disconnectTimer) clearTimeout(disconnectTimer);
       setStatus(reason);
       setEnded(true);
       pc.close();
@@ -80,6 +93,7 @@ export function LiveView({
       void fetch(`/api/sessions/${grant.id}/stop`, {
         method: "POST",
         credentials: "same-origin",
+        keepalive: true,
         headers: { "Content-Type": "application/json" },
         body: "{}",
       }).catch(() => {});
@@ -113,20 +127,33 @@ export function LiveView({
     };
     pc.onconnectionstatechange = () => {
       if (closed) return;
-      if (pc.connectionState === "connected")
+      if (pc.connectionState === "connected") {
+        if (disconnectTimer) clearTimeout(disconnectTimer);
+        disconnectTimer = undefined;
         setStatus(
           grant.source === "desktop"
             ? "Connected — view only."
             : "Connected — synthetic video only.",
         );
-      if (["failed", "disconnected"].includes(pc.connectionState))
+      }
+      if (pc.connectionState === "disconnected" && !disconnectTimer) {
+        setStatus("Reconnecting video…");
+        disconnectTimer = setTimeout(
+          () => finish("Video connection interrupted."),
+          8000,
+        );
+      }
+      if (pc.connectionState === "failed")
         finish("Video connection interrupted.");
     };
     pc.ontrack = (event) => {
       if (!element || closed || event.track.kind !== "video") return;
       element.srcObject = new MediaStream([event.track]);
       void element.play().catch(() => {
-        if (!closed) setStatus("Press Play to view the stream.");
+        if (!closed) {
+          setNeedsPlay(true);
+          setStatus("Press Play to view the stream.");
+        }
       });
       if (element.requestVideoFrameCallback) {
         const count: VideoFrameRequestCallback = (time, metadata) => {
@@ -240,6 +267,8 @@ export function LiveView({
     const timer = setInterval(() => {
       if (Date.now() >= grant.expiresAtMillis) finish("Session expired.");
     }, 500);
+    const onPageHide = () => finish("Stopped.");
+    window.addEventListener("pagehide", onPageHide);
     let inspecting = false;
     const diagnostics = setInterval(() => {
       if (closed || inspecting || pc.connectionState !== "connected") return;
@@ -304,102 +333,157 @@ export function LiveView({
     return () => {
       clearInterval(timer);
       clearInterval(diagnostics);
+      window.removeEventListener("pagehide", onPageHide);
       finish("Stopped.");
     };
   }, [grant]);
   return (
-    <aside className="live-view">
-      <h2>
-        {name} —{" "}
-        {grant.source === "desktop" ? "desktop view" : "video connection test"}
-      </h2>
-      <p>
-        {grant.source === "desktop"
-          ? "View only. Sharing requires approval on Windows and ends after two minutes. Microphone, recording and remote input are disabled."
-          : "Synthetic video only. Your desktop, microphone and input are not shared."}
-      </p>
-      <video
-        ref={video}
-        autoPlay
-        muted
-        playsInline
-        controls
-        aria-label={
-          grant.source === "desktop"
-            ? "Windows desktop video"
-            : "Synthetic Windows video"
-        }
-      />
-      <p role="status" data-decoded-frames={frames}>
-        {status}
-      </p>
-      <details>
-        <summary>Connection diagnostics</summary>
-        <p>Decoded frames: {frames}</p>
-        <p>
-          Presented FPS:{" "}
-          {presentedFps === null ? "Not measured" : presentedFps.toFixed(1)}
-        </p>
-        <p>
-          Round trip:{" "}
-          {roundTripMillis === null
-            ? "Not measured"
-            : `${Math.round(roundTripMillis)} ms`}
-        </p>
-        <p>
-          {grant.source === "desktop" ? "Approval received" : "Host ready"}:{" "}
-          {timings.approval === undefined
-            ? "Pending"
-            : `${Math.round(timings.approval)} ms`}
-        </p>
-        <p>
-          First presented frame:{" "}
-          {timings.firstFrame === undefined
-            ? "Not received"
-            : `${Math.round(timings.firstFrame)} ms`}
-        </p>
-        <p>
-          Approval to first frame:{" "}
-          {timings.afterApproval === undefined
-            ? "Not measured"
-            : `${Math.round(timings.afterApproval)} ms`}
-        </p>
-        <p>
-          Timings start at viewer setup. Approval time includes the person's
-          response; it does not measure when the Windows dialog appeared.
-          Presented FPS can drop when this browser tab is hidden.
-        </p>
-        <p>Connection route: {route}</p>
-        <p>ICE state: {iceState}</p>
-        <p>Browser ICE policy: {policy}</p>
-        <p>Selected candidate types: {candidateTypes}</p>
-        <p>
-          Relay candidates: browser {localRelays}, Windows {remoteRelays}
-        </p>
-        {iceError !== null && <p>ICE server error code: {iceError}</p>}
-      </details>
-      {grant.source === "desktop" && !ended && (
-        <div className="actions">
-          <button disabled title="Pause and resume are not available yet">
-            Pause sharing
+    <section
+      ref={shell}
+      className="live-view"
+      aria-label={`${name} remote viewer`}
+    >
+      <header className="viewer-toolbar">
+        <div className="viewer-identity">
+          <strong>{name}</strong>
+          <span>{grant.source === "desktop" ? "View only" : "Video test"}</span>
+        </div>
+        <div className="viewer-actions">
+          <label className="viewer-scale">
+            Scale
+            <select
+              aria-label="Video scale"
+              value={scale}
+              onChange={(event) =>
+                setScale(event.target.value as "fit" | "actual")
+              }
+            >
+              <option value="fit">Fit</option>
+              <option value="actual">100%</option>
+            </select>
+          </label>
+          <button
+            className="viewer-control"
+            onClick={async () => {
+              try {
+                if (isFullscreen) await document.exitFullscreen();
+                else await shell.current?.requestFullscreen();
+                setDisplayError("");
+              } catch {
+                setDisplayError("Full screen is unavailable in this browser.");
+              }
+            }}
+          >
+            {isFullscreen ? "Exit full screen" : "Full screen"}
           </button>
-          <button disabled title="This session permits viewing only">
-            Request control
+          <details className="viewer-diagnostics">
+            <summary>Connection</summary>
+            <div className="viewer-diagnostics-panel">
+              <p>Decoded frames: {frames}</p>
+              <p>
+                Presented FPS:{" "}
+                {presentedFps === null
+                  ? "Not measured"
+                  : presentedFps.toFixed(1)}
+              </p>
+              <p>
+                Round trip:{" "}
+                {roundTripMillis === null
+                  ? "Not measured"
+                  : `${Math.round(roundTripMillis)} ms`}
+              </p>
+              <p>
+                {grant.source === "desktop"
+                  ? "Approval received"
+                  : "Host ready"}
+                :{" "}
+                {timings.approval === undefined
+                  ? "Pending"
+                  : `${Math.round(timings.approval)} ms`}
+              </p>
+              <p>
+                First presented frame:{" "}
+                {timings.firstFrame === undefined
+                  ? "Not received"
+                  : `${Math.round(timings.firstFrame)} ms`}
+              </p>
+              <p>
+                Approval to first frame:{" "}
+                {timings.afterApproval === undefined
+                  ? "Not measured"
+                  : `${Math.round(timings.afterApproval)} ms`}
+              </p>
+              <p>
+                Timings start at viewer setup. Approval time includes the
+                person's response; it does not measure when the Windows dialog
+                appeared. Presented FPS can drop when this browser tab is
+                hidden.
+              </p>
+              <p>Connection route: {route}</p>
+              <p>ICE state: {iceState}</p>
+              <p>Browser ICE policy: {policy}</p>
+              <p>Selected candidate types: {candidateTypes}</p>
+              <p>
+                Relay candidates: browser {localRelays}, Windows {remoteRelays}
+              </p>
+              {iceError !== null && <p>ICE server error code: {iceError}</p>}
+            </div>
+          </details>
+          <button
+            className="viewer-stop"
+            onClick={() => {
+              stop.current();
+              onClose();
+            }}
+          >
+            {ended
+              ? "Close"
+              : grant.source === "desktop"
+                ? "Stop viewing"
+                : "Stop video test"}
           </button>
         </div>
-      )}
-      <button
-        onClick={() => {
-          stop.current();
-          onClose();
-        }}
-      >
-        {ended
-          ? "Close"
-          : grant.source === "desktop"
-            ? "Stop viewing"
-            : "Stop video test"}
-      </button>
-    </aside>
+      </header>
+      <div className={`viewer-stage ${scale}`}>
+        <video
+          ref={video}
+          autoPlay
+          muted
+          playsInline
+          aria-label={
+            grant.source === "desktop"
+              ? "Windows desktop video"
+              : "Synthetic Windows video"
+          }
+        />
+        {frames === 0 && (
+          <p className="viewer-placeholder" aria-hidden="true">
+            {status}
+          </p>
+        )}
+        {needsPlay && !ended && (
+          <button
+            className="viewer-play"
+            onClick={async () => {
+              try {
+                await video.current?.play();
+                setNeedsPlay(false);
+              } catch {
+                setStatus("Playback is blocked by the browser.");
+              }
+            }}
+          >
+            Play video
+          </button>
+        )}
+      </div>
+      <footer className="viewer-status">
+        <span role="status" data-decoded-frames={frames}>
+          {status}
+        </span>
+        {route !== "Not established" && <span>{route}</span>}
+        {displayError && <span role="alert">{displayError}</span>}
+      </footer>
+    </section>
   );
 }
