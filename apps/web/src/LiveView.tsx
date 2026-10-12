@@ -3,6 +3,8 @@ import { playForSession } from "./playback.js";
 import { viewDeadline } from "./deadline.js";
 import { rememberView, forgetView } from "./resume-view.js";
 import { peerLifetime } from "./peer-lifetime.js";
+import { recoverTransport } from "./recover-transport.js";
+import { api } from "./api.js";
 
 export type ViewGrant = {
   id: string;
@@ -52,6 +54,8 @@ export function LiveView({
   }>({});
   const [presentedFps, setPresentedFps] = useState<number | null>(null);
   const [roundTripMillis, setRoundTripMillis] = useState<number | null>(null);
+  const [transportAttempt, setTransportAttempt] = useState(0);
+  const attempts = useRef(0);
   useEffect(() => {
     const sync = () =>
       setIsFullscreen(document.fullscreenElement === shell.current);
@@ -67,9 +71,15 @@ export function LiveView({
     );
     let approvedAt: number | undefined;
     let firstFrameAt: number | undefined;
+    setEnded(false);
+    setFrames(0);
+    setNeedsPlay(false);
+    setTimings({});
+    if (transportAttempt > 0) setStatus("Reconnecting video…");
     const pc = new RTCPeerConnection({
       iceServers: grant.iceServers,
       iceTransportPolicy: grant.iceTransportPolicy,
+      iceCandidatePoolSize: 1,
     });
     setPolicy(pc.getConfiguration().iceTransportPolicy ?? "all");
     const url = new URL(
@@ -79,6 +89,11 @@ export function LiveView({
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(url);
     let closed = false;
+    let finished = false;
+    let recovering = false;
+    let replaced = false;
+    let socketClosed = () => {};
+    const recoveryAbort = new AbortController();
     let resumable = false;
     let generation = 0;
     let messages = 0;
@@ -90,15 +105,11 @@ export function LiveView({
     const element = video.current;
     const peer = peerLifetime(
       () => setStatus("Reconnecting video…"),
-      () => finish("Video connection interrupted. Request viewing again."),
+      () => void reconnect(),
     );
-    function finish(reason: string, reloading = false) {
+    function closeTransport() {
       if (closed) return;
       closed = true;
-      if (!reloading) forgetView();
-      setStatus(reason);
-      setEnded(true);
-      setNeedsPlay(false);
       peer.dispose();
       pc.close();
       ws.close();
@@ -108,6 +119,19 @@ export function LiveView({
         element.pause();
         element.srcObject = null;
       }
+    }
+    function stopRequest() {
+      return api(`sessions/${grant.id}/stop`, {}).catch(() => {});
+    }
+    function finish(reason: string, reloading = false) {
+      if (finished) return;
+      finished = true;
+      recoveryAbort.abort();
+      if (!reloading) forgetView();
+      setStatus(reason);
+      setEnded(true);
+      setNeedsPlay(false);
+      closeTransport();
       if (!reloading)
         void fetch(`/api/sessions/${grant.id}/stop`, {
           method: "POST",
@@ -116,6 +140,53 @@ export function LiveView({
           headers: { "Content-Type": "application/json" },
           body: "{}",
         }).catch(() => {});
+    }
+    async function reconnect() {
+      if (finished || recovering) return;
+      if (!resumable || attempts.current >= 2 || expired()) {
+        finish("Video connection interrupted. Request viewing again.");
+        return;
+      }
+      recovering = true;
+      attempts.current++;
+      setStatus("Reconnecting video…");
+      setFrames(0);
+      const closedSocket = new Promise<void>((resolve) => {
+        socketClosed = resolve;
+        if (ws.readyState === WebSocket.CLOSED) resolve();
+      });
+      closeTransport();
+      try {
+        // Wait for the old socket close handshake so the server can detach its
+        // sole viewer before authorizing the original login's replacement.
+        await Promise.race([
+          closedSocket,
+          new Promise<void>((resolve) => setTimeout(resolve, 500)),
+        ]);
+        if (finished || expired()) return;
+        const recoveryTimer = setTimeout(() => recoveryAbort.abort(), 2000);
+        let resumed: ViewGrant | null;
+        try {
+          resumed = await recoverTransport(
+            grant,
+            () =>
+              api<ViewGrant>(
+                `sessions/${grant.id}/resume`,
+                {},
+                recoveryAbort.signal,
+              ),
+            () => !finished && !expired(),
+            stopRequest,
+          );
+        } finally {
+          clearTimeout(recoveryTimer);
+        }
+        if (!resumed) return;
+        replaced = true;
+        setTransportAttempt((value) => value + 1);
+      } catch {
+        if (!finished) finish("Could not reconnect. Request viewing again.");
+      }
     }
     stop.current = () => finish("Stopped.");
     play.current = () =>
@@ -209,8 +280,13 @@ export function LiveView({
         frameCallback = element.requestVideoFrameCallback(count);
       }
     };
-    ws.onerror = () => finish("Signaling connection failed.");
-    ws.onclose = () => finish("Session ended.");
+    ws.onerror = () => {
+      if (!recovering) finish("Signaling connection failed.");
+    };
+    ws.onclose = () => {
+      socketClosed();
+      if (!recovering) finish("Session ended.");
+    };
     ws.onmessage = (event) => {
       if (closed) return;
       if (
@@ -226,6 +302,10 @@ export function LiveView({
           if (closed) return;
           const message = JSON.parse(event.data) as Record<string, unknown>;
           switch (message.type) {
+            case "retry":
+              if (message.generation === generation && resumable)
+                void reconnect();
+              break;
             case "joined":
               if (
                 typeof message.generation === "number" &&
@@ -367,9 +447,13 @@ export function LiveView({
       clearInterval(timer);
       clearInterval(diagnostics);
       window.removeEventListener("pagehide", onPageHide);
-      finish("Stopped.");
+      if (!replaced) finish("Stopped.");
+      else closeTransport();
     };
-  }, [grant]);
+  }, [grant, transportAttempt]);
+  // A pending transport replacement must never suppress Stop on navigation or
+  // unmount. This cleanup does not run between attempts of the same grant.
+  useEffect(() => () => stop.current(), [grant]);
   return (
     <section
       ref={shell}

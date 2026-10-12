@@ -34,7 +34,8 @@ use webrtc::{
     media_stream::track_local::{static_sample::TrackLocalStaticSample, TrackLocal},
     peer_connection::{
         PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler, RTCConfigurationBuilder,
-        RTCIceCandidateInit, RTCIceServer, RTCIceTransportPolicy, RTCPeerConnectionIceEvent,
+        RTCIceCandidateInit, RTCIceConnectionState, RTCIceGatheringState, RTCIceServer,
+        RTCIceTransportPolicy, RTCPeerConnectionIceErrorEvent, RTCPeerConnectionIceEvent,
         RTCPeerConnectionState, RTCSessionDescription,
     },
     runtime::TokioRuntime,
@@ -132,9 +133,34 @@ struct Handler {
     connected: Arc<AtomicBool>,
     active: Arc<AtomicBool>,
     disconnected: Arc<AtomicBool>,
+    failed: Arc<AtomicBool>,
+    started: Instant,
+    generation: u64,
 }
 #[async_trait::async_trait]
 impl PeerConnectionEventHandler for Handler {
+    async fn on_ice_candidate_error(&self, event: RTCPeerConnectionIceErrorEvent) {
+        println!(
+            "Native ICE error: generation {}, code {}, {} ms.",
+            self.generation,
+            event.error_code,
+            self.started.elapsed().as_millis()
+        );
+    }
+    async fn on_ice_connection_state_change(&self, state: RTCIceConnectionState) {
+        println!(
+            "Native ICE state: generation {}, {state}, {} ms.",
+            self.generation,
+            self.started.elapsed().as_millis()
+        );
+    }
+    async fn on_ice_gathering_state_change(&self, state: RTCIceGatheringState) {
+        println!(
+            "Native ICE gathering: generation {}, {state}, {} ms.",
+            self.generation,
+            self.started.elapsed().as_millis()
+        );
+    }
     async fn on_ice_candidate(&self, event: RTCPeerConnectionIceEvent) {
         match event.candidate.to_json() {
             Ok(candidate) if candidate.candidate.is_empty() => {}
@@ -153,9 +179,14 @@ impl PeerConnectionEventHandler for Handler {
     }
     async fn on_connection_state_change(&self, state: RTCPeerConnectionState) {
         // State names are safe diagnostics; never log SDP, candidates or grants.
-        println!("Native peer connection state: {state}");
+        println!(
+            "Native peer connection state: generation {}, {state}, {} ms.",
+            self.generation,
+            self.started.elapsed().as_millis()
+        );
         match state {
             RTCPeerConnectionState::Connected => {
+                self.failed.store(false, Ordering::Release);
                 self.disconnected.store(false, Ordering::Release);
                 self.connected.store(true, Ordering::Release);
             }
@@ -164,7 +195,11 @@ impl PeerConnectionEventHandler for Handler {
                 self.disconnected.store(true, Ordering::Release);
             }
             RTCPeerConnectionState::Failed | RTCPeerConnectionState::Closed => {
-                self.active.store(false, Ordering::Release);
+                self.failed.store(true, Ordering::Release);
+                // The old peer remains unable to capture. Give the original
+                // viewer a short chance to detach and request a fresh peer.
+                self.connected.store(false, Ordering::Release);
+                self.disconnected.store(true, Ordering::Release);
             }
             _ => {}
         }
@@ -602,6 +637,7 @@ async fn media_cycle(
     let active = Arc::new(AtomicBool::new(true));
     let _stop = StopOnDrop(active.clone());
     let disconnected = Arc::new(AtomicBool::new(false));
+    let failed = Arc::new(AtomicBool::new(false));
     let (local_candidates, mut candidate_receiver) = mpsc::channel(16);
     let lease = authorization.lease.clone();
     let epoch = authorization.epoch;
@@ -648,6 +684,9 @@ async fn media_cycle(
             connected: connected.clone(),
             active: active.clone(),
             disconnected: disconnected.clone(),
+            failed: failed.clone(),
+            started: setup_started,
+            generation,
         }))
         .with_udp_addrs(vec!["0.0.0.0:0".to_owned()])
         .build()
@@ -766,6 +805,8 @@ async fn media_cycle(
     let result:Result<(),Error> = async {
         let mut tick=tokio::time::interval(Duration::from_millis(100));
         let mut answered=false;
+        let mut reported_first_packet=false;
+        let mut requested_retry=false;
         let mut remote_candidates=Vec::<RTCIceCandidateInit>::new();
 
         let mut disconnected_at=None::<Instant>;
@@ -783,6 +824,10 @@ async fn media_cycle(
                 _=tick.tick()=>{
                     indicator_connected.store(connected.load(Ordering::Acquire), Ordering::Release);
                     if !active.load(Ordering::Acquire) || !session_active.load(Ordering::Acquire) || Instant::now()>=deadline {break;}
+                    if failed.load(Ordering::Acquire) && !requested_retry {
+                        timeout(Duration::from_millis(500),socket.send(Message::Text(json!({"type":"retry","generation":generation}).to_string().into()))).await??;
+                        requested_retry=true;
+                    }
                     if disconnected.load(Ordering::Acquire) {
                         let lost = disconnected_at.get_or_insert_with(Instant::now);
                         if lost.elapsed() >= Duration::from_secs(3) {break;}
@@ -805,6 +850,7 @@ async fn media_cycle(
                     let budget=lease_remaining.min(deadline.saturating_duration_since(Instant::now())).min(Duration::from_millis(500));
                     if budget.is_zero() {break;}
                     timeout(budget,track.sample_writer(7_230_001,payload).write_sample(&Sample{data:bytes::Bytes::from(packet.bytes),duration:Duration::from_secs_f64(1.0/30.0),..Sample::new(Instant::now())})).await??;
+                    if !reported_first_packet {println!("First video packet sent: generation {generation}, {} ms.",setup_started.elapsed().as_millis()); reported_first_packet=true;}
                 }
                 message=socket.next()=>{
                     let text=match message {Some(Ok(Message::Text(text)))=>text,Some(Ok(Message::Ping(_) | Message::Pong(_)))=>continue,_=>break};
@@ -927,11 +973,15 @@ mod tests {
             connected: Arc::new(AtomicBool::new(false)),
             active: Arc::new(AtomicBool::new(true)),
             disconnected: Arc::new(AtomicBool::new(false)),
+            failed: Arc::new(AtomicBool::new(false)),
+            started: Instant::now(),
+            generation: 0,
         };
         handler
             .on_connection_state_change(RTCPeerConnectionState::Disconnected)
             .await;
         assert!(handler.disconnected.load(Ordering::Acquire));
+        assert!(!handler.failed.load(Ordering::Acquire));
         assert!(!handler.connected.load(Ordering::Acquire));
         handler
             .on_connection_state_change(RTCPeerConnectionState::Connected)
@@ -941,7 +991,9 @@ mod tests {
         handler
             .on_connection_state_change(RTCPeerConnectionState::Failed)
             .await;
-        assert!(!handler.active.load(Ordering::Acquire));
+        assert!(handler.failed.load(Ordering::Acquire));
+        assert!(!handler.connected.load(Ordering::Acquire));
+        assert!(handler.disconnected.load(Ordering::Acquire));
     }
 
     #[tokio::test]

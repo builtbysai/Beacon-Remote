@@ -11,7 +11,7 @@ test("brief ICE loss recovers, while sustained loss and failure terminate", () =
     () => interrupted++,
     () => ended++,
     (run, milliseconds) => {
-      assert.equal(milliseconds, 3000);
+      assert.equal(milliseconds, 2000);
       callback = run;
       cancelled = false;
       return () => {

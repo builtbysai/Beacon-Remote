@@ -59,10 +59,20 @@ detach updates the shared transport generation immediately, denying old media
 even while the media loop is busy. Peer and worker cleanup run concurrently,
 but both finish before a replacement cycle. Safe setup/cleanup timings contain
 no SDP, candidates, tokens or pixels. The browser and helper allow at most three
-seconds for the same peer to recover a transient disconnected state; connected
-clears that timer. Failed/closed peers still end the request. Automatic fresh
-peer negotiation after a failed connection remains a separate follow-up; no
-ended approval is revived.
+seconds for the helper to receive a viewer detach. The browser allows two seconds
+for the same peer to recover a transient disconnected state; connected clears
+that timer. A browser may now replace a failed peer automatically, at most
+twice within the original approval. It closes its old socket, asks the existing
+resume endpoint to validate the original login and grant, and opens a replacement
+transport. A failed native peer sends a generation-bound retry notification;
+only the active resumable machine may send it. The native helper pauses capture and allows up to three seconds for
+that detach to arrive before ending the old cycle. The same visible Stop window
+and original deadline survive a valid replacement. Stop, logout, navigation,
+lock, expiry or an unsuccessful authorization response prevent the replacement;
+the resume request itself has a two-second network budget. Candidate pooling
+prepares a browser relay candidate while Windows consent is pending, without
+starting capture. ICE state/error-code and first-packet timings exclude network
+addresses, usernames and credentials. No ended approval is revived.
 
 Real PostgreSQL/socket regressions check isolation, one viewer, unchanged expiry,
 stale transport packets, Stop, logout, machine revoke, expiry and recovery timeout.

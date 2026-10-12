@@ -32,6 +32,16 @@ the recovered peer clears its disconnect timer, and cleanup runs concurrently.
 Matching acceptance of this corrective change remains pending. See
 [ADR 0015](decisions/0015-active-viewer-reload-recovery.md).
 
+The next owner test again showed an unreliable second connection and roughly
+ten-second startup. Native offer setup was 4–12 ms and cleanup 24–41 ms, so the
+unmeasured network/ICE/first-frame portion remains the latency target. The viewer
+now attempts bounded replacement of a failed peer within the original approval;
+candidate pooling prepares browser ICE during the consent wait. Native ICE
+stages, error codes and first-packet timings support diagnosis. A sub-second
+connection target is not verified, and two-minute attended grants remain in
+force. Remembered personal-device authorization still belongs to the explicit
+setup in milestones 6–7; it is not inferred from one attended Allow.
+
 Viewer expiry also bounds the initial remaining lifetime with a monotonic clock,
 so rolling the system clock backward during a session cannot defer local cleanup.
 Server/native leases remain authoritative. Updated real-device automatic expiry
