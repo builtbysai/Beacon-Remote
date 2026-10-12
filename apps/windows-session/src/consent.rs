@@ -30,6 +30,7 @@ struct State {
     deadline: Instant,
     accepted: bool,
     default_button: usize,
+    message_loop_active: bool,
 }
 impl State {
     fn live(&self) -> bool {
@@ -101,7 +102,11 @@ unsafe extern "system" fn procedure(
     }
     if message == WM_DESTROY {
         KillTimer(window, 1);
-        PostQuitMessage(0);
+        // A cancelled request can destroy its window before entering the pump.
+        // Do not leave WM_QUIT queued for a later request on this pooled thread.
+        if !state.is_null() && (*state).message_loop_active {
+            PostQuitMessage(0);
+        }
         return 0;
     }
     if message == WM_NCDESTROY {
@@ -120,6 +125,7 @@ pub fn request(
         deadline,
         accepted: false,
         default_button: IDNO as usize,
+        message_loop_active: false,
     };
     if !state.live() {
         return Ok(false);
@@ -259,6 +265,7 @@ pub fn request(
                 if !state.live() {
                     return Ok(());
                 }
+                state.message_loop_active = true;
                 ShowWindow(window, SW_SHOW);
                 if SetForegroundWindow(window) == 0 {
                     FlashWindowEx(&FLASHWINFO {
@@ -285,6 +292,7 @@ pub fn request(
                 }
                 Ok(())
             })();
+            state.message_loop_active = false;
             if IsWindow(window) != 0 {
                 DestroyWindow(window);
             }
@@ -299,6 +307,67 @@ pub fn request(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cleanup_only_quits_an_active_message_loop() {
+        // Use one fresh OS thread for both lifetimes, as Tokio's blocking pool
+        // can reuse a consent thread. Hidden windows never ask for approval or
+        // capture; this exercises the real Win32 destruction/queue boundary.
+        std::thread::spawn(|| unsafe {
+            let instance = GetModuleHandleW(std::ptr::null());
+            let class = wide(&format!(
+                "BeaconConsentCleanupTest-{}",
+                GetCurrentThreadId()
+            ));
+            let definition = WNDCLASSW {
+                lpfnWndProc: Some(procedure),
+                hInstance: instance,
+                lpszClassName: class.as_ptr(),
+                ..Default::default()
+            };
+            assert_ne!(RegisterClassW(&definition), 0);
+            let mut state = State {
+                pending: Arc::new(AtomicBool::new(false)),
+                deadline: Instant::now(),
+                accepted: false,
+                default_button: IDNO as usize,
+                message_loop_active: false,
+            };
+            for pumping in [false, true, false] {
+                state.message_loop_active = pumping;
+                let window = CreateWindowExW(
+                    0,
+                    class.as_ptr(),
+                    class.as_ptr(),
+                    0,
+                    0,
+                    0,
+                    1,
+                    1,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    instance,
+                    std::ptr::from_mut(&mut state).cast(),
+                );
+                assert!(!window.is_null());
+                assert_ne!(DestroyWindow(window), 0);
+                let mut message = MSG::default();
+                assert_eq!(
+                    PeekMessageW(
+                        &mut message,
+                        std::ptr::null_mut(),
+                        WM_QUIT,
+                        WM_QUIT,
+                        PM_REMOVE
+                    ) != 0,
+                    pumping,
+                );
+            }
+            assert_ne!(UnregisterClassW(class.as_ptr(), instance), 0);
+        })
+        .join()
+        .unwrap();
+    }
+
     #[test]
     fn cancelled_and_expired_requests_never_open_approval() {
         let future = Instant::now() + std::time::Duration::from_secs(1);

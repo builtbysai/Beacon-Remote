@@ -2,6 +2,18 @@
 
 **Prepared 2026-10-10.** This is a continuation document, not a statement that every feature or release gate is complete. Recheck GitHub and the actual machines before acting.
 
+Latest October 12 consent evidence: PR #23 merged at `fed694d`, with security,
+control-plane and native jobs passing on both the reviewed head and merged main.
+The existing isolated acceptance backend/web now use `00135e2` images, retaining
+the one-hour backend lifetime and restricted test database/account. Schema/role,
+HTTPS readiness and unauthenticated rejection passed; Remote/View production and
+shared containers retained their image IDs and start times. Matching Windows
+artifacts were prepared; the paired native fixture is still stopped with its
+STOP marker. A native-only follow-up prevents cleanup from leaving `WM_QUIT` on
+a reusable consent thread. Read [the consent validation record](consent-validation-2026-10-12.md)
+before resuming; test-site readiness expires and must be rechecked. Production
+media remains disabled, and no new human desktop acceptance is claimed.
+
 October 12 milestone 4 continuation: native desktop approval now remains
 cancellable while the helper reads authenticated signaling. Remote cancellation,
 disconnect, expiry or loss of the input desktop closes the prompt; Decline starts
