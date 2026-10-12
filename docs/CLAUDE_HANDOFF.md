@@ -2,6 +2,15 @@
 
 **Prepared 2026-10-10.** This is a continuation document, not a statement that every feature or release gate is complete. Recheck GitHub and the actual machines before acting.
 
+October 12 UI continuation is on `codex/remote-development`. Read
+[the current visual and validation notes](visual-gap-2026-10-12.md) before
+following historical design status below. The branch adds approved landing and
+sign-in styling, responsive workspace navigation, pairing UI, a full-window
+viewer, compact public mobile navigation, and real-data Sessions/Activity
+layouts. Local development media remains disabled. The live desktop and
+populated-history interactions still require real acceptance fixtures; these
+frontend changes are not a production media release.
+
 Verified October 11 update: production now runs merged
 `4ea7ad97eac00ca6b8b33f7c168aa34e5a2f4d28`, media still disabled, after local
 validation and guarded manual rollout. PR #11 is merged. Acceptance backend

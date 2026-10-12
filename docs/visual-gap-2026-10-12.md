@@ -8,13 +8,13 @@ frontend were inspected in the browser. Production media remains disabled.
 
 | Screen                     | Current implementation and next gap                                                                                                                                                                                                                                                                                                                                              |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Public landing             | Replaced the generic card with a responsive workspace-shaped React illustration labeled as example data. Added the desktop workspace action. The hero hierarchy now more closely follows the approved render. The lower access/support section and compact mobile header still differ.                                                                                           |
+| Public landing             | Replaced the generic card with a responsive workspace-shaped React illustration labeled as example data. Added the desktop workspace action and a one-row mobile header with appearance, workspace and menu controls. The hero hierarchy now more closely follows the approved render. The lower access/support section still differs.                                           |
 | Sign in                    | Centered card, lock mark, compact copy and inline password visibility now follow the reference. Authentication remains the real backend flow. Invitation-only setup remains explicit; recovery and MFA links cannot be exposed until implemented.                                                                                                                                |
 | Downloads and enrollment   | Current page truthfully says no signed production installer exists. Reference has a full installer and pairing journey. Native installer, release metadata and pairing status APIs are dependencies.                                                                                                                                                                             |
 | Workspace shell            | Desktop now has a 208px icon sidebar with a 72px collapsed state, active/hover/focus states and topbar appearance control. Phones and narrow landscape use bottom navigation with a More menu. Account identity and the remaining approved topbar details still need real data/design work.                                                                                      |
-| Computers                  | Real API-backed inventory, pairing and inspector exist. Empty state is now inside the inventory panel; synthetic video testing is gone from the consumer row, and revocation is in the inspector with inline confirmation. Search/filter density and device detail layout need more work.                                                                                        |
+| Computers                  | Real API-backed inventory, pairing and inspector exist. Empty and filtered-no-result states are inside the inventory panel, with real device/online counts. Synthetic video testing is gone from the consumer row, and revocation is in the inspector with inline confirmation. Search/filter density and device detail layout need more work.                                   |
 | Viewer                     | Real WebRTC viewing and diagnostics exist behind the media gate. The viewer now has a full-window canvas, compact toolbar, Fit/100% scale, full screen, connection panel, playback action when autoplay is blocked, and a clear Stop action. Live desktop and mobile visual QA requires an accepted media session; control and display selection require backend/native support. |
-| Sessions, Assist, Activity | Existing screens use real data or honest unavailable states, but spacing/content hierarchy trails the approved workspace. Guest support requires server/native authorization work.                                                                                                                                                                                               |
+| Sessions, Assist, Activity | Sessions now has peer Active/Recent panels using real backend session states and an owner-authorized Stop action. Activity has the approved table hierarchy, real audit event filters and export of loaded rows. Assist still uses an honest unavailable state; guest support requires server/native authorization work.                                                         |
 | Windows host               | Native consent and local Stop exist. Approved tray, pairing, active-state and control-approval interfaces need native implementation and hardware QA.                                                                                                                                                                                                                            |
 
 Validation of this checkpoint: `pnpm check` passed formatting, ESLint, TypeScript
@@ -59,3 +59,20 @@ best-effort stop request. The updated frontend passed TypeScript and a
 production Vite build. Live frame presentation and mobile viewer layout remain
 unverified because Remote's local development environment intentionally has
 media disabled and there was no real accepted Windows sharing session.
+
+## Sessions, activity and mobile public navigation
+
+Sessions and Activity were rebuilt around existing authenticated APIs without
+simulated events. The local development server has media disabled, so the Active
+panel correctly reports unavailable and live Stop was not exercised. Activity's
+filter and mobile navigation were exercised in Chrome with the local disposable
+account; the account had no audit events, so populated rows and CSV export still
+need a real event fixture. The compact public menu opened, dismissed with Escape,
+and navigated to Security. Chrome review covered 320px and 390px phones,
+844×390 landscape, 768px, 1024px, 1440px and 1920px widths, plus dark mode.
+No horizontal document overflow was found at those widths. The public hero's
+mobile actions were reduced to their content width to match the approved render.
+`pnpm check` passed after these edits with `TEST_DATABASE_URL` pointed at Remote's
+separate local PostgreSQL test database: formatting, lint, type checks, all ten
+backend integration tests, and web/backend builds. Native Windows compilation
+and a real desktop sharing session were not part of this UI checkpoint.

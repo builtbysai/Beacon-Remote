@@ -27,6 +27,241 @@
 .history-list time {
   margin-left: auto;
 }
+.workspace-page-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.workspace-page-heading h1 {
+  margin: 0 0 3px;
+}
+.workspace-page-heading p {
+  margin: 0;
+  font-size: 12px;
+}
+.sessions-workspace {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(350px, 1.25fr);
+  align-items: start;
+  gap: 16px;
+}
+.workspace-panel {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.workspace-panel-heading {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.workspace-panel-heading h2 {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+.workspace-panel-heading span {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.workspace-panel-empty {
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin: 0;
+  padding: 24px;
+  text-align: center;
+  font-size: 12px;
+}
+.workspace-panel-empty strong {
+  color: var(--text);
+  font-size: 13px;
+}
+.workspace-panel-empty p {
+  margin: 0;
+  font-size: 12px;
+}
+.session-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.session-rows li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  margin: 0;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.session-rows li:last-child {
+  border-bottom: 0;
+}
+.session-rows li > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 3px;
+}
+.session-rows strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.session-rows span,
+.session-rows time {
+  color: var(--muted);
+  font-size: 11px;
+}
+.session-rows time {
+  white-space: nowrap;
+}
+.session-rows button {
+  min-height: 34px;
+  padding: 6px 12px;
+  font-size: 11px;
+}
+.workspace-footnote {
+  margin: 16px 0 0;
+  font-size: 11px;
+}
+.activity-heading-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.activity-workspace {
+  max-width: 1450px;
+}
+.activity-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 10px 18px;
+}
+.activity-tools label {
+  color: var(--muted);
+  font-size: 12px;
+}
+.activity-tools select {
+  width: auto;
+  min-width: 150px;
+}
+.activity-tools span {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+.activity-table-head,
+.activity-rows li {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(120px, 1fr) minmax(150px, 0.9fr);
+  align-items: center;
+  gap: 18px;
+  padding: 12px 18px;
+}
+.activity-table-head {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--inner);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.activity-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.activity-rows li {
+  min-height: 52px;
+  margin: 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.activity-rows li:last-child {
+  border-bottom: 0;
+}
+.activity-rows strong,
+.activity-rows span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-rows span,
+.activity-rows time {
+  color: var(--muted);
+}
+.activity-rows li:hover {
+  background: var(--inner);
+}
+@media (max-width: 1000px) {
+  .sessions-workspace {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 650px) {
+  .workspace-page-heading {
+    align-items: flex-start;
+  }
+  .workspace-page-heading button {
+    min-height: 34px;
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+  .sessions-workspace {
+    gap: 12px;
+  }
+  .workspace-panel-heading {
+    padding-inline: 15px;
+  }
+  .session-rows li {
+    padding-inline: 15px;
+  }
+  .session-rows time {
+    white-space: normal;
+    text-align: right;
+  }
+  .activity-page .workspace-page-heading {
+    display: block;
+  }
+  .activity-heading-actions {
+    max-width: none;
+    justify-content: flex-start;
+    margin-top: 12px;
+  }
+  .activity-table-head,
+  .activity-rows li {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding-inline: 15px;
+  }
+  .activity-table-head span:nth-child(2),
+  .activity-rows li > span {
+    display: none;
+  }
+  .activity-rows time {
+    text-align: right;
+  }
+}
 .password-toggle {
   margin-bottom: 16px;
 }
@@ -157,6 +392,10 @@ header {
   border-bottom: 1px solid var(--line);
   padding: 16px max(24px, calc((100vw - 1200px) / 2));
 }
+.public-shell > header {
+  position: relative;
+  z-index: 10;
+}
 header nav {
   display: flex;
   gap: 24px;
@@ -175,9 +414,125 @@ header nav a {
 .header-workspace {
   white-space: nowrap;
 }
+.header-workspace-arrow,
+.public-menu-toggle {
+  display: none;
+}
 @media (max-width: 700px) {
   .header-workspace {
     display: none;
+  }
+  .public-shell > header {
+    min-height: 62px;
+    flex-wrap: nowrap;
+    gap: 8px;
+    padding: 9px 18px;
+  }
+  .public-shell > header .brand {
+    margin-right: auto;
+  }
+  .public-shell > header .brand > span {
+    font-size: 19px;
+  }
+  .public-shell > header .header-end {
+    margin-left: 0;
+    gap: 8px;
+  }
+  .public-shell > header .header-end > .button {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    min-height: 40px;
+    padding: 0;
+    background: #2056b8;
+    border-color: #2056b8;
+    color: #fff;
+    font-size: 20px;
+  }
+  .header-workspace-label {
+    display: none;
+  }
+  .header-workspace-arrow {
+    display: inline;
+  }
+  .public-menu-toggle {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    min-width: 36px;
+    height: 40px;
+    min-height: 40px;
+    padding: 8px;
+    border: 0;
+  }
+  .public-menu-toggle svg {
+    width: 18px;
+    height: 18px;
+  }
+  .public-theme {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 32px;
+    min-width: 32px;
+    height: 40px;
+    overflow: hidden;
+  }
+  .public-theme::before {
+    content: "◐";
+    font-size: 24px;
+    line-height: 1;
+    color: var(--text);
+    pointer-events: none;
+  }
+  .public-theme span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+  .public-theme select {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .public-theme:focus-within {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  .public-shell > header .public-nav {
+    position: absolute;
+    top: 100%;
+    right: 12px;
+    display: none;
+    flex-direction: column;
+    gap: 0;
+    width: min(250px, calc(100vw - 24px));
+    padding: 6px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  .public-shell > header .public-nav.open {
+    display: flex;
+  }
+  .public-shell > header .public-nav a {
+    display: block;
+    padding: 10px 12px;
+    border-radius: 5px;
+    color: var(--text);
+  }
+  .public-shell > header .public-nav a:hover,
+  .public-shell > header .public-nav a:focus-visible {
+    background: var(--soft);
   }
 }
 .theme-label {
@@ -703,6 +1058,10 @@ select {
 .heading .eyebrow {
   margin: 0;
 }
+.workspace-summary {
+  margin: 2px 0 0;
+  font-size: 12px;
+}
 .grid {
   display: block;
   background: var(--surface);
@@ -743,6 +1102,9 @@ select {
 }
 .inventory-empty p {
   font-size: 12px;
+}
+.inventory-empty button {
+  margin-top: 12px;
 }
 .device-row {
   display: flex;
@@ -1196,6 +1558,9 @@ li {
   }
   .actions > * {
     width: 100%;
+  }
+  .hero .actions > * {
+    width: auto;
   }
   .device-row > button {
     max-width: 100%;

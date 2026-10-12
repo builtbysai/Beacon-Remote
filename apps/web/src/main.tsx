@@ -25,10 +25,12 @@ function App() {
   const [showPassword, setShowPassword] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMore, setMobileMore] = useState(false);
+  const [publicMenuOpen, setPublicMenuOpen] = useState(false);
   useEffect(() => {
     const change = () => {
       setPage(pageFromHash());
       setMobileMore(false);
+      setPublicMenuOpen(false);
     };
     window.addEventListener("hashchange", change);
     return () => window.removeEventListener("hashchange", change);
@@ -72,6 +74,14 @@ function App() {
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [mobileMore]);
+  useEffect(() => {
+    if (!publicMenuOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPublicMenuOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [publicMenuOpen]);
   useEffect(() => {
     let disposed = false;
     if (signedIn)
@@ -231,6 +241,18 @@ function App() {
     }
   }
 
+  const visibleMachines = (machines ?? []).filter(
+    (machine) =>
+      machine.name.toLowerCase().includes(search.trim().toLowerCase()) &&
+      (filter === "all" ||
+        (!stale && !machine.revokedAt && machine.online
+          ? "online"
+          : "offline") === filter),
+  );
+  const onlineCount = (machines ?? []).filter(
+    (machine) => !machine.revokedAt && machine.online,
+  ).length;
+
   return (
     <main
       className={
@@ -310,15 +332,20 @@ function App() {
       ) : (
         <header>
           <Brand />
-          <nav aria-label="Public navigation">
+          <nav
+            id="public-nav"
+            className={publicMenuOpen ? "public-nav open" : "public-nav"}
+            aria-label="Public navigation"
+            onClick={() => setPublicMenuOpen(false)}
+          >
             <a href="#home">Overview</a>
             <a href="#downloads">Download</a>
             <a href="#support">Support</a>
             <a href="#security">Security</a>
           </nav>
           <div className="header-end">
-            <label className="theme-label">
-              Appearance
+            <label className="theme-label public-theme">
+              <span>Appearance</span>
               <select
                 aria-label="Appearance"
                 value={theme}
@@ -332,14 +359,43 @@ function App() {
             <a
               className="button secondary"
               href={signedIn ? "#computers" : "#signin"}
+              aria-label={signedIn ? "Open workspace" : "Sign in"}
             >
-              {signedIn ? "Workspace" : "Sign in"}
+              <span className="header-workspace-label">
+                {signedIn ? "Workspace" : "Sign in"}
+              </span>
+              <span className="header-workspace-arrow" aria-hidden="true">
+                →
+              </span>
             </a>
             {page === "home" && !signedIn && (
               <a className="button header-workspace" href="#signin">
                 Open workspace <span aria-hidden="true">→</span>
               </a>
             )}
+            <button
+              className="public-menu-toggle secondary"
+              aria-label={publicMenuOpen ? "Close menu" : "Open menu"}
+              aria-expanded={publicMenuOpen}
+              aria-controls="public-nav"
+              onClick={() => setPublicMenuOpen(!publicMenuOpen)}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              >
+                <path
+                  d={
+                    publicMenuOpen
+                      ? "M5 5l14 14M19 5L5 19"
+                      : "M4 7h16M4 12h16M4 17h16"
+                  }
+                />
+              </svg>
+            </button>
           </div>
         </header>
       )}
@@ -425,6 +481,11 @@ function App() {
             <div>
               <p className="eyebrow">YOUR WORKSPACE</p>
               <h1>Computers</h1>
+              <p className="workspace-summary">
+                {machines.length}{" "}
+                {machines.length === 1 ? "computer" : "computers"}
+                {!stale && <> · {onlineCount} online</>}
+              </p>
             </div>
             <button onClick={pair} disabled={busy}>
               Add a computer
@@ -490,12 +551,18 @@ function App() {
                   aria-label="Search computers"
                   placeholder="Search computers"
                   value={search}
-                  onChange={(event) => setSearch(event.target.value)}
+                  onChange={(event) => {
+                    setSearch(event.target.value);
+                    setSelected(null);
+                  }}
                 />
                 <select
                   aria-label="Computer status"
                   value={filter}
-                  onChange={(event) => setFilter(event.target.value)}
+                  onChange={(event) => {
+                    setFilter(event.target.value);
+                    setSelected(null);
+                  }}
                 >
                   <option value="all">All computers</option>
                   <option value="online">Online</option>
@@ -511,59 +578,63 @@ function App() {
                   </p>
                 </div>
               )}
-              {machines
-                .filter(
-                  (machine) =>
-                    machine.name.toLowerCase().includes(search.toLowerCase()) &&
-                    (filter === "all" ||
-                      (!stale && !machine.revokedAt && machine.online
-                        ? "online"
-                        : "offline") === filter),
-                )
-                .map((machine) => (
-                  <article key={machine.id} className="device-row">
-                    <Monitor />
-                    <button
-                      id={`device-${machine.id}`}
-                      className="device-name secondary"
-                      onClick={() =>
-                        setSelected(selected === machine.id ? null : machine.id)
-                      }
-                      aria-expanded={selected === machine.id}
-                    >
-                      {machine.name}
-                    </button>
-                    <p
-                      className={
-                        machine.online && !stale ? "online" : "offline"
-                      }
-                    >
-                      {machine.revokedAt
-                        ? "Access revoked"
-                        : stale
-                          ? "Status unavailable"
-                          : machine.online
-                            ? "● Online"
-                            : "○ Offline"}
-                    </p>
-                    <button
-                      disabled={
-                        !mediaEnabled ||
-                        busy ||
-                        !machine.online ||
-                        stale ||
-                        view !== null ||
-                        Boolean(machine.revokedAt)
-                      }
-                      onClick={() => {
-                        void testVideo(machine);
-                      }}
-                      title="View only; requires approval on your Windows computer"
-                    >
-                      {mediaEnabled ? "View desktop" : "Remote — coming next"}
-                    </button>
-                  </article>
-                ))}
+              {machines.length > 0 && visibleMachines.length === 0 && (
+                <div className="inventory-empty">
+                  <h2>No matching computers</h2>
+                  <p>Try a different search or status filter.</p>
+                  <button
+                    className="secondary"
+                    onClick={() => {
+                      setSearch("");
+                      setFilter("all");
+                    }}
+                  >
+                    Clear filters
+                  </button>
+                </div>
+              )}
+              {visibleMachines.map((machine) => (
+                <article key={machine.id} className="device-row">
+                  <Monitor />
+                  <button
+                    id={`device-${machine.id}`}
+                    className="device-name secondary"
+                    onClick={() =>
+                      setSelected(selected === machine.id ? null : machine.id)
+                    }
+                    aria-expanded={selected === machine.id}
+                  >
+                    {machine.name}
+                  </button>
+                  <p
+                    className={machine.online && !stale ? "online" : "offline"}
+                  >
+                    {machine.revokedAt
+                      ? "Access revoked"
+                      : stale
+                        ? "Status unavailable"
+                        : machine.online
+                          ? "● Online"
+                          : "○ Offline"}
+                  </p>
+                  <button
+                    disabled={
+                      !mediaEnabled ||
+                      busy ||
+                      !machine.online ||
+                      stale ||
+                      view !== null ||
+                      Boolean(machine.revokedAt)
+                    }
+                    onClick={() => {
+                      void testVideo(machine);
+                    }}
+                    title="View only; requires approval on your Windows computer"
+                  >
+                    {mediaEnabled ? "View desktop" : "Remote — coming next"}
+                  </button>
+                </article>
+              ))}
             </div>
             {selected &&
               machines.find((machine) => machine.id === selected) && (

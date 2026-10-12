@@ -237,10 +237,10 @@ export function ProductPage({
         <div className="quiet-panel">
           <h2>Alpha limitations</h2>
           <p>
-            MFA, password recovery, signed installation and cross-network relay
-            acceptance are unfinished. WebRTC uses transport encryption; this
-            alpha does not claim end-to-end peer authentication against the
-            signaling service.
+            MFA, password recovery, signed installation and the full
+            cross-network recovery test matrix are unfinished. WebRTC uses
+            transport encryption; this alpha does not claim end-to-end peer
+            authentication against the signaling service.
           </p>
         </div>
       </section>
