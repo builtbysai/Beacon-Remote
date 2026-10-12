@@ -536,34 +536,150 @@ select {
 }
 .app-shell {
   display: grid;
-  grid-template-rows: auto 1fr auto;
-  grid-template-columns: 204px minmax(0, 1fr);
-  min-height: 100vh;
+  grid-template-rows: 64px minmax(0, 1fr);
+  grid-template-columns: 208px minmax(0, 1fr);
+  min-height: 100dvh;
 }
-.app-shell > header {
-  grid-column: 1/-1;
-  padding: 16px 24px;
+.app-shell.sidebar-collapsed {
+  grid-template-columns: 72px minmax(0, 1fr);
+}
+.app-shell > .workspace-topbar {
+  grid-column: 2;
+  grid-row: 1;
+  min-height: 64px;
+  padding: 0 24px;
+  gap: 18px;
+  position: sticky;
+  top: 0;
+  z-index: 4;
 }
 .workspace-nav {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  position: sticky;
+  top: 0;
+  height: 100dvh;
   background: var(--surface);
   border-right: 1px solid var(--line);
-  padding: 24px 14px;
+  padding: 14px 10px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 3px;
+  overflow-y: auto;
 }
-.workspace-nav > a {
-  padding: 12px;
+.workspace-nav-brand {
+  min-height: 52px;
+  padding: 6px 10px;
+}
+.workspace-nav-label {
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  padding: 22px 13px 9px;
+}
+.workspace-icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+.workspace-nav-link,
+.workspace-signout {
+  min-height: 41px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 570;
+  white-space: nowrap;
+}
+.workspace-nav-link:hover,
+.workspace-signout:hover {
+  background: var(--soft);
+  color: var(--text);
+}
+.workspace-nav-link[aria-current="page"] {
+  background: var(--bluewash);
+  color: var(--blue);
+  font-weight: 680;
+}
+.workspace-nav-link:active,
+.workspace-signout:active {
+  transform: translateY(1px);
+}
+.workspace-nav-link.tools-first {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 6px 6px;
+  padding-top: 20px;
+}
+.workspace-signout {
+  width: 100%;
+  margin-top: auto;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.workspace-menu-toggle {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 0;
   border-radius: 6px;
   color: var(--muted);
 }
-.workspace-nav > a[aria-current="page"] {
+.workspace-menu-toggle:hover {
   background: var(--soft);
-  color: var(--blue);
-  font-weight: 600;
+  color: var(--text);
 }
-.workspace-nav button {
+.workspace-breadcrumb {
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+.workspace-breadcrumb span {
+  margin: 0 9px;
+  color: var(--faint);
+}
+.workspace-breadcrumb strong {
+  color: var(--text);
+  letter-spacing: 0;
+}
+.workspace-mobile-brand,
+.workspace-mobile-nav,
+.workspace-more {
+  display: none;
+}
+.sidebar-collapsed .workspace-nav-brand {
+  padding-inline: 9px;
+}
+.sidebar-collapsed .workspace-nav-brand .brand > span,
+.sidebar-collapsed .workspace-nav-label,
+.sidebar-collapsed .workspace-nav-link span,
+.sidebar-collapsed .workspace-signout span {
+  display: none;
+}
+.sidebar-collapsed .workspace-nav-link,
+.sidebar-collapsed .workspace-signout {
+  justify-content: center;
+  padding-inline: 0;
+}
+.sidebar-collapsed .workspace-nav-link.tools-first {
   margin-top: 24px;
+  padding-top: 20px;
+}
+.app-shell > footer {
+  display: none;
+}
+.app-shell > section {
+  grid-column: 2;
+  grid-row: 2;
 }
 .app-shell > section {
   margin: 0;
@@ -605,6 +721,28 @@ select {
 }
 .inventory-tools select {
   max-width: 180px;
+}
+.inventory-empty {
+  min-height: 250px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 36px 20px;
+  text-align: center;
+}
+.inventory-empty .monitor {
+  width: 32px;
+  height: 32px;
+  margin-bottom: 14px;
+  color: var(--blue);
+}
+.inventory-empty h2 {
+  margin-bottom: 3px;
+  font-size: 19px;
+}
+.inventory-empty p {
+  font-size: 12px;
 }
 .device-row {
   display: flex;
@@ -672,6 +810,33 @@ aside {
   padding: 24px;
   border-radius: 8px;
   margin-bottom: 24px;
+}
+.pairing-panel {
+  max-width: 680px;
+}
+.pairing-code-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0 10px;
+}
+.pairing-code-row code {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  font-size: clamp(11px, 2.8vw, 14px);
+  letter-spacing: -0.04em;
+  user-select: all;
+}
+.pairing-code-row button {
+  white-space: nowrap;
+}
+.pairing-panel .note {
+  font-size: 11px;
 }
 code {
   display: block;
@@ -846,5 +1011,163 @@ li {
     animation: none !important;
     transition: none !important;
     scroll-behavior: auto !important;
+  }
+}
+@media (min-width: 769px) and (max-width: 1024px) {
+  .app-shell {
+    grid-template-columns: 190px minmax(0, 1fr);
+  }
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+}
+@media (max-width: 900px) {
+  .app-shell,
+  .app-shell.sidebar-collapsed {
+    display: block;
+  }
+  .app-shell .workspace-nav {
+    display: none;
+  }
+  .app-shell > .workspace-topbar {
+    display: flex;
+    flex-wrap: nowrap;
+    min-height: 60px;
+    padding: 0 16px;
+    gap: 12px;
+  }
+  .workspace-menu-toggle {
+    display: none;
+  }
+  .workspace-mobile-brand {
+    display: inline-flex;
+    min-width: 0;
+  }
+  .workspace-mobile-brand .brand img {
+    width: 28px;
+    height: 28px;
+  }
+  .workspace-mobile-brand .brand > span {
+    font-size: 17px;
+  }
+  .workspace-mobile-brand .brand small {
+    font-size: 7px;
+    margin-top: 2px;
+  }
+  .workspace-breadcrumb {
+    margin-left: auto;
+    white-space: nowrap;
+  }
+  .workspace-breadcrumb > span,
+  .workspace-breadcrumb strong {
+    display: none;
+  }
+  .app-shell > .workspace-topbar .header-end {
+    margin-left: 0;
+  }
+  .app-shell > section {
+    padding-bottom: 96px;
+  }
+  .workspace-mobile-nav {
+    position: fixed;
+    z-index: 8;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    min-height: 64px;
+    padding-bottom: env(safe-area-inset-bottom);
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .workspace-mobile-nav > a,
+  .workspace-mobile-nav > button {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 7px 2px;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 10px;
+  }
+  .workspace-mobile-nav [aria-current="page"],
+  .workspace-mobile-nav [aria-expanded="true"] {
+    color: var(--blue);
+    font-weight: 680;
+  }
+  .workspace-mobile-nav .workspace-icon {
+    width: 19px;
+    height: 19px;
+  }
+  .workspace-more {
+    position: fixed;
+    z-index: 9;
+    right: 8px;
+    bottom: calc(68px + env(safe-area-inset-bottom));
+    width: min(230px, calc(100% - 16px));
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  .workspace-more[hidden] {
+    display: none;
+  }
+  .workspace-more > a,
+  .workspace-more > button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text);
+    font-size: 13px;
+    text-align: left;
+  }
+  .workspace-more > a:hover,
+  .workspace-more > button:hover {
+    background: var(--soft);
+  }
+}
+@media (max-width: 390px) {
+  .product-preview {
+    padding: 5px;
+  }
+  .workspace-breadcrumb {
+    display: none;
+  }
+  .app-shell > .workspace-topbar .header-end {
+    margin-left: auto;
+  }
+  .pairing-code-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .pairing-code-row button {
+    width: 100%;
+  }
+}
+@media (min-width: 600px) and (max-width: 768px) {
+  .inventory-tools {
+    flex-wrap: nowrap;
+  }
+  .inventory-tools input {
+    flex: 1;
+    max-width: none;
+  }
+  .inventory-tools select {
+    width: 190px;
+    max-width: 190px;
   }
 }

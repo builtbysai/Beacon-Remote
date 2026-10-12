@@ -8,6 +8,7 @@ import { api, ApiError } from "./api.js";
 import { AccountPanels } from "./AccountPanels.js";
 import { SessionHistory } from "./SessionHistory.js";
 import { ComputerInspector } from "./ComputerInspector.js";
+import { WorkspaceIcon, workspaceItems } from "./WorkspaceIcon.js";
 
 // Fragments stay out of HTTP/access logs; remove the bearer from browser history.
 const invitation = new URLSearchParams(window.location.hash.slice(1)).get(
@@ -22,8 +23,13 @@ function App() {
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileMore, setMobileMore] = useState(false);
   useEffect(() => {
-    const change = () => setPage(pageFromHash());
+    const change = () => {
+      setPage(pageFromHash());
+      setMobileMore(false);
+    };
     window.addEventListener("hashchange", change);
     return () => window.removeEventListener("hashchange", change);
   }, []);
@@ -43,6 +49,7 @@ function App() {
   const [code, setCode] = useState<{ code: string; expiresAt: number } | null>(
     null,
   );
+  const [codeCopied, setCodeCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [stale, setStale] = useState(false);
   const [clock, setClock] = useState(Date.now());
@@ -55,6 +62,16 @@ function App() {
     setError("");
   }, [page]);
   const signedIn = machines !== null;
+  const workspaceOpen =
+    signedIn && page !== "home" && page !== "support" && page !== "security";
+  useEffect(() => {
+    if (!mobileMore) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileMore(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [mobileMore]);
   useEffect(() => {
     let disposed = false;
     if (signedIn)
@@ -74,12 +91,12 @@ function App() {
     };
   }, [signedIn]);
 
-  async function testVideo(machine: Machine, source: "synthetic" | "desktop") {
+  async function testVideo(machine: Machine) {
     setBusy(true);
     setError("");
     try {
       const grant = await api<ViewGrant>(`machines/${machine.id}/sessions`, {
-        source,
+        source: "desktop",
       });
       setView({ grant, name: machine.name });
     } catch {
@@ -175,10 +192,13 @@ function App() {
         "enrollments",
         {},
       );
+      const issuedAt = Date.now();
+      setClock(issuedAt);
       setCode({
         code: result.code,
-        expiresAt: Date.now() + result.expiresInSeconds * 1000,
+        expiresAt: issuedAt + result.expiresInSeconds * 1000,
       });
+      setCodeCopied(false);
     } catch {
       setError("Could not start pairing.");
     } finally {
@@ -195,6 +215,7 @@ function App() {
       setMachines(result.machines);
     } catch {
       setError("Could not revoke this computer.");
+      throw new Error("Could not revoke this computer.");
     } finally {
       setBusy(false);
     }
@@ -213,77 +234,115 @@ function App() {
   return (
     <main
       className={
-        signedIn && page !== "home" && page !== "support" && page !== "security"
-          ? "app-shell"
+        workspaceOpen
+          ? `app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`
           : "public-shell"
       }
     >
-      <header>
-        <Brand />
-        <nav aria-label="Public navigation">
-          <a href="#home">Overview</a>
-          <a href="#downloads">Download</a>
-          <a href="#support">Support</a>
-          <a href="#security">Security</a>
-        </nav>
-        <div className="header-end">
-          <label className="theme-label">
-            Appearance
-            <select
-              aria-label="Appearance"
-              value={theme}
-              onChange={(event) => setTheme(event.target.value)}
-            >
-              <option value="system">System</option>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-            </select>
-          </label>
-          <a
-            className="button secondary"
-            href={signedIn ? "#computers" : "#signin"}
-          >
-            {signedIn ? "Workspace" : "Sign in"}
-          </a>
-          {page === "home" && !signedIn && (
-            <a className="button header-workspace" href="#signin">
-              Open workspace <span aria-hidden="true">→</span>
-            </a>
-          )}
-        </div>
-      </header>
-      {signedIn &&
-        page !== "home" &&
-        page !== "support" &&
-        page !== "security" && (
+      {workspaceOpen ? (
+        <>
           <nav className="workspace-nav" aria-label="Workspace">
-            <p className="eyebrow">WORKSPACE</p>
-            {[
-              "computers",
-              "sessions",
-              "assist",
-              "activity",
-              "downloads",
-              "settings",
-            ].map((item) => (
+            <div className="workspace-nav-brand">
+              <Brand />
+            </div>
+            <p className="workspace-nav-label">WORKSPACE</p>
+            {workspaceItems.map((item, index) => (
               <a
-                key={item}
-                href={`#${item}`}
-                aria-current={page === item ? "page" : undefined}
+                key={item.page}
+                className={
+                  index === 4
+                    ? "workspace-nav-link tools-first"
+                    : "workspace-nav-link"
+                }
+                href={`#${item.page}`}
+                aria-current={page === item.page ? "page" : undefined}
+                title={sidebarCollapsed ? item.label : undefined}
               >
-                {item.charAt(0).toUpperCase() + item.slice(1)}
+                <WorkspaceIcon name={item.page} />
+                <span>{item.label}</span>
               </a>
             ))}
             <button
-              className="secondary"
-              onClick={() => {
-                void logout();
-              }}
+              className="workspace-signout"
+              title={sidebarCollapsed ? "Sign out" : undefined}
+              onClick={() => void logout()}
             >
-              Sign out
+              <WorkspaceIcon name="signout" />
+              <span>Sign out</span>
             </button>
           </nav>
-        )}
+          <header className="workspace-topbar">
+            <button
+              className="workspace-menu-toggle"
+              aria-label={
+                sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
+              }
+              aria-expanded={!sidebarCollapsed}
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            >
+              <WorkspaceIcon name="panel" />
+            </button>
+            <span className="workspace-mobile-brand">
+              <Brand />
+            </span>
+            <span className="workspace-breadcrumb">
+              REMOTE <span>/</span>{" "}
+              <strong>
+                {workspaceItems.find((item) => item.page === page)?.label}
+              </strong>
+            </span>
+            <div className="header-end">
+              <label className="theme-label">
+                <span>Appearance</span>
+                <select
+                  aria-label="Appearance"
+                  value={theme}
+                  onChange={(event) => setTheme(event.target.value)}
+                >
+                  <option value="system">System</option>
+                  <option value="light">Light</option>
+                  <option value="dark">Dark</option>
+                </select>
+              </label>
+            </div>
+          </header>
+        </>
+      ) : (
+        <header>
+          <Brand />
+          <nav aria-label="Public navigation">
+            <a href="#home">Overview</a>
+            <a href="#downloads">Download</a>
+            <a href="#support">Support</a>
+            <a href="#security">Security</a>
+          </nav>
+          <div className="header-end">
+            <label className="theme-label">
+              Appearance
+              <select
+                aria-label="Appearance"
+                value={theme}
+                onChange={(event) => setTheme(event.target.value)}
+              >
+                <option value="system">System</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </label>
+            <a
+              className="button secondary"
+              href={signedIn ? "#computers" : "#signin"}
+            >
+              {signedIn ? "Workspace" : "Sign in"}
+            </a>
+            {page === "home" && !signedIn && (
+              <a className="button header-workspace" href="#signin">
+                Open workspace <span aria-hidden="true">→</span>
+              </a>
+            )}
+          </div>
+        </header>
+      )}
       {!invite &&
       page !== "signin" &&
       !(
@@ -377,7 +436,7 @@ function App() {
             </p>
           )}
           {code && (
-            <aside>
+            <aside className="pairing-panel">
               <h2>Pair your Windows computer</h2>
               {clock < code.expiresAt ? (
                 <>
@@ -385,7 +444,28 @@ function App() {
                     Enter this one-use code in the Beacon Remote agent within
                     five minutes.
                   </p>
-                  <code>{code.code}</code>
+                  <div className="pairing-code-row">
+                    <code aria-label="Pairing code">{code.code}</code>
+                    <button
+                      className="secondary"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(code.code);
+                          setCodeCopied(true);
+                        } catch {
+                          setError(
+                            "Could not copy the code. Select it manually.",
+                          );
+                        }
+                      }}
+                    >
+                      {codeCopied ? "Copied" : "Copy code"}
+                    </button>
+                  </div>
+                  <p className="note" role="status">
+                    Expires in {Math.ceil((code.expiresAt - clock) / 1000)}{" "}
+                    seconds
+                  </p>
                 </>
               ) : (
                 <p>
@@ -397,15 +477,6 @@ function App() {
                 Dismiss
               </button>
             </aside>
-          )}
-          {machines.length === 0 && (
-            <div className="empty">
-              <h2>A home for your computers.</h2>
-              <p>
-                Add your first Windows computer to see its connection status
-                here.
-              </p>
-            </div>
           )}
           <div
             className={
@@ -431,6 +502,15 @@ function App() {
                   <option value="offline">Offline</option>
                 </select>
               </div>
+              {machines.length === 0 && (
+                <div className="inventory-empty">
+                  <Monitor />
+                  <h2>No computers yet</h2>
+                  <p>
+                    Pair a Windows computer to see its connection status here.
+                  </p>
+                </div>
+              )}
               {machines
                 .filter(
                   (machine) =>
@@ -476,35 +556,12 @@ function App() {
                         Boolean(machine.revokedAt)
                       }
                       onClick={() => {
-                        void testVideo(machine, "desktop");
+                        void testVideo(machine);
                       }}
                       title="View only; requires approval on your Windows computer"
                     >
                       {mediaEnabled ? "View desktop" : "Remote — coming next"}
                     </button>
-                    {mediaEnabled && !machine.revokedAt && (
-                      <button
-                        disabled={
-                          busy || !machine.online || stale || view !== null
-                        }
-                        onClick={() => {
-                          void testVideo(machine, "synthetic");
-                        }}
-                      >
-                        Test video connection
-                      </button>
-                    )}
-                    {!machine.revokedAt && (
-                      <button
-                        className="secondary"
-                        disabled={busy}
-                        onClick={() => {
-                          void revoke(machine.id);
-                        }}
-                      >
-                        Revoke access
-                      </button>
-                    )}
                   </article>
                 ))}
             </div>
@@ -524,6 +581,7 @@ function App() {
                     );
                     setMachines(result.machines);
                   }}
+                  onRevoke={() => revoke(selected)}
                 />
               )}
           </div>
@@ -535,6 +593,57 @@ function App() {
             />
           )}
         </section>
+      )}
+      {workspaceOpen && (
+        <>
+          <nav
+            id="workspace-more"
+            className="workspace-more"
+            aria-label="More workspace pages"
+            hidden={!mobileMore}
+          >
+            {workspaceItems.slice(4).map((item) => (
+              <a
+                key={item.page}
+                href={`#${item.page}`}
+                aria-current={page === item.page ? "page" : undefined}
+              >
+                <WorkspaceIcon name={item.page} />
+                <span>{item.label}</span>
+              </a>
+            ))}
+            <button onClick={() => void logout()}>
+              <WorkspaceIcon name="signout" />
+              <span>Sign out</span>
+            </button>
+          </nav>
+          <nav
+            className="workspace-mobile-nav"
+            aria-label="Mobile workspace navigation"
+          >
+            {workspaceItems.slice(0, 4).map((item) => (
+              <a
+                key={item.page}
+                href={`#${item.page}`}
+                aria-current={page === item.page ? "page" : undefined}
+              >
+                <WorkspaceIcon name={item.page} />
+                <span>{item.label}</span>
+              </a>
+            ))}
+            <button
+              aria-expanded={mobileMore}
+              aria-current={
+                page === "downloads" || page === "settings" ? "page" : undefined
+              }
+              aria-controls="workspace-more"
+              onClick={() => setMobileMore(!mobileMore)}
+            >
+              <WorkspaceIcon name="more" />
+              <span>More</span>
+            </button>
+          </nav>
+        </>
       )}
       {error && (
         <p className="error" role="alert">

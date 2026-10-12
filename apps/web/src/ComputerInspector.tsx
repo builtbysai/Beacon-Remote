@@ -6,17 +6,20 @@ export function ComputerInspector({
   machine,
   onClose,
   onUpdated,
+  onRevoke,
   stale,
 }: {
   machine: Machine;
   onClose: () => void;
   onUpdated: () => Promise<void>;
+  onRevoke: () => Promise<void>;
   stale: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(machine.name);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
   async function rename(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -126,6 +129,50 @@ export function ComputerInspector({
         Desktop viewing requires local approval. Keyboard and mouse control are
         unavailable.
       </p>
+      {!machine.revokedAt && (
+        <div className="inspector-revoke">
+          {confirmRevoke ? (
+            <>
+              <p>
+                Revoke this computer’s access? It must be paired again before
+                another session.
+              </p>
+              <div className="actions">
+                <button
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    try {
+                      await onRevoke();
+                      setConfirmRevoke(false);
+                    } catch {
+                      setError("Could not revoke this computer.");
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  Revoke access
+                </button>
+                <button
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => setConfirmRevoke(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : (
+            <button
+              className="secondary"
+              onClick={() => setConfirmRevoke(true)}
+            >
+              Revoke access…
+            </button>
+          )}
+        </div>
+      )}
     </aside>
   );
 }
