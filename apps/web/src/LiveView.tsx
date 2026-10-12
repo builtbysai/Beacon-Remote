@@ -6,6 +6,7 @@ import { peerLifetime } from "./peer-lifetime.js";
 import { recoverTransport } from "./recover-transport.js";
 import { reconnectUntil } from "./reconnect.js";
 import { attachRemoteInput } from "./remote-input.js";
+import type { TouchMode } from "./touch-input.js";
 import { api } from "./api.js";
 
 export type ViewGrant = {
@@ -15,6 +16,8 @@ export type ViewGrant = {
   expiresAtMillis: number;
   // How long the server holds the session for a viewer that dropped; the viewer retries that long.
   reconnectSeconds?: number;
+  // "policy" when the computer's own trusted-access setting approved it, so no one is asked.
+  approval?: "local" | "policy";
   iceServers: RTCIceServer[];
   iceTransportPolicy: RTCIceTransportPolicy;
 };
@@ -38,12 +41,17 @@ export function LiveView({
   const [displayError, setDisplayError] = useState("");
   const [status, setStatus] = useState(
     grant.source === "desktop"
-      ? "Approve this request on your Windows computer…"
+      ? grant.approval === "policy"
+        ? "Connecting…"
+        : "Approve this request on your Windows computer…"
       : "Waiting for the Windows helper…",
   );
   const [frames, setFrames] = useState(0);
   const [ended, setEnded] = useState(false);
   const [controlReady, setControlReady] = useState(false);
+  const [touchMode, setTouchMode] = useState<TouchMode>("trackpad");
+  const touchModeRef = useRef(touchMode);
+  touchModeRef.current = touchMode;
   const controlling = grant.capability === "desktop:control";
   const [route, setRoute] = useState("Not established");
   const [iceState, setIceState] = useState<RTCIceConnectionState>("new");
@@ -254,6 +262,7 @@ export function LiveView({
         element,
         setControlReady,
         () => finish("Control connection ended. Request control again."),
+        () => touchModeRef.current,
       );
     };
     pc.onicecandidate = (event) => {
@@ -542,6 +551,20 @@ export function LiveView({
               <option value="actual">100%</option>
             </select>
           </label>
+          {controlReady && (
+            <button
+              className="viewer-control"
+              aria-pressed={touchMode === "direct"}
+              title="Trackpad moves the cursor like a laptop touchpad. Touch acts where you tap."
+              onClick={() =>
+                setTouchMode((mode) =>
+                  mode === "trackpad" ? "direct" : "trackpad",
+                )
+              }
+            >
+              Touch: {touchMode === "trackpad" ? "Trackpad" : "Direct"}
+            </button>
+          )}
           <button
             className="viewer-control"
             onClick={async () => {

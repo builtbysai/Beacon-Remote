@@ -57,6 +57,20 @@ export function ComputerInspector({
             ? "Desktop access is unavailable on this server."
             : "";
   const cannotConnect = Boolean(unavailable) || requesting || busy;
+  const trusted = machine.accessMode === "trusted";
+  // Trusted access is switched on at the computer; from here it can only be switched off.
+  async function lower(body: { mode: "attended" } | { allowControl: false }) {
+    setBusy(true);
+    setError("");
+    try {
+      await api(`machines/${machine.id}/access`, body);
+      await onUpdated();
+    } catch {
+      setError("Could not change this computer’s access.");
+    } finally {
+      setBusy(false);
+    }
+  }
   useEffect(() => {
     if (!historyOpen) return;
     let disposed = false;
@@ -161,9 +175,11 @@ export function ComputerInspector({
           disabled={cannotConnect || !controlEnabled || !onRequestControl}
           onClick={onRequestControl}
           title={
-            controlEnabled
-              ? "Request keyboard and mouse control with local approval"
-              : "Keyboard and mouse control are unavailable on this server"
+            !controlEnabled
+              ? "Keyboard and mouse control are unavailable on this server"
+              : trusted && machine.allowControl
+                ? "Connect with keyboard and mouse control, no prompt"
+                : "Request keyboard and mouse control with local approval"
           }
         >
           <WorkspaceIcon name="computers" /> Remote
@@ -220,13 +236,50 @@ export function ComputerInspector({
         <dl>
           <dt>Access</dt>
           <dd>
-            {controlEnabled
-              ? "Attended · View or control"
-              : "Attended · View only"}
+            {trusted
+              ? machine.allowControl
+                ? "Trusted · View and control"
+                : "Trusted · View only"
+              : controlEnabled
+                ? "Attended · View or control"
+                : "Attended · View only"}
           </dd>
           <dt>Approval</dt>
-          <dd>Required on Windows</dd>
+          <dd>
+            {trusted
+              ? machine.allowControl
+                ? "Not needed"
+                : "Not needed to view · Control asks on Windows"
+              : "Required on Windows"}
+          </dd>
         </dl>
+        {trusted && !machine.revokedAt ? (
+          <div className="actions">
+            {machine.allowControl && (
+              <button
+                className="secondary"
+                disabled={busy}
+                onClick={() => void lower({ allowControl: false })}
+              >
+                Turn off control
+              </button>
+            )}
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() => void lower({ mode: "attended" })}
+            >
+              Require approval again
+            </button>
+          </div>
+        ) : (
+          !machine.revokedAt && (
+            <p className="note">
+              To connect without approving each time, turn on trusted access in
+              Beacon Remote on that computer.
+            </p>
+          )
+        )}
       </div>
       <div className="inspector-detail-group">
         <h3>Last report</h3>
@@ -297,9 +350,11 @@ export function ComputerInspector({
         </div>
       </details>
       <p className="note">
-        {controlEnabled
-          ? "Each connection requires local approval. The person at the computer can stop sharing at any time."
-          : "Desktop viewing requires local approval. Keyboard and mouse control are unavailable."}
+        {trusted
+          ? "This computer allows your signed-in account to connect without approval. The person at the computer can stop sharing at any time."
+          : controlEnabled
+            ? "Each connection requires local approval. The person at the computer can stop sharing at any time."
+            : "Desktop viewing requires local approval. Keyboard and mouse control are unavailable."}
       </p>
       {!machine.revokedAt && (
         <div className="inspector-revoke">

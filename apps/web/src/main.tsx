@@ -668,7 +668,11 @@ function App() {
                     onClick={() => {
                       void testVideo(machine);
                     }}
-                    title="View only; requires approval on your Windows computer"
+                    title={
+                      machine.accessMode === "trusted"
+                        ? "View only; this computer is set to trusted access"
+                        : "View only; requires approval on your Windows computer"
+                    }
                   >
                     {mediaEnabled ? "View desktop" : "Remote — coming next"}
                   </button>

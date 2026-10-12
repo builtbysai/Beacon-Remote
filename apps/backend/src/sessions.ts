@@ -381,6 +381,7 @@ export async function registerSessions(
           source: session.source,
           capability: session.capability,
           expiresAtMillis: expiryMillis(),
+          approval: session.approval,
           reconnectSeconds: reconnectSeconds(session),
           iceServers: sessionIce(session),
           iceTransportPolicy,

@@ -62,6 +62,9 @@ export interface Machine {
   online: boolean;
   lastSeenAt: string | null;
   revokedAt: string | null;
+  // The computer's own access policy (ADR 0021). Only the computer can raise it.
+  accessMode: "attended" | "trusted";
+  allowControl: boolean;
 }
 
 // Later WebRTC: reliable ordered state/keys/buttons; unreliable unordered pointer

@@ -1,4 +1,5 @@
 // Browser events become bounded physical-pixel input, only on an approved channel.
+import { TouchPad, type TouchAction, type TouchMode } from "./touch-input.js";
 const scans: Record<string, number> = {
   Escape: 0x01,
   Backspace: 0x0e,
@@ -119,6 +120,7 @@ export function attachRemoteInput(
   element: HTMLVideoElement,
   onState: (ready: boolean) => void,
   onFailure: () => void,
+  touchMode: () => TouchMode = () => "trackpad",
 ) {
   let display: { id: string; width: number; height: number } | null = null;
   let sequence = 0,
@@ -152,6 +154,8 @@ export function attachRemoteInput(
     frame = 0;
   };
   const release = () => {
+    touchPad?.release();
+    fingers.clear();
     pending = null;
     cancelAnimationFrame(frame);
     frame = 0;
@@ -173,6 +177,78 @@ export function attachRemoteInput(
     if (!frame) frame = requestAnimationFrame(flush);
     return true;
   };
+  let touchPad: TouchPad | null = null;
+  const fingers = new Set<number>();
+  const apply = (actions: TouchAction[]) => {
+    for (const action of actions) {
+      if (action.type === "move" && display) {
+        pending = {
+          type: "move_pointer",
+          displayId: display.id,
+          x: action.x,
+          y: action.y,
+        };
+        if (!frame) frame = requestAnimationFrame(flush);
+      } else {
+        flush();
+        send(action);
+      }
+    }
+  };
+  const touch =
+    (kind: "down" | "move" | "up" | "cancel") => (event: PointerEvent) => {
+      if (event.pointerType === "mouse" || !display) return;
+      if (!touchPad) {
+        touchPad = new TouchPad({
+          mode: touchMode,
+          scale: () => {
+            const rect = element.getBoundingClientRect();
+            const fit = Math.min(
+              rect.width / Math.max(1, element.videoWidth),
+              rect.height / Math.max(1, element.videoHeight),
+            );
+            return fit > 0 && display
+              ? display.width / (element.videoWidth * fit)
+              : 1;
+          },
+          locate: (x, y) =>
+            display
+              ? physicalPoint(
+                  x,
+                  y,
+                  element.getBoundingClientRect(),
+                  element.videoWidth,
+                  element.videoHeight,
+                  display.width,
+                  display.height,
+                )
+              : null,
+          start: {
+            x: Math.floor(display.width / 2),
+            y: Math.floor(display.height / 2),
+          },
+        });
+      }
+      event.preventDefault();
+      if (kind === "down") {
+        element.focus();
+        fingers.add(event.pointerId);
+      }
+      if (kind === "up" || kind === "cancel") fingers.delete(event.pointerId);
+      apply(
+        touchPad.handle({
+          kind,
+          id: event.pointerId,
+          time: event.timeStamp,
+          x: event.clientX,
+          y: event.clientY,
+        }),
+      );
+    };
+  const touchDown = touch("down");
+  const touchMove = touch("move");
+  const touchUp = touch("up");
+  const touchCancel = touch("cancel");
   const buttons = ["left", "middle", "right"];
   const down = (event: PointerEvent) => {
     if (event.pointerType !== "mouse" || !buttons[event.button] || !move(event))
@@ -270,11 +346,28 @@ export function attachRemoteInput(
     onFailure();
   };
   channel.onerror = onFailure;
-  element.addEventListener("pointermove", move);
-  element.addEventListener("pointerdown", down);
-  element.addEventListener("pointerup", up);
-  element.addEventListener("pointercancel", release);
-  element.addEventListener("lostpointercapture", release);
+  const pointerMove = (event: PointerEvent) =>
+    event.pointerType === "mouse" ? move(event) : touchMove(event);
+  const pointerDown = (event: PointerEvent) =>
+    event.pointerType === "mouse" ? down(event) : touchDown(event);
+  const pointerUp = (event: PointerEvent) =>
+    event.pointerType === "mouse" ? up(event) : touchUp(event);
+  const pointerCancel = (event: PointerEvent) =>
+    event.pointerType === "mouse" ? release() : touchCancel(event);
+  // A touch pointer is captured implicitly and "loses" capture on every lift; only a mouse
+  // losing capture means the button state is unknown.
+  const lostCapture = (event: PointerEvent) => {
+    if (event.pointerType === "mouse") release();
+  };
+  // Held touches become a right-click without waiting for the finger to lift.
+  const longPress = setInterval(() => {
+    if (touchPad && fingers.size) apply(touchPad.pending(performance.now()));
+  }, 100);
+  element.addEventListener("pointermove", pointerMove);
+  element.addEventListener("pointerdown", pointerDown);
+  element.addEventListener("pointerup", pointerUp);
+  element.addEventListener("pointercancel", pointerCancel);
+  element.addEventListener("lostpointercapture", lostCapture);
   element.addEventListener("wheel", wheel, { passive: false });
   element.addEventListener("keydown", key);
   element.addEventListener("keyup", key);
@@ -287,15 +380,16 @@ export function attachRemoteInput(
     release();
     disposed = true;
     clearInterval(heartbeat);
+    clearInterval(longPress);
     onState(false);
     channel.onmessage = null;
     channel.onclose = null;
     channel.onerror = null;
-    element.removeEventListener("pointermove", move);
-    element.removeEventListener("pointerdown", down);
-    element.removeEventListener("pointerup", up);
-    element.removeEventListener("pointercancel", release);
-    element.removeEventListener("lostpointercapture", release);
+    element.removeEventListener("pointermove", pointerMove);
+    element.removeEventListener("pointerdown", pointerDown);
+    element.removeEventListener("pointerup", pointerUp);
+    element.removeEventListener("pointercancel", pointerCancel);
+    element.removeEventListener("lostpointercapture", lostCapture);
     element.removeEventListener("wheel", wheel);
     element.removeEventListener("keydown", key);
     element.removeEventListener("keyup", key);
