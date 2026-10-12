@@ -30,8 +30,7 @@ use windows_sys::Win32::{
             DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, MDT_EFFECTIVE_DPI,
         },
         WindowsAndMessaging::{
-            MessageBoxW, IDYES, MB_DEFBUTTON2, MB_ICONINFORMATION, MB_SETFOREGROUND, MB_TOPMOST,
-            MB_YESNO,
+            MessageBoxW, IDYES, MB_DEFBUTTON2, MB_ICONINFORMATION, MB_SETFOREGROUND, MB_YESNO,
         },
     },
 };
@@ -41,7 +40,7 @@ type Error = Box<dyn std::error::Error + Send + Sync>;
 // UOI_IO is false when this thread's desktop no longer receives local input,
 // including lock/secure-desktop switches. Never switch desktops or request
 // additional rights. Any query failure denies capture and cached snapshots.
-fn desktop_receives_input() -> bool {
+pub(crate) fn desktop_receives_input() -> bool {
     let desktop = unsafe { GetThreadDesktop(GetCurrentThreadId()) };
     if desktop.is_null() {
         return false;
@@ -317,22 +316,6 @@ fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(Some(0)).collect()
 }
 
-pub fn consent(controller: &str) -> bool {
-    if !desktop_receives_input() {
-        return false;
-    }
-    let title = wide("Beacon Remote — allow desktop viewing?");
-    let message = wide(&format!("{controller} requests viewing of your PRIMARY DISPLAY.\n\nIf you choose Yes, your desktop is sent through encrypted WebRTC to the requesting Beacon Remote browser for at most two minutes. A Windows capture border and Stop sharing window remain visible. Locking Windows or switching to a secure desktop ends sharing.\n\nNo microphone, recording or remote input is enabled. Choose No to decline."));
-    unsafe {
-        MessageBoxW(
-            std::ptr::null_mut(),
-            message.as_ptr(),
-            title.as_ptr(),
-            MB_YESNO | MB_ICONINFORMATION | MB_SETFOREGROUND | MB_TOPMOST | MB_DEFBUTTON2,
-        ) == IDYES
-    }
-}
-
 pub fn benchmark() -> Result<(), Error> {
     if !desktop_receives_input() {
         return Err("Local input desktop unavailable; capture denied".into());
@@ -445,7 +428,12 @@ mod tests {
             let result = std::panic::catch_unwind(|| {
                 assert_ne!(SetThreadDesktop(desktop), 0);
                 assert!(!desktop_receives_input());
-                assert!(!consent("guard-test@example.invalid"));
+                assert!(!crate::consent::request(
+                    "guard-test@example.invalid",
+                    Arc::new(AtomicBool::new(true)),
+                    Instant::now() + Duration::from_secs(1),
+                )
+                .unwrap());
 
                 let active = Arc::new(AtomicBool::new(true));
                 assert!(DesktopCapture::start(active.clone()).is_err());

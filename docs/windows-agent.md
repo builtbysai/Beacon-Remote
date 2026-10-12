@@ -29,7 +29,7 @@ the in-memory snapshot interface; it saves/uploads no media. Initial real-machin
 deadline shutdown passed; see [measurements and remaining checks](validation.md).
 
 The media branch now offers a two-minute primary-display view request. The native
-helper requires a valid server grant, local Yes consent, a visible Stop sharing
+helper requires a valid server grant, local Allow viewing consent, a visible Stop sharing
 window, a connected peer and a live renewable lease before starting WGC. No
 microphone, input or recording is enabled. The synthetic video path and local
 Stop passed; actual local desktop viewing acceptance also passed. The owner later reported Android/T-Mobile forced-relay desktop viewing and Stop; the complete interruption and sustained-performance matrix remains pending. Source validates and passes
@@ -68,6 +68,14 @@ when Windows reports that the helper's desktop no longer receives local input.
 Query failure also stops sharing. Unlocking never resumes an old request. See
 [the desktop availability decision](decisions/0012-attended-desktop-availability.md)
 for the OS-boundary regression and remaining real lock/secure-desktop acceptance.
+
+Pending desktop requests now use a cancellable native approval window with
+Decline focused by default. The helper keeps reading signaling while the person
+decides; cancellation, disconnect, expiry or input-desktop loss closes the
+prompt. Connection setup and the response share the original two-minute
+monotonic deadline. Late approval cannot revive an ended request. See
+[the consent lifecycle decision](decisions/0013-cancellable-attended-consent.md)
+for protocol verification and the remaining actual Windows checks.
 
 The later signed MSI should install a least-privilege service and interactive
 helper, create restricted IPC, offer pairing/status/clean uninstall, and use

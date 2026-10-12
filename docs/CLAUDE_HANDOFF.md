@@ -2,6 +2,15 @@
 
 **Prepared 2026-10-10.** This is a continuation document, not a statement that every feature or release gate is complete. Recheck GitHub and the actual machines before acting.
 
+October 12 milestone 4 continuation: native desktop approval now remains
+cancellable while the helper reads authenticated signaling. Remote cancellation,
+disconnect, expiry or loss of the input desktop closes the prompt; Decline starts
+focused, and the original monotonic deadline includes setup and the person's
+response. See [the consent lifecycle decision](decisions/0013-cancellable-attended-consent.md).
+Real loopback cancellation/close and late-result checks use no desktop capture or
+real approval. Actual Windows keyboard/DPI/lock and human viewing/Stop acceptance
+remains required; milestone 4 and production media gates stay open.
+
 October 12 publication review: the owner requested a security review before
 making the source public. Read [the security review](security-review-2026-10-12.md)
 for scope, findings fixed, tested boundaries and required public GitHub settings.

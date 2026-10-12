@@ -179,6 +179,55 @@ fn now_millis() -> Result<u64, Error> {
         .try_into()?)
 }
 
+// Keep reading signaling while local approval is open. Never offer capture from
+// a completed dialog after cancellation, expiry or an invalid join handshake.
+async fn consent_while_signaling<S, E, F>(
+    socket: &mut S,
+    decision: F,
+    deadline: Instant,
+) -> Result<bool, Error>
+where
+    S: futures_util::Stream<Item = Result<Message, E>> + Unpin,
+    E: std::error::Error + Send + Sync + 'static,
+    F: std::future::Future<Output = Result<bool, Error>>,
+{
+    tokio::pin!(decision);
+    let expiry = tokio::time::sleep_until(deadline.into());
+    tokio::pin!(expiry);
+    let mut joined = false;
+    let mut approved = false;
+    loop {
+        tokio::select! {
+            // Already observable cancellation/expiry wins over a late click.
+            biased;
+            _ = &mut expiry => return Ok(false),
+            message = socket.next() => {
+                match message {
+                    Some(Ok(Message::Text(text))) if text.len() <= 65536 => {
+                        let body: Value = serde_json::from_str(&text)?;
+                        match body["type"].as_str() {
+                            Some("joined") if !joined && body["role"] == "machine" && body["source"] == "desktop" => joined = true,
+                            Some("ended") => return Ok(false),
+                            _ => return Err("Unexpected signaling during local consent".into()),
+                        }
+                    }
+                    Some(Ok(Message::Ping(_) | Message::Pong(_))) => {},
+                    Some(Err(error)) => return Err(error.into()),
+                    None | Some(Ok(Message::Close(_))) => return Ok(false),
+                    _ => return Err("Invalid signaling during local consent".into()),
+                }
+            }
+            accepted = &mut decision, if !approved => {
+                if !accepted? { return Ok(false); }
+                approved = true;
+            }
+        }
+        if joined && approved && Instant::now() < deadline {
+            return Ok(true);
+        }
+    }
+}
+
 pub fn run() -> Result<(), Error> {
     let mut input = String::new();
     io::stdin().take(8193).read_to_string(&mut input)?;
@@ -196,6 +245,7 @@ pub fn run() -> Result<(), Error> {
     if grant.expires_at_millis <= now || grant.expires_at_millis - now > 120_000 {
         return Err("Expired or excessive grant".into());
     }
+    let deadline = Instant::now() + Duration::from_millis(grant.expires_at_millis - now);
     if grant.id.len() != 36
         || !grant.id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
         || grant.token.len() != 43
@@ -225,11 +275,16 @@ pub fn run() -> Result<(), Error> {
         .worker_threads(2)
         .enable_all()
         .build()?
-        .block_on(stream(grant))
+        .block_on(stream(grant, deadline))
 }
 
-async fn stream(grant: Grant) -> Result<(), Error> {
+async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
     let desktop = grant.source == "desktop";
+    // The absolute grant budget includes connection setup and the person's
+    // response. Wall-clock changes cannot extend this monotonic deadline.
+    if Instant::now() >= deadline || now_millis()? >= grant.expires_at_millis {
+        return Err("View grant expired before connection".into());
+    }
     println!(
         "{}",
         if desktop {
@@ -257,10 +312,25 @@ async fn stream(grant: Grant) -> Result<(), Error> {
     .await??;
     if desktop {
         let controller = grant.controller.clone();
+        let pending = Arc::new(AtomicBool::new(true));
+        let _cancel_prompt = StopOnDrop(pending.clone());
+        let dialog_pending = pending.clone();
+        let mut dialog = tokio::task::spawn_blocking(move || {
+            crate::consent::request(&controller, dialog_pending, deadline)
+        });
         let accepted =
-            tokio::task::spawn_blocking(move || crate::capture::consent(&controller)).await?;
+            consent_while_signaling(&mut socket, async { (&mut dialog).await? }, deadline).await;
+        pending.store(false, Ordering::Release);
+        if !dialog.is_finished() {
+            // A cancelled prompt observes its flag in the native timer. Join it
+            // before returning so no pending approval window is left behind.
+            timeout(Duration::from_secs(3), &mut dialog).await???;
+        }
+        let accepted = accepted?;
         if !accepted {
-            timeout(
+            // The peer may already be closed; denial must never become media or
+            // fail to close the native prompt because reporting failed.
+            let _ = timeout(
                 Duration::from_millis(500),
                 socket.send(Message::Text(
                     json!({"type":"consent","accepted":false})
@@ -268,11 +338,11 @@ async fn stream(grant: Grant) -> Result<(), Error> {
                         .into(),
                 )),
             )
-            .await??;
-            println!("Desktop viewing declined; nothing captured.");
+            .await;
+            println!("Desktop request declined, cancelled or expired; nothing captured.");
             return Ok(());
         }
-        if now_millis()? >= grant.expires_at_millis {
+        if Instant::now() >= deadline || now_millis()? >= grant.expires_at_millis {
             return Err("View grant expired during consent".into());
         }
     }
@@ -296,8 +366,6 @@ async fn stream(grant: Grant) -> Result<(), Error> {
     let (local_candidates, mut candidate_receiver) = mpsc::channel(16);
     let lease = Arc::new(AtomicU64::new(0));
     let epoch = Instant::now();
-    let lifetime = Duration::from_millis(grant.expires_at_millis.saturating_sub(now_millis()?));
-    let deadline = epoch + lifetime;
     let mut engine = MediaEngine::default();
     let codec = RTCRtpCodecParameters {
         rtp_codec: RTCRtpCodec {
@@ -528,6 +596,101 @@ async fn stream(grant: Grant) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn pending_consent_observes_real_signaling_cancel_and_close() {
+        // A real loopback WebSocket, with no dialog, capture, credentials or RTC.
+        for remote_end in [true, false] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (connection, _) = listener.accept().await.unwrap();
+                let mut peer = tokio_tungstenite::accept_async(connection).await.unwrap();
+                peer.send(Message::Text(
+                    json!({"type":"joined","role":"machine","source":"desktop"})
+                        .to_string()
+                        .into(),
+                ))
+                .await
+                .unwrap();
+                if remote_end {
+                    peer.send(Message::Text(json!({"type":"ended"}).to_string().into()))
+                        .await
+                        .unwrap();
+                } else {
+                    peer.close(None).await.unwrap();
+                }
+            });
+            let (mut socket, _) = tokio_tungstenite::connect_async(format!("ws://{address}"))
+                .await
+                .unwrap();
+            let accepted = timeout(
+                Duration::from_secs(2),
+                consent_while_signaling(
+                    &mut socket,
+                    std::future::pending::<Result<bool, Error>>(),
+                    Instant::now() + Duration::from_secs(10),
+                ),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert!(
+                !accepted,
+                "remote cancellation must end an unanswered prompt"
+            );
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn pending_consent_expires_and_rejects_invalid_or_late_approval() {
+        let mut silent = futures_util::stream::pending::<Result<Message, io::Error>>();
+        assert!(!timeout(
+            Duration::from_secs(1),
+            consent_while_signaling(
+                &mut silent,
+                std::future::pending::<Result<bool, Error>>(),
+                Instant::now() + Duration::from_millis(20),
+            )
+        )
+        .await
+        .unwrap()
+        .unwrap());
+
+        let joined = || {
+            Message::Text(
+                json!({"type":"joined","role":"machine","source":"desktop"})
+                    .to_string()
+                    .into(),
+            )
+        };
+        let mut ended = futures_util::stream::iter([
+            Ok::<_, io::Error>(joined()),
+            Ok(Message::Text(json!({"type":"ended"}).to_string().into())),
+        ]);
+        // This is a late-result fixture, not a real native approval. Observable
+        // cancellation wins even when the dialog result is already available.
+        assert!(!consent_while_signaling(
+            &mut ended,
+            async { Ok(true) },
+            Instant::now() + Duration::from_secs(1)
+        )
+        .await
+        .unwrap());
+        let mut wrong_role = futures_util::stream::iter([Ok::<_, io::Error>(Message::Text(
+            json!({"type":"joined","role":"viewer","source":"desktop"})
+                .to_string()
+                .into(),
+        ))]);
+        assert!(consent_while_signaling(
+            &mut wrong_role,
+            async { Ok(true) },
+            Instant::now() + Duration::from_secs(1)
+        )
+        .await
+        .is_err());
+    }
 
     fn grant() -> Grant {
         serde_json::from_value(json!({
