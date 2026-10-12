@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { playForSession } from "./playback.js";
 import { viewDeadline } from "./deadline.js";
 import { rememberView, forgetView } from "./resume-view.js";
+import { peerLifetime } from "./peer-lifetime.js";
 
 export type ViewGrant = {
   id: string;
@@ -87,6 +88,10 @@ export function LiveView({
     let lastCount = 0;
     let previousFrames = 0;
     const element = video.current;
+    const peer = peerLifetime(
+      () => setStatus("Reconnecting video…"),
+      () => finish("Video connection interrupted. Request viewing again."),
+    );
     function finish(reason: string, reloading = false) {
       if (closed) return;
       closed = true;
@@ -94,6 +99,7 @@ export function LiveView({
       setStatus(reason);
       setEnded(true);
       setNeedsPlay(false);
+      peer.dispose();
       pc.close();
       ws.close();
       candidates.length = 0;
@@ -158,6 +164,7 @@ export function LiveView({
     };
     pc.onconnectionstatechange = () => {
       if (closed) return;
+      peer.update(pc.connectionState);
       if (pc.connectionState === "connected") {
         setStatus(
           grant.source === "desktop"
@@ -165,14 +172,6 @@ export function LiveView({
             : "Connected — synthetic video only.",
         );
       }
-      // The native helper ends the lease on disconnection. Never suggest
-      // that this already-ended request can reconnect without fresh approval.
-      if (
-        pc.connectionState === "disconnected" ||
-        pc.connectionState === "failed" ||
-        pc.connectionState === "closed"
-      )
-        finish("Video connection interrupted. Request viewing again.");
     };
     pc.ontrack = (event) => {
       if (!element || closed || event.track.kind !== "video") return;

@@ -156,6 +156,7 @@ impl PeerConnectionEventHandler for Handler {
         println!("Native peer connection state: {state}");
         match state {
             RTCPeerConnectionState::Connected => {
+                self.disconnected.store(false, Ordering::Release);
                 self.connected.store(true, Ordering::Release);
             }
             RTCPeerConnectionState::Disconnected => {
@@ -372,8 +373,15 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
     let mut authorization = MediaAuthorization {
         epoch: Instant::now(),
         lease: Arc::new(AtomicU64::new(0)),
-        renewals: Renewals::default(),
     };
+    let (mut socket, signaling) = SignalSocket::start(
+        socket,
+        grant.expires_at_millis,
+        deadline,
+        active.clone(),
+        authorization.epoch,
+        authorization.lease.clone(),
+    );
     let mut generation = 0;
     loop {
         if !media_cycle(
@@ -405,23 +413,142 @@ async fn stream(grant: Grant, deadline: Instant) -> Result<(), Error> {
     }
     active.store(false, Ordering::Release);
     let _ = timeout(Duration::from_millis(500), socket.close(None)).await;
+    let _ = timeout(Duration::from_secs(1), signaling).await;
     println!("Viewing session ended.");
     Ok(())
 }
 
-type SignalSocket =
+type RawSignalSocket =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 struct MediaAuthorization {
     epoch: Instant,
     lease: Arc<AtomicU64>,
-    renewals: Renewals,
+}
+
+// Renewal must not wait behind peer setup, encoder creation or peer cleanup.
+// Only this task owns the WebSocket and challenge sequence for the approval.
+struct SignalSocket {
+    incoming: mpsc::Receiver<Result<Message, Error>>,
+    outgoing: mpsc::Sender<Message>,
+    viewer_generation: Arc<AtomicU64>,
+}
+impl SignalSocket {
+    fn start(
+        mut raw: RawSignalSocket,
+        expires_at: u64,
+        deadline: Instant,
+        active: Arc<AtomicBool>,
+        epoch: Instant,
+        lease: Arc<AtomicU64>,
+    ) -> (Self, tokio::task::JoinHandle<()>) {
+        let (incoming, receiver) = mpsc::channel(32);
+        let (outgoing, mut sender) = mpsc::channel(32);
+        let viewer_generation = Arc::new(AtomicU64::new(0));
+        let viewer = viewer_generation.clone();
+        let task = tokio::spawn(async move {
+            let _stop = StopOnDrop(active.clone());
+            let mut renewals = Renewals::default();
+            let mut tick = tokio::time::interval(Duration::from_millis(100));
+            let mut next = Instant::now();
+            let mut generation = 0;
+            let result: Result<(), Error> = async {
+                loop {
+                    let elapsed = epoch.elapsed().as_millis() as u64;
+                    let last = lease.load(Ordering::Acquire);
+                    if !active.load(Ordering::Acquire) || Instant::now() >= deadline {
+                        break;
+                    }
+                    if (last != 0 && remaining(last, elapsed).is_none())
+                        || (last == 0 && elapsed >= MAX_AGE_MS)
+                    {
+                        println!("Signaling stopped: authorization renewal expired.");
+                        break;
+                    }
+                    tokio::select! {
+                        _ = tick.tick() => {
+                            if Instant::now() >= next {
+                                let nonce = renewals.issue(epoch.elapsed().as_millis() as u64);
+                                timeout(Duration::from_millis(500), raw.send(Message::Text(json!({"type":"renew","nonce":nonce}).to_string().into()))).await??;
+                                next = Instant::now() + Duration::from_secs(1);
+                            }
+                        }
+                        message = sender.recv() => {
+                            let Some(message) = message else {break;};
+                            let closing = matches!(message, Message::Close(_));
+                            timeout(Duration::from_millis(500), raw.send(message)).await??;
+                            if closing {break;}
+                        }
+                        message = raw.next() => {
+                            let Some(message) = message else {break;};
+                            let message = message?;
+                            match &message {
+                                Message::Text(text) if text.len() <= 65536 => {
+                                    let body: Value = serde_json::from_str(text)?;
+                                    if body["type"] == "lease" {
+                                        let now = epoch.elapsed().as_millis() as u64;
+                                        let last = lease.load(Ordering::Acquire);
+                                        if !active.load(Ordering::Acquire) || Instant::now() >= deadline || (last != 0 && remaining(last, now).is_none()) || (last == 0 && now >= MAX_AGE_MS) {break;}
+                                        if body["expiresAtMillis"].as_u64() != Some(expires_at) || body["maxAgeMs"].as_u64() != Some(MAX_AGE_MS) {
+                                            return Err("Invalid lease".into());
+                                        }
+                                        if let Some(issued) = renewals.acknowledge(body["nonce"].as_str().ok_or("Missing lease challenge")?, epoch.elapsed().as_millis() as u64) {
+                                            lease.fetch_max(issued, Ordering::Release);
+                                        }
+                                        continue;
+                                    }
+                                    if body["type"] == "ended" {break;}
+                                    if body["type"] == "viewer-detached" {
+                                        viewer.store(u64::MAX, Ordering::Release);
+                                    } else if body["type"] == "viewer-resumed" {
+                                        if body["generation"].as_u64() != Some(generation + 1) || generation >= 16 {return Err("Invalid recovery generation".into());}
+                                        generation += 1;
+                                        viewer.store(generation, Ordering::Release);
+                                    }
+                                }
+                                Message::Ping(_) | Message::Pong(_) => continue,
+                                _ => break,
+                            }
+                            // A stalled consumer must never stall renewal or
+                            // retain authorization indefinitely.
+                            incoming.try_send(Ok(message)).map_err(|_| "Signaling consumer stalled")?;
+                        }
+                    }
+                }
+                Ok(())
+            }.await;
+            if let Err(error) = result {
+                println!("Signaling stopped: invalid message or stalled transport.");
+                let _ = incoming.try_send(Err(error));
+            }
+            active.store(false, Ordering::Release);
+            let _ = timeout(Duration::from_millis(500), raw.close(None)).await;
+        });
+        (
+            Self {
+                incoming: receiver,
+                outgoing,
+                viewer_generation,
+            },
+            task,
+        )
+    }
+
+    async fn next(&mut self) -> Option<Result<Message, Error>> {
+        self.incoming.recv().await
+    }
+    async fn send(&mut self, message: Message) -> Result<(), Error> {
+        self.outgoing.send(message).await.map_err(Into::into)
+    }
+    async fn close(&mut self, _: Option<()>) -> Result<(), Error> {
+        self.send(Message::Close(None)).await
+    }
 }
 
 // Capture is fully stopped while waiting; only the original visible local
 // approval survives a bounded browser reload. Stop/lock/expiry still terminate.
 async fn wait_for_viewer(
     socket: &mut SignalSocket,
-    grant: &Grant,
+    _grant: &Grant,
     deadline: Instant,
     active: Arc<AtomicBool>,
     authorization: &mut MediaAuthorization,
@@ -429,7 +556,6 @@ async fn wait_for_viewer(
 ) -> Result<bool, Error> {
     let until = (Instant::now() + Duration::from_secs(10)).min(deadline);
     let epoch = authorization.epoch;
-    let mut next = Instant::now();
     let mut tick = tokio::time::interval(Duration::from_millis(100));
     loop {
         if !active.load(Ordering::Acquire)
@@ -443,23 +569,13 @@ async fn wait_for_viewer(
             return Ok(false);
         }
         tokio::select! {
-            _ = tick.tick() => {
-                if Instant::now() >= next {
-                    let nonce = authorization.renewals.issue(epoch.elapsed().as_millis() as u64);
-                    timeout(Duration::from_millis(500), socket.send(Message::Text(json!({"type":"renew","nonce":nonce}).to_string().into()))).await??;
-                    next = Instant::now() + Duration::from_secs(1);
-                }
-            }
+            _ = tick.tick() => {},
             message = socket.next() => {
                 let text = match message { Some(Ok(Message::Text(text))) if text.len() <= 65536 => text,
                     Some(Ok(Message::Ping(_) | Message::Pong(_))) => continue, _ => return Ok(false) };
                 let body: Value = serde_json::from_str(&text)?;
                 match body["type"].as_str() {
                     Some("viewer-resumed") => return Ok(body["generation"].as_u64() == Some(expected_generation) && expected_generation <= 16 && active.load(Ordering::Acquire) && Instant::now() < until),
-                    Some("lease") => {
-                        if body["expiresAtMillis"].as_u64() != Some(grant.expires_at_millis) || body["maxAgeMs"].as_u64() != Some(MAX_AGE_MS) { return Err("Invalid recovery lease".into()); }
-                        if let Some(issued) = authorization.renewals.acknowledge(body["nonce"].as_str().ok_or("Missing lease challenge")?, epoch.elapsed().as_millis() as u64) { authorization.lease.fetch_max(issued, Ordering::Release); }
-                    }
                     Some("ended") => return Ok(false),
                     // Packets from the old transport cannot start capture.
                     Some("candidate" | "answer" | "viewer-detached") => {},
@@ -480,6 +596,7 @@ async fn media_cycle(
     generation: u64,
 ) -> Result<bool, Error> {
     let desktop = grant.source == "desktop";
+    let setup_started = Instant::now();
     indicator_connected.store(false, Ordering::Release);
     let connected = Arc::new(AtomicBool::new(false));
     let active = Arc::new(AtomicBool::new(true));
@@ -572,11 +689,17 @@ async fn media_cycle(
         )),
     )
     .await??;
+    println!(
+        "Media offer ready: generation {generation}, setup {} ms.",
+        setup_started.elapsed().as_millis()
+    );
     let (packets, mut receiver) = mpsc::channel::<crate::encoder::EncodedFrame>(2);
     let worker_active = active.clone();
     let worker_connected = connected.clone();
     let worker_lease = lease.clone();
     let worker_session_active = session_active.clone();
+    let viewer_generation = socket.viewer_generation.clone();
+    let worker_viewer_generation = viewer_generation.clone();
     let worker = tokio::task::spawn_blocking(move || -> Result<(), Error> {
         let mut encoder = Encoder::new(1280, 720, 30, 2_500_000)?;
         let mut nv12 = vec![128; 1280 * 720 * 3 / 2];
@@ -592,7 +715,10 @@ async fn media_cycle(
                 println!("Media stopped: authorization renewal expired.");
                 break;
             }
-            if !worker_connected.load(Ordering::Acquire) || last == 0 {
+            if !worker_connected.load(Ordering::Acquire)
+                || last == 0
+                || worker_viewer_generation.load(Ordering::Acquire) != generation
+            {
                 // Drop the capture source, including cached pixels, while the
                 // viewer is absent. Its lifetime is independent of local Stop.
                 capture.take();
@@ -641,7 +767,7 @@ async fn media_cycle(
         let mut tick=tokio::time::interval(Duration::from_millis(100));
         let mut answered=false;
         let mut remote_candidates=Vec::<RTCIceCandidateInit>::new();
-        let mut next_renewal=Instant::now();
+
         let mut disconnected_at=None::<Instant>;
         loop {
             let last=lease.load(Ordering::Acquire);
@@ -660,23 +786,22 @@ async fn media_cycle(
                     if disconnected.load(Ordering::Acquire) {
                         let lost = disconnected_at.get_or_insert_with(Instant::now);
                         if lost.elapsed() >= Duration::from_secs(3) {break;}
+                    } else {
+                        disconnected_at = None;
                     }
-                    if Instant::now()>=next_renewal {
-                        let nonce=authorization.renewals.issue(epoch.elapsed().as_millis() as u64);
-                        timeout(Duration::from_millis(500), socket.send(Message::Text(json!({"type":"renew","nonce":nonce}).to_string().into()))).await??;
-                        next_renewal=Instant::now()+Duration::from_secs(1);
-                    }
+
                 }
                 packet=receiver.recv()=>{
                     let Some(packet)=packet else {break;};
                     if !active.load(Ordering::Acquire) || !session_active.load(Ordering::Acquire) || Instant::now()>=deadline {break;}
-                    if !connected.load(Ordering::Acquire) {continue;}
+                    if !connected.load(Ordering::Acquire) || viewer_generation.load(Ordering::Acquire) != generation {continue;}
                     if !answered {return Err("Media arrived before answer".into());}
                     let parameters=timeout(Duration::from_millis(500),sender.get_parameters()).await??;
                     let payload=parameters.rtp_parameters.codecs.first().ok_or("No negotiated codec")?.payload_type;
                     // Queued packets must not outlive renewal or the absolute grant deadline.
                     let Some(lease_remaining)=remaining(lease.load(Ordering::Acquire),epoch.elapsed().as_millis() as u64) else {break;};
-                    if !active.load(Ordering::Acquire) || !session_active.load(Ordering::Acquire) || !connected.load(Ordering::Acquire) {break;}
+                    if !active.load(Ordering::Acquire) || !session_active.load(Ordering::Acquire) {break;}
+                    if !connected.load(Ordering::Acquire) || viewer_generation.load(Ordering::Acquire) != generation {continue;}
                     let budget=lease_remaining.min(deadline.saturating_duration_since(Instant::now())).min(Duration::from_millis(500));
                     if budget.is_zero() {break;}
                     timeout(budget,track.sample_writer(7_230_001,payload).write_sample(&Sample{data:bytes::Bytes::from(packet.bytes),duration:Duration::from_secs_f64(1.0/30.0),..Sample::new(Instant::now())})).await??;
@@ -703,16 +828,6 @@ async fn media_cycle(
                                 else {if remote_candidates.len()>=16 {return Err("Too many early candidates".into());} remote_candidates.push(candidate);}
                             }
                         }
-                        Some("lease")=>{
-                            let last=lease.load(Ordering::Acquire);
-                            if last!=0 && remaining(last,epoch.elapsed().as_millis() as u64).is_none() {break;}
-                            if body["expiresAtMillis"].as_u64()!=Some(grant.expires_at_millis) || body["maxAgeMs"].as_u64()!=Some(MAX_AGE_MS) {return Err("Invalid lease".into());}
-                            let nonce=body["nonce"].as_str().ok_or("Missing lease challenge")?;
-                            if let Some(issued)=authorization.renewals.acknowledge(nonce,epoch.elapsed().as_millis() as u64){
-                                    // Age starts when our challenge was sent, never when a delayed reply arrives.
-                                    lease.fetch_max(issued,Ordering::Release);
-                            }
-                        }
                         Some("ended")=>break,
                         Some("viewer-detached")=>{ detached = true; break; },
                         Some("joined")=>{},
@@ -724,8 +839,16 @@ async fn media_cycle(
     }.await;
     active.store(false, Ordering::Release);
     indicator_connected.store(false, Ordering::Release);
-    let _ = timeout(Duration::from_secs(2), pc.close()).await;
-    timeout(Duration::from_secs(3), worker).await???;
+    let cleanup_started = Instant::now();
+    let (_, worker) = tokio::join!(
+        timeout(Duration::from_secs(2), pc.close()),
+        timeout(Duration::from_secs(3), worker)
+    );
+    worker???;
+    println!(
+        "Media cleanup: generation {generation}, {} ms, viewer detached {detached}.",
+        cleanup_started.elapsed().as_millis()
+    );
     println!(
         "{}",
         if desktop {
@@ -741,6 +864,126 @@ async fn media_cycle(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn renewal_continues_while_media_consumer_is_busy_then_stop_closes_signaling() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (connection, _) = listener.accept().await.unwrap();
+            let mut peer = tokio_tungstenite::accept_async(connection).await.unwrap();
+            let mut challenges = 0;
+            while let Some(Ok(Message::Text(text))) = peer.next().await {
+                let body: Value = serde_json::from_str(&text).unwrap();
+                assert_eq!(body["type"], "renew");
+                challenges += 1;
+                peer.send(Message::Text(json!({"type":"lease","nonce":body["nonce"],"maxAgeMs":MAX_AGE_MS,"expiresAtMillis":120999}).to_string().into())).await.unwrap();
+            }
+            challenges
+        });
+        let (raw, _) = tokio_tungstenite::connect_async(format!("ws://{address}"))
+            .await
+            .unwrap();
+        let active = Arc::new(AtomicBool::new(true));
+        let lease = Arc::new(AtomicU64::new(0));
+        let epoch = Instant::now();
+        let (_socket, pump) = SignalSocket::start(
+            raw,
+            120999,
+            Instant::now() + Duration::from_secs(20),
+            active.clone(),
+            epoch,
+            lease.clone(),
+        );
+        // Reproduce a rebuild/cleanup that lasts longer than one lease. No
+        // media consumer reads signaling, and no desktop or consent is opened.
+        tokio::time::sleep(Duration::from_millis(MAX_AGE_MS + 300)).await;
+        assert!(active.load(Ordering::Acquire));
+        assert!(lease.load(Ordering::Acquire) > 2000);
+        assert!(remaining(
+            lease.load(Ordering::Acquire),
+            epoch.elapsed().as_millis() as u64
+        )
+        .is_some());
+        active.store(false, Ordering::Release);
+        timeout(Duration::from_secs(1), pump)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            timeout(Duration::from_secs(1), server)
+                .await
+                .unwrap()
+                .unwrap()
+                >= 3
+        );
+    }
+
+    #[tokio::test]
+    async fn a_reconnected_peer_clears_the_old_disconnect_latch() {
+        let (candidates, _) = mpsc::channel(1);
+        let handler = Handler {
+            candidates,
+            connected: Arc::new(AtomicBool::new(false)),
+            active: Arc::new(AtomicBool::new(true)),
+            disconnected: Arc::new(AtomicBool::new(false)),
+        };
+        handler
+            .on_connection_state_change(RTCPeerConnectionState::Disconnected)
+            .await;
+        assert!(handler.disconnected.load(Ordering::Acquire));
+        assert!(!handler.connected.load(Ordering::Acquire));
+        handler
+            .on_connection_state_change(RTCPeerConnectionState::Connected)
+            .await;
+        assert!(!handler.disconnected.load(Ordering::Acquire));
+        assert!(handler.connected.load(Ordering::Acquire));
+        handler
+            .on_connection_state_change(RTCPeerConnectionState::Failed)
+            .await;
+        assert!(!handler.active.load(Ordering::Acquire));
+    }
+
+    #[tokio::test]
+    async fn signaling_authorization_cannot_survive_missing_lease_or_invalid_deadline() {
+        for invalid_deadline in [false, true] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (connection, _) = listener.accept().await.unwrap();
+                let mut peer = tokio_tungstenite::accept_async(connection).await.unwrap();
+                while let Some(Ok(Message::Text(text))) = peer.next().await {
+                    if invalid_deadline {
+                        let body: Value = serde_json::from_str(&text).unwrap();
+                        let _ = peer.send(Message::Text(json!({"type":"lease","nonce":body["nonce"],"maxAgeMs":MAX_AGE_MS,"expiresAtMillis":121000}).to_string().into())).await;
+                    }
+                }
+            });
+            let (raw, _) = tokio_tungstenite::connect_async(format!("ws://{address}"))
+                .await
+                .unwrap();
+            let active = Arc::new(AtomicBool::new(true));
+            let lease = Arc::new(AtomicU64::new(0));
+            let (_socket, pump) = SignalSocket::start(
+                raw,
+                120999,
+                Instant::now() + Duration::from_secs(20),
+                active.clone(),
+                Instant::now(),
+                lease.clone(),
+            );
+            timeout(Duration::from_secs(4), pump)
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(!active.load(Ordering::Acquire));
+            assert_eq!(lease.load(Ordering::Acquire), 0);
+            timeout(Duration::from_secs(1), server)
+                .await
+                .unwrap()
+                .unwrap();
+        }
+    }
 
     #[tokio::test]
     async fn pending_consent_observes_real_signaling_cancel_and_close() {
@@ -883,7 +1126,7 @@ mod tests {
                     }
                 }
             });
-            let (mut socket, _) = tokio_tungstenite::connect_async(format!("ws://{address}"))
+            let (raw, _) = tokio_tungstenite::connect_async(format!("ws://{address}"))
                 .await
                 .unwrap();
             let active = Arc::new(AtomicBool::new(mode != "stop"));
@@ -891,13 +1134,20 @@ mod tests {
                 epoch: Instant::now()
                     - Duration::from_millis(if mode == "lease" { MAX_AGE_MS + 1 } else { 10 }),
                 lease: Arc::new(AtomicU64::new(1)),
-                renewals: Renewals::default(),
             };
             let deadline = if mode == "deadline" {
                 Instant::now()
             } else {
                 Instant::now() + Duration::from_secs(20)
             };
+            let (mut socket, pump) = SignalSocket::start(
+                raw,
+                grant().expires_at_millis,
+                deadline,
+                active.clone(),
+                authorization.epoch,
+                authorization.lease.clone(),
+            );
             let resumed = timeout(
                 Duration::from_secs(1),
                 wait_for_viewer(
@@ -914,6 +1164,7 @@ mod tests {
             .unwrap();
             assert_eq!(resumed, mode == "resume", "{mode}");
             let _ = socket.close(None).await;
+            let _ = timeout(Duration::from_secs(1), pump).await.unwrap();
             timeout(Duration::from_secs(1), server)
                 .await
                 .unwrap()
