@@ -48,6 +48,8 @@ struct WindowState {
     connected: Arc<AtomicBool>,
     desktop: bool,
     control: bool,
+    // The helper may send files (chosen in the consent window); received files are announced here.
+    files: bool,
     deadline: Option<Instant>,
     controller: String,
     session: String,
@@ -71,6 +73,7 @@ impl WindowState {
             connected,
             desktop,
             control,
+            files: false,
             deadline,
             controller: String::new(),
             session: String::new(),
@@ -168,7 +171,13 @@ unsafe fn paint(window: HWND, state: &WindowState) {
             246.0,
             if live_input { p.accent } else { p.faint },
         );
-        ui::icon(&canvas, Icon::Lock, 44.0, 270.0, p.faint);
+        ui::icon(
+            &canvas,
+            Icon::Lock,
+            44.0,
+            270.0,
+            if state.files { p.accent } else { p.faint },
+        );
         canvas.line(28.0, 372.0, 492.0, 372.0, p.line, 1.0);
     }
     BitBlt(hdc, 0, 0, w, h, buffer, 0, 0, SRCCOPY);
@@ -270,6 +279,7 @@ unsafe extern "system" fn procedure(
                 let color = match GetDlgCtrlID(lparam as HWND) {
                     HEADING_ID | NAME_ID | PANEL_ID => p.strong,
                     STATUS_ID | SESSION_ID | FOOTER_ID => p.muted,
+                    ROW_LIMITS_ID if (*state).files => p.text,
                     TAG_ID | ROW_LIMITS_ID => p.faint,
                     _ => p.text,
                 };
@@ -350,6 +360,21 @@ unsafe extern "system" fn procedure(
             SetWindowTextW(control, text.as_ptr());
             InvalidateRect(window, std::ptr::null(), 0);
         }
+        if (*state).files {
+            let note = crate::files::status();
+            let line = wide(&if note.is_empty() {
+                "File transfer allowed · saved in Downloads\\Beacon Remote".to_string()
+            } else {
+                format!("File transfer · {note}")
+            });
+            let row = GetDlgItem(window, ROW_LIMITS_ID);
+            let mut shown = [0_u16; 160];
+            let length = GetWindowTextW(row, shown.as_mut_ptr(), shown.len() as i32).max(0);
+            if shown[..length as usize] != line[..line.len() - 1] {
+                SetWindowTextW(row, line.as_ptr());
+                InvalidateRect(window, std::ptr::null(), 0);
+            }
+        }
         let mode = (*state).mode();
         if (*state).drawn.swap(mode, Ordering::AcqRel) != mode {
             // Keep the permission rows in step with what is actually on.
@@ -390,6 +415,7 @@ unsafe extern "system" fn procedure(
     DefWindowProcW(window, message, wparam, lparam)
 }
 impl Indicator {
+    #[allow(clippy::too_many_arguments)]
     pub fn start_access(
         active: Arc<AtomicBool>,
         connected: Arc<AtomicBool>,
@@ -397,10 +423,12 @@ impl Indicator {
         controller: String,
         deadline: Option<Instant>,
         control: bool,
+        files: bool,
         session: String,
     ) -> Result<Self, Error> {
         let (ready, received) = mpsc::channel();
         let mut state = WindowState::new(active.clone(), connected, desktop, control, deadline);
+        state.files = files && desktop;
         state.controller = controller
             .chars()
             .filter(|character| !character.is_control())
@@ -561,7 +589,11 @@ impl Indicator {
                     );
                     let row_limits = make_text(
                         ROW_LIMITS_ID,
-                        "File transfer unavailable",
+                        if state.files {
+                            "File transfer allowed · saved in Downloads\\Beacon Remote"
+                        } else {
+                            "File transfer not allowed"
+                        },
                         70,
                         268,
                         410,

@@ -434,6 +434,8 @@ async fn stream(
     // The server said "policy" and this computer's own setting agrees. Sharing stays visible
     // through the Stop window below, and Stop, sign-out or revocation still end it.
     let mut control_allowed = control;
+    // File transfer is only ever what the person at this computer ticked in the consent window.
+    let mut files_allowed = false;
     let by_policy = desktop && grant.approval.as_deref() == Some("policy") && grant.local_trusted;
     if by_policy {
         println!(
@@ -454,6 +456,8 @@ async fn stream(
         );
         let chosen_control = Arc::new(AtomicBool::new(false));
         let reported_control = chosen_control.clone();
+        let chosen_files = Arc::new(AtomicBool::new(false));
+        let reported_files = chosen_files.clone();
         let mut dialog = tokio::task::spawn_blocking(move || {
             let decision = crate::consent::request_access(
                 &controller,
@@ -465,10 +469,11 @@ async fn stream(
                 &session_label,
             )?;
             reported_control.store(
-                decision == crate::consent::Decision::Control,
+                decision.decision == crate::consent::Decision::Control,
                 Ordering::Release,
             );
-            Ok::<_, Error>(decision != crate::consent::Decision::Declined)
+            reported_files.store(decision.files, Ordering::Release);
+            Ok::<_, Error>(decision.decision != crate::consent::Decision::Declined)
         });
         let accepted = tokio::select! {
             accepted = consent_while_signaling(&mut socket, async { (&mut dialog).await? }, deadline, control) => accepted,
@@ -505,6 +510,7 @@ async fn stream(
         }
         // The person may allow viewing without the control that was asked for.
         control_allowed = chosen_control.load(Ordering::Acquire);
+        files_allowed = chosen_files.load(Ordering::Acquire);
     }
     let deadline = (grant.expires_at_millis != 0).then_some(deadline);
     let active = parent_active;
@@ -518,6 +524,7 @@ async fn stream(
         grant.controller.clone(),
         deadline,
         control_allowed,
+        files_allowed,
         format!(
             "S-{}",
             grant.id.chars().take(4).collect::<String>().to_uppercase()
@@ -538,6 +545,7 @@ async fn stream(
     .await??;
     let mut authorization = MediaAuthorization {
         control_allowed,
+        files_allowed,
         epoch: Instant::now(),
         lease: Arc::new(AtomicU64::new(0)),
         ice: Arc::new(std::sync::Mutex::new(grant.ice_servers.clone())),
@@ -600,6 +608,8 @@ struct MediaAuthorization {
     ice: Arc<std::sync::Mutex<Vec<IceServer>>>,
     // Whether the person at the computer allowed the control that was asked for.
     control_allowed: bool,
+    // Whether they also allowed the helper to send files.
+    files_allowed: bool,
 }
 
 // Renewal must not wait behind peer setup, encoder creation or peer cleanup.
@@ -796,6 +806,7 @@ async fn media_cycle(
 ) -> Result<bool, Error> {
     let desktop = grant.source == "desktop";
     let control_allowed = authorization.control_allowed;
+    let files_allowed = authorization.files_allowed;
     let setup_started = Instant::now();
     indicator_connected.store(false, Ordering::Release);
     let connected = Arc::new(AtomicBool::new(false));
@@ -891,6 +902,32 @@ async fn media_cycle(
             )
             .await?;
         Some(crate::input_transport::start(
+            channel,
+            crate::input_transport::Authority {
+                session: grant.id.clone(),
+                display_id: grant.display_id.clone(),
+                deadline,
+                epoch,
+                lease: lease.clone(),
+                session_active: session_active.clone(),
+                peer_active: active.clone(),
+                connected: connected.clone(),
+            },
+        ))
+    } else {
+        None
+    };
+    let files_worker = if desktop && files_allowed {
+        let channel = pc
+            .create_data_channel(
+                "beacon-files-v1",
+                Some(webrtc::data_channel::RTCDataChannelInit {
+                    ordered: true,
+                    ..Default::default()
+                }),
+            )
+            .await?;
+        Some(crate::files_transport::start(
             channel,
             crate::input_transport::Authority {
                 session: grant.id.clone(),
@@ -1134,6 +1171,9 @@ async fn media_cycle(
     active.store(false, Ordering::Release);
     if let Some(input_worker) = input_worker {
         let _ = timeout(Duration::from_secs(1), input_worker).await;
+    }
+    if let Some(files_worker) = files_worker {
+        let _ = timeout(Duration::from_secs(1), files_worker).await;
     }
     indicator_connected.store(false, Ordering::Release);
     let cleanup_started = Instant::now();
@@ -1467,6 +1507,7 @@ mod tests {
             let active = Arc::new(AtomicBool::new(mode != "stop"));
             let mut authorization = MediaAuthorization {
                 control_allowed: false,
+                files_allowed: false,
                 epoch: Instant::now()
                     - Duration::from_millis(if mode == "lease" { MAX_AGE_MS + 1 } else { 10 }),
                 lease: Arc::new(AtomicU64::new(1)),
