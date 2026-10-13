@@ -712,5 +712,27 @@
     "screen": "host-window",
     "purpose": "Host window with trusted access on and the new 'Also let my account send files to this computer' setting (dimmed unless trusted access is on)",
     "source": "host-window-files.png"
+  },
+  {
+    "file": "design-review/settings/2026-10-13-1607-settings-before.jpg",
+    "when": "2026-10-13 16:07 UTC",
+    "size": "799x609",
+    "platform": "design-review",
+    "screen": "settings",
+    "purpose": "Settings before: Refresh as a large primary button, a redundant Account security heading and card-in-card sections with every button primary",
+    "pair": "settings",
+    "role": "before",
+    "source": "mcp-Claude_Browser-blob-1791907478868-ivdzgz.jpg"
+  },
+  {
+    "file": "design-review/settings/2026-10-13-1607-settings-after.jpg",
+    "when": "2026-10-13 16:07 UTC",
+    "size": "800x600",
+    "platform": "design-review",
+    "screen": "settings",
+    "purpose": "Settings after: flat sections with the label on the left, quiet buttons, one loud action only for deleting the account",
+    "pair": "settings",
+    "role": "after",
+    "source": "mcp-Claude_Browser-blob-1791907607274-fitypn.jpg"
   }
 ]
