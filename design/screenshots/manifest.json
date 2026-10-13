@@ -667,5 +667,14 @@
     "pair": "sessions",
     "role": "after",
     "source": "mcp-Claude_Browser-blob-1791901519535-e9jldw.jpg"
+  },
+  {
+    "file": "design-review/support/2026-10-13-1458-support-page-guest.jpg",
+    "when": "2026-10-13 14:58 UTC",
+    "size": "800x500",
+    "platform": "design-review",
+    "screen": "support",
+    "purpose": "Public support page with the accountless guest connect form (replaces the 'not available' placeholder)",
+    "source": "mcp-Claude_Browser-blob-1791903484106-s964d9.jpg"
   }
 ]
