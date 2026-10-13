@@ -2,6 +2,7 @@ import {
   createHash,
   createPublicKey,
   randomBytes,
+  randomInt,
   randomUUID,
   verify as verifySignature,
 } from "node:crypto";
@@ -18,10 +19,15 @@ import {
   enrollment,
   heartbeat,
   heartbeatMessage,
+  SUPPORT_CODE_ALPHABET,
+  supportMessage,
+  supportRequest,
 } from "../../../packages/protocol/src/index.js";
 import type { Config } from "./config.js";
 import { registerSessions } from "./sessions.js";
 
+// A support code is typed by hand, so it is short-lived and single-use.
+const SUPPORT_CODE_MINUTES = 15;
 const digest = (value: string) =>
   createHash("sha256").update(value).digest("hex");
 const login = z
@@ -515,6 +521,91 @@ export async function createApp(pool: Pool, config: Config) {
             allowControl: body.allowControl,
             version: saved.rows[0]!.version,
           },
+        };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+  );
+
+  // The person at the computer asks for a one-time support code, signed with its identity key.
+  // The code is shown only on that computer; it expires, works once and replaces any earlier one.
+  app.post(
+    "/api/agent/support",
+    { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      const parsed = supportRequest.safeParse(request.body);
+      if (!parsed.success)
+        return reply.code(400).send({ error: "Invalid support request" });
+      const body = parsed.data;
+      if (Math.abs(Date.now() - body.timestamp) > 30_000)
+        return reply.code(401).send({ error: "Support request rejected" });
+      if (
+        !(await signedByMachine(
+          body.machineId,
+          supportMessage(
+            body.machineId,
+            body.timestamp,
+            body.nonce,
+            body.capability,
+          ),
+          body.signature,
+        ))
+      )
+        return reply.code(401).send({ error: "Support request rejected" });
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const machine = await client.query<{ account_id: string }>(
+          "SELECT account_id FROM machines WHERE id=$1 AND revoked_at IS NULL FOR UPDATE",
+          [body.machineId],
+        );
+        if (!machine.rowCount) {
+          await client.query("ROLLBACK");
+          return reply.code(401).send({ error: "Support request rejected" });
+        }
+        const nonce = await client.query(
+          "INSERT INTO heartbeat_nonces(machine_id,nonce) VALUES ($1,$2) ON CONFLICT DO NOTHING RETURNING nonce",
+          [body.machineId, body.nonce],
+        );
+        if (!nonce.rowCount) {
+          await client.query("ROLLBACK");
+          return reply.code(409).send({ error: "Support request rejected" });
+        }
+        if (body.capability === "desktop:control" && !config.CONTROL_ENABLED) {
+          await client.query("ROLLBACK");
+          return reply.code(403).send({ error: "Control unavailable" });
+        }
+        await client.query(
+          "DELETE FROM support_invitations WHERE machine_id=$1 AND claimed_at IS NULL",
+          [body.machineId],
+        );
+        const code = Array.from(
+          { length: 8 },
+          () => SUPPORT_CODE_ALPHABET[randomInt(SUPPORT_CODE_ALPHABET.length)],
+        ).join("");
+        const expiresAt = new Date(Date.now() + SUPPORT_CODE_MINUTES * 60_000);
+        await client.query(
+          "INSERT INTO support_invitations(code_hash,machine_id,capability,expires_at) VALUES ($1,$2,$3,$4)",
+          [digest(code), body.machineId, body.capability, expiresAt],
+        );
+        await client.query(
+          "INSERT INTO audit_events(account_id,machine_id,action) VALUES ($1,$2,$3)",
+          [
+            machine.rows[0]!.account_id,
+            body.machineId,
+            `support.invitation.created:${body.capability === "desktop:control" ? "control" : "view"}`,
+          ],
+        );
+        await client.query("COMMIT");
+        return {
+          ok: true,
+          code: `${code.slice(0, 4)}-${code.slice(4)}`,
+          capability: body.capability,
+          expiresAtMillis: expiresAt.getTime(),
         };
       } catch (error) {
         await client.query("ROLLBACK");

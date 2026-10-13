@@ -58,6 +58,34 @@ export const accessRequest = z
   .strict()
   .refine((request) => request.mode === "trusted" || !request.allowControl);
 
+// The person at the computer asks for a one-time support code, signed with the computer's key.
+export const supportRequest = z
+  .object({
+    version: z.literal(PROTOCOL_VERSION),
+    machineId: z.string().uuid(),
+    timestamp: z.number().int().positive(),
+    nonce: z.string().uuid(),
+    capability,
+    signature: z.string().regex(/^[A-Za-z0-9+/]{86}==$/),
+  })
+  .strict();
+
+export function supportMessage(
+  machineId: string,
+  timestamp: number,
+  nonce: string,
+  requested: z.infer<typeof capability>,
+): string {
+  return `beacon-remote:support:v1\n${machineId}\n${timestamp}\n${nonce}\n${requested}`;
+}
+
+// Support codes avoid look-alike characters; they are typed by a person from a voice or chat.
+export const SUPPORT_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+export const supportCode = z
+  .string()
+  .transform((value) => value.toUpperCase().replace(/[\s-]/g, ""))
+  .pipe(z.string().regex(/^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{8}$/));
+
 export function accessMessage(
   machineId: string,
   timestamp: number,

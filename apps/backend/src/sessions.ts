@@ -1,11 +1,14 @@
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import websocket from "@fastify/websocket";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import type { WebSocket } from "ws";
 import { z } from "zod";
 import type { Config } from "./config.js";
-import { displayInfo } from "../../../packages/protocol/src/index.js";
+import {
+  displayInfo,
+  supportCode,
+} from "../../../packages/protocol/src/index.js";
 import { relayCredentials, relayExpiry } from "./relay.js";
 
 type Session = {
@@ -272,6 +275,83 @@ export async function registerSessions(
       maxSeconds: null,
     };
   });
+  // Creates the session row inside the caller's transaction (machine already locked and checked).
+  // A support session never relies on the computer's trusted-access policy: it always needs the
+  // local Allow, because that policy is about the owner's own account.
+  async function openSession(
+    client: PoolClient,
+    input: {
+      account: string;
+      machineId: string;
+      source: "desktop" | "synthetic";
+      capability: "desktop:view" | "desktop:control";
+      displayId: string | null;
+      support: boolean;
+    },
+  ): Promise<Session | "busy"> {
+    await client.query(
+      `UPDATE view_sessions s SET status='ended' WHERE machine_id=$1 AND NOT ${liveDuration("s")} AND status IN ('requested','connecting','active')`,
+      [input.machineId],
+    );
+    const busy = await client.query(
+      "SELECT 1 FROM view_sessions WHERE machine_id=$1 AND status IN ('requested','connecting','active')",
+      [input.machineId],
+    );
+    if (busy.rowCount) return "busy";
+    // Trusted personal access skips the local Allow only when the computer itself said so, for
+    // the desktop, and (for control) only when it allowed control.
+    const access = await client.query<{
+      mode: string;
+      allow_control: boolean;
+      version: number;
+    }>(
+      "SELECT mode,allow_control,version FROM machine_access WHERE machine_id=$1",
+      [input.machineId],
+    );
+    const policy = access.rows[0];
+    const byPolicy =
+      !input.support &&
+      policy?.mode === "trusted" &&
+      input.source === "desktop" &&
+      (input.capability === "desktop:view" || policy.allow_control);
+    const session: Session = {
+      id: randomUUID(),
+      account_id: input.account,
+      machine_id: input.machineId,
+      source: input.source,
+      capability: input.capability,
+      expires_at: new Date(
+        Date.now() + (config.SESSION_MAX_HOURS ?? 12) * 3_600_000,
+      ),
+      created_at: new Date(),
+      status: "requested",
+      approval: byPolicy ? "policy" : "local",
+      policy_version: byPolicy ? policy.version : null,
+      display_id: input.displayId,
+    };
+    await client.query(
+      "INSERT INTO view_sessions(id,account_id,machine_id,source,token_hash,expires_at,status,capability,approval,policy_version,display_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+      [
+        session.id,
+        input.account,
+        session.machine_id,
+        session.source,
+        digest(token(session)),
+        session.expires_at,
+        session.status,
+        session.capability,
+        session.approval,
+        session.policy_version,
+        session.display_id,
+      ],
+    );
+    const action = `${session.capability === "desktop:control" ? "desktop.control" : "desktop.view"}.requested:${session.source}`;
+    await client.query(
+      "INSERT INTO audit_events(account_id,machine_id,action) VALUES ($1,$2,$3)",
+      [input.account, session.machine_id, action],
+    );
+    return session;
+  }
   app.post(
     "/api/machines/:id/sessions",
     { config: { rateLimit: { max: 4, timeWindow: "1 minute" } } },
@@ -321,74 +401,21 @@ export async function registerSessions(
           await client.query("ROLLBACK");
           return reply.code(400).send({ error: "Unknown display" });
         }
-        await client.query(
-          `UPDATE view_sessions s SET status='ended' WHERE machine_id=$1 AND NOT ${liveDuration("s")} AND status IN ('requested','connecting','active')`,
-          [parsed.data.id],
-        );
-        const busy = await client.query(
-          "SELECT 1 FROM view_sessions WHERE machine_id=$1 AND status IN ('requested','connecting','active')",
-          [parsed.data.id],
-        );
-        if (busy.rowCount) {
+        const opened = await openSession(client, {
+          account,
+          machineId: parsed.data.id,
+          source: body.data.source,
+          capability: body.data.capability,
+          displayId: body.data.displayId ?? null,
+          support: false,
+        });
+        if (opened === "busy") {
           await client.query("ROLLBACK");
           return reply
             .code(409)
             .send({ error: "A view session is already active" });
         }
-        // Trusted personal access skips the local Allow only when the computer itself said so, for
-        // the desktop, and (for control) only when it allowed control.
-        const access = await client.query<{
-          mode: string;
-          allow_control: boolean;
-          version: number;
-        }>(
-          "SELECT mode,allow_control,version FROM machine_access WHERE machine_id=$1",
-          [parsed.data.id],
-        );
-        const policy = access.rows[0];
-        const byPolicy =
-          policy?.mode === "trusted" &&
-          body.data.source === "desktop" &&
-          (body.data.capability === "desktop:view" || policy.allow_control);
-        const session: Session = {
-          id: randomUUID(),
-          account_id: account,
-          machine_id: parsed.data.id,
-          source: body.data.source,
-          capability: body.data.capability,
-          expires_at: new Date(
-            Date.now() + (config.SESSION_MAX_HOURS ?? 12) * 3_600_000,
-          ),
-          created_at: new Date(),
-          status: "requested",
-          approval: byPolicy ? "policy" : "local",
-          policy_version: byPolicy ? policy.version : null,
-          display_id: body.data.displayId ?? null,
-        };
-        await client.query(
-          "INSERT INTO view_sessions(id,account_id,machine_id,source,token_hash,expires_at,status,capability,approval,policy_version,display_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
-          [
-            session.id,
-            account,
-            session.machine_id,
-            session.source,
-            digest(token(session)),
-            session.expires_at,
-            session.status,
-            session.capability,
-            session.approval,
-            session.policy_version,
-            session.display_id,
-          ],
-        );
-        await client.query(
-          "INSERT INTO audit_events(account_id,machine_id,action) VALUES ($1,$2,$3)",
-          [
-            account,
-            session.machine_id,
-            `${session.capability === "desktop:control" ? "desktop.control" : "desktop.view"}.requested:${session.source}`,
-          ],
-        );
+        const session = opened;
         await client.query("COMMIT");
         wake(session.machine_id);
         return {
@@ -400,6 +427,99 @@ export async function registerSessions(
           reconnectSeconds: reconnectSeconds(session),
           iceServers: sessionIce(session),
           iceTransportPolicy,
+        };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+  );
+  // A helper redeems a one-time support code. The person at the computer still approves locally,
+  // and nothing here leaves the helper with standing access to the computer.
+  app.post(
+    "/api/support/claim",
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      if (request.headers.origin !== config.WEB_ORIGIN)
+        return reply.code(403).send({ error: "Origin rejected" });
+      const account = await owner(request);
+      if (!account) return reply.code(401).send({ error: "Sign in required" });
+      if (!enabled)
+        return reply.code(503).send({ error: "View sessions disabled" });
+      const body = z
+        .object({ code: supportCode })
+        .strict()
+        .safeParse(request.body);
+      // Invalid, expired, used and unknown codes are indistinguishable.
+      const unavailable = () =>
+        reply.code(404).send({ error: "That support code did not work" });
+      if (!body.success) return unavailable();
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const invitation = await client.query<{
+          machine_id: string;
+          capability: "desktop:view" | "desktop:control";
+        }>(
+          "SELECT machine_id,capability FROM support_invitations WHERE code_hash=$1 AND claimed_at IS NULL AND expires_at>now() FOR UPDATE",
+          [digest(body.data.code)],
+        );
+        const found = invitation.rows[0];
+        const machine = found
+          ? await client.query<{ account_id: string; name: string }>(
+              "SELECT account_id,name FROM machines WHERE id=$1 AND revoked_at IS NULL AND last_seen_at>now()-interval '45 seconds' FOR UPDATE",
+              [found.machine_id],
+            )
+          : null;
+        if (!found || !machine?.rowCount) {
+          await client.query("ROLLBACK");
+          return unavailable();
+        }
+        if (found.capability === "desktop:control" && !controlEnabled) {
+          await client.query("ROLLBACK");
+          return reply.code(403).send({ error: "Control unavailable" });
+        }
+        const opened = await openSession(client, {
+          account,
+          machineId: found.machine_id,
+          source: "desktop",
+          capability: found.capability,
+          displayId: null,
+          support: true,
+        });
+        if (opened === "busy") {
+          await client.query("ROLLBACK");
+          return reply
+            .code(409)
+            .send({ error: "A view session is already active" });
+        }
+        await client.query(
+          "UPDATE support_invitations SET claimed_at=now(),claimed_by=$2 WHERE code_hash=$1",
+          [digest(body.data.code), account],
+        );
+        // The owner's activity shows who was invited, even though the helper owns the session.
+        await client.query(
+          "INSERT INTO audit_events(account_id,machine_id,action) VALUES ($1,$2,$3)",
+          [
+            machine.rows[0]!.account_id,
+            found.machine_id,
+            `support.invitation.claimed:${found.capability === "desktop:control" ? "control" : "view"}`,
+          ],
+        );
+        await client.query("COMMIT");
+        wake(opened.machine_id);
+        return {
+          id: opened.id,
+          source: opened.source,
+          capability: opened.capability,
+          expiresAtMillis: expiryMillis(),
+          approval: opened.approval,
+          reconnectSeconds: reconnectSeconds(opened),
+          iceServers: sessionIce(opened),
+          iceTransportPolicy,
+          machineName: machine.rows[0]!.name,
         };
       } catch (error) {
         await client.query("ROLLBACK");
