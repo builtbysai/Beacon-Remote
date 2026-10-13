@@ -4,11 +4,13 @@ import {
   generateKeyPairSync,
   randomBytes,
   randomUUID,
+  sign,
 } from "node:crypto";
 import { test } from "node:test";
 import { Pool } from "pg";
 import { createApp } from "../src/app.js";
 import { applyMigrations } from "../src/migrations.js";
+import { heartbeatMessage } from "../../../packages/protocol/src/index.js";
 
 test(
   "a helper without an account redeems a code as a temporary guest who can only run that support session",
@@ -30,6 +32,7 @@ test(
     await app.ready();
     const owner = randomUUID();
     const machine = randomUUID();
+    const keys = generateKeyPairSync("ed25519");
     const digest = (value: string) =>
       createHash("sha256").update(value).digest("hex");
     let address = 1;
@@ -59,9 +62,7 @@ test(
         [
           machine,
           owner,
-          generateKeyPairSync("ed25519")
-            .publicKey.export({ type: "spki", format: "der" })
-            .subarray(-32),
+          keys.publicKey.export({ type: "spki", format: "der" }).subarray(-32),
         ],
       );
       const code = "ABCDEFGH";
@@ -135,6 +136,30 @@ test(
       assert.equal(
         (await post("/api/support/guest", { code })).statusCode,
         404,
+      );
+
+      // The person at the computer sees "Guest helper", never the temporary address behind it.
+      const timestamp = Date.now();
+      const nonce = randomUUID();
+      const beat = await app.inject({
+        method: "POST",
+        url: "/api/agent/heartbeat",
+        payload: {
+          version: 1,
+          machineId: machine,
+          timestamp,
+          nonce,
+          signature: sign(
+            null,
+            Buffer.from(heartbeatMessage(machine, timestamp, nonce)),
+            keys.privateKey,
+          ).toString("base64"),
+        },
+      });
+      assert.equal(beat.statusCode, 200);
+      assert.equal(
+        beat.json().sessions[0].controller,
+        "Guest helper (no account)",
       );
 
       const stopped = await post(
