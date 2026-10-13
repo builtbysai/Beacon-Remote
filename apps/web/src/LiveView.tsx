@@ -70,6 +70,7 @@ export function LiveView({
     afterApproval?: number;
   }>({});
   const [presentedFps, setPresentedFps] = useState<number | null>(null);
+  const [pictureHeight, setPictureHeight] = useState<number | null>(null);
   const [roundTripMillis, setRoundTripMillis] = useState<number | null>(null);
   const [transportAttempt, setTransportAttempt] = useState(0);
   // Relay credentials are short; each resume brings fresh ones for the next transport.
@@ -350,6 +351,7 @@ export function LiveView({
           }
           if (time - lastCount >= 1000 || lastCount === 0) {
             setFrames(metadata.presentedFrames);
+            setPictureHeight(metadata.height);
             if (lastCount !== 0)
               setPresentedFps(
                 Math.max(
@@ -748,7 +750,20 @@ export function LiveView({
         <span role="status" data-decoded-frames={frames}>
           {status}
         </span>
-        {route !== "Not established" && <span>{route}</span>}
+        {route !== "Not established" && (
+          <span className="viewer-quality">
+            {[
+              route,
+              pictureHeight ? `${pictureHeight}p` : null,
+              presentedFps === null ? null : `${Math.round(presentedFps)} fps`,
+              roundTripMillis === null
+                ? null
+                : `${Math.round(roundTripMillis)} ms`,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+        )}
         {displayError && <span role="alert">{displayError}</span>}
       </footer>
     </section>
