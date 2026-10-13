@@ -1,3 +1,4 @@
+import { GuestSupport } from "./GuestSupport.js";
 import { useEffect, useState } from "react";
 
 export type Page =
@@ -179,23 +180,46 @@ export function ProductPage({
   if (page === "support" || page === "assist")
     return (
       <section className="public-section">
-        <p className="eyebrow">ATTENDED SUPPORT</p>
+        <p className="eyebrow">SUPPORT</p>
         <h1>Help, with permission.</h1>
-        <p>
-          Accountless support codes and control approval are not available in
-          this alpha.
-        </p>
+        <div className="support-columns">
+          <div>
+            <h2>Getting help</h2>
+            <ol className="help-steps">
+              <li>
+                Open Beacon Remote on your Windows computer and choose Support
+                code.
+              </li>
+              <li>
+                Read the code to the person helping you. It works once and
+                expires in 15 minutes.
+              </li>
+              <li>
+                Choose Allow when they connect. You can pause or stop at any
+                time, and nothing is shared until you allow it.
+              </li>
+            </ol>
+          </div>
+          <div>
+            <h2>Helping someone</h2>
+            <p>
+              Enter the code they read out. You do not need an account; a
+              temporary guest session is created that can only run this one
+              support session.
+            </p>
+            <GuestSupport />
+          </div>
+        </div>
         <div className="quiet-panel">
           <h2>Already paired?</h2>
           <p>
-            Open Computers to request view-only access. The person at the
-            Windows computer must approve sharing and can stop it locally.
+            Open Computers to connect to your own computers, or Assist for
+            computers shared with you.
           </p>
           <a className="button" href={workspace}>
             My computers →
           </a>
         </div>
-        <button disabled>Start guest support — unavailable</button>
       </section>
     );
   if (page === "security")
@@ -231,7 +255,7 @@ export function ProductPage({
         <div className="quiet-panel">
           <h2>Alpha limitations</h2>
           <p>
-            MFA, password recovery, signed installation and the full
+            Email password recovery, a signed installer and the full
             cross-network recovery test matrix are unfinished. WebRTC uses
             transport encryption; this alpha does not claim end-to-end peer
             authentication against the signaling service.

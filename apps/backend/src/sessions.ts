@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import websocket from "@fastify/websocket";
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Pool, PoolClient } from "pg";
 import type { WebSocket } from "ws";
 import { z } from "zod";
@@ -125,6 +125,10 @@ export async function registerSessions(
   pool: Pool,
   config: Config,
   owner: (request: FastifyRequest) => Promise<string | null>,
+  guests?: {
+    create(client: PoolClient): Promise<{ account: string; token: string }>;
+    setCookie(reply: FastifyReply, token: string): void;
+  },
 ) {
   await app.register(websocket, {
     options: { maxPayload: 65536, perMessageDeflate: false },
@@ -455,14 +459,15 @@ export async function registerSessions(
   );
   // A helper redeems a one-time support code. The person at the computer still approves locally,
   // and nothing here leaves the helper with standing access to the computer.
-  app.post(
-    "/api/support/claim",
-    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
-    async (request, reply) => {
+  const claimSupport =
+    (allowGuest: boolean) =>
+    async (request: FastifyRequest, reply: FastifyReply) => {
       if (request.headers.origin !== config.WEB_ORIGIN)
         return reply.code(403).send({ error: "Origin rejected" });
-      const account = await owner(request);
-      if (!account) return reply.code(401).send({ error: "Sign in required" });
+      // Without an account the helper becomes a temporary guest once the code is known to be good.
+      let account = await owner(request);
+      if (!account && !(allowGuest && guests))
+        return reply.code(401).send({ error: "Sign in required" });
       if (!enabled)
         return reply.code(503).send({ error: "View sessions disabled" });
       const body = z
@@ -498,6 +503,12 @@ export async function registerSessions(
           await client.query("ROLLBACK");
           return reply.code(403).send({ error: "Control unavailable" });
         }
+        let guestToken: string | null = null;
+        if (!account) {
+          const guest = await guests!.create(client);
+          account = guest.account;
+          guestToken = guest.token;
+        }
         const opened = await openSession(client, {
           account,
           machineId: found.machine_id,
@@ -526,6 +537,7 @@ export async function registerSessions(
           ],
         );
         await client.query("COMMIT");
+        if (guestToken) guests!.setCookie(reply, guestToken);
         wake(opened.machine_id);
         return {
           id: opened.id,
@@ -544,8 +556,13 @@ export async function registerSessions(
       } finally {
         client.release();
       }
-    },
-  );
+    };
+  const claimLimit = {
+    config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+  };
+  app.post("/api/support/claim", claimLimit, claimSupport(false));
+  // The same redemption for a helper with no account: they become a temporary guest (migration 012).
+  app.post("/api/support/guest", claimLimit, claimSupport(true));
   // Remembered support (ADR 0024). The owner names an account; that account may then request
   // sessions on this computer until the expiry, and every session still needs the local Allow.
   const relationshipParams = z.object({ id: z.uuid() });
