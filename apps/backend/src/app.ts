@@ -74,15 +74,64 @@ export async function createApp(pool: Pool, config: Config) {
       .send({ error: status === 429 ? "Too many requests" : "Request failed" });
   });
 
-  async function owner(request: FastifyRequest): Promise<string | null> {
+  async function browserSession(
+    request: FastifyRequest,
+  ): Promise<{ account: string; guest: boolean } | null> {
     const token = request.cookies.remote_session;
     if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
-    const result = await pool.query<{ account_id: string }>(
-      "SELECT account_id FROM browser_sessions WHERE token_hash=$1 AND expires_at>now()",
+    const result = await pool.query<{ account_id: string; guest: boolean }>(
+      `SELECT b.account_id,(a.guest_expires_at IS NOT NULL) AS guest
+       FROM browser_sessions b JOIN accounts a ON a.id=b.account_id
+       WHERE b.token_hash=$1 AND b.expires_at>now()`,
       [digest(token)],
     );
-    return result.rows[0]?.account_id ?? null;
+    const row = result.rows[0];
+    return row ? { account: row.account_id, guest: row.guest } : null;
   }
+  // The signed-in account. A guest (a helper who redeemed a support code without an account) is not one.
+  async function owner(request: FastifyRequest): Promise<string | null> {
+    const session = await browserSession(request);
+    return session && !session.guest ? session.account : null;
+  }
+  // Accounts and guests alike: only support-session routes accept a guest.
+  async function accountOrGuest(request: FastifyRequest) {
+    return (await browserSession(request))?.account ?? null;
+  }
+  const GUEST_HOURS = 4;
+  const guests = {
+    hours: GUEST_HOURS,
+    async create(client: { query: Pool["query"] }) {
+      const id = randomUUID();
+      const token = randomBytes(32).toString("base64url");
+      await client.query(
+        "INSERT INTO accounts(id,email,password_hash,guest_expires_at) VALUES ($1,$2,'!',now()+make_interval(hours=>$3))",
+        [id, `guest-${id}@guest.invalid`, GUEST_HOURS],
+      );
+      await client.query(
+        "INSERT INTO browser_sessions VALUES ($1,$2,now()+make_interval(hours=>$3))",
+        [digest(token), id, GUEST_HOURS],
+      );
+      return { account: id, token };
+    },
+    setCookie(reply: FastifyReply, token: string) {
+      reply.setCookie("remote_session", token, {
+        httpOnly: true,
+        secure: config.NODE_ENV === "production",
+        sameSite: "strict",
+        path: "/",
+        maxAge: GUEST_HOURS * 3600,
+      });
+    },
+  };
+  // Expired guests, their sessions and history go away with their account.
+  const purgeGuests = () =>
+    void pool
+      .query("DELETE FROM accounts WHERE guest_expires_at<now()")
+      .catch(() => undefined);
+  purgeGuests();
+  const purgeTimer = setInterval(purgeGuests, 10 * 60 * 1000);
+  purgeTimer.unref();
+  app.addHook("onClose", async () => clearInterval(purgeTimer));
   function sameOrigin(request: FastifyRequest) {
     return request.headers.origin === config.WEB_ORIGIN;
   }
@@ -142,7 +191,13 @@ export async function createApp(pool: Pool, config: Config) {
   registerAccountData(app, pool, owner, sameOrigin, mfa, (reply) =>
     reply.clearCookie("remote_session", { path: "/" }),
   );
-  const sessionRequests = await registerSessions(app, pool, config, owner);
+  const sessionRequests = await registerSessions(
+    app,
+    pool,
+    config,
+    accountOrGuest,
+    guests,
+  );
 
   app.get("/health", async () => ({ status: "ok", service: "beacon-remote" }));
   app.get("/ready", async () => {
@@ -258,7 +313,7 @@ export async function createApp(pool: Pool, config: Config) {
       if (!parsed.success)
         return reply.code(400).send({ error: "Invalid login" });
       const result = await pool.query<{ id: string; password_hash: string }>(
-        "SELECT id,password_hash FROM accounts WHERE email=$1",
+        "SELECT id,password_hash FROM accounts WHERE email=$1 AND guest_expires_at IS NULL",
         [parsed.data.email.toLowerCase()],
       );
       const account = result.rows[0];
