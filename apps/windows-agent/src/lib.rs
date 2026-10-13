@@ -52,6 +52,10 @@ pub struct LocalAccess {
     /// 2 view and control. Raised only here, like trusted access.
     #[serde(default)]
     pub helpers: u8,
+    /// Whether this computer's own signed-in account may send files while it connects without
+    /// asking (ADR 0031). Purely local: the computer decides, and the server is never asked.
+    #[serde(default)]
+    pub files: bool,
 }
 
 fn access_path() -> io::Result<PathBuf> {
@@ -69,6 +73,7 @@ pub fn local_access() -> LocalAccess {
             trusted: access.trusted,
             allow_control: access.trusted && access.allow_control,
             helpers: access.helpers.min(2),
+            files: access.trusted && access.files,
         })
     };
     read().unwrap_or_default()
@@ -214,6 +219,17 @@ pub fn request_support_code(control: bool) -> Result<SupportCode, HostError> {
     })
 }
 
+/// Lets this computer's own account send files without asking (needs trusted access). Local only:
+/// nothing about it is sent to the server, and turning it off takes effect for the next session.
+pub fn set_files(on: bool) -> Result<(), HostError> {
+    let current = local_access();
+    save_local_access(LocalAccess {
+        files: current.trusted && on,
+        ..current
+    })?;
+    Ok(())
+}
+
 /// Raises or lowers this computer's access. Lowering takes effect locally at once, whether or not
 /// the server can be reached (the next presence report repeats it); raising needs the server.
 pub fn set_access(trusted: bool, allow_control: bool) -> Result<(), HostError> {
@@ -221,6 +237,7 @@ pub fn set_access(trusted: bool, allow_control: bool) -> Result<(), HostError> {
         trusted,
         allow_control: trusted && allow_control,
         helpers: local_access().helpers,
+        files: trusted && local_access().files,
     };
     let current = local_access();
     let raising =
@@ -302,6 +319,7 @@ fn reconcile_access(
         trusted: local.trusted && server_trusted,
         allow_control: local.allow_control && server_trusted && server_control,
         helpers: local.helpers,
+        files: local.files && server_trusted,
     };
     if target != local {
         let _ = save_local_access(target);
