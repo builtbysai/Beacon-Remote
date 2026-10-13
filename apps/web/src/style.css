@@ -2038,3 +2038,20 @@ li {
   display: flex;
   gap: 6px;
 }
+
+.mfa-form {
+  display: grid;
+  gap: 10px;
+  max-width: 420px;
+}
+.mfa-key,
+.recovery-codes {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.08em;
+}
+.recovery-codes {
+  padding: 12px;
+  border: 1px solid var(--line, #d0d5dd);
+  border-radius: 6px;
+  user-select: all;
+}

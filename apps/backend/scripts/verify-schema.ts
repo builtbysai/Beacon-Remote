@@ -26,6 +26,15 @@ try {
       "version",
       "updated_at",
     ],
+    account_mfa: [
+      "account_id",
+      "secret",
+      "enabled_at",
+      "last_step",
+      "failures",
+      "locked_until",
+      "recovery",
+    ],
     support_relationships: [
       "id",
       "machine_id",

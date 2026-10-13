@@ -6,7 +6,7 @@ import {
   randomUUID,
   verify as verifySignature,
 } from "node:crypto";
-import Fastify, { type FastifyRequest } from "fastify";
+import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
 import { hash, verify } from "@node-rs/argon2";
@@ -25,6 +25,7 @@ import {
 } from "../../../packages/protocol/src/index.js";
 import type { Config } from "./config.js";
 import { registerSessions } from "./sessions.js";
+import { registerMfa } from "./mfa.js";
 
 // A support code is typed by hand, so it is short-lived and single-use.
 const SUPPORT_CODE_MINUTES = 15;
@@ -109,6 +110,32 @@ export async function createApp(pool: Pool, config: Config) {
       Buffer.from(signature, "base64"),
     );
   }
+  async function startSession(accountId: string) {
+    const token = randomBytes(32).toString("base64url");
+    await pool.query(
+      "INSERT INTO browser_sessions VALUES ($1,$2,now()+interval '8 hours')",
+      [digest(token), accountId],
+    );
+    return token;
+  }
+  function setSessionCookie(reply: FastifyReply, token: string) {
+    reply.setCookie("remote_session", token, {
+      httpOnly: true,
+      secure: config.NODE_ENV === "production",
+      sameSite: "strict",
+      path: "/",
+      maxAge: 8 * 3600,
+    });
+  }
+  const mfa = registerMfa(
+    app,
+    pool,
+    config,
+    owner,
+    sameOrigin,
+    startSession,
+    setSessionCookie,
+  );
   const sessionRequests = await registerSessions(app, pool, config, owner);
 
   app.get("/health", async () => ({ status: "ok", service: "beacon-remote" }));
@@ -188,18 +215,11 @@ export async function createApp(pool: Pool, config: Config) {
       );
       if (!valid || !account)
         return reply.code(401).send({ error: "Invalid login" });
-      const token = randomBytes(32).toString("base64url");
-      await pool.query(
-        "INSERT INTO browser_sessions VALUES ($1,$2,now()+interval '8 hours')",
-        [digest(token), account.id],
-      );
-      reply.setCookie("remote_session", token, {
-        httpOnly: true,
-        secure: config.NODE_ENV === "production",
-        sameSite: "strict",
-        path: "/",
-        maxAge: 8 * 3600,
-      });
+      // With two-step sign-in on, the password alone starts nothing: the browser gets a short-lived
+      // challenge and must present a code before any session exists.
+      if (mfa.available && (await mfa.enabled(account.id)))
+        return { mfaRequired: true, challenge: mfa.challengeFor(account.id) };
+      setSessionCookie(reply, await startSession(account.id));
       return { ok: true };
     },
   );
