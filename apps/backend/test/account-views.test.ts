@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { Pool } from "pg";
 import { createApp } from "../src/app.js";
+import { applyMigrations } from "../src/migrations.js";
 
 test(
   "account views isolate activity and session revocation preserves the current browser and other accounts",
@@ -12,18 +12,7 @@ test(
     const url = process.env.TEST_DATABASE_URL!;
     assert.match(new URL(url).pathname, /_test$/);
     const pool = new Pool({ connectionString: url });
-    await pool.query(
-      await readFile(
-        new URL("../migrations/001_identity.sql", import.meta.url),
-        "utf8",
-      ),
-    );
-    await pool.query(
-      await readFile(
-        new URL("../migrations/002_view_sessions.sql", import.meta.url),
-        "utf8",
-      ),
-    );
+    await applyMigrations(pool);
     const app = await createApp(pool, {
       DATABASE_URL: url,
       WEB_ORIGIN: "https://remote.example.test",

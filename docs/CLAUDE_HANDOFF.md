@@ -2,6 +2,83 @@
 
 **Prepared 2026-10-10.** This is a continuation document, not a statement that every feature or release gate is complete. Recheck GitHub and the actual machines before acting.
 
+> **Superseded in part (2026-10-13).** Production now runs sessions, remote control and the dedicated relay, and the
+> product has grown well past what is described below: access modes, MFA and recovery, signed updates, the native
+> windows, adaptive video, the per-user installer, file transfer, guest support and email sign-up (closed until mail
+> is configured). **Read `docs/roadmap.md` (status per feature) and ADRs 0021 to 0032 first**; where this
+> document or the other dated validation notes disagree with them, they win. Statements below that production
+> media or control is disabled, that milestone 4 is the active gate, or that features such as file transfer or
+> other operating systems are out of scope are historical.
+
+The next viewer recovery slice ends a browser request on peer loss immediately,
+matching the native helper, and scopes autoplay/manual Play results to the
+original session lifetime. It clears ended playback controls and preserves
+terminal status and diagnostic counters. See [viewer validation](viewer-validation-2026-10-12.md)
+for the delayed-promise regression, intentional old-behavior failure comparison,
+and remaining actual browser/network acceptance. Do not claim milestone 4 passes
+from these unit checks; production media and test fixtures remain disabled/stopped.
+
+The viewer expiry follow-up adds an independent monotonic deadline for the
+initial remaining grant lifetime. A backward clock adjustment cannot extend
+local viewing; a forward adjustment still expires it. Server/native leases are
+unchanged. Clock adjustment and sleep/resume behavior still need real-browser
+acceptance; do not infer those results from the focused deadline regressions.
+
+Pending desktop requests are now scoped to their original page/authentication
+context. A late response after navigation or confirmed sign-out cannot reopen a
+viewer, and its grant gets a best-effort Stop attempt. After logout/network loss
+that attempt may fail; original server/native expiry and local consent remain.
+Real browser navigation/logout acceptance is still pending.
+
+Latest owner test, October 12: PR #25 is merged at `d0bc0b9`, with required
+reviewed-head and merged-main checks passing. Matching `stop-2aa1510` binaries
+passed the owner's guided Decline/Escape, Android cancel/re-request, manual
+desktop viewing, local Stop and keyboard Stop checks. Both acceptance containers and the native
+fixture are stopped; STOP is restored and private identity retained. The owner
+cancelled the hourly automation, which was deleted. Continue only from owner
+prompts; do not recreate a schedule. Production media remains disabled.
+
+Current follow-up simplifies native consent/Stop copy and layout, aligns their
+DPI-scaled fonts/system colors and displays the original deadline's remaining
+time. This updated UI needs its own human appearance/navigation acceptance.
+Record physical lock/expiry/recovery and performance results only when actually
+observed. One-time personal-device setup is an approved product direction for
+later installation/account work, not automatic approval in attended mode.
+See [current consent evidence](consent-validation-2026-10-12.md) and
+[access-mode direction](decisions/0014-personal-device-access-direction.md).
+
+Latest native Stop hardening: PR #24 merged at `a68a430` after reviewed-head and
+merged-main CI passed. The next resilience slice enforces the original deadline
+and input-desktop boundary in the Stop window even while the browser is still
+connecting, adds Enter/Escape/Tab handling and destroys the window on a loop
+exit before releasing state. Local native formatting, Clippy, tests and optimized
+build passed. A real noninput-desktop dispatcher regression fails with the old
+timer and passes with the guard, without capture, system input or approval.
+Check latest-head CI and deliberately select its matching native pair before
+human acceptance. The existing acceptance backend exited cleanly at 08:12 UTC;
+the native fixture remains stopped. Do not restart either merely to keep it warm.
+
+Latest October 12 consent evidence: PR #23 merged at `fed694d`, with security,
+control-plane and native jobs passing on both the reviewed head and merged main.
+The existing isolated acceptance backend/web now use `00135e2` images, retaining
+the one-hour backend lifetime and restricted test database/account. Schema/role,
+HTTPS readiness and unauthenticated rejection passed; Remote/View production and
+shared containers retained their image IDs and start times. Matching Windows
+artifacts were prepared; the paired native fixture is still stopped with its
+STOP marker. A native-only follow-up prevents cleanup from leaving `WM_QUIT` on
+a reusable consent thread. Read [the consent validation record](consent-validation-2026-10-12.md)
+before resuming; test-site readiness expires and must be rechecked. Production
+media remains disabled, and no new human desktop acceptance is claimed.
+
+October 12 milestone 4 continuation: native desktop approval now remains
+cancellable while the helper reads authenticated signaling. Remote cancellation,
+disconnect, expiry or loss of the input desktop closes the prompt; Decline starts
+focused, and the original monotonic deadline includes setup and the person's
+response. See [the consent lifecycle decision](decisions/0013-cancellable-attended-consent.md).
+Real loopback cancellation/close and late-result checks use no desktop capture or
+real approval. Actual Windows keyboard/DPI/lock and human viewing/Stop acceptance
+remains required; milestone 4 and production media gates stay open.
+
 October 12 publication review: the owner requested a security review before
 making the source public. Read [the security review](security-review-2026-10-12.md)
 for scope, findings fixed, tested boundaries and required public GitHub settings.
@@ -80,7 +157,7 @@ Beacon is a suite:
 
 - **Beacon View**: camera monitoring/recording, a separate codebase, database and permission realm.
 - **Beacon Remote**: secure, self-hosted browser-to-Windows remote access and support, initially Windows host/browser client, with direct WebRTC preferred and authenticated Coturn relay fallback.
-- **Potential future**: Lighthouse-style observability plus authorized human/AI remote operations. Keep capture, snapshots, input, identity, session/control leases and policies behind transport-independent interfaces. **Do not build AI, MCP, shell, file transfer, recording, multi-OS support or enterprise management during current milestones.**
+- **Potential future**: Lighthouse-style observability plus authorized human/AI remote operations. Keep capture, snapshots, input, identity, session/control leases and policies behind transport-independent interfaces. These are now planned (see `docs/roadmap.md` phases 2 to 4); each needs explicit consent, bounded capability, visible state and immediate revocation.
 
 Consumer journey: install host → register/sign in → pair → see online → request view → local person approves → desktop appears → separately approve mouse/keyboard control → Stop or disconnect safely. For one-time support, require scoped, expiring invitation and fresh local consent; do not imply persistent machine enrollment. No screenshot/media storage is required.
 
@@ -173,7 +250,7 @@ Set `TEST_DATABASE_URL` to a **separate** database whose name ends `_test` befor
 1. With owner-approved access, obtain the OCI instance public address, authorized username, host fingerprint (out of band) and SSH identity path. Example shape **only**, not an asserted working command: `ssh -i <authorized-private-key-path> <verified-user>@<verified-public-ip>`.
 2. Inspect **read-only** first: `whoami`, `hostname`, `uname -m`, `df -h`, `free -h`, `sudo docker ps --format 'table {{.Names}}\t{{.Status}}'`, `sudo systemctl list-timers --all`, `readlink -f /opt/beacon-remote/current`.
 3. Separate hosts/origins:
-   - `https://remote.builtbysai.com`: production Remote control plane, video/control disabled until release gates.
+   - `https://remote.builtbysai.com`: production Remote control plane with sessions, control and relay enabled; verify live configuration before deploying.
    - `https://remote-test.builtbysai.com`: temporary acceptance origin. Its host fixture and test containers were **stopped** at handoff; do not assume currently online.
    - Beacon View remains independent but shares edge/Coturn infrastructure. Confirm its public health separately.
 4. Repo-controlled deployment definition: `infrastructure/oracle/compose.yaml`; on VM releases live under `/opt/beacon-remote/releases/<sha>` and `/opt/beacon-remote/current` selects validated release. Protected Remote credentials/backups and relay overrides live under `/etc/beacon-remote/`; NEVER print .env values or rendered Compose configuration containing secrets.

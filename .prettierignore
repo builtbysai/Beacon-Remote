@@ -3,3 +3,4 @@ dist
 target
 Cargo.lock
 pnpm-lock.yaml
+design/screenshots/README.md

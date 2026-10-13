@@ -30,8 +30,7 @@ use windows_sys::Win32::{
             DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, MDT_EFFECTIVE_DPI,
         },
         WindowsAndMessaging::{
-            MessageBoxW, IDYES, MB_DEFBUTTON2, MB_ICONINFORMATION, MB_SETFOREGROUND, MB_TOPMOST,
-            MB_YESNO,
+            MessageBoxW, IDYES, MB_DEFBUTTON2, MB_ICONINFORMATION, MB_SETFOREGROUND, MB_YESNO,
         },
     },
 };
@@ -41,7 +40,7 @@ type Error = Box<dyn std::error::Error + Send + Sync>;
 // UOI_IO is false when this thread's desktop no longer receives local input,
 // including lock/secure-desktop switches. Never switch desktops or request
 // additional rights. Any query failure denies capture and cached snapshots.
-fn desktop_receives_input() -> bool {
+pub(crate) fn desktop_receives_input() -> bool {
     let desktop = unsafe { GetThreadDesktop(GetCurrentThreadId()) };
     if desktop.is_null() {
         return false;
@@ -90,6 +89,38 @@ fn displays() -> Result<Vec<Display>, Error> {
         .collect()
 }
 
+// The display a session was requested for; no id means the primary display.
+pub(crate) fn display(id: Option<&str>) -> Result<Display, Error> {
+    match id {
+        None => primary_display(),
+        Some(id) => displays()?
+            .into_iter()
+            .find(|display| display.id == id)
+            .ok_or_else(|| "Selected display unavailable".into()),
+    }
+}
+
+// How the local consent window names the display being shared.
+pub(crate) fn display_label(id: Option<&str>) -> String {
+    let primary = Monitor::primary()
+        .ok()
+        .and_then(|monitor| monitor.device_name().ok());
+    match id {
+        Some(id) if primary.as_deref() != Some(id) => {
+            format!("Display {}", id.trim_start_matches(r"\\.\DISPLAY"))
+        }
+        _ => "Primary display".into(),
+    }
+}
+
+pub(crate) fn primary_display() -> Result<Display, Error> {
+    let id = Monitor::primary()?.device_name()?;
+    displays()?
+        .into_iter()
+        .find(|display| display.id == id)
+        .ok_or_else(|| "Primary display unavailable".into())
+}
+
 pub fn dpi_awareness() -> Result<(), Error> {
     if unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) } == 0 {
         return Err(io::Error::last_os_error().into());
@@ -125,6 +156,7 @@ struct FrameState {
 struct CaptureFlags {
     state: Arc<Mutex<FrameState>>,
     active: Arc<AtomicBool>,
+    session_active: Arc<AtomicBool>,
     display_id: String,
     started: Instant,
 }
@@ -144,7 +176,10 @@ impl GraphicsCaptureApiHandler for Handler {
         frame: &mut Frame,
         control: InternalCaptureControl,
     ) -> Result<(), Self::Error> {
-        if !self.flags.active.load(Ordering::Acquire) || !desktop_receives_input() {
+        if !self.flags.active.load(Ordering::Acquire)
+            || !self.flags.session_active.load(Ordering::Acquire)
+            || !desktop_receives_input()
+        {
             self.flags.active.store(false, Ordering::Release);
             self.flags
                 .state
@@ -172,7 +207,10 @@ impl GraphicsCaptureApiHandler for Handler {
             .state
             .lock()
             .map_err(|_| "Capture state unavailable")?;
-        if !self.flags.active.load(Ordering::Acquire) || !desktop_receives_input() {
+        if !self.flags.active.load(Ordering::Acquire)
+            || !self.flags.session_active.load(Ordering::Acquire)
+            || !desktop_receives_input()
+        {
             self.flags.active.store(false, Ordering::Release);
             state.latest = None;
             control.stop();
@@ -217,15 +255,33 @@ pub struct DesktopCapture {
     control: Option<CaptureControl<Handler, Error>>,
 }
 impl DesktopCapture {
+    #[cfg(test)]
     pub fn start(active: Arc<AtomicBool>) -> Result<Self, Error> {
-        if !desktop_receives_input() {
+        Self::start_with_session(active.clone(), active, None)
+    }
+    pub fn start_with_session(
+        active: Arc<AtomicBool>,
+        session_active: Arc<AtomicBool>,
+        display_id: Option<&str>,
+    ) -> Result<Self, Error> {
+        if !active.load(Ordering::Acquire)
+            || !session_active.load(Ordering::Acquire)
+            || !desktop_receives_input()
+        {
             active.store(false, Ordering::Release);
             return Err("The local desktop is unavailable for attended sharing".into());
         }
-        let monitor = Monitor::primary()?;
+        let monitor = match display_id {
+            None => Monitor::primary()?,
+            Some(id) => Monitor::enumerate()?
+                .into_iter()
+                .find(|monitor| monitor.device_name().is_ok_and(|name| name == id))
+                .ok_or("Selected display unavailable")?,
+        };
         let flags = CaptureFlags {
             state: Arc::new(Mutex::new(FrameState::default())),
             active,
+            session_active,
             display_id: monitor.device_name()?,
             started: Instant::now(),
         };
@@ -289,7 +345,12 @@ impl ScreenCapture for CaptureSource {
             }
             return Err(ControlError::PlatformUnavailable);
         }
-        if !self.flags.active.load(Ordering::Acquire) {
+        if !self.flags.active.load(Ordering::Acquire)
+            || !self.flags.session_active.load(Ordering::Acquire)
+        {
+            if let Ok(mut state) = self.flags.state.lock() {
+                state.latest = None;
+            }
             return Err(ControlError::NoLease);
         }
         if display_id != self.flags.display_id {
@@ -315,22 +376,6 @@ impl ScreenCapture for CaptureSource {
 
 fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(Some(0)).collect()
-}
-
-pub fn consent(controller: &str) -> bool {
-    if !desktop_receives_input() {
-        return false;
-    }
-    let title = wide("Beacon Remote — allow desktop viewing?");
-    let message = wide(&format!("{controller} requests viewing of your PRIMARY DISPLAY.\n\nIf you choose Yes, your desktop is sent through encrypted WebRTC to the requesting Beacon Remote browser for at most two minutes. A Windows capture border and Stop sharing window remain visible. Locking Windows or switching to a secure desktop ends sharing.\n\nNo microphone, recording or remote input is enabled. Choose No to decline."));
-    unsafe {
-        MessageBoxW(
-            std::ptr::null_mut(),
-            message.as_ptr(),
-            title.as_ptr(),
-            MB_YESNO | MB_ICONINFORMATION | MB_SETFOREGROUND | MB_TOPMOST | MB_DEFBUTTON2,
-        ) == IDYES
-    }
 }
 
 pub fn benchmark() -> Result<(), Error> {
@@ -360,6 +405,7 @@ pub fn benchmark() -> Result<(), Error> {
     let flags = CaptureFlags {
         state: Arc::new(Mutex::new(FrameState::default())),
         active: Arc::new(AtomicBool::new(true)),
+        session_active: Arc::new(AtomicBool::new(true)),
         display_id,
         started: Instant::now(),
     };
@@ -421,6 +467,29 @@ pub fn benchmark() -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn local_stop_denies_cached_pixels_even_when_transport_token_is_live() {
+        let state = Arc::new(Mutex::new(FrameState {
+            latest: Some(Snapshot {
+                display_id: "test".into(),
+                width: 1,
+                height: 1,
+                bgra: vec![0; 4],
+            }),
+            ..Default::default()
+        }));
+        let mut source = CaptureSource {
+            flags: CaptureFlags {
+                state: state.clone(),
+                active: Arc::new(AtomicBool::new(true)),
+                session_active: Arc::new(AtomicBool::new(false)),
+                display_id: "test".into(),
+                started: Instant::now(),
+            },
+        };
+        assert!(source.capture_snapshot("test").is_err());
+        assert!(state.lock().unwrap().latest.is_none());
+    }
     use windows_sys::Win32::System::StationsAndDesktops::{
         CloseDesktop, CreateDesktopW, SetThreadDesktop, DESKTOP_CREATEWINDOW, DESKTOP_READOBJECTS,
     };
@@ -445,7 +514,34 @@ mod tests {
             let result = std::panic::catch_unwind(|| {
                 assert_ne!(SetThreadDesktop(desktop), 0);
                 assert!(!desktop_receives_input());
-                assert!(!consent("guard-test@example.invalid"));
+                assert_eq!(
+                    crate::consent::request_access(
+                        "guard-test@example.invalid",
+                        Arc::new(AtomicBool::new(true)),
+                        Instant::now() + Duration::from_secs(1),
+                        false,
+                        false,
+                        "Primary display",
+                        "S-0000",
+                    )
+                    .unwrap()
+                    .decision,
+                    crate::consent::Decision::Declined
+                );
+
+                let active = Arc::new(AtomicBool::new(true));
+                assert!(crate::indicator::Indicator::start_access(
+                    active.clone(),
+                    Arc::new(AtomicBool::new(false)),
+                    true,
+                    "guard-test@example.invalid".into(),
+                    Some(Instant::now() + Duration::from_secs(1)),
+                    false,
+                    false,
+                    "S-0000".into(),
+                )
+                .is_err());
+                assert!(!active.load(Ordering::Acquire));
 
                 let active = Arc::new(AtomicBool::new(true));
                 assert!(DesktopCapture::start(active.clone()).is_err());
@@ -465,6 +561,7 @@ mod tests {
                     flags: CaptureFlags {
                         state: state.clone(),
                         active: active.clone(),
+                        session_active: active.clone(),
                         display_id: "test".into(),
                         started: Instant::now(),
                     },

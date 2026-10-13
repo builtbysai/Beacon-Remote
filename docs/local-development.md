@@ -59,6 +59,26 @@ publishing credentials or request bodies.
 
 ## Tests and native fixture
 
+`pnpm --filter @beacon-remote/backend exec tsx scripts/host-development.ts`
+opens the native host with a real paired, disposable identity under
+`.remote-dev/host-development/profile-<uuid>`. Its isolated backend uses port
+13011 and a generated schema in Remote's test database. Start/Stop and tray
+actions report real signed presence. Close the host to finish and remove that
+schema. The fixture enables no desktop media and never changes the real user's
+pairing identity. `fixture.json` and `presence.json` contain test metadata only.
+
+On Windows, `scripts/verify-host-stop.ts` with `TEST_DATABASE_URL` set to Remote's
+`_test` database checks the matching release helper through a real anonymous
+host pipe and authenticated signaling on port 13012. Stop ends a synthetic
+session; pipe EOF cancels pending native desktop consent without clicking Allow.
+No desktop capture or remote input is accepted in that check.
+
+`pnpm --filter @beacon-remote/web test` runs the focused browser-playback
+lifetime, pending-request context and clock-adjustment expiry regressions with the same pinned `tsx`
+tooling already used by the backend. It is included in `pnpm check`. These checks start no
+browser/native capture or consent prompt; actual Windows/Android playback and
+interruption acceptance remains separate.
+
 Backend test files run serially because they initialize a shared test schema.
 Individual tests still exercise concurrent invitation/enrollment requests and
 signaling peers. Validate against an empty `_test` database when changing schema
@@ -95,6 +115,52 @@ private login only if pairing is needed, visible native consent/Stop, two-minute
 grants and no automated desktop approval. Run only after preparing the isolated
 Oracle acceptance services; see the operations supplement. Normal owner identity
 is never overwritten.
+
+Before each manual session, run `pnpm acceptance:status`. This read-only command
+requires `/ready` to return 200 and anonymous `/api/machines` to return 401 on
+the fixed test origin. It reports STOP-marker/identity presence without reading
+the private login or DPAPI contents. The host runner now performs the same
+backend check before pairing or launching a native process. A reachable web page
+alone is insufficient: the bounded backend can expire while the page remains
+available. Failure never restarts services or changes credentials automatically.
+Readiness is a point-in-time check, not proof of a remaining runtime budget,
+matching binaries, live agent, relay allocation or successful sign-in. Continue
+the guarded image/hash/runtime procedure in the operations supplement.
+
+For a dedicated USB Pixel, enable Developer options and USB debugging, connect
+and unlock the phone, then manually approve this computer's debugging prompt.
+Set `REMOTE_ACCEPTANCE_ADB_PATH` to the installed platform-tools `adb.exe`, or use
+`ANDROID_HOME`/PATH, and run `pnpm acceptance:status --adb` to list device states.
+No device input is sent by this command. Before any future automated device
+actions, explicitly select the observed device serial with `adb -s`; never
+assume the first device belongs to this test. Keep browser automation scoped to
+Beacon Remote's test origin/account and keep private login, browser cookies,
+screen pixels and broad device logs out of committed evidence.
+
+USB connection supports repeatable Android browser/lifecycle checks and targeted
+diagnostics; it does not prove mobile-data relay routing. Keep Wi-Fi/mobile-data
+route evidence explicit. Windows attended Allow remains a human action; automated
+backend/browser/native regressions and synthetic media cannot replace actual
+desktop acceptance. Use a dedicated test computer or VM later for disruptive
+restart/network cases rather than altering the shared View workstation. No
+hourly continuation schedule is used.
+
+Active-view reload recovery requires a matching backend/web/native pair; see
+[ADR 0015](decisions/0015-active-viewer-reload-recovery.md). An older helper keeps
+the previous disconnect behavior. The browser keeps a tab-local identifier;
+resuming still validates the original login, current helper and unchanged
+deadline. Include real refresh/Stop/lock/expiry checks when staging that pair.
+The native loopback recovery regression opens no consent dialog or capture.
+
+## Session duration and reconnection
+
+Sessions have no two-minute limit anywhere (ADR 0021). Clients see
+`expiresAtMillis: 0` and the browser shows “Until stopped”; the server keeps an
+absolute safety cap (`SESSION_MAX_HOURS`, default 12, 1–24). A dropped viewer may
+reconnect for `RECONNECT_WINDOW_SECONDS` (default 120 attended, 300 trusted; 5–900).
+A pending request still expires after two minutes, and the three-second authorization
+lease, Stop, revocation, lock and a lowered access policy still end a session.
+Migrations are applied in order by `applyMigrations` and must be safe to re-run.
 
 ## Shared infrastructure contract
 
@@ -147,3 +213,19 @@ no uncommitted work is hidden by dropping the stash.
 View's active checkout was inspected only and left to Claude. The workspace
 inventory in `C:/Dev/WORKSPACE.md` lets both agents find current projects and
 recover old artifacts without editing each other's repository.
+
+## Isolated input development
+
+See [input-development.md](input-development.md). The explicit fixture uses
+loopback 3011/5175 and a fresh disposable schema in Remote's `_test` database,
+without modifying the ordinary 3010/5174 launcher or its ownership state. Native
+control is offered only when the backend sets `CONTROL_ENABLED=true` (which needs
+`SESSION_SECRET`). Matching helper binaries and either manual Windows Allow control
+or the computer's own trusted-access setting are required. No production rollout.
+
+## Internal Windows development package
+
+The [per-user development installer](development-host-package.md) bundles the
+validated agent and interactive helper with Pair/Run shortcuts and explicit
+uninstall. It requires no elevation or automatic startup. Service, tray and
+reboot recovery remain unimplemented; this is not a signed consumer release.

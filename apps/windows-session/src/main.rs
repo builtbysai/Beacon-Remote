@@ -1,11 +1,28 @@
+mod adapt;
 #[cfg(windows)]
 mod capture;
 #[cfg(windows)]
+mod clipboard;
+#[cfg(windows)]
+mod consent;
+#[cfg(windows)]
 mod encoder;
+#[cfg(windows)]
+mod files;
+#[cfg(windows)]
+mod files_transport;
 #[cfg(windows)]
 mod indicator;
 #[cfg(windows)]
+mod input;
+#[cfg(windows)]
+mod input_transport;
+#[cfg(windows)]
 mod media;
+#[cfg(windows)]
+mod native_ui;
+#[cfg(windows)]
+mod pause;
 #[cfg(any(windows, test))]
 mod pixels;
 #[cfg(any(windows, test))]
@@ -27,7 +44,10 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if command == "media-test" {
             return media::run();
         }
-        println!("Beacon Remote interactive session helper\n  displays: physical display dimensions and DPI\n  capture-benchmark: locally consent to ten seconds of primary-display capture\n  encoder-benchmark: synthetic in-memory H.264 encoding, no screen capture\n  media-test: authenticated two-minute WebRTC viewing using a stdin grant; desktop requires local consent and visible Stop\nNo recording, audio, or input injection is implemented.");
+        if command == "media-host" {
+            return media::run_host();
+        }
+        println!("Beacon Remote interactive session helper\n  displays: physical display dimensions and DPI\n  capture-benchmark: locally consent to ten seconds of primary-display capture\n  encoder-benchmark: synthetic in-memory H.264 encoding, no screen capture\n  media-test: authenticated WebRTC using a stdin grant; desktop requires local consent and visible Stop\nNo recording or audio. Control requires a separate server scope and either local Allow control or this computer's own trusted-access setting (ADR 0021). Short authorization renewals remain mandatory.");
         Ok(())
     }
     #[cfg(not(windows))]

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import type { Machine } from "@beacon-remote/protocol";
 import "./style.css";
@@ -9,17 +9,48 @@ import { AccountPanels } from "./AccountPanels.js";
 import { SessionHistory } from "./SessionHistory.js";
 import { ComputerInspector } from "./ComputerInspector.js";
 import { AssistPanel } from "./AssistPanel.js";
+import { ThemePicker, readTheme, saveTheme } from "./ThemePicker.js";
 import { WorkspaceIcon, workspaceItems } from "./WorkspaceIcon.js";
+import { resolveViewRequest } from "./view-request.js";
+import { readView, forgetView } from "./resume-view.js";
+import {
+  ForgotForm,
+  SignupForm,
+  VerifyEmail,
+  useEntryConfig,
+} from "./AccountEntry.js";
 
 // Fragments stay out of HTTP/access logs; remove the bearer from browser history.
 const invitation = new URLSearchParams(window.location.hash.slice(1)).get(
   "invite",
 );
-if (invitation) window.history.replaceState(null, "", window.location.pathname);
+const recovery = new URLSearchParams(window.location.hash.slice(1)).get(
+  "recover",
+);
+const verification = new URLSearchParams(window.location.hash.slice(1)).get(
+  "verify",
+);
+if (invitation || recovery || verification)
+  window.history.replaceState(null, "", window.location.pathname);
+
+function lastSeen(iso: string): string {
+  const minutes = Math.max(
+    0,
+    Math.round((Date.now() - Date.parse(iso)) / 60000),
+  );
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.round(hours / 24);
+  return days === 1 ? "Yesterday" : `${days} days ago`;
+}
 
 function App() {
+  const viewContext = useRef({ active: false });
+  const recoveryAttempted = useRef(false);
   const [page, setPage] = useState(pageFromHash);
-  const [theme, setTheme] = useState("system");
+  const [theme, setTheme] = useState(readTheme);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState<string | null>(null);
@@ -29,6 +60,11 @@ function App() {
   const [publicMenuOpen, setPublicMenuOpen] = useState(false);
   useEffect(() => {
     const change = () => {
+      viewContext.current.active = false;
+      const hash = window.location.hash;
+      setEntry(
+        hash === "#signup" ? "signup" : hash === "#forgot" ? "forgot" : null,
+      );
       setPage(pageFromHash());
       setMobileMore(false);
       setPublicMenuOpen(false);
@@ -38,6 +74,7 @@ function App() {
     return () => window.removeEventListener("hashchange", change);
   }, []);
   useEffect(() => {
+    saveTheme(theme);
     const preference = window.matchMedia("(prefers-color-scheme: dark)");
     const apply = () => {
       document.documentElement.dataset.theme =
@@ -48,6 +85,18 @@ function App() {
     return () => preference.removeEventListener("change", apply);
   }, [theme]);
   const [invite, setInvite] = useState(invitation);
+  const [recoverToken, setRecoverToken] = useState(recovery);
+  const [recovered, setRecovered] = useState(false);
+  const [verifyToken, setVerifyToken] = useState(verification);
+  const [entry, setEntry] = useState<"signup" | "forgot" | null>(() =>
+    window.location.hash === "#signup"
+      ? "signup"
+      : window.location.hash === "#forgot"
+        ? "forgot"
+        : null,
+  );
+  const [unconfirmed, setUnconfirmed] = useState(false);
+  const entryConfig = useEntryConfig();
   const [machines, setMachines] = useState<Machine[] | null>(null);
   const [error, setError] = useState("");
   const [code, setCode] = useState<{ code: string; expiresAt: number } | null>(
@@ -55,9 +104,11 @@ function App() {
   );
   const [codeCopied, setCodeCopied] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [challenge, setChallenge] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
   const [clock, setClock] = useState(Date.now());
   const [mediaEnabled, setMediaEnabled] = useState(false);
+  const [controlEnabled, setControlEnabled] = useState(false);
   const [view, setView] = useState<{ grant: ViewGrant; name: string } | null>(
     null,
   );
@@ -66,6 +117,26 @@ function App() {
     setError("");
   }, [page]);
   const signedIn = machines !== null;
+  useEffect(() => {
+    const context = { active: signedIn && page === "computers" };
+    viewContext.current = context;
+    return () => {
+      context.active = false;
+    };
+  }, [page, signedIn]);
+  useEffect(() => {
+    const context = viewContext.current;
+    if (!context.active || recoveryAttempted.current) return;
+    recoveryAttempted.current = true;
+    const previous = readView();
+    if (!previous) return;
+    void resolveViewRequest(
+      api<ViewGrant>(`sessions/${previous.id}/resume`, {}),
+      () => context.active,
+      (grant) => setView({ grant, name: previous.name }),
+      (unused) => api(`sessions/${unused.id}/stop`, {}),
+    ).catch(() => forgetView());
+  }, [page, signedIn]);
   const workspaceOpen =
     signedIn && page !== "home" && page !== "support" && page !== "security";
   useEffect(() => {
@@ -87,15 +158,22 @@ function App() {
   useEffect(() => {
     let disposed = false;
     if (signedIn)
-      void api<{ enabled: boolean }>("media/config")
+      void api<{ enabled: boolean; controlEnabled?: boolean }>("media/config")
         .then((data) => {
-          if (!disposed) setMediaEnabled(data.enabled);
+          if (!disposed) {
+            setMediaEnabled(data.enabled);
+            setControlEnabled(data.controlEnabled === true);
+          }
         })
         .catch(() => {
-          if (!disposed) setMediaEnabled(false);
+          if (!disposed) {
+            setMediaEnabled(false);
+            setControlEnabled(false);
+          }
         });
     else {
       setMediaEnabled(false);
+      setControlEnabled(false);
       setView(null);
     }
     return () => {
@@ -103,18 +181,31 @@ function App() {
     };
   }, [signedIn]);
 
-  async function testVideo(machine: Machine) {
+  async function testVideo(
+    machine: Machine,
+    capability: "desktop:view" | "desktop:control" = "desktop:view",
+    displayId?: string,
+  ) {
+    const context = viewContext.current;
+    if (!context.active) return;
     setBusy(true);
     setError("");
     try {
-      const grant = await api<ViewGrant>(`machines/${machine.id}/sessions`, {
-        source: "desktop",
-      });
-      setView({ grant, name: machine.name });
-    } catch {
-      setError(
-        "Could not start video. Check that your computer is online and no session is active.",
+      await resolveViewRequest(
+        api<ViewGrant>(`machines/${machine.id}/sessions`, {
+          source: "desktop",
+          capability,
+          ...(displayId ? { displayId } : {}),
+        }),
+        () => context.active,
+        (grant) => setView({ grant, name: machine.name }),
+        (unused) => api(`sessions/${unused.id}/stop`, {}),
       );
+    } catch {
+      if (context.active)
+        setError(
+          "Could not start video. Check that your computer is online and no session is active.",
+        );
     } finally {
       setBusy(false);
     }
@@ -135,8 +226,14 @@ function App() {
       } catch (failure) {
         if (!disposed) {
           setStale(true);
-          if (failure instanceof Error && failure.message === "Please sign in.")
+          if (
+            failure instanceof Error &&
+            failure.message === "Please sign in."
+          ) {
+            viewContext.current.active = false;
+            setView(null);
             setMachines(null);
+          }
         }
       } finally {
         pending = false;
@@ -167,30 +264,81 @@ function App() {
         });
         setInvite(null);
       }
-      await api("login", {
+      const response = await api<{
+        ok?: true;
+        mfaRequired?: true;
+        challenge?: string;
+      }>("login", {
         email: form.get("email"),
         password: form.get("password"),
       });
-      const result = await api<{ machines: Machine[] }>("machines");
-      setMachines(result.machines);
-      setStale(false);
-      window.location.hash = [
-        "computers",
-        "sessions",
-        "assist",
-        "activity",
-        "settings",
-      ].includes(page)
-        ? page
-        : "computers";
+      if (response.mfaRequired && response.challenge) {
+        setChallenge(response.challenge);
+        return;
+      }
+      await finishSignIn();
     } catch (failure) {
+      setUnconfirmed(failure instanceof ApiError && failure.status === 403);
       setError(
         failure instanceof ApiError && failure.status === 429
           ? failure.message
-          : invite
-            ? "Account setup failed. Check your details and invitation, then try again."
-            : "Sign-in failed. Check your details and try again.",
+          : failure instanceof ApiError && failure.status === 403
+            ? "Confirm your email first. We sent you a link when you signed up."
+            : invite
+              ? "Account setup failed. Check your details and invitation, then try again."
+              : "Sign-in failed. Check your details and try again.",
       );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function recoverPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const password = String(
+      new FormData(event.currentTarget).get("password") ?? "",
+    );
+    setBusy(true);
+    setError("");
+    try {
+      await api("account/recover", { token: recoverToken, password });
+      setRecoverToken(null);
+      setRecovered(true);
+    } catch {
+      setError(
+        "That recovery link did not work. It may have expired or been used; ask for a new one.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function finishSignIn() {
+    const result = await api<{ machines: Machine[] }>("machines");
+    setMachines(result.machines);
+    setStale(false);
+    window.location.hash = [
+      "computers",
+      "sessions",
+      "assist",
+      "activity",
+      "settings",
+    ].includes(page)
+      ? page
+      : "computers";
+  }
+
+  async function submitCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const code = String(new FormData(event.currentTarget).get("code") ?? "");
+    setBusy(true);
+    setError("");
+    try {
+      await api("login/mfa", { challenge, code });
+      setChallenge(null);
+      await finishSignIn();
+    } catch {
+      setError("That code did not work. Try again, or use a recovery code.");
     } finally {
       setBusy(false);
     }
@@ -236,6 +384,9 @@ function App() {
   async function logout() {
     try {
       await api("logout", {});
+      forgetView();
+      viewContext.current.active = false;
+      setView(null);
       setMachines(null);
       setCode(null);
     } catch {
@@ -246,11 +397,18 @@ function App() {
   const visibleMachines = (machines ?? []).filter(
     (machine) =>
       machine.name.toLowerCase().includes(search.trim().toLowerCase()) &&
-      (filter === "all" ||
-        (!stale && !machine.revokedAt && machine.online
-          ? "online"
-          : "offline") === filter),
+      // Revoked computers stay out of the everyday list; they have their own filter.
+      (filter === "all"
+        ? !machine.revokedAt
+        : (machine.revokedAt
+            ? "revoked"
+            : !stale && machine.online
+              ? "online"
+              : "offline") === filter),
   );
+  const activeCount = (machines ?? []).filter(
+    (machine) => !machine.revokedAt,
+  ).length;
   const onlineCount = (machines ?? []).filter(
     (machine) => !machine.revokedAt && machine.online,
   ).length;
@@ -316,18 +474,7 @@ function App() {
               </strong>
             </span>
             <div className="header-end">
-              <label className="theme-label">
-                <span>Appearance</span>
-                <select
-                  aria-label="Appearance"
-                  value={theme}
-                  onChange={(event) => setTheme(event.target.value)}
-                >
-                  <option value="system">System</option>
-                  <option value="light">Light</option>
-                  <option value="dark">Dark</option>
-                </select>
-              </label>
+              <ThemePicker theme={theme} onChange={setTheme} />
             </div>
           </header>
         </>
@@ -346,18 +493,7 @@ function App() {
             <a href="#security">Security</a>
           </nav>
           <div className="header-end">
-            <label className="theme-label public-theme">
-              <span>Appearance</span>
-              <select
-                aria-label="Appearance"
-                value={theme}
-                onChange={(event) => setTheme(event.target.value)}
-              >
-                <option value="system">System</option>
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-              </select>
-            </label>
+            <ThemePicker theme={theme} onChange={setTheme} />
             <a
               className="button secondary"
               href={signedIn ? "#computers" : "#signin"}
@@ -402,6 +538,8 @@ function App() {
         </header>
       )}
       {!invite &&
+      !recoverToken &&
+      !verifyToken &&
       page !== "signin" &&
       !(
         ["computers", "sessions", "assist", "activity", "settings"].includes(
@@ -412,82 +550,179 @@ function App() {
         page === "sessions" ? (
           <SessionHistory />
         ) : page === "assist" ? (
-          <AssistPanel />
+          <>
+            <AssistPanel
+              sessionActive={view !== null}
+              onClaimed={(grant, name) => setView({ grant, name })}
+            />
+            {view && (
+              <LiveView
+                key={view.grant.id}
+                grant={view.grant}
+                name={view.name}
+                onClose={() => setView(null)}
+              />
+            )}
+          </>
         ) : page === "settings" || page === "activity" ? (
           <AccountPanels activity={page === "activity"} />
         ) : (
           <ProductPage page={page} signedIn={signedIn} />
         )
-      ) : machines === null || invite ? (
+      ) : machines === null || invite || recoverToken || verifyToken ? (
         <section className="login">
-          <div className="login-icon" aria-hidden="true">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect x="5" y="10" width="14" height="11" rx="2" />
-              <path d="M8 10V7a4 4 0 0 1 8 0v3" />
-            </svg>
-          </div>
-          <h1>{invite ? "Create your account" : "Sign in"}</h1>
-          <p>
-            {invite
-              ? "Choose a password with at least 16 characters. Your invitation expires after 30 minutes."
-              : "Continue to your Beacon Remote workspace."}
-          </p>
-          <form onSubmit={signIn}>
-            <label>
-              Email address
-              <input
-                name="email"
-                type="email"
-                autoComplete="username"
-                required
-              />
-            </label>
-            <label htmlFor="password">Password</label>
-            <span className="password-field">
-              <input
-                id="password"
-                name="password"
-                type={showPassword ? "text" : "password"}
-                autoComplete={invite ? "new-password" : "current-password"}
-                minLength={invite ? 16 : undefined}
-                maxLength={512}
-                required
-              />
-              <button
-                type="button"
-                className="password-toggle"
-                aria-label={showPassword ? "Hide password" : "Show password"}
-                aria-pressed={showPassword}
-                onClick={() => setShowPassword(!showPassword)}
-              >
-                {showPassword ? "Hide" : "Show"}
-              </button>
-            </span>
-            <button disabled={busy}>
-              {invite ? "Create account" : "Continue"}
-            </button>
-          </form>
-          <p className="note">
-            Private alpha. Account creation requires an operator invitation.
-            Password recovery and MFA are not available yet.
-          </p>
+          {verifyToken ? (
+            <VerifyEmail
+              token={verifyToken}
+              onDone={() => {
+                setVerifyToken(null);
+                void finishSignIn().catch(() => undefined);
+              }}
+            />
+          ) : entry === "signup" ? (
+            <SignupForm onSignIn={() => setEntry(null)} />
+          ) : entry === "forgot" ? (
+            <ForgotForm onSignIn={() => setEntry(null)} />
+          ) : null}
+          {!verifyToken && !entry && (
+            <>
+              <h1>
+                {recoverToken
+                  ? "Reset your password"
+                  : invite
+                    ? "Create your account"
+                    : "Sign in"}
+              </h1>
+              <p>
+                {recoverToken
+                  ? "Choose a new password. This link works once and expires after 30 minutes."
+                  : recovered
+                    ? "Your password was changed and your other browsers were signed out. Sign in with the new one."
+                    : invite
+                      ? "Choose a password with at least 16 characters. Your invitation expires after 30 minutes."
+                      : "Continue to your Beacon Remote workspace."}
+              </p>
+              {recoverToken ? (
+                <form key="recover" onSubmit={recoverPassword}>
+                  <label>
+                    New password (at least 16 characters)
+                    <input
+                      name="password"
+                      type="password"
+                      autoComplete="new-password"
+                      minLength={16}
+                      maxLength={512}
+                      required
+                      autoFocus
+                    />
+                  </label>
+                  <button disabled={busy}>Set password</button>
+                </form>
+              ) : challenge ? (
+                <form key="mfa-code" onSubmit={submitCode}>
+                  <label>
+                    Authenticator or recovery code
+                    <input
+                      name="code"
+                      autoComplete="one-time-code"
+                      autoFocus
+                      required
+                    />
+                  </label>
+                  <button disabled={busy}>Verify</button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => {
+                      setChallenge(null);
+                      setError("");
+                    }}
+                  >
+                    Back
+                  </button>
+                </form>
+              ) : (
+                <form key="password" onSubmit={signIn}>
+                  <label>
+                    Email address
+                    <input
+                      name="email"
+                      type="email"
+                      autoComplete="username"
+                      required
+                    />
+                  </label>
+                  <label htmlFor="password">Password</label>
+                  <span className="password-field">
+                    <input
+                      id="password"
+                      name="password"
+                      type={showPassword ? "text" : "password"}
+                      autoComplete={
+                        invite ? "new-password" : "current-password"
+                      }
+                      minLength={invite ? 16 : undefined}
+                      maxLength={512}
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="password-toggle"
+                      aria-label={
+                        showPassword ? "Hide password" : "Show password"
+                      }
+                      aria-pressed={showPassword}
+                      onClick={() => setShowPassword(!showPassword)}
+                    >
+                      {showPassword ? "Hide" : "Show"}
+                    </button>
+                  </span>
+                  <button disabled={busy}>
+                    {invite ? "Create account" : "Continue"}
+                  </button>
+                </form>
+              )}
+              {unconfirmed && entryConfig.open && (
+                <p className="note">
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => setEntry("signup")}
+                  >
+                    Send the confirmation link again
+                  </button>
+                </p>
+              )}
+              <p className="note">
+                {entryConfig.open ? (
+                  <>
+                    New here?{" "}
+                    <a href="#signup" onClick={() => setEntry("signup")}>
+                      Create an account
+                    </a>
+                    .{" "}
+                  </>
+                ) : (
+                  "Private alpha. Account creation requires an operator invitation. "
+                )}
+                {entryConfig.emailRecovery ? (
+                  <a href="#forgot" onClick={() => setEntry("forgot")}>
+                    Forgot your password?
+                  </a>
+                ) : (
+                  "Forgot your password? Ask the operator for a one-time recovery link."
+                )}
+              </p>
+            </>
+          )}
         </section>
       ) : (
         <section>
           <div className="heading">
             <div>
-              <p className="eyebrow">YOUR WORKSPACE</p>
               <h1>Computers</h1>
               <p className="workspace-summary">
-                {machines.length}{" "}
-                {machines.length === 1 ? "computer" : "computers"}
+                {activeCount} {activeCount === 1 ? "computer" : "computers"}
                 {!stale && <> · {onlineCount} online</>}
               </p>
             </div>
@@ -571,6 +806,7 @@ function App() {
                   <option value="all">All computers</option>
                   <option value="online">Online</option>
                   <option value="offline">Offline</option>
+                  <option value="revoked">Revoked</option>
                 </select>
               </div>
               {machines.length === 0 && (
@@ -597,54 +833,105 @@ function App() {
                   </button>
                 </div>
               )}
-              {visibleMachines.map((machine) => (
-                <article key={machine.id} className="device-row">
-                  <Monitor />
-                  <button
-                    id={`device-${machine.id}`}
-                    className="device-name secondary"
-                    onClick={() =>
-                      setSelected(selected === machine.id ? null : machine.id)
-                    }
-                    aria-expanded={selected === machine.id}
+              {visibleMachines.length > 0 && (
+                <div className="device-head" aria-hidden="true">
+                  <span>Computer</span>
+                  <span>Access</span>
+                  <span>Last seen</span>
+                </div>
+              )}
+              {visibleMachines.map((machine) => {
+                const live = machine.online && !stale && !machine.revokedAt;
+                const canView = mediaEnabled && !busy && live && view === null;
+                return (
+                  <article
+                    key={machine.id}
+                    className={`device-row${selected === machine.id ? " is-selected" : ""}`}
                   >
-                    {machine.name}
-                  </button>
-                  <p
-                    className={machine.online && !stale ? "online" : "offline"}
-                  >
-                    {machine.revokedAt
-                      ? "Access revoked"
-                      : stale
-                        ? "Status unavailable"
-                        : machine.online
-                          ? "● Online"
-                          : "○ Offline"}
-                  </p>
-                  <button
-                    disabled={
-                      !mediaEnabled ||
-                      busy ||
-                      !machine.online ||
-                      stale ||
-                      view !== null ||
-                      Boolean(machine.revokedAt)
-                    }
-                    onClick={() => {
-                      void testVideo(machine);
-                    }}
-                    title="View only; requires approval on your Windows computer"
-                  >
-                    {mediaEnabled ? "View desktop" : "Remote — coming next"}
-                  </button>
-                </article>
-              ))}
+                    <span
+                      className={`status-dot ${live ? "online" : "offline"}`}
+                      role="img"
+                      aria-label={
+                        machine.revokedAt
+                          ? "Access revoked"
+                          : stale
+                            ? "Status unavailable"
+                            : machine.online
+                              ? "Online"
+                              : "Offline"
+                      }
+                    />
+                    <button
+                      id={`device-${machine.id}`}
+                      className="device-name secondary"
+                      onClick={() =>
+                        setSelected(selected === machine.id ? null : machine.id)
+                      }
+                      aria-expanded={selected === machine.id}
+                    >
+                      {machine.name}
+                    </button>
+                    <span className="device-access">
+                      {machine.revokedAt
+                        ? "Revoked"
+                        : machine.accessMode === "trusted"
+                          ? "Trusted"
+                          : "Ask each time"}
+                    </span>
+                    <span className="device-seen">
+                      {machine.revokedAt
+                        ? "—"
+                        : live
+                          ? "Now"
+                          : machine.lastSeenAt
+                            ? lastSeen(machine.lastSeenAt)
+                            : "Never"}
+                    </span>
+                    {live ? (
+                      <button
+                        className="device-open"
+                        disabled={!canView}
+                        onClick={() => {
+                          void testVideo(machine);
+                        }}
+                        title={
+                          machine.accessMode === "trusted"
+                            ? "View only; this computer is set to trusted access"
+                            : "View only; requires approval on your Windows computer"
+                        }
+                      >
+                        {mediaEnabled ? "View" : "Soon"}
+                      </button>
+                    ) : (
+                      <span />
+                    )}
+                  </article>
+                );
+              })}
             </div>
             {selected &&
               machines.find((machine) => machine.id === selected) && (
                 <ComputerInspector
                   key={selected}
                   stale={stale}
+                  viewEnabled={mediaEnabled}
+                  controlEnabled={controlEnabled}
+                  requesting={busy}
+                  sessionActive={view !== null}
+                  onRequestView={(displayId) => {
+                    void testVideo(
+                      machines.find((machine) => machine.id === selected)!,
+                      "desktop:view",
+                      displayId,
+                    );
+                  }}
+                  onRequestControl={(displayId) => {
+                    void testVideo(
+                      machines.find((machine) => machine.id === selected)!,
+                      "desktop:control",
+                      displayId,
+                    );
+                  }}
                   machine={machines.find((machine) => machine.id === selected)!}
                   onClose={() => {
                     setSelected(null);
@@ -662,6 +949,7 @@ function App() {
           </div>
           {view && (
             <LiveView
+              key={view.grant.id}
               grant={view.grant}
               name={view.name}
               onClose={() => setView(null)}

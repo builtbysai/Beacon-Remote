@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { DataPanel } from "./DataPanel.js";
+import { MfaPanel } from "./MfaPanel.js";
 import { api } from "./api.js";
 
 type BrowserSession = { expiresAt: string; current: boolean };
@@ -19,6 +21,14 @@ export function activityLabel(action: string) {
       return "Computer renamed";
     case "desktop.view.accepted":
       return "Viewing approved";
+    case "desktop.control.accepted":
+      return "Control approved";
+    case "desktop.control.denied":
+      return "Control declined";
+    case "desktop.control.requested:desktop":
+      return "Control requested";
+    case "desktop.control.interrupted:backend-restart":
+      return "Control interrupted";
     case "desktop.view.denied":
       return "Viewing declined";
     case "desktop.view.interrupted:backend-restart":
@@ -27,6 +37,34 @@ export function activityLabel(action: string) {
       return "Viewing requested";
     case "desktop.view.requested:synthetic":
       return "Video test requested";
+    case "machine.access.attended":
+      return "Approval required again";
+    case "machine.access.trusted-view":
+      return "Trusted viewing turned on";
+    case "machine.access.trusted-control":
+      return "Trusted control turned on";
+    case "machine.access.control-off":
+      return "Trusted control turned off";
+    case "machine.helpers.off":
+      return "Helpers need approval again";
+    case "machine.helpers.view":
+      return "Remembered helpers may view without asking";
+    case "machine.helpers.control":
+      return "Remembered helpers may control without asking";
+    case "support.invitation.created:view":
+      return "Support code created (view)";
+    case "support.invitation.created:control":
+      return "Support code created (control)";
+    case "support.invitation.claimed:view":
+      return "Support code used (view)";
+    case "support.invitation.claimed:control":
+      return "Support code used (control)";
+    case "support.relationship.granted:view":
+      return "Support access given (view)";
+    case "support.relationship.granted:control":
+      return "Support access given (control)";
+    case "support.relationship.revoked":
+      return "Support access removed";
     default:
       return action;
   }
@@ -215,14 +253,17 @@ export function AccountPanels({ activity }: { activity: boolean }) {
       </section>
     );
   return (
-    <section className="public-section">
-      <h1>Settings</h1>
-      <button
-        disabled={loading || busy}
-        onClick={() => setRefresh((value) => value + 1)}
-      >
-        {loading ? "Refreshing…" : error ? "Try again" : "Refresh"}
-      </button>
+    <section className="workspace-page settings-page">
+      <div className="workspace-page-heading">
+        <h1>Settings</h1>
+        <button
+          className="secondary"
+          disabled={loading || busy}
+          onClick={() => setRefresh((value) => value + 1)}
+        >
+          {loading ? "Refreshing…" : error ? "Try again" : "Refresh"}
+        </button>
+      </div>
       {error && (
         <p role="alert" className="error">
           {error}
@@ -230,13 +271,12 @@ export function AccountPanels({ activity }: { activity: boolean }) {
       )}
       {notice && <p role="status">{notice}</p>}
       <>
-        <h2>Account security</h2>
-        <p>
-          Browser sessions expire after eight hours. Sign out to end this
-          browser’s session.
-        </p>
         <div className="quiet-panel">
-          <h3>Browser sessions</h3>
+          <h2>Browser sessions</h2>
+          <p>
+            Sessions expire after eight hours. Sign out to end this browser’s
+            session.
+          </p>
           {sessions === null && !error ? (
             <p role="status">Loading browser sessions…</p>
           ) : (
@@ -264,10 +304,8 @@ export function AccountPanels({ activity }: { activity: boolean }) {
             {busy ? "Ending sessions…" : "End other browser sessions"}
           </button>
         </div>
-        <div className="quiet-panel">
-          <h3>Authenticator and recovery</h3>
-          <p>MFA and password recovery are not available yet.</p>
-        </div>
+        <MfaPanel />
+        <DataPanel />
       </>
     </section>
   );
