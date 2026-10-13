@@ -1,5 +1,41 @@
 # Beacon Remote delivery roadmap
 
+## Where it stands (2026-10-13)
+
+The product described by ADRs 0021–0029 is built, merged to main and deployed at
+`remote.builtbysai.com` with sessions, remote control and the dedicated relay enabled. The sections below the line
+are the earlier milestone record and are kept for history; where they conflict with this section, this section wins.
+
+**Built and in production**
+
+- Access you choose: attended, trusted for your own account, one-time support codes, remembered helpers, and
+  remembered helpers without the Allow — each raised only on the computer and lowered from the web (0021, 0023,
+  0024, 0027).
+- Open-ended sessions with automatic reconnection, a quiet-viewer grace period, and immediate revocation.
+- Remote control: mouse, keyboard with shortcuts and modifiers, scroll, touch and trackpad modes, a soft-keyboard
+  field, paste to the computer, copy from the computer, display selection, keyboard lock.
+- Two-step sign-in with recovery codes, operator-issued password recovery (0025, 0026).
+- Windows host: pairing, start at sign-in, tray, signed on-request updates with rollback (0022, 0028), native
+  consent, sharing and host windows matching the approved design with Pause (0029).
+- Web: approved workspace, inventory (revoked computers filtered), inspector, assist, sessions, activity, downloads.
+
+**Remaining**
+
+| Area                      | What is left                                                                                                                                                                                     |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Real-device acceptance    | Sustained performance and latency measurements; the full interruption matrix (Wi-Fi switch, sleep and resume, mobile data, relay-only); lock, UAC and elevated-window behaviour on more machines |
+| Media quality             | Adaptive bitrate and resolution, higher frame rates, cursor shape, a measured budget for the relay                                                                                               |
+| Installer                 | A double-click installer instead of the PowerShell package; Authenticode signing (needs a certificate); first-run polish                                                                         |
+| Accounts                  | Public sign-up with email verification, email password recovery, data export and deletion, abuse limits, accountless guest support                                                               |
+| Native extras             | Tray flyout and toast for incoming requests while the window is hidden; switching display during a session                                                                                       |
+| Web fidelity              | Landing composition and copy against the prototype, an accessibility audit of the Remote web app, reduced-motion pass                                                                            |
+| Operations                | Alerting on relay quota, scheduled restore drills, Lighthouse-style observability                                                                                                                |
+| Deliberately out of scope | AI and MCP control, file transfer, recording, enterprise management, other operating systems                                                                                                     |
+
+---
+
+## Earlier milestone record
+
 Updated 2026-10-12 after the public-source security review, restored hosted CI
 and attended-consent lifecycle work. Earlier PR #8/#9 media, interface, relay
 and owner mobile-data evidence remains recorded below. See
