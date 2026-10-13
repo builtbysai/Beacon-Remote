@@ -194,7 +194,13 @@ try {
           void stop();
         });
         helper.stdin!.end(
-          JSON.stringify({ ...grant, server, localTrusted: trusted }),
+          JSON.stringify({
+            ...grant,
+            // The real agent consumes this field before handing the grant to the helper.
+            viaRelationship: undefined,
+            server,
+            localTrusted: trusted,
+          }),
         );
       }
     } catch {
