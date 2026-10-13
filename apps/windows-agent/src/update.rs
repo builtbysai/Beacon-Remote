@@ -52,6 +52,11 @@ struct Installed {
     sequence: Option<u64>,
 }
 
+// The package manifest is written by PowerShell, which puts a byte-order mark in front of UTF-8.
+fn json_bytes(bytes: &[u8]) -> &[u8] {
+    bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes)
+}
+
 fn is_hex(value: &str, length: usize) -> bool {
     value.len() == length
         && value
@@ -107,7 +112,7 @@ fn install_dir() -> Result<PathBuf, Error> {
 fn installed(dir: &Path) -> Installed {
     let read = |name: &str| fs::read(dir.join(name)).ok();
     let commit = read("manifest.json")
-        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(json_bytes(&bytes)).ok())
         .and_then(|value| value["commit"].as_str().map(str::to_owned));
     let sequence = read("installed.json")
         .and_then(|bytes| serde_json::from_slice::<Installed>(&bytes).ok())
@@ -219,7 +224,8 @@ fn extract(archive: &Path, into: &Path, feed: &Feed) -> Result<(), Error> {
         let mut out = fs::File::create(into.join(&name))?;
         io::copy(&mut entry.take(MAX_ARCHIVE), &mut out)?;
     }
-    let manifest: PackageManifest = serde_json::from_slice(&fs::read(into.join("manifest.json"))?)?;
+    let manifest_bytes = fs::read(into.join("manifest.json"))?;
+    let manifest: PackageManifest = serde_json::from_slice(json_bytes(&manifest_bytes))?;
     if manifest.kind != PACKAGE_KIND
         || !feed
             .commit
@@ -431,6 +437,7 @@ mod tests {
         assert!(VerifyingKey::from_bytes(&built_in).is_ok());
     }
 
+    // Written the way the real build writes it: with a byte-order mark.
     fn package(dir: &Path, commit: &str, body: &str) {
         fs::create_dir_all(dir).unwrap();
         let mut files = Vec::new();
@@ -443,14 +450,14 @@ mod tests {
                 .collect();
             files.push(serde_json::json!({"name": name, "sha256": digest}));
         }
-        fs::write(
-            dir.join("manifest.json"),
+        let mut manifest = vec![0xEF, 0xBB, 0xBF];
+        manifest.extend(
             serde_json::to_vec(&serde_json::json!({
                 "kind": PACKAGE_KIND, "commit": commit, "files": files
             }))
             .unwrap(),
-        )
-        .unwrap();
+        );
+        fs::write(dir.join("manifest.json"), manifest).unwrap();
     }
     fn scratch(name: &str) -> PathBuf {
         let dir =
