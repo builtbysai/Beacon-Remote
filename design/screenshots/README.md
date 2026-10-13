@@ -55,6 +55,12 @@ Originals are kept as captured (no re-encoding). **Do not delete these in cleanu
 | [2026-10-13-1424-sessions-empty-before.jpg](design-review/sessions/2026-10-13-1424-sessions-empty-before.jpg) | 2026-10-13 14:24 UTC | 800x600 | Sessions before redesign: two empty bordered panels with counts and a redundant caption (before · sessions) |
 | [2026-10-13-1425-sessions-history-after.jpg](design-review/sessions/2026-10-13-1425-sessions-history-after.jpg) | 2026-10-13 14:25 UTC | 800x600 | Sessions after redesign: one table (computer, access, result, when); Active block appears only while a session runs (after · sessions) |
 
+## design-review / support
+
+| File | When | Size | What it shows |
+| --- | --- | --- | --- |
+| [2026-10-13-1458-support-page-guest.jpg](design-review/support/2026-10-13-1458-support-page-guest.jpg) | 2026-10-13 14:58 UTC | 800x500 | Public support page with the accountless guest connect form (replaces the 'not available' placeholder) |
+
 ## reference / connecting
 
 | File | When | Size | What it shows |
