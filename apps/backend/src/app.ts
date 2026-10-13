@@ -371,7 +371,7 @@ export async function createApp(
     const account = await owner(request);
     if (!account) return reply.code(401).send({ error: "Sign in required" });
     const result = await pool.query(
-      `SELECT m.id,m.name,m.last_seen_at AS "lastSeenAt",m.revoked_at AS "revokedAt",
+      `SELECT m.id,m.name,m.group_name AS "group",m.last_seen_at AS "lastSeenAt",m.revoked_at AS "revokedAt",
        COALESCE((m.revoked_at IS NULL AND m.last_seen_at>now()-interval '45 seconds'),false) AS online,
        COALESCE(a.mode,'attended') AS "accessMode",COALESCE(a.allow_control,false) AS "allowControl",COALESCE(a.helpers_unattended,'off') AS "helpersUnattended",m.displays
        FROM machines m LEFT JOIN machine_access a ON a.machine_id=m.id
@@ -400,15 +400,27 @@ export async function createApp(
     if (!account) return reply.code(401).send({ error: "Sign in required" });
     const path = z.object({ id: z.uuid() }).safeParse(request.params);
     const body = z
-      .object({ name: z.string().trim().min(1).max(80) })
+      .object({
+        name: z.string().trim().min(1).max(80),
+        // Omitted leaves the group alone; null or an empty string clears it.
+        group: z.string().trim().max(40).nullable().optional(),
+      })
       .strict()
       .safeParse(request.body);
     if (!path.success || !body.success)
       return reply.code(400).send({ error: "Invalid computer name" });
+    const setGroup = body.data.group !== undefined;
     const result = await pool.query(
-      `WITH renamed AS (UPDATE machines SET name=$3 WHERE id=$1 AND account_id=$2 AND revoked_at IS NULL RETURNING id)
+      `WITH renamed AS (UPDATE machines SET name=$3,group_name=CASE WHEN $4 THEN NULLIF($5,'') ELSE group_name END
+         WHERE id=$1 AND account_id=$2 AND revoked_at IS NULL RETURNING id)
        INSERT INTO audit_events(account_id,machine_id,action) SELECT $2,id,'machine.renamed' FROM renamed RETURNING machine_id`,
-      [path.data.id, account, body.data.name],
+      [
+        path.data.id,
+        account,
+        body.data.name,
+        setGroup,
+        body.data.group ?? null,
+      ],
     );
     if (result.rowCount !== 1)
       return reply.code(404).send({ error: "Computer unavailable" });
