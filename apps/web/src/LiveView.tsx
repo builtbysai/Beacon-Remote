@@ -89,11 +89,52 @@ export function LiveView({
   const [transfer, setTransfer] = useState<Transfer | null>(null);
   const sending = useRef(false);
   const [roundTripMillis, setRoundTripMillis] = useState<number | null>(null);
+  const [lossPct, setLossPct] = useState<number | null>(null);
   const [transportAttempt, setTransportAttempt] = useState(0);
   // Relay credentials are short; each resume brings fresh ones for the next transport.
   const ice = useRef({ id: grant.id, servers: grant.iceServers });
   if (ice.current.id !== grant.id)
     ice.current = { id: grant.id, servers: grant.iceServers };
+  // Measured numbers go to the server every 15 s while the picture flows, so a real device and network can be
+  // judged from the session history instead of by feel. No media or content is sent.
+  const measured = useRef({
+    route,
+    pictureHeight,
+    presentedFps,
+    roundTripMillis,
+    lossPct,
+  });
+  measured.current = {
+    route,
+    pictureHeight,
+    presentedFps,
+    roundTripMillis,
+    lossPct,
+  };
+  useEffect(() => {
+    if (ended) return;
+    const timer = setInterval(() => {
+      const now = measured.current;
+      if (!["Direct", "Relayed"].includes(now.route)) return;
+      void fetch(`/api/sessions/${grant.id}/quality`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          route: now.route,
+          height: now.pictureHeight,
+          fps: now.presentedFps === null ? null : Math.round(now.presentedFps),
+          rttMs:
+            now.roundTripMillis === null
+              ? null
+              : Math.round(now.roundTripMillis),
+          lossPct:
+            now.lossPct === null ? null : Math.round(now.lossPct * 10) / 10,
+        }),
+      }).catch(() => undefined);
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, [grant.id, ended]);
   useEffect(() => {
     const sync = () =>
       setIsFullscreen(document.fullscreenElement === shell.current);
@@ -532,6 +573,12 @@ export function LiveView({
           let selected: string | undefined;
           stats.forEach((report) => {
             reports.set(report.id, report);
+            if (report.type === "inbound-rtp" && report.kind === "video") {
+              const lost = Number(report.packetsLost) || 0;
+              const received = Number(report.packetsReceived) || 0;
+              if (lost + received > 0)
+                setLossPct((lost / (lost + received)) * 100);
+            }
             if (
               report.type === "transport" &&
               typeof report.selectedCandidatePairId === "string"
