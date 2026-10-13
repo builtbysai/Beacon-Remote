@@ -119,6 +119,14 @@ try {
   if (enrolled.statusCode !== 200)
     throw new Error("Development pairing failed");
   const machineId = enrolled.json().machineId as string;
+  // FIXTURE_TRUSTED=1 stands in for a computer set to trusted access, so the real desktop can be
+  // reviewed in the browser without clicking the native Allow. Never use it on a real computer.
+  const trusted = process.env.FIXTURE_TRUSTED === "1";
+  if (trusted)
+    await pool.query(
+      "INSERT INTO machine_access(machine_id,mode,allow_control) VALUES ($1,'trusted',true)",
+      [machineId],
+    );
   await app.listen({ host: "127.0.0.1", port: 3011 });
   process.env.REMOTE_API_ORIGIN = server;
   web = await createServer({
@@ -185,7 +193,9 @@ try {
           console.error("Matching native helper unavailable");
           void stop();
         });
-        helper.stdin!.end(JSON.stringify({ ...grant, server }));
+        helper.stdin!.end(
+          JSON.stringify({ ...grant, server, localTrusted: trusted }),
+        );
       }
     } catch {
       console.error(
