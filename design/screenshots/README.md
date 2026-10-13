@@ -55,6 +55,13 @@ Originals are kept as captured (no re-encoding). **Do not delete these in cleanu
 | [2026-10-13-1424-sessions-empty-before.jpg](design-review/sessions/2026-10-13-1424-sessions-empty-before.jpg) | 2026-10-13 14:24 UTC | 800x600 | Sessions before redesign: two empty bordered panels with counts and a redundant caption (before · sessions) |
 | [2026-10-13-1425-sessions-history-after.jpg](design-review/sessions/2026-10-13-1425-sessions-history-after.jpg) | 2026-10-13 14:25 UTC | 800x600 | Sessions after redesign: one table (computer, access, result, when); Active block appears only while a session runs (after · sessions) |
 
+## design-review / settings
+
+| File | When | Size | What it shows |
+| --- | --- | --- | --- |
+| [2026-10-13-1607-settings-after.jpg](design-review/settings/2026-10-13-1607-settings-after.jpg) | 2026-10-13 16:07 UTC | 800x600 | Settings after: flat sections with the label on the left, quiet buttons, one loud action only for deleting the account (after · settings) |
+| [2026-10-13-1607-settings-before.jpg](design-review/settings/2026-10-13-1607-settings-before.jpg) | 2026-10-13 16:07 UTC | 799x609 | Settings before: Refresh as a large primary button, a redundant Account security heading and card-in-card sections with every button primary (before · settings) |
+
 ## design-review / signin
 
 | File | When | Size | What it shows |

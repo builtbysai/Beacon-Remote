@@ -253,14 +253,17 @@ export function AccountPanels({ activity }: { activity: boolean }) {
       </section>
     );
   return (
-    <section className="public-section">
-      <h1>Settings</h1>
-      <button
-        disabled={loading || busy}
-        onClick={() => setRefresh((value) => value + 1)}
-      >
-        {loading ? "Refreshing…" : error ? "Try again" : "Refresh"}
-      </button>
+    <section className="workspace-page settings-page">
+      <div className="workspace-page-heading">
+        <h1>Settings</h1>
+        <button
+          className="secondary"
+          disabled={loading || busy}
+          onClick={() => setRefresh((value) => value + 1)}
+        >
+          {loading ? "Refreshing…" : error ? "Try again" : "Refresh"}
+        </button>
+      </div>
       {error && (
         <p role="alert" className="error">
           {error}
@@ -268,13 +271,12 @@ export function AccountPanels({ activity }: { activity: boolean }) {
       )}
       {notice && <p role="status">{notice}</p>}
       <>
-        <h2>Account security</h2>
-        <p>
-          Browser sessions expire after eight hours. Sign out to end this
-          browser’s session.
-        </p>
         <div className="quiet-panel">
-          <h3>Browser sessions</h3>
+          <h2>Browser sessions</h2>
+          <p>
+            Sessions expire after eight hours. Sign out to end this browser’s
+            session.
+          </p>
           {sessions === null && !error ? (
             <p role="status">Loading browser sessions…</p>
           ) : (

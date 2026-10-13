@@ -61,7 +61,7 @@ export function DataPanel() {
 
   return (
     <div className="quiet-panel">
-      <h3>Your data</h3>
+      <h2>Your data</h2>
       <p>
         Download everything this service holds about your account: your
         computers, session history and activity. Passwords and keys are never
@@ -84,7 +84,7 @@ export function DataPanel() {
         <button disabled={busy}>Download my data</button>
       </form>
       {notice && <p role="status">{notice}</p>}
-      <h3>Delete account</h3>
+      <h2>Delete account</h2>
       {deleting ? (
         <form onSubmit={erase} className="mfa-form">
           <p>

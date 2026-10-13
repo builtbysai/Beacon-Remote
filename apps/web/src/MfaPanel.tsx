@@ -80,7 +80,7 @@ export function MfaPanel() {
 
   return (
     <div className="quiet-panel">
-      <h3>Authenticator and recovery</h3>
+      <h2>Authenticator and recovery</h2>
       {error && (
         <p role="alert" className="error">
           {error}
