@@ -2,35 +2,70 @@
 
 ## Where it stands (2026-10-13)
 
-The product described by ADRs 0021–0029 is built, merged to main and deployed at
-`remote.builtbysai.com` with sessions, remote control and the dedicated relay enabled. The sections below the line
-are the earlier milestone record and are kept for history; where they conflict with this section, this section wins.
+The product described by ADRs 0021 to 0029 is built, merged to main and deployed at `remote.builtbysai.com` with
+sessions, remote control and the dedicated relay enabled. The phases below set priority, not order: work on any
+independent item, and when one needs a real device, a certificate or an owner decision, record the blocker and move on.
+The section under the line is the earlier milestone record, kept for history; where it conflicts with this one, this one wins.
 
-**Built and in production**
+Each feature is tracked on five facts. **Impl** the code exists. **Integ** it is wired into the product end to end.
+**Valid** it was checked on a real device or a real stack, not only by unit tests or CI. **Rel** it is in the deployed
+product. **Block** an actual external dependency. A dash means no, a tick means yes. Never mark a box because code exists.
 
-- Access you choose: attended, trusted for your own account, one-time support codes, remembered helpers, and
-  remembered helpers without the Allow — each raised only on the computer and lowered from the web (0021, 0023,
-  0024, 0027).
-- Open-ended sessions with automatic reconnection, a quiet-viewer grace period, and immediate revocation.
-- Remote control: mouse, keyboard with shortcuts and modifiers, scroll, touch and trackpad modes, a soft-keyboard
-  field, paste to the computer, copy from the computer, display selection, keyboard lock.
-- Two-step sign-in with recovery codes, operator-issued password recovery (0025, 0026).
-- Windows host: pairing, start at sign-in, tray, signed on-request updates with rollback (0022, 0028), native
-  consent, sharing and host windows matching the approved design with Pause (0029).
-- Web: approved workspace, inventory (revoked computers filtered), inspector, assist, sessions, activity, downloads.
+### Phase 1: finish the existing product
 
-**Remaining**
+| Feature                                                                                                           | Impl | Integ | Valid         | Rel | Block / note                                                |
+| ----------------------------------------------------------------------------------------------------------------- | ---- | ----- | ------------- | --- | ----------------------------------------------------------- |
+| Access modes: attended, trusted, support codes, remembered helpers (0021, 0023, 0024, 0027)                       | ✓    | ✓     | ✓             | ✓   |                                                             |
+| Open-ended sessions, auto-reconnect, immediate revocation                                                         | ✓    | ✓     | ✓             | ✓   | Interruption matrix on real devices still open              |
+| Remote control: mouse, keyboard, shortcuts, scroll, touch and trackpad, paste and copy                            | ✓    | ✓     | ✓             | ✓   |                                                             |
+| Two-step sign-in, recovery codes, operator password recovery (0025, 0026)                                         | ✓    | ✓     | ✓             | ✓   |                                                             |
+| Windows host: pairing, start at sign-in, tray, signed updates with rollback (0022, 0028)                          | ✓    | ✓     | ✓             | ✓   |                                                             |
+| Native consent, sharing and host windows with Pause (0029)                                                        | ✓    | ✓     | ✓             | ✓   |                                                             |
+| Screenshots preserved with a manifest and README (`scripts/shot.mjs`)                                             | ✓    | ✓     | ✓             | ✓   |                                                             |
+| Design: direction and Computers list                                                                              | ✓    | ✓     | ✓             | ✓   | `design/DIRECTION.md`                                       |
+| Design: Sessions, inspector header                                                                                | ✓    | ✓     | ✓             | –   | PR open                                                     |
+| Design: Assist, Activity, landing, sign-in, settings, downloads, pairing, viewer overlays, tray and host surfaces | –    | –     | –             | –   | Audit and rollout in progress; one screen at a time         |
+| Adaptive video quality (five tiers from receiver reports and encode cost)                                         | ✓    | ✓     | loopback only | –   | PR open. Constrained and relay-only links need real devices |
+| Cursor shape, multi-monitor switching during a session                                                            | –    | –     | –             | –   |                                                             |
+| Double-click Windows installer, first-run setup, uninstall that removes credentials                               | –    | –     | –             | –   |                                                             |
+| Authenticode signing                                                                                              | –    | –     | –             | –   | Blocked: needs a code-signing certificate                   |
+| Tray flyout and toast for incoming requests                                                                       | –    | –     | –             | –   |                                                             |
+| Public sign-up, email verification, email password recovery                                                       | –    | –     | –             | –   | Needs an outbound mail provider decision                    |
+| Account data export and deletion, abuse limits                                                                    | –    | –     | –             | –   |                                                             |
+| Accountless guest support                                                                                         | –    | –     | –             | –   |                                                             |
+| Accessibility and reduced-motion audit of the Remote web app                                                      | –    | –     | –             | –   |                                                             |
+| Relay quota alerting, restore drills, latency observability                                                       | –    | –     | –             | –   |                                                             |
+| Real-device acceptance: sustained load, Wi-Fi to mobile data, sleep and resume, relay-only, lock/UAC              | –    | –     | –             | –   | Blocked: needs the owner's devices                          |
 
-| Area                      | What is left                                                                                                                                                                                     |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Real-device acceptance    | Sustained performance and latency measurements; the full interruption matrix (Wi-Fi switch, sleep and resume, mobile data, relay-only); lock, UAC and elevated-window behaviour on more machines |
-| Media quality             | Adaptive bitrate and resolution, higher frame rates, cursor shape, a measured budget for the relay                                                                                               |
-| Installer                 | A double-click installer instead of the PowerShell package; Authenticode signing (needs a certificate); first-run polish                                                                         |
-| Accounts                  | Public sign-up with email verification, email password recovery, data export and deletion, abuse limits, accountless guest support                                                               |
-| Native extras             | Tray flyout and toast for incoming requests while the window is hidden; switching display during a session                                                                                       |
-| Web fidelity              | Landing composition and copy against the prototype, an accessibility audit of the Remote web app, reduced-motion pass                                                                            |
-| Operations                | Alerting on relay quota, scheduled restore drills, Lighthouse-style observability                                                                                                                |
-| Deliberately out of scope | AI and MCP control, file transfer, recording, enterprise management, other operating systems                                                                                                     |
+### Phase 2: complete remote support
+
+| Feature                                                                                         | Impl | Integ | Valid | Rel | Block / note                              |
+| ----------------------------------------------------------------------------------------------- | ---- | ----- | ----- | --- | ----------------------------------------- |
+| File transfer: both directions, drag and drop, progress, cancel, resume, explicit authorization | –    | –     | –     | –   |                                           |
+| Session recording: optional, clearly indicated, encrypted, retention, playback, download        | –    | –     | –     | –   | Never covert; per-session consent         |
+| Technician accounts and support workflows                                                       | –    | –     | –     | –   |                                           |
+| Remote audio, Wake-on-LAN, connection quality indicator, session diagnostics                    | –    | –     | –     | –   | Only where it removes a real workflow gap |
+
+### Phase 3: cross-platform expansion
+
+A shared protocol and backend, built up progressively. Beacon View's credentials, permissions and databases stay separate.
+
+| Feature                                                                   | Impl | Integ | Valid | Rel | Block / note                                         |
+| ------------------------------------------------------------------------- | ---- | ----- | ----- | --- | ---------------------------------------------------- |
+| Controller: any modern desktop browser                                    | ✓    | ✓     | ✓     | ✓   | Chrome verified; Safari, Firefox, Chromebook not yet |
+| Controller: Android phone and tablet (web)                                | ✓    | ✓     | ✓     | ✓   | Native Android controller not started                |
+| Controller: iPhone and iPad                                               | –    | –     | –     | –   | Web first; iOS cannot promise unrestricted control   |
+| Host: Android (MediaProjection, AccessibilityService, foreground service) | –    | –     | –     | –   | Priority after Windows is reliable                   |
+| Host: macOS, Linux (X11 and Wayland), Raspberry Pi, Android TV            | –    | –     | –     | –   |                                                      |
+
+### Phase 4: advanced capabilities
+
+| Feature                                                                    | Impl | Integ | Valid | Rel | Block / note                                                                    |
+| -------------------------------------------------------------------------- | ---- | ----- | ----- | --- | ------------------------------------------------------------------------------- |
+| Groups, roles, permission policies, audit history, organization management | –    | –     | –     | –   |                                                                                 |
+| Optional self-hosted deployment                                            | –    | –     | –     | –   |                                                                                 |
+| MCP and computer-use integration over the existing view and input core     | –    | –     | –     | –   | Explicit authorization, bounded capability, visible state, immediate revocation |
+| Further performance work from measured bottlenecks                         | –    | –     | –     | –   |                                                                                 |
 
 ---
 
@@ -305,8 +340,8 @@ milestone 4 consent-latency and real-desktop lifecycle acceptance next.
 ## Boundaries and owner dependencies
 
 Integrate the approved design with real state across these slices; do not replace
-working code with the prototype or ship simulated devices. No AI, MCP, terminal,
-file transfer, recording, extra OS, enterprise management or cloud media storage.
+working code with the prototype or ship simulated devices. No terminal,
+or cloud media storage without an approved design.
 No new services/dependencies without demonstrated need. Preserve Oracle free
 allocation and Beacon View health.
 
