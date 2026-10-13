@@ -6,7 +6,6 @@ mod update;
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use ed25519_dalek::{Signer, SigningKey};
-use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -430,7 +429,7 @@ pub fn pair(server: &str, name: &str, code: String) -> Result<(), HostError> {
     if name.trim().is_empty() || name.chars().count() > 80 || code.len() > 256 {
         return Err("Enter a computer name and a valid pairing code".into());
     }
-    let key = SigningKey::generate(&mut OsRng);
+    let key = SigningKey::generate(&mut rand::rng());
     let response = client.post(server.join("/api/agent/enroll")?).json(&serde_json::json!({
             "version": 1, "code": &*code, "name": name, "publicKey": STANDARD.encode(key.verifying_key().as_bytes()),
         })).send()?;
