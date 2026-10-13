@@ -66,12 +66,13 @@ A shared protocol and backend, built up progressively. Beacon View's credentials
 
 ### Phase 4: advanced capabilities
 
-| Feature                                                                    | Impl | Integ | Valid | Rel | Block / note                                                                    |
-| -------------------------------------------------------------------------- | ---- | ----- | ----- | --- | ------------------------------------------------------------------------------- |
-| Groups, roles, permission policies, audit history, organization management | –    | –     | –     | –   |                                                                                 |
-| Optional self-hosted deployment                                            | –    | –     | –     | –   |                                                                                 |
-| MCP and computer-use integration over the existing view and input core     | –    | –     | –     | –   | Explicit authorization, bounded capability, visible state, immediate revocation |
-| Further performance work from measured bottlenecks                         | –    | –     | –     | –   |                                                                                 |
+| Feature                                                                    | Impl | Integ | Valid                                                     | Rel | Block / note                                                                    |
+| -------------------------------------------------------------------------- | ---- | ----- | --------------------------------------------------------- | --- | ------------------------------------------------------------------------------- |
+| Computer groups (one owner label per computer, filter and search)          | ✓    | ✓     | backend test; list and inspector exercised on the fixture | ✓   | Roles, permission policies, audit history and organisations not built           |
+| Groups, roles, permission policies, audit history, organization management | –    | –     | –                                                         | –   |                                                                                 |
+| Optional self-hosted deployment                                            | –    | –     | –                                                         | –   |                                                                                 |
+| MCP and computer-use integration over the existing view and input core     | –    | –     | –                                                         | –   | Explicit authorization, bounded capability, visible state, immediate revocation |
+| Further performance work from measured bottlenecks                         | –    | –     | –                                                         | –   |                                                                                 |
 
 ---
 

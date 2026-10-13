@@ -55,6 +55,15 @@ anyway). Uninstall from Apps and features; that also removes the saved sign-in.
 - [ ] Cancel a large transfer midway: no partial file is left on either side.
 - [ ] Without the box ticked, no Send file button appears.
 
+## 6. Recording and groups
+
+- [ ] Tick "Also allow the helper to record this session" in the consent window; the viewer shows Record. While it
+      records the computer's sharing window says so, and stopping saves a video file in the viewer's browser.
+- [ ] Without the box there is no Record button.
+- [ ] Give two computers a group in the inspector (edit, Group) and use the All groups filter.
+- [ ] On the computer with a graphics card, check the helper's CPU in Task Manager while viewing at 1080p. It uses
+      the graphics card's H.264 encoder when it works and falls back to software on its own.
+
 ## What to send back
 
 For anything that felt off: the time, what you did, and the session's row from Sessions (the Connection column).
