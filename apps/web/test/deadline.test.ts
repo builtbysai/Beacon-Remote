@@ -2,6 +2,28 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { viewDeadline } from "../src/deadline.js";
 
+test("explicit unlimited session disables the fixed viewer timer across clock changes", () => {
+  let wall = 1000,
+    monotonic = 10;
+  const expired = viewDeadline(
+    0,
+    () => wall,
+    () => monotonic,
+  );
+  wall += 86400000;
+  monotonic += 86400000;
+  assert.equal(expired(), false);
+  // An invalid negative expiry is never treated as unlimited.
+  assert.equal(
+    viewDeadline(
+      -1,
+      () => wall,
+      () => monotonic,
+    )(),
+    true,
+  );
+});
+
 test("rolling the system clock back cannot extend a viewer session", () => {
   let wall = 1_000_000;
   let monotonic = 500;

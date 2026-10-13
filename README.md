@@ -87,7 +87,7 @@ measurements passed; see [validation and remaining checks](docs/validation.md).
 The current media branch adds **attended desktop viewing and a synthetic video test**, gated by a
 separate `SESSION_SECRET` (32 random bytes as 64 lowercase hexadecimal characters).
 Keep that secret outside source control. An authenticated browser can request a
-two-minute view grant; the agent passes it to its matching sibling session helper
+view grant, open-ended until stopped (ADR 0021); the agent passes it to its matching sibling session helper
 through stdin. Synthetic video decoding, browser Stop, logout, expiry and the
 visible Windows Stop button passed real-machine acceptance. Desktop grants ask
 for explicit local approval before primary-display capture with a Windows border

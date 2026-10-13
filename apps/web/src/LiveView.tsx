@@ -4,12 +4,20 @@ import { viewDeadline } from "./deadline.js";
 import { rememberView, forgetView } from "./resume-view.js";
 import { peerLifetime } from "./peer-lifetime.js";
 import { recoverTransport } from "./recover-transport.js";
+import { reconnectUntil } from "./reconnect.js";
+import { attachRemoteInput } from "./remote-input.js";
+import type { TouchMode } from "./touch-input.js";
 import { api } from "./api.js";
 
 export type ViewGrant = {
   id: string;
   source: "synthetic" | "desktop";
+  capability?: "desktop:view" | "desktop:control";
   expiresAtMillis: number;
+  // How long the server holds the session for a viewer that dropped; the viewer retries that long.
+  reconnectSeconds?: number;
+  // "policy" when the computer's own trusted-access setting approved it, so no one is asked.
+  approval?: "local" | "policy";
   iceServers: RTCIceServer[];
   iceTransportPolicy: RTCIceTransportPolicy;
 };
@@ -33,11 +41,18 @@ export function LiveView({
   const [displayError, setDisplayError] = useState("");
   const [status, setStatus] = useState(
     grant.source === "desktop"
-      ? "Approve this request on your Windows computer…"
+      ? grant.approval === "policy"
+        ? "Connecting…"
+        : "Approve this request on your Windows computer…"
       : "Waiting for the Windows helper…",
   );
   const [frames, setFrames] = useState(0);
   const [ended, setEnded] = useState(false);
+  const [controlReady, setControlReady] = useState(false);
+  const [touchMode, setTouchMode] = useState<TouchMode>("trackpad");
+  const touchModeRef = useRef(touchMode);
+  touchModeRef.current = touchMode;
+  const controlling = grant.capability === "desktop:control";
   const [route, setRoute] = useState("Not established");
   const [iceState, setIceState] = useState<RTCIceConnectionState>("new");
   const [localRelays, setLocalRelays] = useState(0);
@@ -55,7 +70,10 @@ export function LiveView({
   const [presentedFps, setPresentedFps] = useState<number | null>(null);
   const [roundTripMillis, setRoundTripMillis] = useState<number | null>(null);
   const [transportAttempt, setTransportAttempt] = useState(0);
-  const attempts = useRef(0);
+  // Relay credentials are short; each resume brings fresh ones for the next transport.
+  const ice = useRef({ id: grant.id, servers: grant.iceServers });
+  if (ice.current.id !== grant.id)
+    ice.current = { id: grant.id, servers: grant.iceServers };
   useEffect(() => {
     const sync = () =>
       setIsFullscreen(document.fullscreenElement === shell.current);
@@ -77,7 +95,7 @@ export function LiveView({
     setTimings({});
     if (transportAttempt > 0) setStatus("Reconnecting video…");
     const pc = new RTCPeerConnection({
-      iceServers: grant.iceServers,
+      iceServers: ice.current.servers,
       iceTransportPolicy: grant.iceTransportPolicy,
       iceCandidatePoolSize: 1,
     });
@@ -89,6 +107,8 @@ export function LiveView({
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(url);
     let closed = false;
+    let detachInput: (() => void) | undefined;
+    let inputChannel: RTCDataChannel | undefined;
     let finished = false;
     let recovering = false;
     let replaced = false;
@@ -110,6 +130,7 @@ export function LiveView({
     function closeTransport() {
       if (closed) return;
       closed = true;
+      detachInput?.();
       peer.dispose();
       pc.close();
       ws.close();
@@ -143,13 +164,12 @@ export function LiveView({
     }
     async function reconnect() {
       if (finished || recovering) return;
-      if (!resumable || attempts.current >= 2 || expired()) {
+      if (!resumable || expired()) {
         finish("Video connection interrupted. Request viewing again.");
         return;
       }
       recovering = true;
-      attempts.current++;
-      setStatus("Reconnecting video…");
+      setStatus("Reconnecting…");
       setFrames(0);
       const closedSocket = new Promise<void>((resolve) => {
         socketClosed = resolve;
@@ -163,25 +183,29 @@ export function LiveView({
           closedSocket,
           new Promise<void>((resolve) => setTimeout(resolve, 500)),
         ]);
-        if (finished || expired()) return;
-        const recoveryTimer = setTimeout(() => recoveryAbort.abort(), 2000);
-        let resumed: ViewGrant | null;
-        try {
-          resumed = await recoverTransport(
-            grant,
-            () =>
-              api<ViewGrant>(
-                `sessions/${grant.id}/resume`,
-                {},
-                recoveryAbort.signal,
-              ),
-            () => !finished && !expired(),
-            stopRequest,
-          );
-        } finally {
-          clearTimeout(recoveryTimer);
-        }
+        // A network outage is retried for as long as the server holds the session. Only the
+        // server refusing (signed out, revoked, stopped, expired) ends it.
+        const resumed = await reconnectUntil({
+          attempt: () =>
+            recoverTransport(
+              grant,
+              () => {
+                const abort = new AbortController();
+                const timer = setTimeout(() => abort.abort(), 5000);
+                return api<ViewGrant>(
+                  `sessions/${grant.id}/resume`,
+                  {},
+                  abort.signal,
+                ).finally(() => clearTimeout(timer));
+              },
+              () => !finished && !expired(),
+              stopRequest,
+            ),
+          isCurrent: () => !finished && !expired(),
+          windowMs: (grant.reconnectSeconds ?? 120) * 1000,
+        });
         if (!resumed) return;
+        ice.current = { id: grant.id, servers: resumed.iceServers };
         replaced = true;
         setTransportAttempt((value) => value + 1);
       } catch {
@@ -198,7 +222,9 @@ export function LiveView({
           if (pc.connectionState === "connected")
             setStatus(
               grant.source === "desktop"
-                ? "Connected — view only."
+                ? controlling
+                  ? "Connected — click the desktop to control. Escape releases input."
+                  : "Connected — view only."
                 : "Connected — synthetic video only.",
             );
         },
@@ -214,6 +240,31 @@ export function LiveView({
         return;
       }
       ws.send(JSON.stringify({ ...body, generation }));
+    };
+    pc.ondatachannel = (event) => {
+      if (
+        !controlling ||
+        !element ||
+        inputChannel ||
+        event.channel.label !== "beacon-input-v1" ||
+        !event.channel.ordered ||
+        event.channel.maxRetransmits !== null ||
+        event.channel.maxPacketLifeTime !== null
+      ) {
+        event.channel.close();
+        finish("Unexpected input channel.");
+        return;
+      }
+      inputChannel = event.channel;
+      detachInput = attachRemoteInput(
+        event.channel,
+        grant.id,
+        element,
+        setControlReady,
+        () => finish("Control connection ended. Request control again."),
+        () => touchModeRef.current,
+        setDisplayError,
+      );
     };
     pc.onicecandidate = (event) => {
       if (closed) return;
@@ -235,11 +286,21 @@ export function LiveView({
     };
     pc.onconnectionstatechange = () => {
       if (closed) return;
+      if (
+        controlling &&
+        !resumable &&
+        ["disconnected", "failed", "closed"].includes(pc.connectionState)
+      ) {
+        finish("Control connection ended. Request control again.");
+        return;
+      }
       peer.update(pc.connectionState);
       if (pc.connectionState === "connected") {
         setStatus(
           grant.source === "desktop"
-            ? "Connected — view only."
+            ? controlling
+              ? "Connected — click the desktop to control. Escape releases input."
+              : "Connected — view only."
             : "Connected — synthetic video only.",
         );
       }
@@ -280,12 +341,17 @@ export function LiveView({
         frameCallback = element.requestVideoFrameCallback(count);
       }
     };
+    // A dropped signaling connection is a network problem, not the end of the session.
     ws.onerror = () => {
-      if (!recovering) finish("Signaling connection failed.");
+      if (recovering) return;
+      if (resumable) void reconnect();
+      else finish("Signaling connection failed.");
     };
     ws.onclose = () => {
       socketClosed();
-      if (!recovering) finish("Session ended.");
+      if (recovering) return;
+      if (resumable && !closed) void reconnect();
+      else finish("Session ended.");
     };
     ws.onmessage = (event) => {
       if (closed) return;
@@ -311,7 +377,7 @@ export function LiveView({
                 typeof message.generation === "number" &&
                 Number.isInteger(message.generation) &&
                 message.generation >= 0 &&
-                message.generation <= 16
+                message.generation <= 1024
               )
                 generation = message.generation;
               break;
@@ -463,7 +529,14 @@ export function LiveView({
       <header className="viewer-toolbar">
         <div className="viewer-identity">
           <strong>{name}</strong>
-          <span>{grant.source === "desktop" ? "View only" : "Video test"}</span>
+          <span>
+            {grant.source === "desktop"
+              ? controlling
+                ? "Mouse and keyboard"
+                : "View only"
+              : "Video test"}
+            {grant.expiresAtMillis === 0 ? " · Until stopped" : ""}
+          </span>
         </div>
         <div className="viewer-actions">
           <label className="viewer-scale">
@@ -479,6 +552,20 @@ export function LiveView({
               <option value="actual">100%</option>
             </select>
           </label>
+          {controlReady && (
+            <button
+              className="viewer-control"
+              aria-pressed={touchMode === "direct"}
+              title="Trackpad moves the cursor like a laptop touchpad. Touch acts where you tap."
+              onClick={() =>
+                setTouchMode((mode) =>
+                  mode === "trackpad" ? "direct" : "trackpad",
+                )
+              }
+            >
+              Touch: {touchMode === "trackpad" ? "Trackpad" : "Direct"}
+            </button>
+          )}
           <button
             className="viewer-control"
             onClick={async () => {
@@ -556,7 +643,9 @@ export function LiveView({
             {ended
               ? "Close"
               : grant.source === "desktop"
-                ? "Stop viewing"
+                ? controlling
+                  ? "Stop control"
+                  : "Stop viewing"
                 : "Stop video test"}
           </button>
         </div>
@@ -567,6 +656,8 @@ export function LiveView({
           autoPlay
           muted
           playsInline
+          tabIndex={controlReady && !ended ? 0 : -1}
+          className={controlReady && !ended ? "input-enabled" : undefined}
           aria-label={
             grant.source === "desktop"
               ? "Windows desktop video"

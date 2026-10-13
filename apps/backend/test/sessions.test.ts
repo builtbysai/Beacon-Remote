@@ -6,13 +6,13 @@ import {
   randomUUID,
   sign,
 } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import { once } from "node:events";
 import { test } from "node:test";
 import { Pool } from "pg";
 import type { WebSocket } from "ws";
 import { createApp } from "../src/app.js";
 import { heartbeatMessage } from "../../../packages/protocol/src/index.js";
+import { applyMigrations } from "../src/migrations.js";
 
 test(
   "view grants enforce isolation, local consent, single use and immediate revocation",
@@ -21,14 +21,7 @@ test(
     const url = process.env.TEST_DATABASE_URL!;
     assert.match(new URL(url).pathname, /_test$/);
     const pool = new Pool({ connectionString: url });
-    for (const file of ["001_identity.sql", "002_view_sessions.sql"]) {
-      await pool.query(
-        await readFile(
-          new URL(`../migrations/${file}`, import.meta.url),
-          "utf8",
-        ),
-      );
-    }
+    await applyMigrations(pool);
     const origin = "https://remote.example.test";
     const app = await createApp(pool, {
       DATABASE_URL: url,
@@ -40,6 +33,7 @@ test(
       TURN_SECRET: randomBytes(32).toString("hex"),
       TURN_URLS: ["turn:relay.example.test:3478?transport=udp"],
       ICE_TRANSPORT_POLICY: "relay",
+      RECONNECT_WINDOW_SECONDS: 10,
     });
     await app.ready();
     const account = randomUUID();
@@ -400,8 +394,6 @@ test(
         JSON.parse((await resumedMessage)[0].toString()).type,
         "viewer-resumed",
       );
-      await assert.rejects(connect(reloadId, "viewer", headers));
-      assert.equal((await resume()).statusCode, 403);
       assert.deepEqual(
         await received(replacementViewer, () => {
           reloadNative.send(

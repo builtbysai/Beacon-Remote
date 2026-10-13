@@ -89,6 +89,38 @@ fn displays() -> Result<Vec<Display>, Error> {
         .collect()
 }
 
+// The display a session was requested for; no id means the primary display.
+pub(crate) fn display(id: Option<&str>) -> Result<Display, Error> {
+    match id {
+        None => primary_display(),
+        Some(id) => displays()?
+            .into_iter()
+            .find(|display| display.id == id)
+            .ok_or_else(|| "Selected display unavailable".into()),
+    }
+}
+
+// How the local consent window names the display being shared.
+pub(crate) fn display_label(id: Option<&str>) -> String {
+    let primary = Monitor::primary()
+        .ok()
+        .and_then(|monitor| monitor.device_name().ok());
+    match id {
+        Some(id) if primary.as_deref() != Some(id) => {
+            format!("Display {}", id.trim_start_matches(r"\\.\DISPLAY"))
+        }
+        _ => "Primary display".into(),
+    }
+}
+
+pub(crate) fn primary_display() -> Result<Display, Error> {
+    let id = Monitor::primary()?.device_name()?;
+    displays()?
+        .into_iter()
+        .find(|display| display.id == id)
+        .ok_or_else(|| "Primary display unavailable".into())
+}
+
 pub fn dpi_awareness() -> Result<(), Error> {
     if unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) } == 0 {
         return Err(io::Error::last_os_error().into());
@@ -225,11 +257,12 @@ pub struct DesktopCapture {
 impl DesktopCapture {
     #[cfg(test)]
     pub fn start(active: Arc<AtomicBool>) -> Result<Self, Error> {
-        Self::start_with_session(active.clone(), active)
+        Self::start_with_session(active.clone(), active, None)
     }
     pub fn start_with_session(
         active: Arc<AtomicBool>,
         session_active: Arc<AtomicBool>,
+        display_id: Option<&str>,
     ) -> Result<Self, Error> {
         if !active.load(Ordering::Acquire)
             || !session_active.load(Ordering::Acquire)
@@ -238,7 +271,13 @@ impl DesktopCapture {
             active.store(false, Ordering::Release);
             return Err("The local desktop is unavailable for attended sharing".into());
         }
-        let monitor = Monitor::primary()?;
+        let monitor = match display_id {
+            None => Monitor::primary()?,
+            Some(id) => Monitor::enumerate()?
+                .into_iter()
+                .find(|monitor| monitor.device_name().is_ok_and(|name| name == id))
+                .ok_or("Selected display unavailable")?,
+        };
         let flags = CaptureFlags {
             state: Arc::new(Mutex::new(FrameState::default())),
             active,
@@ -475,20 +514,24 @@ mod tests {
             let result = std::panic::catch_unwind(|| {
                 assert_ne!(SetThreadDesktop(desktop), 0);
                 assert!(!desktop_receives_input());
-                assert!(!crate::consent::request(
+                assert!(!crate::consent::request_access(
                     "guard-test@example.invalid",
                     Arc::new(AtomicBool::new(true)),
                     Instant::now() + Duration::from_secs(1),
+                    false,
+                    false,
+                    "Primary display",
                 )
                 .unwrap());
 
                 let active = Arc::new(AtomicBool::new(true));
-                assert!(crate::indicator::Indicator::start(
+                assert!(crate::indicator::Indicator::start_access(
                     active.clone(),
                     Arc::new(AtomicBool::new(false)),
                     true,
                     "guard-test@example.invalid".into(),
-                    Instant::now() + Duration::from_secs(1),
+                    Some(Instant::now() + Duration::from_secs(1)),
+                    false,
                 )
                 .is_err());
                 assert!(!active.load(Ordering::Acquire));

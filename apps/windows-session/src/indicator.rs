@@ -21,12 +21,13 @@ struct WindowState {
     active: Arc<AtomicBool>,
     connected: Arc<AtomicBool>,
     desktop: bool,
-    deadline: Instant,
+    control: bool,
+    deadline: Option<Instant>,
 }
 impl WindowState {
     fn live(&self) -> bool {
         self.active.load(Ordering::Acquire)
-            && Instant::now() < self.deadline
+            && self.deadline.is_none_or(|end| Instant::now() < end)
             && (!self.desktop || crate::capture::desktop_receives_input())
     }
 }
@@ -76,22 +77,27 @@ unsafe extern "system" fn procedure(
             DestroyWindow(window);
             return 0;
         }
-        let remaining = (*state).deadline.saturating_duration_since(Instant::now());
-        let seconds = remaining.as_secs() + u64::from(remaining.subsec_nanos() > 0);
+        let remaining = (*state)
+            .deadline
+            .map(|end| end.saturating_duration_since(Instant::now()));
+        let seconds = remaining.map(|left| left.as_secs() + u64::from(left.subsec_nanos() > 0));
         let status = if (*state).connected.load(Ordering::Acquire) {
             if (*state).desktop {
-                "Sharing your screen · View only"
+                if (*state).control {
+                    "Sharing your screen · Mouse and keyboard control"
+                } else {
+                    "Sharing your screen · View only"
+                }
             } else {
                 "Synthetic video test · No desktop"
             }
         } else {
             "Connecting to viewer"
         };
-        let text = wide(&format!(
-            "{status} · {}:{:02} left",
-            seconds / 60,
-            seconds % 60
-        ));
+        let text = wide(&match seconds {
+            Some(seconds) => format!("{status} · {}:{:02} left", seconds / 60, seconds % 60),
+            None => format!("{status} · Until stopped"),
+        });
         let control = GetDlgItem(window, STATUS_ID);
         let mut current = [0_u16; 128];
         let length = GetWindowTextW(control, current.as_mut_ptr(), current.len() as i32).max(0);
@@ -121,18 +127,20 @@ unsafe extern "system" fn procedure(
     DefWindowProcW(window, message, wparam, lparam)
 }
 impl Indicator {
-    pub fn start(
+    pub fn start_access(
         active: Arc<AtomicBool>,
         connected: Arc<AtomicBool>,
         desktop: bool,
         controller: String,
-        deadline: Instant,
+        deadline: Option<Instant>,
+        control: bool,
     ) -> Result<Self, Error> {
         let (ready, received) = mpsc::channel();
         let state = Arc::new(WindowState {
             active: active.clone(),
             connected,
             desktop,
+            control,
             deadline,
         });
         if !state.live() {
@@ -382,12 +390,13 @@ mod tests {
         instance: HMODULE,
         class: &[u16],
         desktop: bool,
-        deadline: Instant,
+        deadline: Option<Instant>,
     ) -> HiddenWindow {
         let state = Box::new(WindowState {
             active: Arc::new(AtomicBool::new(true)),
             connected: Arc::new(AtomicBool::new(false)),
             desktop,
+            control: false,
             deadline,
         });
         let window = CreateWindowExW(
@@ -456,7 +465,7 @@ mod tests {
                     (true, Instant::now() + Duration::from_secs(5)),
                     (false, Instant::now()),
                 ] {
-                    let fixture = hidden_window(instance, &name, capture, deadline);
+                    let fixture = hidden_window(instance, &name, capture, Some(deadline));
                     dispatch(
                         fixture.window,
                         &MSG {
@@ -474,7 +483,7 @@ mod tests {
                         instance,
                         &name,
                         false,
-                        Instant::now() + Duration::from_secs(5),
+                        Some(Instant::now() + Duration::from_secs(5)),
                     );
                     dispatch(
                         fixture.window,

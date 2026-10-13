@@ -9,9 +9,39 @@ try {
       "account_id",
       "machine_id",
       "source",
+      "capability",
       "token_hash",
       "expires_at",
       "status",
+      "created_at",
+      "approval",
+      "policy_version",
+      "display_id",
+      "relationship_id",
+    ],
+    machine_access: [
+      "machine_id",
+      "mode",
+      "allow_control",
+      "version",
+      "updated_at",
+    ],
+    support_relationships: [
+      "id",
+      "machine_id",
+      "helper_account_id",
+      "capability",
+      "expires_at",
+      "created_at",
+      "revoked_at",
+    ],
+    support_invitations: [
+      "code_hash",
+      "machine_id",
+      "capability",
+      "expires_at",
+      "claimed_at",
+      "claimed_by",
       "created_at",
     ],
     account_invitations: ["token_hash", "expires_at", "claimed_at"],
@@ -26,6 +56,7 @@ try {
       "last_seen_at",
       "revoked_at",
       "created_at",
+      "displays",
     ],
     heartbeat_nonces: ["machine_id", "nonce", "received_at"],
     audit_events: ["id", "account_id", "machine_id", "action", "occurred_at"],
@@ -42,11 +73,18 @@ try {
         throw new Error(`Missing schema column ${table}.${column}`);
     }
   }
+  const duration = await pool.query<{ is_nullable: string }>(
+    "SELECT is_nullable FROM information_schema.columns WHERE table_schema='public' AND table_name='view_sessions' AND column_name='expires_at'",
+  );
+  if (duration.rows[0]?.is_nullable !== "YES")
+    throw new Error("Missing development session duration migration");
   const requiredConstraints = [
     "view_sessions_pkey",
     "view_sessions_account_id_fkey",
     "view_sessions_machine_id_fkey",
     "view_sessions_source_check",
+    "view_sessions_capability_check",
+    "view_sessions_control_source",
     "view_sessions_status_check",
     "account_invitations_pkey",
     "accounts_pkey",

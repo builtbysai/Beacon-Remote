@@ -54,8 +54,9 @@ export function ProductPage({
             <p className="eyebrow">BEACON / REMOTE</p>
             <h1>Remote access for your computers.</h1>
             <p>
-              Connect to an enrolled Windows computer from your browser, with
-              approval from the person at the computer.
+              Connect to an enrolled Windows computer from your browser. Approve
+              each connection on the computer, or turn on trusted access there
+              once for your own account.
             </p>
             <div className="actions">
               <a className="button" href={workspace}>
@@ -65,7 +66,7 @@ export function ProductPage({
                 Download for Windows
               </a>
             </div>
-            <p className="note">Private alpha · Attended, view-only access</p>
+            <p className="note">Private alpha · Windows computers</p>
           </div>
           <div
             className="product-preview"
@@ -142,10 +143,11 @@ export function ProductPage({
               <span className="access-feature-icon" aria-hidden="true">
                 ◎
               </span>
-              <h3>Attended viewing</h3>
+              <h3>You choose how a computer is reached</h3>
               <p>
-                The person at the Windows computer approves each view request
-                and can stop sharing locally.
+                Approve each request on the computer, or set it to trusted
+                access there. Sharing is always visible, and the person at the
+                computer can stop it at any time.
               </p>
             </div>
             <div>
@@ -235,7 +237,8 @@ export function ProductPage({
             <h2>Local approval</h2>
             <p>
               Desktop viewing requires approval on Windows. Sharing has a
-              visible Stop control and a two-minute limit.
+              visible Stop control. Access ends when stopped or authorization is
+              lost.
             </p>
           </div>
           <div>

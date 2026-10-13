@@ -58,9 +58,10 @@ Control-plane authorization precedes signaling, TURN credential issuance, or
 capture. Relay URLs are configuration, so moving relay infrastructure needs no
 endpoint redesign. The VM should not forward ordinary direct desktop video.
 
-Use ordered reliable DataChannels for keys/buttons/session state; use unordered
-unreliable pointer moves with sequence rejection and coalescing. Keep dragging
-and scroll/state changes reliable. Bound message sizes and text lengths. Release
+The first control slice uses one ordered reliable DataChannel with browser
+pointer coalescing and native sequence rejection. This keeps pointer placement
+ordered with drag/buttons/scroll/keys. A separate unordered pointer channel is
+a later measured latency improvement, not an authorization prerequisite. Bound message sizes and text lengths. Release
 held input and stop capture on revoke/expiry/disconnect; a local timer must enforce
 this even during a network partition. Windows SendInput must respect UIPI and
 secure desktop. Reconnect negotiates fresh authorization rather than restoring

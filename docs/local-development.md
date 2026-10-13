@@ -59,6 +59,20 @@ publishing credentials or request bodies.
 
 ## Tests and native fixture
 
+`pnpm --filter @beacon-remote/backend exec tsx scripts/host-development.ts`
+opens the native host with a real paired, disposable identity under
+`.remote-dev/host-development/profile-<uuid>`. Its isolated backend uses port
+13011 and a generated schema in Remote's test database. Start/Stop and tray
+actions report real signed presence. Close the host to finish and remove that
+schema. The fixture enables no desktop media and never changes the real user's
+pairing identity. `fixture.json` and `presence.json` contain test metadata only.
+
+On Windows, `scripts/verify-host-stop.ts` with `TEST_DATABASE_URL` set to Remote's
+`_test` database checks the matching release helper through a real anonymous
+host pipe and authenticated signaling on port 13012. Stop ends a synthetic
+session; pipe EOF cancels pending native desktop consent without clicking Allow.
+No desktop capture or remote input is accepted in that check.
+
 `pnpm --filter @beacon-remote/web test` runs the focused browser-playback
 lifetime, pending-request context and clock-adjustment expiry regressions with the same pinned `tsx`
 tooling already used by the backend. It is included in `pnpm check`. These checks start no
@@ -138,6 +152,16 @@ resuming still validates the original login, current helper and unchanged
 deadline. Include real refresh/Stop/lock/expiry checks when staging that pair.
 The native loopback recovery regression opens no consent dialog or capture.
 
+## Session duration and reconnection
+
+Sessions have no two-minute limit anywhere (ADR 0021). Clients see
+`expiresAtMillis: 0` and the browser shows “Until stopped”; the server keeps an
+absolute safety cap (`SESSION_MAX_HOURS`, default 12, 1–24). A dropped viewer may
+reconnect for `RECONNECT_WINDOW_SECONDS` (default 120 attended, 300 trusted; 5–900).
+A pending request still expires after two minutes, and the three-second authorization
+lease, Stop, revocation, lock and a lowered access policy still end a session.
+Migrations are applied in order by `applyMigrations` and must be safe to re-run.
+
 ## Shared infrastructure contract
 
 Oracle Caddy and Coturn remain shared operational dependencies. Shared edge/TLS,
@@ -189,3 +213,19 @@ no uncommitted work is hidden by dropping the stash.
 View's active checkout was inspected only and left to Claude. The workspace
 inventory in `C:/Dev/WORKSPACE.md` lets both agents find current projects and
 recover old artifacts without editing each other's repository.
+
+## Isolated input development
+
+See [input-development.md](input-development.md). The explicit fixture uses
+loopback 3011/5175 and a fresh disposable schema in Remote's `_test` database,
+without modifying the ordinary 3010/5174 launcher or its ownership state. Native
+control is offered only when the backend sets `CONTROL_ENABLED=true` (which needs
+`SESSION_SECRET`). Matching helper binaries and either manual Windows Allow control
+or the computer's own trusted-access setting are required. No production rollout.
+
+## Internal Windows development package
+
+The [per-user development installer](development-host-package.md) bundles the
+validated agent and interactive helper with Pair/Run shortcuts and explicit
+uninstall. It requires no elevation or automatic startup. Service, tray and
+reboot recovery remain unimplemented; this is not a signed consumer release.

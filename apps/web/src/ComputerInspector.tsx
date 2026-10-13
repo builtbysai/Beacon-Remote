@@ -3,6 +3,9 @@ import type { Machine } from "@beacon-remote/protocol";
 import { api } from "./api.js";
 import { activityLabel, type Activity } from "./AccountPanels.js";
 import { sessionState, type SessionRecord } from "./SessionHistory.js";
+import { WorkspaceIcon } from "./WorkspaceIcon.js";
+import { SupportAccess } from "./SupportAccess.js";
+import "./computer-inspector.css";
 
 export function ComputerInspector({
   machine,
@@ -10,13 +13,31 @@ export function ComputerInspector({
   onUpdated,
   onRevoke,
   stale,
+  onRequestView,
+  onRequestControl,
+  viewEnabled = false,
+  controlEnabled = false,
+  requesting = false,
+  sessionActive = false,
 }: {
   machine: Machine;
   onClose: () => void;
   onUpdated: () => Promise<void>;
   onRevoke: () => Promise<void>;
   stale: boolean;
+  onRequestView?: (displayId?: string) => void;
+  onRequestControl?: (displayId?: string) => void;
+  viewEnabled?: boolean;
+  controlEnabled?: boolean;
+  requesting?: boolean;
+  sessionActive?: boolean;
 }) {
+  const [display, setDisplay] = useState("");
+  const displays = machine.displays ?? [];
+  // Only a display this computer reported can be chosen; otherwise the primary display is shared.
+  const displayId = displays.some((entry) => entry.id === display)
+    ? display
+    : undefined;
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(machine.name);
   const [busy, setBusy] = useState(false);
@@ -31,6 +52,32 @@ export function ComputerInspector({
   } | null>(null);
   const [historyError, setHistoryError] = useState("");
   const [historyLoading, setHistoryLoading] = useState(false);
+  const unavailable = machine.revokedAt
+    ? "Access is revoked. Pair this computer again to connect."
+    : stale
+      ? "Status is unavailable. Refresh computers before requesting access."
+      : !machine.online
+        ? "This computer is offline. Check its power, network and Windows agent."
+        : sessionActive
+          ? "End the current session before requesting another connection."
+          : !viewEnabled
+            ? "Desktop access is unavailable on this server."
+            : "";
+  const cannotConnect = Boolean(unavailable) || requesting || busy;
+  const trusted = machine.accessMode === "trusted";
+  // Trusted access is switched on at the computer; from here it can only be switched off.
+  async function lower(body: { mode: "attended" } | { allowControl: false }) {
+    setBusy(true);
+    setError("");
+    try {
+      await api(`machines/${machine.id}/access`, body);
+      await onUpdated();
+    } catch {
+      setError("Could not change this computer’s access.");
+    } finally {
+      setBusy(false);
+    }
+  }
   useEffect(() => {
     if (!historyOpen) return;
     let disposed = false;
@@ -93,7 +140,21 @@ export function ComputerInspector({
       }}
     >
       <div className="inspector-heading">
-        <h2>{machine.name}</h2>
+        <span className="inspector-avatar">
+          <WorkspaceIcon name="computers" />
+        </span>
+        <button
+          className="secondary inspector-edit"
+          aria-label={`Edit ${machine.name}`}
+          title="Edit computer name"
+          disabled={busy || Boolean(machine.revokedAt)}
+          onClick={() => {
+            setName(machine.name);
+            setEditing(true);
+          }}
+        >
+          <WorkspaceIcon name="settings" />
+        </button>
         <button
           className="secondary"
           aria-label="Close computer details"
@@ -102,7 +163,12 @@ export function ComputerInspector({
           ×
         </button>
       </div>
-      <p>
+      <h2 className="inspector-name">{machine.name}</h2>
+      <p className="inspector-machine-id">{machine.id}</p>
+      <p
+        className={`inspector-state${machine.online && !stale && !machine.revokedAt ? " is-online" : ""}`}
+      >
+        <span className="inspector-status-dot" aria-hidden="true" />
         {machine.revokedAt
           ? "Access revoked"
           : stale
@@ -111,6 +177,50 @@ export function ComputerInspector({
               ? "Online"
               : "Offline"}
       </p>
+      {displays.length > 1 && (
+        <label className="inspector-display">
+          Display
+          <select
+            value={displayId ?? ""}
+            onChange={(event) => setDisplay(event.target.value)}
+          >
+            <option value="">Primary display</option>
+            {displays.map((entry, index) => (
+              <option key={entry.id} value={entry.id}>
+                Display {index + 1} · {entry.width}×{entry.height}
+                {entry.primary ? " · Primary" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <div className="inspector-command">
+        <button
+          disabled={cannotConnect || !controlEnabled || !onRequestControl}
+          onClick={() => onRequestControl?.(displayId)}
+          title={
+            !controlEnabled
+              ? "Keyboard and mouse control are unavailable on this server"
+              : trusted && machine.allowControl
+                ? "Connect with keyboard and mouse control, no prompt"
+                : "Request keyboard and mouse control with local approval"
+          }
+        >
+          <WorkspaceIcon name="computers" /> Remote
+        </button>
+        <button
+          className="secondary"
+          disabled={cannotConnect || !onRequestView}
+          onClick={() => onRequestView?.(displayId)}
+        >
+          {requesting ? "Requesting…" : "View only"}
+        </button>
+      </div>
+      {unavailable && (
+        <p className="inspector-availability" role="status">
+          {unavailable}
+        </p>
+      )}
       {editing ? (
         <form
           onSubmit={(event) => {
@@ -139,35 +249,78 @@ export function ComputerInspector({
             </button>
           </div>
         </form>
-      ) : (
-        <button
-          className="secondary"
-          disabled={Boolean(machine.revokedAt)}
-          onClick={() => {
-            setName(machine.name);
-            setEditing(true);
-          }}
-        >
-          Edit name
-        </button>
-      )}
+      ) : null}
       {error && (
         <p className="error" role="alert">
           {error}
         </p>
       )}
-      <dl>
-        <dt>Machine ID</dt>
-        <dd>{machine.id}</dd>
-        <dt>Last seen</dt>
-        <dd>
-          {machine.lastSeenAt
-            ? new Date(machine.lastSeenAt).toLocaleString()
-            : "Not reported"}
-        </dd>
-        <dt>Access</dt>
-        <dd>Attended · View only</dd>
-      </dl>
+      <div className="inspector-detail-group">
+        <h3>Device</h3>
+        <dl>
+          <dt>Access</dt>
+          <dd>
+            {trusted
+              ? machine.allowControl
+                ? "Trusted · View and control"
+                : "Trusted · View only"
+              : controlEnabled
+                ? "Attended · View or control"
+                : "Attended · View only"}
+          </dd>
+          <dt>Approval</dt>
+          <dd>
+            {trusted
+              ? machine.allowControl
+                ? "Not needed"
+                : "Not needed to view · Control asks on Windows"
+              : "Required on Windows"}
+          </dd>
+        </dl>
+        {trusted && !machine.revokedAt ? (
+          <div className="actions">
+            {machine.allowControl && (
+              <button
+                className="secondary"
+                disabled={busy}
+                onClick={() => void lower({ allowControl: false })}
+              >
+                Turn off control
+              </button>
+            )}
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() => void lower({ mode: "attended" })}
+            >
+              Require approval again
+            </button>
+          </div>
+        ) : (
+          !machine.revokedAt && (
+            <p className="note">
+              To connect without approving each time, turn on trusted access in
+              Beacon Remote on that computer.
+            </p>
+          )
+        )}
+      </div>
+      <SupportAccess
+        machineId={machine.id}
+        controlEnabled={controlEnabled}
+        disabled={Boolean(machine.revokedAt)}
+      />
+      <div className="inspector-detail-group">
+        <h3>Last report</h3>
+        <dl>
+          <dt>Last seen</dt>
+          <dd>
+            {machine.lastSeenAt
+              ? new Date(machine.lastSeenAt).toLocaleString()
+              : "Not reported"}
+          </dd>
+        </dl>
+      </div>
       <details
         className="inspector-history"
         onToggle={(event) => setHistoryOpen(event.currentTarget.open)}
@@ -226,8 +379,11 @@ export function ComputerInspector({
         </div>
       </details>
       <p className="note">
-        Desktop viewing requires local approval. Keyboard and mouse control are
-        unavailable.
+        {trusted
+          ? "This computer allows your signed-in account to connect without approval. The person at the computer can stop sharing at any time."
+          : controlEnabled
+            ? "Each connection requires local approval. The person at the computer can stop sharing at any time."
+            : "Desktop viewing requires local approval. Keyboard and mouse control are unavailable."}
       </p>
       {!machine.revokedAt && (
         <div className="inspector-revoke">

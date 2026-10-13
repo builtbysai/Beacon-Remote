@@ -9,6 +9,7 @@ import { AccountPanels } from "./AccountPanels.js";
 import { SessionHistory } from "./SessionHistory.js";
 import { ComputerInspector } from "./ComputerInspector.js";
 import { AssistPanel } from "./AssistPanel.js";
+import { ThemePicker, readTheme, saveTheme } from "./ThemePicker.js";
 import { WorkspaceIcon, workspaceItems } from "./WorkspaceIcon.js";
 import { resolveViewRequest } from "./view-request.js";
 import { readView, forgetView } from "./resume-view.js";
@@ -23,7 +24,7 @@ function App() {
   const viewContext = useRef({ active: false });
   const recoveryAttempted = useRef(false);
   const [page, setPage] = useState(pageFromHash);
-  const [theme, setTheme] = useState("system");
+  const [theme, setTheme] = useState(readTheme);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState<string | null>(null);
@@ -43,6 +44,7 @@ function App() {
     return () => window.removeEventListener("hashchange", change);
   }, []);
   useEffect(() => {
+    saveTheme(theme);
     const preference = window.matchMedia("(prefers-color-scheme: dark)");
     const apply = () => {
       document.documentElement.dataset.theme =
@@ -63,6 +65,7 @@ function App() {
   const [stale, setStale] = useState(false);
   const [clock, setClock] = useState(Date.now());
   const [mediaEnabled, setMediaEnabled] = useState(false);
+  const [controlEnabled, setControlEnabled] = useState(false);
   const [view, setView] = useState<{ grant: ViewGrant; name: string } | null>(
     null,
   );
@@ -112,15 +115,22 @@ function App() {
   useEffect(() => {
     let disposed = false;
     if (signedIn)
-      void api<{ enabled: boolean }>("media/config")
+      void api<{ enabled: boolean; controlEnabled?: boolean }>("media/config")
         .then((data) => {
-          if (!disposed) setMediaEnabled(data.enabled);
+          if (!disposed) {
+            setMediaEnabled(data.enabled);
+            setControlEnabled(data.controlEnabled === true);
+          }
         })
         .catch(() => {
-          if (!disposed) setMediaEnabled(false);
+          if (!disposed) {
+            setMediaEnabled(false);
+            setControlEnabled(false);
+          }
         });
     else {
       setMediaEnabled(false);
+      setControlEnabled(false);
       setView(null);
     }
     return () => {
@@ -128,7 +138,11 @@ function App() {
     };
   }, [signedIn]);
 
-  async function testVideo(machine: Machine) {
+  async function testVideo(
+    machine: Machine,
+    capability: "desktop:view" | "desktop:control" = "desktop:view",
+    displayId?: string,
+  ) {
     const context = viewContext.current;
     if (!context.active) return;
     setBusy(true);
@@ -137,6 +151,8 @@ function App() {
       await resolveViewRequest(
         api<ViewGrant>(`machines/${machine.id}/sessions`, {
           source: "desktop",
+          capability,
+          ...(displayId ? { displayId } : {}),
         }),
         () => context.active,
         (grant) => setView({ grant, name: machine.name }),
@@ -357,18 +373,7 @@ function App() {
               </strong>
             </span>
             <div className="header-end">
-              <label className="theme-label">
-                <span>Appearance</span>
-                <select
-                  aria-label="Appearance"
-                  value={theme}
-                  onChange={(event) => setTheme(event.target.value)}
-                >
-                  <option value="system">System</option>
-                  <option value="light">Light</option>
-                  <option value="dark">Dark</option>
-                </select>
-              </label>
+              <ThemePicker theme={theme} onChange={setTheme} />
             </div>
           </header>
         </>
@@ -387,18 +392,7 @@ function App() {
             <a href="#security">Security</a>
           </nav>
           <div className="header-end">
-            <label className="theme-label public-theme">
-              <span>Appearance</span>
-              <select
-                aria-label="Appearance"
-                value={theme}
-                onChange={(event) => setTheme(event.target.value)}
-              >
-                <option value="system">System</option>
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-              </select>
-            </label>
+            <ThemePicker theme={theme} onChange={setTheme} />
             <a
               className="button secondary"
               href={signedIn ? "#computers" : "#signin"}
@@ -453,7 +447,20 @@ function App() {
         page === "sessions" ? (
           <SessionHistory />
         ) : page === "assist" ? (
-          <AssistPanel />
+          <>
+            <AssistPanel
+              sessionActive={view !== null}
+              onClaimed={(grant, name) => setView({ grant, name })}
+            />
+            {view && (
+              <LiveView
+                key={view.grant.id}
+                grant={view.grant}
+                name={view.name}
+                onClose={() => setView(null)}
+              />
+            )}
+          </>
         ) : page === "settings" || page === "activity" ? (
           <AccountPanels activity={page === "activity"} />
         ) : (
@@ -524,7 +531,6 @@ function App() {
         <section>
           <div className="heading">
             <div>
-              <p className="eyebrow">YOUR WORKSPACE</p>
               <h1>Computers</h1>
               <p className="workspace-summary">
                 {machines.length}{" "}
@@ -639,7 +645,10 @@ function App() {
                 </div>
               )}
               {visibleMachines.map((machine) => (
-                <article key={machine.id} className="device-row">
+                <article
+                  key={machine.id}
+                  className={`device-row${selected === machine.id ? " is-selected" : ""}`}
+                >
                   <Monitor />
                   <button
                     id={`device-${machine.id}`}
@@ -674,7 +683,11 @@ function App() {
                     onClick={() => {
                       void testVideo(machine);
                     }}
-                    title="View only; requires approval on your Windows computer"
+                    title={
+                      machine.accessMode === "trusted"
+                        ? "View only; this computer is set to trusted access"
+                        : "View only; requires approval on your Windows computer"
+                    }
                   >
                     {mediaEnabled ? "View desktop" : "Remote — coming next"}
                   </button>
@@ -686,6 +699,24 @@ function App() {
                 <ComputerInspector
                   key={selected}
                   stale={stale}
+                  viewEnabled={mediaEnabled}
+                  controlEnabled={controlEnabled}
+                  requesting={busy}
+                  sessionActive={view !== null}
+                  onRequestView={(displayId) => {
+                    void testVideo(
+                      machines.find((machine) => machine.id === selected)!,
+                      "desktop:view",
+                      displayId,
+                    );
+                  }}
+                  onRequestControl={(displayId) => {
+                    void testVideo(
+                      machines.find((machine) => machine.id === selected)!,
+                      "desktop:control",
+                      displayId,
+                    );
+                  }}
                   machine={machines.find((machine) => machine.id === selected)!}
                   onClose={() => {
                     setSelected(null);
