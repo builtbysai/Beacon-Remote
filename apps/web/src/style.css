@@ -2287,3 +2287,8 @@ button.danger {
   justify-self: start;
   width: auto;
 }
+
+.viewer-recording {
+  color: var(--red);
+  font-weight: 600;
+}

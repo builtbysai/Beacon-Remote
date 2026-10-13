@@ -224,6 +224,7 @@ try {
             localTrusted: trusted,
             // The real agent adds this from the computer's own "send files" setting.
             localFiles: trusted,
+            localRecording: trusted,
           }),
         );
       }

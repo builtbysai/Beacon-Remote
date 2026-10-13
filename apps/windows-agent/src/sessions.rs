@@ -131,6 +131,12 @@ impl Helpers {
             object.remove("viaRelationship");
             object.insert("localTrusted".into(), Value::Bool(trusted_here));
             object.insert("localFiles".into(), Value::Bool(trusted_here && files_here));
+            // The account's own sessions may be recorded by its owner; helpers need the consent box.
+            let own_session = grant["viaRelationship"].as_bool() != Some(true) && local.trusted;
+            object.insert(
+                "localRecording".into(),
+                Value::Bool(trusted_here && own_session),
+            );
             let bytes = serde_json::to_vec(&payload)?;
             if bytes.len() > 8192 {
                 return Err("Session grant too large".into());

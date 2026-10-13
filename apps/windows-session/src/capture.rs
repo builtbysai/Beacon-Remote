@@ -538,6 +538,7 @@ mod tests {
                     Some(Instant::now() + Duration::from_secs(1)),
                     false,
                     false,
+                    false,
                     "S-0000".into(),
                 )
                 .is_err());

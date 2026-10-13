@@ -49,17 +49,20 @@ pub enum Decision {
 pub struct Access {
     pub decision: Decision,
     pub files: bool,
+    pub recording: bool,
 }
 impl Access {
     const DECLINED: Self = Self {
         decision: Decision::Declined,
         files: false,
+        recording: false,
     };
 }
 
 const VIEW_CARD: i32 = 201;
 const CONTROL_CARD: i32 = 202;
 const FILES_BOX: i32 = 203;
+const RECORD_BOX: i32 = 204;
 const HEADING: i32 = 301;
 const SUBTITLE: i32 = 302;
 const PANEL_TITLE: i32 = 303;
@@ -82,6 +85,7 @@ struct State {
     control_requested: bool,
     control_chosen: bool,
     files_chosen: bool,
+    recording_chosen: bool,
     controller: String,
     session: String,
     hot: i32,
@@ -101,6 +105,7 @@ impl State {
             control_requested: false,
             control_chosen: false,
             files_chosen: false,
+            recording_chosen: false,
             controller: String::new(),
             session: String::new(),
             hot: 0,
@@ -151,8 +156,8 @@ unsafe fn paint(window: HWND, state: &State) {
             &ui::initials(&state.controller),
         );
         // Access panel.
-        canvas.fill(28.0, 178.0, 464.0, 120.0, 10.0, p.subtle);
-        canvas.stroke(28.0, 178.0, 464.0, 120.0, 10.0, p.line, 1.0);
+        canvas.fill(28.0, 178.0, 464.0, 148.0, 10.0, p.subtle);
+        canvas.stroke(28.0, 178.0, 464.0, 148.0, 10.0, p.line, 1.0);
         ui::icon(&canvas, Icon::Eye, 44.0, 222.0, p.accent);
         ui::icon(
             &canvas,
@@ -166,7 +171,7 @@ unsafe fn paint(window: HWND, state: &State) {
             },
         );
         // Divider above the footer.
-        canvas.line(28.0, 460.0, 492.0, 460.0, p.line, 1.0);
+        canvas.line(28.0, 488.0, 492.0, 488.0, p.line, 1.0);
     }
     BitBlt(hdc, 0, 0, w, h, buffer, 0, 0, SRCCOPY);
     SelectObject(buffer, old);
@@ -196,7 +201,7 @@ unsafe fn draw_item(state: &State, item: &DRAWITEMSTRUCT) {
     // The control paints its own background first, so rounded corners meet the window.
     let id = item.CtlID as i32;
     // The check box sits on the access panel, not on the window.
-    let backdrop = if id == FILES_BOX {
+    let backdrop = if id == FILES_BOX || id == RECORD_BOX {
         state.palette.subtle
     } else {
         state.palette.window
@@ -235,6 +240,14 @@ unsafe fn draw_item(state: &State, item: &DRAWITEMSTRUCT) {
                 "Not requested."
             },
             state.control_chosen,
+            flags,
+        ),
+        RECORD_BOX => ui::checkbox(
+            &canvas,
+            p,
+            (w, h),
+            "Also allow the helper to record this session (shown while it records)",
+            state.recording_chosen,
             flags,
         ),
         FILES_BOX => ui::checkbox(
@@ -284,7 +297,10 @@ unsafe fn track_hover(window: HWND, state: &mut State) {
     } else {
         GetDlgCtrlID(over)
     };
-    let hot = if matches!(id, IDYES | IDNO | VIEW_CARD | CONTROL_CARD | FILES_BOX) {
+    let hot = if matches!(
+        id,
+        IDYES | IDNO | VIEW_CARD | CONTROL_CARD | FILES_BOX | RECORD_BOX
+    ) {
         id
     } else {
         0
@@ -350,6 +366,11 @@ unsafe extern "system" fn procedure(
                     }
                     CONTROL_CARD => {
                         choose(window, &mut *state, true);
+                        return 0;
+                    }
+                    RECORD_BOX => {
+                        (*state).recording_chosen = !(*state).recording_chosen;
+                        InvalidateRect(GetDlgItem(window, RECORD_BOX), std::ptr::null(), 0);
                         return 0;
                     }
                     FILES_BOX => {
@@ -492,7 +513,7 @@ pub fn request_access(
                 left: 0,
                 top: 0,
                 right: scale(520),
-                bottom: scale(518),
+                bottom: scale(546),
             };
             if AdjustWindowRectEx(&mut bounds, style, 0, WS_EX_TOPMOST) == 0 {
                 return Err(io::Error::last_os_error().into());
@@ -599,7 +620,7 @@ pub fn request_access(
                         "{lifetime} · Stop sharing anytime, or lock Windows. The request expires without approval and no persistent permission is granted."
                     ),
                     28,
-                    470,
+                    498,
                     464,
                     38,
                     0,
@@ -622,19 +643,20 @@ pub fn request_access(
                             std::ptr::null(),
                         )
                     };
-                let view_card = make_button(VIEW_CARD, "View only", 28, 314, 226, 64, 0);
+                let view_card = make_button(VIEW_CARD, "View only", 28, 342, 226, 64, 0);
                 let control_card = make_button(
                     CONTROL_CARD,
                     "Allow control",
                     266,
-                    314,
+                    342,
                     226,
                     64,
                     if control { 0 } else { WS_DISABLED },
                 );
                 let files_box = make_button(FILES_BOX, "", 44, 264, 440, 26, 0);
-                let decline = make_button(IDNO, "Decline", 248, 398, 104, 40, 0);
-                let allow = make_button(IDYES, "Allow once", 364, 398, 128, 40, 0);
+                let record_box = make_button(RECORD_BOX, "", 44, 292, 440, 26, 0);
+                let decline = make_button(IDNO, "Decline", 248, 426, 104, 40, 0);
+                let allow = make_button(IDYES, "Allow once", 364, 426, 128, 40, 0);
                 let controls = [
                     heading,
                     subtitle,
@@ -648,6 +670,7 @@ pub fn request_access(
                     view_card,
                     control_card,
                     files_box,
+                    record_box,
                     decline,
                     allow,
                 ];
@@ -733,6 +756,7 @@ pub fn request_access(
                 Access {
                     decision: state.allowed,
                     files: state.files_chosen && state.allowed != Decision::Declined,
+                    recording: state.recording_chosen && state.allowed != Decision::Declined,
                 }
             } else {
                 Access::DECLINED

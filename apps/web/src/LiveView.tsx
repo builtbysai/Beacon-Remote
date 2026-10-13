@@ -80,6 +80,47 @@ export function LiveView({
   const touchModeRef = useRef(touchMode);
   touchModeRef.current = touchMode;
   const controlling = grant.capability === "desktop:control";
+  function stopRecording() {
+    const active = recorder.current;
+    recorder.current = null;
+    setRecordingSince(null);
+    if (active && active.state !== "inactive") active.stop();
+    sender.current?.announceRecording(false);
+  }
+  function startRecording() {
+    const stream = video.current?.srcObject;
+    if (!(stream instanceof MediaStream) || recorder.current) return;
+    const type = [
+      "video/webm;codecs=vp9",
+      "video/webm;codecs=vp8",
+      "video/webm",
+      "video/mp4",
+    ].find((candidate) => MediaRecorder.isTypeSupported(candidate));
+    if (!type) {
+      setDisplayError("This browser cannot record the session.");
+      return;
+    }
+    const chunks: Blob[] = [];
+    const active = new MediaRecorder(stream, { mimeType: type });
+    active.ondataavailable = (event) => {
+      if (event.data.size) chunks.push(event.data);
+    };
+    active.onstop = () => {
+      if (!chunks.length) return;
+      const url = URL.createObjectURL(new Blob(chunks, { type }));
+      const link = document.createElement("a");
+      const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+      link.href = url;
+      link.download = `beacon-session-${stamp}.${type.startsWith("video/mp4") ? "mp4" : "webm"}`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    };
+    // The computer is told first, so it never records unannounced.
+    sender.current?.announceRecording(true);
+    active.start(1000);
+    recorder.current = active;
+    setRecordingSince(Date.now());
+  }
   async function sendFiles(list: FileList | File[]) {
     const current = sender.current;
     if (!current || sending.current) return;
@@ -112,6 +153,12 @@ export function LiveView({
   const [fileReady, setFileReady] = useState(false);
   const [transfer, setTransfer] = useState<Transfer | null>(null);
   const [offer, setOffer] = useState<Offer | null>(null);
+  // Recording happens in this browser only, and only when the person at the computer allowed it. The computer is
+  // told when it starts and stops, and its sharing window says so while it lasts.
+  const [recordingAllowed, setRecordingAllowed] = useState(false);
+  const [recordingSince, setRecordingSince] = useState<number | null>(null);
+  const [recordingClock, setRecordingClock] = useState(0);
+  const recorder = useRef<MediaRecorder | null>(null);
   const sending = useRef(false);
   const [roundTripMillis, setRoundTripMillis] = useState<number | null>(null);
   const [lossPct, setLossPct] = useState<number | null>(null);
@@ -160,6 +207,16 @@ export function LiveView({
     }, 15_000);
     return () => clearInterval(timer);
   }, [grant.id, ended]);
+  useEffect(() => {
+    if (recordingSince === null) return;
+    const timer = setInterval(() => setRecordingClock(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [recordingSince]);
+  // A session that ends stops its recording and saves what was captured.
+  useEffect(() => {
+    if (ended) stopRecording();
+    return () => stopRecording();
+  }, [ended]);
   useEffect(() => {
     const sync = () =>
       setIsFullscreen(document.fullscreenElement === shell.current);
@@ -360,6 +417,10 @@ export function LiveView({
           setTransfer,
           setFileReady,
           setOffer,
+          {
+            permissions: (allowed) => setRecordingAllowed(allowed.recording),
+            recordingDenied: () => stopRecording(),
+          },
         );
         return;
       }
@@ -748,6 +809,17 @@ export function LiveView({
           >
             {isFullscreen ? "Exit full screen" : "Full screen"}
           </button>
+          {recordingAllowed && (
+            <button
+              className="viewer-control"
+              title="Record this session in your browser. The person at the computer is told while it records."
+              onClick={() =>
+                recordingSince === null ? startRecording() : stopRecording()
+              }
+            >
+              {recordingSince === null ? "Record" : "Stop recording"}
+            </button>
+          )}
           {fileReady && (
             <>
               <button
@@ -886,6 +958,20 @@ export function LiveView({
         <span role="status" data-decoded-frames={frames}>
           {status}
         </span>
+        {recordingSince !== null && (
+          <span role="status" className="viewer-recording">
+            ● Recording{" "}
+            {(() => {
+              const seconds = Math.max(
+                0,
+                Math.floor(
+                  ((recordingClock || Date.now()) - recordingSince) / 1000,
+                ),
+              );
+              return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+            })()}
+          </span>
+        )}
         {offer && (
           <span role="status" className="viewer-transfer">
             The computer wants to send {offer.name} (

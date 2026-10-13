@@ -283,6 +283,15 @@ impl Outgoing {
     }
 }
 
+/// Whether the helper's viewer says it is recording this session right now (they announce it; the sharing window shows it).
+static RECORDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub fn set_recording(on: bool) {
+    RECORDING.store(on, std::sync::atomic::Ordering::Release);
+}
+pub fn recording() -> bool {
+    RECORDING.load(std::sync::atomic::Ordering::Acquire)
+}
+
 /// Where received files go: `Downloads\Beacon Remote` in the signed-in user's profile.
 pub fn received_folder() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE").map(|profile| {
