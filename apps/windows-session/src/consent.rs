@@ -439,6 +439,7 @@ pub fn request_access(
             hInstance: instance,
             lpszClassName: class.as_ptr(),
             hCursor: LoadCursorW(std::ptr::null_mut(), IDC_ARROW),
+            hIcon: LoadIconW(instance, 1 as _),
             ..Default::default()
         };
         if RegisterClassW(&definition) == 0 {
