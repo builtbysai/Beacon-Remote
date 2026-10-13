@@ -358,11 +358,18 @@ function App() {
   const visibleMachines = (machines ?? []).filter(
     (machine) =>
       machine.name.toLowerCase().includes(search.trim().toLowerCase()) &&
-      (filter === "all" ||
-        (!stale && !machine.revokedAt && machine.online
-          ? "online"
-          : "offline") === filter),
+      // Revoked computers stay out of the everyday list; they have their own filter.
+      (filter === "all"
+        ? !machine.revokedAt
+        : (machine.revokedAt
+            ? "revoked"
+            : !stale && machine.online
+              ? "online"
+              : "offline") === filter),
   );
+  const activeCount = (machines ?? []).filter(
+    (machine) => !machine.revokedAt,
+  ).length;
   const onlineCount = (machines ?? []).filter(
     (machine) => !machine.revokedAt && machine.online,
   ).length;
@@ -640,8 +647,7 @@ function App() {
             <div>
               <h1>Computers</h1>
               <p className="workspace-summary">
-                {machines.length}{" "}
-                {machines.length === 1 ? "computer" : "computers"}
+                {activeCount} {activeCount === 1 ? "computer" : "computers"}
                 {!stale && <> · {onlineCount} online</>}
               </p>
             </div>
@@ -725,6 +731,7 @@ function App() {
                   <option value="all">All computers</option>
                   <option value="online">Online</option>
                   <option value="offline">Offline</option>
+                  <option value="revoked">Revoked</option>
                 </select>
               </div>
               {machines.length === 0 && (

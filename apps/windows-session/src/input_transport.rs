@@ -77,12 +77,19 @@ async fn run(channel: Arc<dyn DataChannel>, authority: &Authority) -> Result<(),
     let mut messages = 0;
     let mut last_message = Instant::now();
     let mut last_clipboard: Option<Instant> = None;
+    // A viewer that goes quiet (a network blip, a phone stalling during a full-screen change) has its
+    // held keys and buttons released at once, but its control continues if it comes back soon.
+    let mut quiet = false;
     loop {
         tokio::select! {
             _ = tick.tick() => {
                 // Before channel opening allow ICE setup; after opening, any loss
                 // of input authority releases held state, without waiting for input.
-                if !authority.session_active.load(Ordering::Acquire) || !authority.peer_active.load(Ordering::Acquire) || authority.deadline.is_some_and(|end| Instant::now() >= end) || (opened && (!authority.live() || last_message.elapsed() >= Duration::from_millis(1500))) { return Ok(()); }
+                if !authority.session_active.load(Ordering::Acquire) || !authority.peer_active.load(Ordering::Acquire) || authority.deadline.is_some_and(|end| Instant::now() >= end) || (opened && (!authority.live() || last_message.elapsed() >= Duration::from_secs(30))) { return Ok(()); }
+                if opened && !quiet && last_message.elapsed() >= Duration::from_millis(1500) {
+                    desktop.release_held();
+                    quiet = true;
+                }
                 if opened {
                     let lifetime = remaining(authority.lease.load(Ordering::Acquire), authority.epoch.elapsed().as_millis() as u64).ok_or(())?;
                     desktop.renew(&authority.session, &authority.session, lifetime, Instant::now()).map_err(|_| ())?;
@@ -102,6 +109,7 @@ async fn run(channel: Arc<dyn DataChannel>, authority: &Authority) -> Result<(),
                     if rate_start.elapsed() >= Duration::from_secs(1) { rate_start = Instant::now(); messages = 0; }
                     messages += 1;
                     last_message = Instant::now();
+                    quiet = false;
                     if messages > 500 { return Err(()); }
                     let body: Envelope = serde_json::from_slice(&message.data).map_err(|_| ())?;
                     if body.version != 1 || body.session_id != authority.session || body.lease_id != authority.session || body.sequence > 9_007_199_254_740_991 || sequence.is_some_and(|last| body.sequence <= last) { return Err(()); }

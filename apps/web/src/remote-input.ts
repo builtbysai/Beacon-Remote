@@ -397,7 +397,7 @@ export function attachRemoteInput(
   // A phone's soft keyboard sends text, not physical key codes. A hidden field takes its input
   // (a toolbar button asks for it with a "beacon-keyboard" event) and types it as text; keys it does
   // identify (Backspace, Enter, arrows) go through the normal key path.
-  let sink: HTMLInputElement | null = null;
+  let sink: HTMLTextAreaElement | null = null;
   const typed = (text: string) => {
     const { steps } = pasteSteps(text);
     pasting.push(...steps);
@@ -405,10 +405,14 @@ export function attachRemoteInput(
   const openKeyboard = () => {
     if (!display) return;
     if (!sink) {
-      sink = document.createElement("input");
+      // A textarea with every helper off, so the phone offers no autofill or suggestions for it.
+      sink = document.createElement("textarea");
       sink.setAttribute("aria-label", "Type to the remote computer");
+      sink.setAttribute("autocorrect", "off");
+      sink.setAttribute("autocomplete", "off");
+      sink.setAttribute("data-lpignore", "true");
+      sink.rows = 1;
       sink.autocapitalize = "off";
-      sink.autocomplete = "off";
       sink.spellcheck = false;
       sink.style.cssText =
         "position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0;border:0;padding:0";
