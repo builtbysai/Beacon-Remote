@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { MfaPanel } from "./MfaPanel.js";
 import { api } from "./api.js";
 
 type BrowserSession = { expiresAt: string; current: boolean };
@@ -294,10 +295,7 @@ export function AccountPanels({ activity }: { activity: boolean }) {
             {busy ? "Ending sessions…" : "End other browser sessions"}
           </button>
         </div>
-        <div className="quiet-panel">
-          <h3>Authenticator and recovery</h3>
-          <p>MFA and password recovery are not available yet.</p>
-        </div>
+        <MfaPanel />
       </>
     </section>
   );

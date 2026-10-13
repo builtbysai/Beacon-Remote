@@ -62,6 +62,7 @@ function App() {
   );
   const [codeCopied, setCodeCopied] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [challenge, setChallenge] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
   const [clock, setClock] = useState(Date.now());
   const [mediaEnabled, setMediaEnabled] = useState(false);
@@ -221,22 +222,19 @@ function App() {
         });
         setInvite(null);
       }
-      await api("login", {
+      const response = await api<{
+        ok?: true;
+        mfaRequired?: true;
+        challenge?: string;
+      }>("login", {
         email: form.get("email"),
         password: form.get("password"),
       });
-      const result = await api<{ machines: Machine[] }>("machines");
-      setMachines(result.machines);
-      setStale(false);
-      window.location.hash = [
-        "computers",
-        "sessions",
-        "assist",
-        "activity",
-        "settings",
-      ].includes(page)
-        ? page
-        : "computers";
+      if (response.mfaRequired && response.challenge) {
+        setChallenge(response.challenge);
+        return;
+      }
+      await finishSignIn();
     } catch (failure) {
       setError(
         failure instanceof ApiError && failure.status === 429
@@ -245,6 +243,37 @@ function App() {
             ? "Account setup failed. Check your details and invitation, then try again."
             : "Sign-in failed. Check your details and try again.",
       );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function finishSignIn() {
+    const result = await api<{ machines: Machine[] }>("machines");
+    setMachines(result.machines);
+    setStale(false);
+    window.location.hash = [
+      "computers",
+      "sessions",
+      "assist",
+      "activity",
+      "settings",
+    ].includes(page)
+      ? page
+      : "computers";
+  }
+
+  async function submitCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const code = String(new FormData(event.currentTarget).get("code") ?? "");
+    setBusy(true);
+    setError("");
+    try {
+      await api("login/mfa", { challenge, code });
+      setChallenge(null);
+      await finishSignIn();
+    } catch {
+      setError("That code did not work. Try again, or use a recovery code.");
     } finally {
       setBusy(false);
     }
@@ -487,44 +516,69 @@ function App() {
               ? "Choose a password with at least 16 characters. Your invitation expires after 30 minutes."
               : "Continue to your Beacon Remote workspace."}
           </p>
-          <form onSubmit={signIn}>
-            <label>
-              Email address
-              <input
-                name="email"
-                type="email"
-                autoComplete="username"
-                required
-              />
-            </label>
-            <label htmlFor="password">Password</label>
-            <span className="password-field">
-              <input
-                id="password"
-                name="password"
-                type={showPassword ? "text" : "password"}
-                autoComplete={invite ? "new-password" : "current-password"}
-                minLength={invite ? 16 : undefined}
-                maxLength={512}
-                required
-              />
+          {challenge ? (
+            <form key="mfa-code" onSubmit={submitCode}>
+              <label>
+                Authenticator or recovery code
+                <input
+                  name="code"
+                  autoComplete="one-time-code"
+                  autoFocus
+                  required
+                />
+              </label>
+              <button disabled={busy}>Verify</button>
               <button
                 type="button"
-                className="password-toggle"
-                aria-label={showPassword ? "Hide password" : "Show password"}
-                aria-pressed={showPassword}
-                onClick={() => setShowPassword(!showPassword)}
+                className="secondary"
+                onClick={() => {
+                  setChallenge(null);
+                  setError("");
+                }}
               >
-                {showPassword ? "Hide" : "Show"}
+                Back
               </button>
-            </span>
-            <button disabled={busy}>
-              {invite ? "Create account" : "Continue"}
-            </button>
-          </form>
+            </form>
+          ) : (
+            <form key="password" onSubmit={signIn}>
+              <label>
+                Email address
+                <input
+                  name="email"
+                  type="email"
+                  autoComplete="username"
+                  required
+                />
+              </label>
+              <label htmlFor="password">Password</label>
+              <span className="password-field">
+                <input
+                  id="password"
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete={invite ? "new-password" : "current-password"}
+                  minLength={invite ? 16 : undefined}
+                  maxLength={512}
+                  required
+                />
+                <button
+                  type="button"
+                  className="password-toggle"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  aria-pressed={showPassword}
+                  onClick={() => setShowPassword(!showPassword)}
+                >
+                  {showPassword ? "Hide" : "Show"}
+                </button>
+              </span>
+              <button disabled={busy}>
+                {invite ? "Create account" : "Continue"}
+              </button>
+            </form>
+          )}
           <p className="note">
             Private alpha. Account creation requires an operator invitation.
-            Password recovery and MFA are not available yet.
+            Password recovery is not available yet.
           </p>
         </section>
       ) : (
