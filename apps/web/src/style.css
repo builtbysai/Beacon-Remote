@@ -2292,3 +2292,7 @@ button.danger {
   color: var(--red);
   font-weight: 600;
 }
+.device-group {
+  color: var(--muted);
+  font-weight: 400;
+}

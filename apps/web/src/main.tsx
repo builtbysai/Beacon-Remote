@@ -53,6 +53,7 @@ function App() {
   const [theme, setTheme] = useState(readTheme);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
+  const [groupFilter, setGroupFilter] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -396,7 +397,10 @@ function App() {
 
   const visibleMachines = (machines ?? []).filter(
     (machine) =>
-      machine.name.toLowerCase().includes(search.trim().toLowerCase()) &&
+      (machine.name + " " + (machine.group ?? ""))
+        .toLowerCase()
+        .includes(search.trim().toLowerCase()) &&
+      (groupFilter === "" || machine.group === groupFilter) &&
       // Revoked computers stay out of the everyday list; they have their own filter.
       (filter === "all"
         ? !machine.revokedAt
@@ -406,6 +410,13 @@ function App() {
               ? "online"
               : "offline") === filter),
   );
+  const groups = [
+    ...new Set(
+      (machines ?? [])
+        .filter((machine) => !machine.revokedAt && machine.group)
+        .map((machine) => machine.group as string),
+    ),
+  ].sort((a, b) => a.localeCompare(b));
   const activeCount = (machines ?? []).filter(
     (machine) => !machine.revokedAt,
   ).length;
@@ -808,6 +819,23 @@ function App() {
                   <option value="offline">Offline</option>
                   <option value="revoked">Revoked</option>
                 </select>
+                {groups.length > 0 && (
+                  <select
+                    aria-label="Computer group"
+                    value={groupFilter}
+                    onChange={(event) => {
+                      setGroupFilter(event.target.value);
+                      setSelected(null);
+                    }}
+                  >
+                    <option value="">All groups</option>
+                    {groups.map((group) => (
+                      <option key={group} value={group}>
+                        {group}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
               {machines.length === 0 && (
                 <div className="inventory-empty">
@@ -827,6 +855,7 @@ function App() {
                     onClick={() => {
                       setSearch("");
                       setFilter("all");
+                      setGroupFilter("");
                     }}
                   >
                     Clear filters
@@ -870,6 +899,12 @@ function App() {
                       aria-expanded={selected === machine.id}
                     >
                       {machine.name}
+                      {machine.group && (
+                        <small className="device-group">
+                          {" "}
+                          · {machine.group}
+                        </small>
+                      )}
                     </button>
                     <span className="device-access">
                       {machine.revokedAt

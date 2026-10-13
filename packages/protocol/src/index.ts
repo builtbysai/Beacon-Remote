@@ -121,6 +121,8 @@ export function accessMessage(
 export interface Machine {
   id: string;
   name: string;
+  // The owner's own label for organising many computers; null when unset.
+  group: string | null;
   online: boolean;
   lastSeenAt: string | null;
   revokedAt: string | null;
