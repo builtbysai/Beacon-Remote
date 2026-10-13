@@ -40,6 +40,7 @@ export function ComputerInspector({
     : undefined;
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(machine.name);
+  const [group, setGroup] = useState(machine.group ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [confirmRevoke, setConfirmRevoke] = useState(false);
@@ -120,7 +121,7 @@ export function ComputerInspector({
     setBusy(true);
     setError("");
     try {
-      await api(`machines/${machine.id}/name`, { name });
+      await api(`machines/${machine.id}/name`, { name, group });
       await onUpdated();
       setEditing(false);
     } catch (failure) {
@@ -152,6 +153,7 @@ export function ComputerInspector({
           disabled={busy || Boolean(machine.revokedAt)}
           onClick={() => {
             setName(machine.name);
+            setGroup(machine.group ?? "");
             setEditing(true);
           }}
         >
@@ -238,6 +240,14 @@ export function ComputerInspector({
             minLength={1}
             maxLength={80}
             autoFocus
+          />
+          <label htmlFor="computer-group">Group (optional)</label>
+          <input
+            id="computer-group"
+            value={group}
+            onChange={(event) => setGroup(event.target.value)}
+            maxLength={40}
+            placeholder="Home, Office, Family…"
           />
           <div className="actions">
             <button disabled={busy}>{busy ? "Saving…" : "Save"}</button>
