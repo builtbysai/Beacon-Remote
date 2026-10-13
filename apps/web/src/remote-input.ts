@@ -1,4 +1,5 @@
 // Browser events become bounded physical-pixel input, only on an approved channel.
+import { pasteSteps, type PasteInput } from "./paste.js";
 import { TouchPad, type TouchAction, type TouchMode } from "./touch-input.js";
 const scans: Record<string, number> = {
   Escape: 0x01,
@@ -129,6 +130,7 @@ export function attachRemoteInput(
   onState: (ready: boolean) => void,
   onFailure: () => void,
   touchMode: () => TouchMode = () => "trackpad",
+  onNotice: (message: string) => void = () => undefined,
 ) {
   let display: { id: string; width: number; height: number } | null = null;
   let sequence = 0,
@@ -161,7 +163,30 @@ export function attachRemoteInput(
     cancelAnimationFrame(frame);
     frame = 0;
   };
+  // Ctrl+V types the viewer's clipboard on the computer, paced under the channel's rate limit.
+  const held = new Set<number>();
+  let pasting: PasteInput[] = [];
+  const pasteTimer = setInterval(() => {
+    const step = pasting.shift();
+    if (step) send(step);
+  }, 25);
+  const paste = async () => {
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      onNotice(
+        "Allow clipboard access in your browser to paste to the computer.",
+      );
+      return;
+    }
+    const { steps, truncated } = pasteSteps(text);
+    if (!steps.length) return;
+    if (truncated) onNotice("Only the first 4,000 characters were pasted.");
+    pasting = steps;
+  };
   const release = () => {
+    pasting = [];
     touchPad?.release();
     fingers.clear();
     pending = null;
@@ -306,6 +331,28 @@ export function attachRemoteInput(
     event.preventDefault();
     event.stopPropagation();
     flush();
+    if (
+      event.type === "keydown" &&
+      event.code === "KeyV" &&
+      (event.ctrlKey || event.metaKey) &&
+      !event.altKey &&
+      !event.shiftKey
+    ) {
+      // Lift held modifiers on the computer first, so the typed text is not read as shortcuts.
+      for (const code of held)
+        send({
+          type: "key",
+          scanCode: code & 0xff,
+          extended: code > 0xff,
+          down: false,
+        });
+      held.clear();
+      void paste();
+      return;
+    }
+    const heldCode = scan | (event.code in extended ? 0x100 : 0);
+    if (event.type === "keydown") held.add(heldCode);
+    else held.delete(heldCode);
     send({
       type: "key",
       scanCode: scan,
@@ -396,6 +443,7 @@ export function attachRemoteInput(
     disposed = true;
     clearInterval(heartbeat);
     clearInterval(longPress);
+    clearInterval(pasteTimer);
     (
       navigator as Navigator & { keyboard?: { unlock?: () => void } }
     ).keyboard?.unlock?.();

@@ -263,6 +263,7 @@ export function LiveView({
         setControlReady,
         () => finish("Control connection ended. Request control again."),
         () => touchModeRef.current,
+        setDisplayError,
       );
     };
     pc.onicecandidate = (event) => {
