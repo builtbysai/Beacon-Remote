@@ -24,6 +24,19 @@ const recovery = new URLSearchParams(window.location.hash.slice(1)).get(
 if (invitation || recovery)
   window.history.replaceState(null, "", window.location.pathname);
 
+function lastSeen(iso: string): string {
+  const minutes = Math.max(
+    0,
+    Math.round((Date.now() - Date.parse(iso)) / 60000),
+  );
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.round(hours / 24);
+  return days === 1 ? "Yesterday" : `${days} days ago`;
+}
+
 function App() {
   const viewContext = useRef({ active: false });
   const recoveryAttempted = useRef(false);
@@ -758,55 +771,81 @@ function App() {
                   </button>
                 </div>
               )}
-              {visibleMachines.map((machine) => (
-                <article
-                  key={machine.id}
-                  className={`device-row${selected === machine.id ? " is-selected" : ""}`}
-                >
-                  <Monitor />
-                  <button
-                    id={`device-${machine.id}`}
-                    className="device-name secondary"
-                    onClick={() =>
-                      setSelected(selected === machine.id ? null : machine.id)
-                    }
-                    aria-expanded={selected === machine.id}
+              {visibleMachines.length > 0 && (
+                <div className="device-head" aria-hidden="true">
+                  <span>Computer</span>
+                  <span>Access</span>
+                  <span>Last seen</span>
+                </div>
+              )}
+              {visibleMachines.map((machine) => {
+                const live = machine.online && !stale && !machine.revokedAt;
+                const canView = mediaEnabled && !busy && live && view === null;
+                return (
+                  <article
+                    key={machine.id}
+                    className={`device-row${selected === machine.id ? " is-selected" : ""}`}
                   >
-                    {machine.name}
-                  </button>
-                  <p
-                    className={machine.online && !stale ? "online" : "offline"}
-                  >
-                    {machine.revokedAt
-                      ? "Access revoked"
-                      : stale
-                        ? "Status unavailable"
-                        : machine.online
-                          ? "● Online"
-                          : "○ Offline"}
-                  </p>
-                  <button
-                    disabled={
-                      !mediaEnabled ||
-                      busy ||
-                      !machine.online ||
-                      stale ||
-                      view !== null ||
-                      Boolean(machine.revokedAt)
-                    }
-                    onClick={() => {
-                      void testVideo(machine);
-                    }}
-                    title={
-                      machine.accessMode === "trusted"
-                        ? "View only; this computer is set to trusted access"
-                        : "View only; requires approval on your Windows computer"
-                    }
-                  >
-                    {mediaEnabled ? "View desktop" : "Remote — coming next"}
-                  </button>
-                </article>
-              ))}
+                    <span
+                      className={`status-dot ${live ? "online" : "offline"}`}
+                      role="img"
+                      aria-label={
+                        machine.revokedAt
+                          ? "Access revoked"
+                          : stale
+                            ? "Status unavailable"
+                            : machine.online
+                              ? "Online"
+                              : "Offline"
+                      }
+                    />
+                    <button
+                      id={`device-${machine.id}`}
+                      className="device-name secondary"
+                      onClick={() =>
+                        setSelected(selected === machine.id ? null : machine.id)
+                      }
+                      aria-expanded={selected === machine.id}
+                    >
+                      {machine.name}
+                    </button>
+                    <span className="device-access">
+                      {machine.revokedAt
+                        ? "Revoked"
+                        : machine.accessMode === "trusted"
+                          ? "Trusted"
+                          : "Ask each time"}
+                    </span>
+                    <span className="device-seen">
+                      {machine.revokedAt
+                        ? "—"
+                        : live
+                          ? "Now"
+                          : machine.lastSeenAt
+                            ? lastSeen(machine.lastSeenAt)
+                            : "Never"}
+                    </span>
+                    {live ? (
+                      <button
+                        className="device-open"
+                        disabled={!canView}
+                        onClick={() => {
+                          void testVideo(machine);
+                        }}
+                        title={
+                          machine.accessMode === "trusted"
+                            ? "View only; this computer is set to trusted access"
+                            : "View only; requires approval on your Windows computer"
+                        }
+                      >
+                        {mediaEnabled ? "View" : "Soon"}
+                      </button>
+                    ) : (
+                      <span />
+                    )}
+                  </article>
+                );
+              })}
             </div>
             {selected &&
               machines.find((machine) => machine.id === selected) && (
