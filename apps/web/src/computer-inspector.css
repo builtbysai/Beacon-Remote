@@ -17,21 +17,8 @@
   gap: 6px;
   margin-bottom: 15px;
 }
-.inspector-avatar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 46px;
-  height: 46px;
-  margin-right: auto;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--inner);
-  color: var(--muted);
-}
-.inspector-avatar .workspace-icon {
-  width: 26px;
-  height: 26px;
+.device-inspector .inspector-heading .inspector-edit {
+  margin-left: auto;
 }
 .device-inspector .inspector-heading button {
   width: 36px;

@@ -2135,3 +2135,59 @@ li {
   color: #fff;
   box-shadow: none;
 }
+
+.sessions-page .workspace-panel + .workspace-panel,
+.sessions-page .workspace-panel + .note {
+  margin-top: 16px;
+}
+.session-table-head,
+.session-table li {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) 90px 110px minmax(150px, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 0 16px;
+}
+.session-table-head {
+  height: 30px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.session-table li {
+  min-height: 40px;
+  padding-block: 0;
+}
+.session-table time {
+  text-align: right;
+}
+.session-table-head span:last-child {
+  text-align: right;
+}
+.session-rows li > .status-dot {
+  flex: none;
+}
+@media (max-width: 650px) {
+  .session-table-head {
+    display: none;
+  }
+  .session-table li {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding-block: 8px;
+    row-gap: 2px;
+  }
+  .session-table li strong {
+    grid-column: 1;
+  }
+  .session-table li time {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .session-table li span {
+    grid-column: 1 / -1;
+    display: inline;
+  }
+}
