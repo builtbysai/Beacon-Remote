@@ -40,6 +40,9 @@ const CODE: usize = 105;
 const AUTOSTART: usize = 120;
 const SUPPORT_VIEW: usize = 130;
 const SUPPORT_CONTROL: usize = 131;
+const HELPERS_OFF: usize = 140;
+const HELPERS_VIEW: usize = 141;
+const HELPERS_CONTROL: usize = 142;
 const ACCESS_ASK: usize = 110;
 const ACCESS_VIEW: usize = 111;
 const ACCESS_CONTROL: usize = 112;
@@ -74,6 +77,8 @@ struct State {
     taskbar_created: u32,
     access: LocalAccess,
     radios: [HWND; 3],
+    helper_radios: [HWND; 3],
+    helpers_job: Option<(JoinHandle<Result<(), HostError>>, u8)>,
     autostart: HWND,
     support: [HWND; 2],
     support_job: Option<JoinHandle<Result<SupportCode, HostError>>>,
@@ -220,6 +225,7 @@ impl State {
         let target = LocalAccess {
             trusted: choice > 0,
             allow_control: choice == 2,
+            helpers: self.access.helpers,
         };
         let raising = choice > access_choice(self.access);
         if raising {
@@ -245,6 +251,49 @@ impl State {
         });
         self.access_job = Some((handle, target));
         self.show_access();
+    }
+    unsafe fn show_helpers(&self) {
+        for (index, &radio) in self.helper_radios.iter().enumerate() {
+            SendMessageW(
+                radio,
+                BM_SETCHECK,
+                usize::from(index == usize::from(self.access.helpers)),
+                0,
+            );
+            EnableWindow(
+                radio,
+                i32::from(self.helpers_job.is_none() && !self.closing),
+            );
+        }
+    }
+    // Remembered helpers skip the Allow only if this computer says so, after a confirmation.
+    unsafe fn choose_helpers(&mut self, window: HWND, level: u8) {
+        if self.helpers_job.is_some() || self.closing || level == self.access.helpers {
+            return;
+        }
+        if level > self.access.helpers {
+            let message = if level == 2 {
+                "Let people you chose to remember (in your workspace, under Support access) view and control this computer without asking each time?\r\n\r\nThe sharing indicator stays visible, you can Stop at any time, and you can turn this off here or from your workspace."
+            } else {
+                "Let people you chose to remember (in your workspace, under Support access) view this computer without asking each time?\r\n\r\nControlling it will still ask. The sharing indicator stays visible and you can Stop at any time."
+            };
+            if MessageBoxW(
+                window,
+                wide(message).as_ptr(),
+                wide("Remembered helpers without asking").as_ptr(),
+                MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2,
+            ) != IDYES
+            {
+                self.show_helpers();
+                return;
+            }
+        }
+        text(self.status, "Updating remembered helpers…");
+        self.helpers_job = Some((
+            thread::spawn(move || beacon_remote_agent::set_helpers(level)),
+            level,
+        ));
+        self.show_helpers();
     }
     unsafe fn ask_support(&mut self, control: bool) {
         if self.support_job.is_some() || self.closing || !self.paired {
@@ -370,6 +419,24 @@ impl State {
             }
         }
         if self
+            .helpers_job
+            .as_ref()
+            .is_some_and(|(job, _)| job.is_finished())
+        {
+            let (job, level) = self.helpers_job.take().unwrap();
+            if matches!(job.join(), Ok(Ok(()))) {
+                self.access.helpers = level;
+                text(self.status, "Remembered helpers updated.");
+            } else {
+                self.access = beacon_remote_agent::local_access();
+                text(
+                    self.status,
+                    "Could not change remembered helpers. Check your network and try again.",
+                );
+            }
+            self.show_helpers();
+        }
+        if self
             .access_job
             .as_ref()
             .is_some_and(|(job, _)| job.is_finished())
@@ -460,6 +527,9 @@ unsafe extern "system" fn procedure(
                 }
                 SUPPORT_VIEW => (*state).ask_support(false),
                 SUPPORT_CONTROL => (*state).ask_support(true),
+                HELPERS_OFF => (*state).choose_helpers(window, 0),
+                HELPERS_VIEW => (*state).choose_helpers(window, 1),
+                HELPERS_CONTROL => (*state).choose_helpers(window, 2),
                 ACCESS_ASK => (*state).choose_access(window, 0),
                 ACCESS_VIEW => (*state).choose_access(window, 1),
                 ACCESS_CONTROL => (*state).choose_access(window, 2),
@@ -598,6 +668,8 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             taskbar_created: RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()),
             access: beacon_remote_agent::local_access(),
             radios: [null_mut(); 3],
+            helper_radios: [null_mut(); 3],
+            helpers_job: None,
             autostart: null_mut(),
             support: [null_mut(); 2],
             support_job: None,
@@ -608,7 +680,7 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             left: 0,
             top: 0,
             right: scale(580),
-            bottom: scale(574),
+            bottom: scale(590),
         };
         AdjustWindowRectEx(&mut bounds, style, 0, 0);
         let window = CreateWindowExW(
@@ -654,7 +726,23 @@ pub fn show(background: bool) -> Result<(), io::Error> {
         let build = (|| -> Result<(), io::Error> {
             let title = child("STATIC", "Beacon Remote", 28, 24, 524, 36, SS_NOPREFIX, 0)?;
             SendMessageW(title, WM_SETFONT, heading_font.0 as usize, 1);
-            child("STATIC", "Windows host", 28, 65, 524, 25, SS_NOPREFIX, 0)?;
+            child(
+                "STATIC",
+                &if state.paired {
+                    format!(
+                        "Windows host · {}",
+                        std::env::var("COMPUTERNAME").unwrap_or_else(|_| "this computer".into())
+                    )
+                } else {
+                    "Windows host".into()
+                },
+                28,
+                65,
+                524,
+                25,
+                SS_NOPREFIX,
+                0,
+            )?;
             state.introduction = child("STATIC", "", 28, 104, 524, 48, SS_NOPREFIX, 0)?;
             // Adjacent creation order lets native accessibility associate each label with its edit.
             state
@@ -718,29 +806,9 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                 .extend([state.server, state.name, state.code]);
             state.paired_details.push(child(
                 "STATIC",
-                "This computer",
-                28,
-                180,
-                524,
-                25,
-                SS_NOPREFIX,
-                0,
-            )?);
-            state.paired_details.push(child(
-                "STATIC",
-                &std::env::var("COMPUTERNAME").unwrap_or_else(|_| "Windows computer".into()),
-                28,
-                212,
-                524,
-                30,
-                SS_NOPREFIX,
-                0,
-            )?);
-            state.paired_details.push(child(
-                "STATIC",
                 "Trusted access",
                 28,
-                262,
+                152,
                 524,
                 25,
                 SS_NOPREFIX,
@@ -761,7 +829,7 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                     "BUTTON",
                     label,
                     28,
-                    292 + 30 * index as i32,
+                    182 + 30 * index as i32,
                     524,
                     26,
                     WS_TABSTOP | BS_AUTORADIOBUTTON as u32 | if index == 0 { WS_GROUP } else { 0 },
@@ -770,11 +838,43 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                 state.radios[index] = radio;
                 state.paired_details.push(radio);
             }
+            state.paired_details.push(child(
+                "STATIC",
+                "Remembered helpers",
+                28,
+                276,
+                524,
+                25,
+                SS_NOPREFIX,
+                0,
+            )?);
+            for (index, (label, id)) in [
+                ("Ask me every time", HELPERS_OFF),
+                ("They can view without asking", HELPERS_VIEW),
+                ("They can view and control without asking", HELPERS_CONTROL),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let radio = child(
+                    "BUTTON",
+                    label,
+                    28,
+                    306 + 30 * index as i32,
+                    524,
+                    26,
+                    WS_TABSTOP | BS_AUTORADIOBUTTON as u32 | if index == 0 { WS_GROUP } else { 0 },
+                    id,
+                )?;
+                state.helper_radios[index] = radio;
+                state.paired_details.push(radio);
+            }
+            state.show_helpers();
             state.autostart = child(
                 "BUTTON",
                 "Start Beacon Remote when I sign in to Windows",
                 28,
-                386,
+                402,
                 524,
                 24,
                 WS_TABSTOP | BS_AUTOCHECKBOX as u32,
@@ -796,7 +896,7 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                     "Not paired · Generate a code in your signed-in workspace."
                 },
                 28,
-                418,
+                434,
                 524,
                 38,
                 SS_NOPREFIX,
@@ -806,13 +906,13 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                 "BUTTON",
                 "Pair computer",
                 28,
-                462,
+                480,
                 172,
                 34,
                 WS_TABSTOP | BS_DEFPUSHBUTTON as u32,
                 ACTION,
             )?;
-            state.stop = child("BUTTON", "Stop host", 216, 462, 156, 34, WS_TABSTOP, STOP)?;
+            state.stop = child("BUTTON", "Stop host", 216, 480, 156, 34, WS_TABSTOP, STOP)?;
             for (index, (label, id, x, width)) in [
                 ("Support code: view only", SUPPORT_VIEW, 28, 250),
                 ("Support code: view and control", SUPPORT_CONTROL, 294, 258),
@@ -820,7 +920,7 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             .into_iter()
             .enumerate()
             {
-                let button = child("BUTTON", label, x, 510, width, 34, WS_TABSTOP, id)?;
+                let button = child("BUTTON", label, x, 528, width, 34, WS_TABSTOP, id)?;
                 state.support[index] = button;
                 state.paired_details.push(button);
             }

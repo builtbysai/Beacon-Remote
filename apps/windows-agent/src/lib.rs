@@ -47,6 +47,10 @@ fn state_path() -> io::Result<PathBuf> {
 pub struct LocalAccess {
     pub trusted: bool,
     pub allow_control: bool,
+    /// How far remembered helpers may go without the local Allow (ADR 0027): 0 off, 1 view,
+    /// 2 view and control. Raised only here, like trusted access.
+    #[serde(default)]
+    pub helpers: u8,
 }
 
 fn access_path() -> io::Result<PathBuf> {
@@ -63,6 +67,7 @@ pub fn local_access() -> LocalAccess {
         Ok(LocalAccess {
             trusted: access.trusted,
             allow_control: access.trusted && access.allow_control,
+            helpers: access.helpers.min(2),
         })
     };
     read().unwrap_or_default()
@@ -170,6 +175,7 @@ pub fn set_access(trusted: bool, allow_control: bool) -> Result<(), HostError> {
     let access = LocalAccess {
         trusted,
         allow_control: trusted && allow_control,
+        helpers: local_access().helpers,
     };
     let current = local_access();
     let raising =
@@ -186,6 +192,59 @@ pub fn set_access(trusted: bool, allow_control: bool) -> Result<(), HostError> {
     Ok(())
 }
 
+fn helpers_name(level: u8) -> &'static str {
+    match level {
+        0 => "off",
+        1 => "view",
+        _ => "control",
+    }
+}
+
+/// Lets remembered helpers connect without the local Allow, up to `level` (0 off, 1 view, 2 control).
+/// Lowering takes effect locally at once; raising needs the server to record it first.
+pub fn set_helpers(level: u8) -> Result<(), HostError> {
+    let level = level.min(2);
+    let current = local_access();
+    let identity = load_identity()?;
+    let client = client()?;
+    let server = validate_server(&identity.server)?;
+    let key = SigningKey::from_bytes(&identity.secret_key);
+    let post = || -> Result<(), HostError> {
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
+        let nonce = uuid::Uuid::new_v4().to_string();
+        let name = helpers_name(level);
+        let message = format!(
+            "beacon-remote:helpers:v1\n{}\n{}\n{}\n{}",
+            identity.machine_id, timestamp, nonce, name
+        );
+        let response = client
+            .post(server.join("/api/agent/helpers")?)
+            .json(&serde_json::json!({
+                "version": 1, "machineId": identity.machine_id, "timestamp": timestamp,
+                "nonce": nonce, "level": name,
+                "signature": STANDARD.encode(key.sign(message.as_bytes()).to_bytes()),
+            }))
+            .send()?;
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            Err("The server did not accept the change".into())
+        }
+    };
+    let next = LocalAccess {
+        helpers: level,
+        ..current
+    };
+    if level > current.helpers {
+        post()?;
+        save_local_access(next)?;
+    } else {
+        save_local_access(next)?;
+        let _ = post();
+    }
+    Ok(())
+}
+
 // The lower of this computer's setting and the server's wins on both sides.
 fn reconcile_access(
     client: &reqwest::blocking::Client,
@@ -197,6 +256,7 @@ fn reconcile_access(
     let target = LocalAccess {
         trusted: local.trusted && server_trusted,
         allow_control: local.allow_control && server_trusted && server_control,
+        helpers: local.helpers,
     };
     if target != local {
         let _ = save_local_access(target);
@@ -401,6 +461,19 @@ pub fn run(cancel: Arc<AtomicBool>, status: SyncSender<HostStatus>) -> Result<()
                     body["access"]["mode"] == "trusted",
                     body["access"]["allowControl"] == true,
                 );
+                // A lowering done from the web wins here too.
+                let server_helpers = match body["access"]["helpers"].as_str() {
+                    Some("control") => 2,
+                    Some("view") => 1,
+                    _ => 0,
+                };
+                let local_now = local_access();
+                if local_now.helpers > server_helpers {
+                    let _ = save_local_access(LocalAccess {
+                        helpers: server_helpers,
+                        ..local_now
+                    });
+                }
                 helpers.update(body, &identity.server, local_access())?;
                 if let Some(id) = request_id {
                     if helpers.handled(&id) {
@@ -505,6 +578,29 @@ pub fn cli() -> Result<(), HostError> {
                 support.code,
                 support.expires_in.as_secs() / 60
             );
+            Ok(())
+        }
+        "helpers" => {
+            let level = match std::env::args().nth(2).as_deref() {
+                Some("view") => Some(1),
+                Some("control") => Some(2),
+                Some("off") => Some(0),
+                _ => None,
+            };
+            match level {
+                Some(level) => {
+                    set_helpers(level)?;
+                    println!(
+                        "Remembered helpers: {}.",
+                        match level {
+                            0 => "every connection needs your Allow",
+                            1 => "they may view without asking",
+                            _ => "they may view and control without asking",
+                        }
+                    );
+                }
+                None => println!("{}", helpers_name(local_access().helpers)),
+            }
             Ok(())
         }
         "forget" => {

@@ -10,7 +10,10 @@ import { test } from "node:test";
 import { Pool } from "pg";
 import { createApp } from "../src/app.js";
 import { applyMigrations } from "../src/migrations.js";
-import { heartbeatMessage } from "../../../packages/protocol/src/index.js";
+import {
+  heartbeatMessage,
+  helpersMessage,
+} from "../../../packages/protocol/src/index.js";
 
 test(
   "a remembered helper is scoped, still approved locally, and ends the moment it is revoked",
@@ -230,6 +233,84 @@ test(
         ).json().shared.length,
         0,
       );
+
+      // The computer can let remembered helpers skip the Allow, and only the computer can.
+      const setHelpers = (
+        level: "off" | "view" | "control",
+        key = keys.privateKey,
+      ) => {
+        const timestamp = Date.now();
+        const nonce = randomUUID();
+        return app.inject({
+          method: "POST",
+          url: "/api/agent/helpers",
+          payload: {
+            version: 1,
+            machineId: machine,
+            timestamp,
+            nonce,
+            level,
+            signature: sign(
+              null,
+              Buffer.from(helpersMessage(machine, timestamp, nonce, level)),
+              key,
+            ).toString("base64"),
+          },
+        });
+      };
+      assert.equal(
+        (await setHelpers("view", generateKeyPairSync("ed25519").privateKey))
+          .statusCode,
+        401,
+      );
+      const viewOnly = (await grant("owner", share)).json().id as string;
+      const asHelper = (id: string, capability = "desktop:view") =>
+        app.inject({
+          method: "POST",
+          url: `/api/relationships/${id}/sessions`,
+          headers: as("helper"),
+          remoteAddress: ip(),
+          payload: { capability },
+        });
+      // Before the computer agrees, the Allow is still required.
+      const asked = await asHelper(viewOnly);
+      assert.equal(asked.json().approval, "local");
+      await pool.query(
+        "UPDATE view_sessions SET status='ended' WHERE machine_id=$1",
+        [machine],
+      );
+      assert.equal((await setHelpers("view")).statusCode, 200);
+      const skipped = await asHelper(viewOnly);
+      assert.equal(skipped.statusCode, 200);
+      assert.equal(skipped.json().approval, "policy");
+      const policySession = (await beat()).sessions.find(
+        (entry) => entry.id === skipped.json().id,
+      )!;
+      assert.equal(policySession.approval, "policy");
+      // Lowering it from the web ends the helper's session at once.
+      await pool.query("UPDATE view_sessions SET status='active' WHERE id=$1", [
+        policySession.id,
+      ]);
+      const lowered = await app.inject({
+        method: "POST",
+        url: `/api/machines/${machine}/access`,
+        headers: as("owner"),
+        payload: { helpers: "off" },
+      });
+      assert.equal(lowered.json().changed, true);
+      const after = (
+        await app.inject({
+          method: "GET",
+          url: "/api/sessions",
+          headers: as("helper"),
+        })
+      ).json().sessions as { id: string; status: string }[];
+      assert.equal(
+        after.find((entry) => entry.id === policySession.id)?.status,
+        "expired",
+      );
+      // A view level never covers control, and a one-time code is never skipped.
+      assert.equal((await setHelpers("view")).statusCode, 200);
 
       // An expired relationship is dead too, and a session that relied on it stops being live.
       const again = await grant("owner", {

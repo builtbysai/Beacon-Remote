@@ -131,7 +131,7 @@ export async function registerSessions(
   // request is under two minutes old, and, for a policy session, the computer's policy still
   // allows what was granted. Sign-in and revocation are re-checked on every lease renewal.
   function liveDuration(alias: string, seconds = 0) {
-    return `(${alias}.expires_at>now()+interval '${seconds} seconds' AND (${alias}.status='active' OR ${alias}.created_at>now()-interval '120 seconds') AND (${alias}.approval='local' OR EXISTS (SELECT 1 FROM machine_access pa WHERE pa.machine_id=${alias}.machine_id AND pa.mode='trusted' AND pa.version=${alias}.policy_version AND (${alias}.capability<>'desktop:control' OR pa.allow_control)))) AND (${alias}.relationship_id IS NULL OR EXISTS (SELECT 1 FROM support_relationships rr WHERE rr.id=${alias}.relationship_id AND rr.revoked_at IS NULL AND rr.expires_at>now()))`;
+    return `(${alias}.expires_at>now()+interval '${seconds} seconds' AND (${alias}.status='active' OR ${alias}.created_at>now()-interval '120 seconds') AND (${alias}.approval='local' OR EXISTS (SELECT 1 FROM machine_access pa WHERE pa.machine_id=${alias}.machine_id AND pa.version=${alias}.policy_version AND CASE WHEN ${alias}.relationship_id IS NULL THEN pa.mode='trusted' AND (${alias}.capability<>'desktop:control' OR pa.allow_control) ELSE pa.helpers_unattended='control' OR (pa.helpers_unattended='view' AND ${alias}.capability='desktop:view') END))) AND (${alias}.relationship_id IS NULL OR EXISTS (SELECT 1 FROM support_relationships rr WHERE rr.id=${alias}.relationship_id AND rr.revoked_at IS NULL AND rr.expires_at>now()))`;
   }
   // Clients are told 0, meaning no fixed expiry: the cap is enforced here and the lease is the clock.
   const expiryMillis = () => 0;
@@ -182,9 +182,10 @@ export async function registerSessions(
     const result = await pool.query(
       `SELECT s.id, m.name AS "machineName", s.source, s.capability,
        CASE WHEN NOT ${liveDuration("s")} AND s.status IN ('requested','connecting','active') THEN 'expired' ELSE s.status END AS status,
-       s.created_at AS "createdAt", s.expires_at AS "expiresAt"
-       FROM view_sessions s JOIN machines m ON m.id=s.machine_id AND m.account_id=s.account_id
-       WHERE s.account_id=$1 AND ($2::uuid IS NULL OR s.machine_id=$2)
+       s.created_at AS "createdAt", s.expires_at AS "expiresAt",
+       CASE WHEN s.account_id<>$1 THEN (SELECT email FROM accounts WHERE id=s.account_id) END AS "controller"
+       FROM view_sessions s JOIN machines m ON m.id=s.machine_id
+       WHERE (s.account_id=$1 OR m.account_id=$1) AND ($2::uuid IS NULL OR s.machine_id=$2)
        ORDER BY s.created_at DESC,s.id LIMIT 100`,
       [account, query.data.machineId ?? null],
     );
@@ -306,16 +307,23 @@ export async function registerSessions(
       mode: string;
       allow_control: boolean;
       version: number;
+      helpers_unattended: string;
     }>(
-      "SELECT mode,allow_control,version FROM machine_access WHERE machine_id=$1",
+      "SELECT mode,allow_control,version,helpers_unattended FROM machine_access WHERE machine_id=$1",
       [input.machineId],
     );
     const policy = access.rows[0];
+    // A one-time support code always needs the local Allow. A remembered helper skips it only when
+    // the computer itself said so, at a level that covers what was asked.
     const byPolicy =
-      !input.support &&
-      policy?.mode === "trusted" &&
       input.source === "desktop" &&
-      (input.capability === "desktop:view" || policy.allow_control);
+      (input.relationshipId
+        ? policy?.helpers_unattended === "control" ||
+          (policy?.helpers_unattended === "view" &&
+            input.capability === "desktop:view")
+        : !input.support &&
+          policy?.mode === "trusted" &&
+          (input.capability === "desktop:view" || policy.allow_control));
     const session: Session = {
       id: randomUUID(),
       account_id: input.account,
@@ -328,7 +336,7 @@ export async function registerSessions(
       created_at: new Date(),
       status: "requested",
       approval: byPolicy ? "policy" : "local",
-      policy_version: byPolicy ? policy.version : null,
+      policy_version: byPolicy ? policy!.version : null,
       display_id: input.displayId,
       relationship_id: input.relationshipId ?? null,
     };
@@ -1214,6 +1222,7 @@ export async function registerSessions(
           expiresAtMillis: expiryMillis(),
           approval: session.approval,
           displayId: session.display_id,
+          viaRelationship: session.relationship_id !== null,
           approvalExpiresAtMillis: session.created_at.getTime() + 120000,
           reconnectSeconds: reconnectSeconds(session),
           iceServers: sessionIce(session),

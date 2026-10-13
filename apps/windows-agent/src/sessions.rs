@@ -118,8 +118,14 @@ impl Helpers {
             object.insert("server".into(), Value::String(server.into()));
             // This computer's own setting: both it and the server must agree before the helper
             // skips the local Allow.
-            let trusted_here = local.trusted
-                && (grant["capability"].as_str() != Some("desktop:control") || local.allow_control);
+            let controlling = grant["capability"].as_str() == Some("desktop:control");
+            // A remembered helper is covered by the helpers setting, not by trusted access.
+            let trusted_here = if grant["viaRelationship"].as_bool() == Some(true) {
+                local.helpers >= if controlling { 2 } else { 1 }
+            } else {
+                local.trusted && (!controlling || local.allow_control)
+            };
+            object.remove("viaRelationship");
             object.insert("localTrusted".into(), Value::Bool(trusted_here));
             let bytes = serde_json::to_vec(&payload)?;
             if bytes.len() > 8192 {

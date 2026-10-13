@@ -25,6 +25,7 @@ try {
       "allow_control",
       "version",
       "updated_at",
+      "helpers_unattended",
     ],
     account_recoveries: [
       "token_hash",

@@ -44,6 +44,12 @@ export function activityLabel(action: string) {
       return "Trusted control turned on";
     case "machine.access.control-off":
       return "Trusted control turned off";
+    case "machine.helpers.off":
+      return "Helpers need approval again";
+    case "machine.helpers.view":
+      return "Remembered helpers may view without asking";
+    case "machine.helpers.control":
+      return "Remembered helpers may control without asking";
     case "support.invitation.created:view":
       return "Support code created (view)";
     case "support.invitation.created:control":

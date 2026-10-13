@@ -19,6 +19,8 @@ import {
   enrollment,
   heartbeat,
   heartbeatMessage,
+  helpersMessage,
+  helpersRequest,
   SUPPORT_CODE_ALPHABET,
   supportMessage,
   supportRequest,
@@ -288,7 +290,7 @@ export async function createApp(pool: Pool, config: Config) {
     const result = await pool.query(
       `SELECT m.id,m.name,m.last_seen_at AS "lastSeenAt",m.revoked_at AS "revokedAt",
        COALESCE((m.revoked_at IS NULL AND m.last_seen_at>now()-interval '45 seconds'),false) AS online,
-       COALESCE(a.mode,'attended') AS "accessMode",COALESCE(a.allow_control,false) AS "allowControl",m.displays
+       COALESCE(a.mode,'attended') AS "accessMode",COALESCE(a.allow_control,false) AS "allowControl",COALESCE(a.helpers_unattended,'off') AS "helpersUnattended",m.displays
        FROM machines m LEFT JOIN machine_access a ON a.machine_id=m.id
        WHERE m.account_id=$1 ORDER BY m.created_at`,
       [account],
@@ -486,12 +488,20 @@ export async function createApp(pool: Pool, config: Config) {
     reply.raw.once("close", disconnect);
     try {
       const wait = query.data.wait === "1" && sessionRequests.enabled;
+      // Wait for a request first, then read the policy, so the answer is current: a long wait must
+      // not hand the computer a policy from before it changed its own setting.
+      const sessions = await sessionRequests.pending(body.machineId, {
+        wait,
+        handled: query.data.handled,
+        signal: aborted.signal,
+      });
       const policy = await pool.query<{
         mode: string;
         allow_control: boolean;
         version: number;
+        helpers_unattended: string;
       }>(
-        "SELECT mode,allow_control,version FROM machine_access WHERE machine_id=$1",
+        "SELECT mode,allow_control,version,helpers_unattended FROM machine_access WHERE machine_id=$1",
         [body.machineId],
       );
       return {
@@ -501,14 +511,11 @@ export async function createApp(pool: Pool, config: Config) {
         access: {
           mode: policy.rows[0]?.mode ?? "attended",
           allowControl: policy.rows[0]?.allow_control ?? false,
+          helpers: policy.rows[0]?.helpers_unattended ?? "off",
           version: policy.rows[0]?.version ?? 0,
         },
         pollAfterMillis: wait ? 0 : 15000,
-        sessions: await sessionRequests.pending(body.machineId, {
-          wait,
-          handled: query.data.handled,
-          signal: aborted.signal,
-        }),
+        sessions,
       };
     } finally {
       reply.raw.removeListener("close", disconnect);
@@ -683,6 +690,79 @@ export async function createApp(pool: Pool, config: Config) {
     },
   );
 
+  // The computer decides whether people the owner remembered may connect without the local Allow.
+  // Like trusted access, it is raised only here, signed with the computer's key (ADR 0027).
+  app.post(
+    "/api/agent/helpers",
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      const parsed = helpersRequest.safeParse(request.body);
+      if (!parsed.success)
+        return reply.code(400).send({ error: "Invalid helpers request" });
+      const body = parsed.data;
+      if (Math.abs(Date.now() - body.timestamp) > 30_000)
+        return reply.code(401).send({ error: "Helpers request rejected" });
+      if (
+        !(await signedByMachine(
+          body.machineId,
+          helpersMessage(
+            body.machineId,
+            body.timestamp,
+            body.nonce,
+            body.level,
+          ),
+          body.signature,
+        ))
+      )
+        return reply.code(401).send({ error: "Helpers request rejected" });
+      if (body.level === "control" && config.CONTROL_ENABLED !== "true")
+        return reply.code(403).send({ error: "Control unavailable" });
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const machine = await client.query<{ account_id: string }>(
+          "SELECT account_id FROM machines WHERE id=$1 AND revoked_at IS NULL FOR UPDATE",
+          [body.machineId],
+        );
+        if (!machine.rowCount) {
+          await client.query("ROLLBACK");
+          return reply.code(401).send({ error: "Helpers request rejected" });
+        }
+        const nonce = await client.query(
+          "INSERT INTO heartbeat_nonces(machine_id,nonce) VALUES ($1,$2) ON CONFLICT DO NOTHING RETURNING nonce",
+          [body.machineId, body.nonce],
+        );
+        if (!nonce.rowCount) {
+          await client.query("ROLLBACK");
+          return reply.code(409).send({ error: "Helpers request rejected" });
+        }
+        const saved = await client.query<{ version: number }>(
+          `INSERT INTO machine_access(machine_id,helpers_unattended) VALUES ($1,$2)
+           ON CONFLICT (machine_id) DO UPDATE SET helpers_unattended=$2,updated_at=now(),
+             version=CASE WHEN machine_access.helpers_unattended=$2
+               THEN machine_access.version ELSE machine_access.version+1 END
+           RETURNING version`,
+          [body.machineId, body.level],
+        );
+        await client.query(
+          "INSERT INTO audit_events(account_id,machine_id,action) VALUES ($1,$2,$3)",
+          [
+            machine.rows[0]!.account_id,
+            body.machineId,
+            `machine.helpers.${body.level}`,
+          ],
+        );
+        await client.query("COMMIT");
+        return { ok: true, level: body.level, version: saved.rows[0]!.version };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+  );
+
   // The signed-in owner can always lower a computer's access. Raising it needs the computer.
   app.post("/api/machines/:id/access", async (request, reply) => {
     if (!sameOrigin(request))
@@ -694,10 +774,27 @@ export async function createApp(pool: Pool, config: Config) {
       .union([
         z.object({ mode: z.literal("attended") }).strict(),
         z.object({ allowControl: z.literal(false) }).strict(),
+        z.object({ helpers: z.enum(["off", "view"]) }).strict(),
       ])
       .safeParse(request.body);
     if (!path.success || !body.success)
       return reply.code(400).send({ error: "Invalid access change" });
+    if ("helpers" in body.data) {
+      // Lowering how much remembered helpers may do without asking; a session that relied on the
+      // old level ends with the version bump.
+      const to = body.data.helpers;
+      const lowered = await pool.query(
+        `WITH lowered AS (
+           UPDATE machine_access a SET helpers_unattended=$3,updated_at=now(),version=a.version+1
+           FROM machines m WHERE a.machine_id=m.id AND m.id=$1 AND m.account_id=$2 AND m.revoked_at IS NULL
+             AND ((a.helpers_unattended='control') OR (a.helpers_unattended='view' AND $3='off'))
+           RETURNING m.id)
+         INSERT INTO audit_events(account_id,machine_id,action)
+         SELECT $2,id,'machine.helpers.'||$3 FROM lowered RETURNING machine_id`,
+        [path.data.id, account, to],
+      );
+      return { ok: true, changed: (lowered.rowCount ?? 0) > 0 };
+    }
     const attended = "mode" in body.data;
     const result = await pool.query(
       `WITH lowered AS (

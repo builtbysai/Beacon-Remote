@@ -6,6 +6,7 @@
 // Build first: cargo build --release
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
+import { openSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Pool } from "pg";
@@ -128,7 +129,14 @@ try {
   agent = spawn(bin("beacon-remote-agent"), ["run"], {
     env,
     windowsHide: true,
-    stdio: "ignore",
+    // E2E_AGENT_LOG=<file> keeps the agent's and helper's output for debugging a failure.
+    stdio: process.env.E2E_AGENT_LOG
+      ? [
+          "ignore",
+          openSync(process.env.E2E_AGENT_LOG, "w"),
+          openSync(process.env.E2E_AGENT_LOG, "a"),
+        ]
+      : "ignore",
   });
   for (let waited = 0; waited < 15_000; waited += 250) {
     const seen = await pool.query(
@@ -314,6 +322,80 @@ try {
     url: `/api/sessions/${claimed.json().id}/stop`,
     headers: helperHeaders,
   });
+
+  // A remembered helper skips the Allow only when this computer says so, and lowering ends it.
+  const shared = await app.inject({
+    method: "POST",
+    url: `/api/machines/${machineId}/relationships`,
+    headers,
+    payload: { email: helperEmail, capability: "desktop:view", days: 1 },
+  });
+  check(shared.statusCode === 200, "the owner remembers the helper");
+  const asked = await app.inject({
+    method: "POST",
+    url: `/api/relationships/${shared.json().id}/sessions`,
+    headers: helperHeaders,
+    payload: {},
+  });
+  check(
+    asked.json().approval === "local",
+    "before the computer agrees, the Allow is still needed",
+  );
+  await app.inject({
+    method: "POST",
+    url: `/api/sessions/${asked.json().id}/stop`,
+    headers: helperHeaders,
+  });
+  await run("beacon-remote-agent", ["helpers", "view"]);
+  pass("the computer lets remembered helpers view without asking");
+  const unattended = await app.inject({
+    method: "POST",
+    url: `/api/relationships/${shared.json().id}/sessions`,
+    headers: helperHeaders,
+    payload: {},
+  });
+  check(
+    unattended.json().approval === "policy",
+    "the server approves the helper by the computer's policy",
+  );
+  const helperSocket = new WebSocket(
+    `ws://127.0.0.1:${port}/api/sessions/${unattended.json().id}/signal?role=viewer`,
+    { headers: helperHeaders },
+  );
+  sockets.push(helperSocket);
+  const helperSeen: { type: string }[] = [];
+  helperSocket.on("message", (data) =>
+    helperSeen.push(JSON.parse(data.toString())),
+  );
+  check(
+    await waitFor(helperSeen, "consent", 25_000),
+    "the helper connects with no one clicking Allow",
+  );
+  check(
+    await waitFor(helperSeen, "offer", 25_000),
+    "and the helper receives the media offer",
+  );
+  await app.inject({
+    method: "POST",
+    url: `/api/machines/${machineId}/access`,
+    headers,
+    payload: { helpers: "off" },
+  });
+  let helperEnded = false;
+  for (let waited = 0; waited < 15_000 && !helperEnded; waited += 250) {
+    helperEnded =
+      helperSocket.readyState === WebSocket.CLOSED ||
+      (
+        await pool.query("SELECT status FROM view_sessions WHERE id=$1", [
+          unattended.json().id,
+        ])
+      ).rows[0].status !== "active";
+    if (!helperEnded) await sleep(250);
+  }
+  check(
+    helperEnded,
+    "lowering remembered helpers ends the helper's session within seconds",
+  );
   console.log("Trusted access end to end: all checks passed.");
 } finally {
   for (const socket of sockets) socket.terminate();
