@@ -33,6 +33,7 @@ type Error = Box<dyn std::error::Error + Send + Sync>;
 const STOP_ID: i32 = 1001;
 const STATUS_ID: i32 = 1002;
 const PAUSE_ID: i32 = 1003;
+const SEND_ID: i32 = 1004;
 const HEADING_ID: i32 = 1010;
 const NAME_ID: i32 = 1011;
 const SESSION_ID: i32 = 1012;
@@ -218,6 +219,15 @@ unsafe fn draw_item(state: &WindowState, item: &DRAWITEMSTRUCT) {
             Role::Secondary,
             flags,
         );
+    } else if id == SEND_ID {
+        ui::button(
+            &canvas,
+            &state.palette,
+            (w, h),
+            "Send a file…",
+            Role::Secondary,
+            flags,
+        );
     } else {
         ui::button(
             &canvas,
@@ -230,6 +240,31 @@ unsafe fn draw_item(state: &WindowState, item: &DRAWITEMSTRUCT) {
     }
 }
 
+/// The standard Windows open dialog, owned by the sharing window. The person at this computer picks the file;
+/// nothing is sent until the helper accepts it.
+unsafe fn choose_file(window: HWND) -> Option<std::path::PathBuf> {
+    use windows_sys::Win32::UI::Controls::Dialogs::{
+        GetOpenFileNameW, OFN_EXPLORER, OFN_FILEMUSTEXIST, OFN_HIDEREADONLY, OFN_PATHMUSTEXIST,
+        OPENFILENAMEW,
+    };
+    let mut buffer = vec![0u16; 32768];
+    let title = wide("Choose a file to send to the helper");
+    let mut dialog: OPENFILENAMEW = std::mem::zeroed();
+    dialog.lStructSize = std::mem::size_of::<OPENFILENAMEW>() as u32;
+    dialog.hwndOwner = window;
+    dialog.lpstrFile = buffer.as_mut_ptr();
+    dialog.nMaxFile = buffer.len() as u32;
+    dialog.lpstrTitle = title.as_ptr();
+    dialog.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY;
+    if GetOpenFileNameW(&mut dialog) == 0 {
+        return None;
+    }
+    let length = buffer.iter().position(|unit| *unit == 0)?;
+    Some(std::path::PathBuf::from(String::from_utf16_lossy(
+        &buffer[..length],
+    )))
+}
+
 unsafe fn track_hover(window: HWND, state: &WindowState) {
     let mut point = POINT::default();
     GetCursorPos(&mut point);
@@ -240,13 +275,13 @@ unsafe fn track_hover(window: HWND, state: &WindowState) {
     } else {
         GetDlgCtrlID(over)
     };
-    let hot = if matches!(id, STOP_ID | PAUSE_ID) {
+    let hot = if matches!(id, STOP_ID | PAUSE_ID | SEND_ID) {
         (id - 1000) as u8
     } else {
         0
     };
     if state.hot.swap(hot, Ordering::AcqRel) != hot {
-        for button in [STOP_ID, PAUSE_ID] {
+        for button in [STOP_ID, PAUSE_ID, SEND_ID] {
             InvalidateRect(GetDlgItem(window, button), std::ptr::null(), 0);
         }
     }
@@ -294,6 +329,16 @@ unsafe extern "system" fn procedure(
             }
             _ => {}
         }
+    }
+    if message == WM_COMMAND
+        && wparam >> 16 == BN_CLICKED as usize
+        && (wparam & 0xffff) as i32 == SEND_ID
+        && !state.is_null()
+    {
+        if let Some(path) = choose_file(window) {
+            crate::files::request_send(path);
+        }
+        return 0;
     }
     if message == WM_COMMAND
         && wparam >> 16 == BN_CLICKED as usize
@@ -627,6 +672,12 @@ impl Indicator {
                         )
                     };
                     let pause = make_button(PAUSE_ID, "Pause sharing", 236, 140);
+                    // Offering a file to the helper is only there when file transfer was allowed.
+                    let send_file = if state.files {
+                        make_button(SEND_ID, "Send a file…", 28, 196)
+                    } else {
+                        std::ptr::null_mut()
+                    };
                     let stop = make_button(
                         STOP_ID,
                         if desktop {
@@ -652,6 +703,7 @@ impl Indicator {
                         stop,
                     ];
                     if controls.iter().any(|handle| handle.is_null())
+                        || (state.files && send_file.is_null())
                         || SetTimer(window, 1, 100, None) == 0
                     {
                         DestroyWindow(window);

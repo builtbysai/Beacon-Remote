@@ -734,5 +734,14 @@
     "pair": "settings",
     "role": "after",
     "source": "mcp-Claude_Browser-blob-1791907607274-fitypn.jpg"
+  },
+  {
+    "file": "windows-host/sharing/2026-10-13-1629-sharing-send-a-file.png",
+    "when": "2026-10-13 16:29 UTC",
+    "size": "802x710",
+    "platform": "windows-host",
+    "screen": "sharing",
+    "purpose": "Sharing window with the new 'Send a file…' button (shown when file transfer is allowed) after a file was offered to the helper",
+    "source": "sharing-send-file.png"
   }
 ]

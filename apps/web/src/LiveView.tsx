@@ -1,4 +1,4 @@
-import { FileSender, type Transfer } from "./file-transfer.js";
+import { FileSender, type Offer, type Transfer } from "./file-transfer.js";
 import { useEffect, useRef, useState } from "react";
 import { playForSession } from "./playback.js";
 import { viewDeadline } from "./deadline.js";
@@ -22,6 +22,30 @@ export type ViewGrant = {
   iceServers: RTCIceServer[];
   iceTransportPolicy: RTCIceTransportPolicy;
 };
+
+function transferLine(transfer: Transfer): string {
+  const percent = transfer.size
+    ? Math.floor((transfer.sent / transfer.size) * 100)
+    : 0;
+  if (transfer.incoming) {
+    if (transfer.status === "receiving")
+      return `Receiving ${transfer.name} · ${percent}%`;
+    if (transfer.status === "done") return `Received ${transfer.name}`;
+    if (transfer.status === "cancelled")
+      return `Cancelled ${transfer.name}${transfer.note ? `. ${transfer.note}` : ""}`;
+    return `Could not receive ${transfer.name}. ${transfer.note ?? ""}`;
+  }
+  if (transfer.status === "sending" || transfer.status === "waiting")
+    return `Sending ${transfer.name} · ${percent}%`;
+  if (transfer.status === "done")
+    return `Sent ${transfer.name}${
+      transfer.note && transfer.note !== transfer.name
+        ? ` (saved as ${transfer.note})`
+        : ""
+    }`;
+  if (transfer.status === "cancelled") return `Cancelled ${transfer.name}`;
+  return `Could not send ${transfer.name}. ${transfer.note ?? ""}`;
+}
 
 export function LiveView({
   grant,
@@ -87,6 +111,7 @@ export function LiveView({
   const fileInput = useRef<HTMLInputElement>(null);
   const [fileReady, setFileReady] = useState(false);
   const [transfer, setTransfer] = useState<Transfer | null>(null);
+  const [offer, setOffer] = useState<Offer | null>(null);
   const sending = useRef(false);
   const [roundTripMillis, setRoundTripMillis] = useState<number | null>(null);
   const [lossPct, setLossPct] = useState<number | null>(null);
@@ -334,6 +359,7 @@ export function LiveView({
           event.channel,
           setTransfer,
           setFileReady,
+          setOffer,
         );
         return;
       }
@@ -860,25 +886,31 @@ export function LiveView({
         <span role="status" data-decoded-frames={frames}>
           {status}
         </span>
+        {offer && (
+          <span role="status" className="viewer-transfer">
+            The computer wants to send {offer.name} (
+            {(offer.size / 1_048_576).toFixed(offer.size < 10_485_760 ? 1 : 0)}{" "}
+            MB).{" "}
+            <button
+              className="viewer-control"
+              onClick={() => sender.current?.accept(offer)}
+            >
+              Save
+            </button>{" "}
+            <button
+              className="viewer-control"
+              onClick={() => sender.current?.decline(offer)}
+            >
+              Decline
+            </button>
+          </span>
+        )}
         {transfer && (
           <span role="status" className="viewer-transfer">
-            {transfer.status === "sending" || transfer.status === "waiting"
-              ? `Sending ${transfer.name} · ${
-                  transfer.size
-                    ? Math.floor((transfer.sent / transfer.size) * 100)
-                    : 0
-                }%`
-              : transfer.status === "done"
-                ? `Sent ${transfer.name}${
-                    transfer.note && transfer.note !== transfer.name
-                      ? ` (saved as ${transfer.note})`
-                      : ""
-                  }`
-                : transfer.status === "cancelled"
-                  ? `Cancelled ${transfer.name}`
-                  : `Could not send ${transfer.name}. ${transfer.note ?? ""}`}
+            {transferLine(transfer)}
             {(transfer.status === "sending" ||
-              transfer.status === "waiting") && (
+              transfer.status === "waiting" ||
+              transfer.status === "receiving") && (
               <>
                 {" "}
                 <button
