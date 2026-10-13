@@ -27,6 +27,7 @@ import {
 } from "../../../packages/protocol/src/index.js";
 import type { Config } from "./config.js";
 import { registerSessions } from "./sessions.js";
+import { registerAccountData } from "./account-data.js";
 import { registerMfa } from "./mfa.js";
 
 // A support code is typed by hand, so it is short-lived and single-use.
@@ -137,6 +138,9 @@ export async function createApp(pool: Pool, config: Config) {
     sameOrigin,
     startSession,
     setSessionCookie,
+  );
+  registerAccountData(app, pool, owner, sameOrigin, mfa, (reply) =>
+    reply.clearCookie("remote_session", { path: "/" }),
   );
   const sessionRequests = await registerSessions(app, pool, config, owner);
 

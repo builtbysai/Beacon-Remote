@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { DataPanel } from "./DataPanel.js";
 import { MfaPanel } from "./MfaPanel.js";
 import { api } from "./api.js";
 
@@ -302,6 +303,7 @@ export function AccountPanels({ activity }: { activity: boolean }) {
           </button>
         </div>
         <MfaPanel />
+        <DataPanel />
       </>
     </section>
   );

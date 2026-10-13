@@ -322,5 +322,5 @@ export function registerMfa(
     return { ok: true };
   });
 
-  return { enabled, challengeFor, available: Boolean(key) };
+  return { enabled, check, challengeFor, available: Boolean(key) };
 }
