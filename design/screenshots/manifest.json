@@ -645,5 +645,27 @@
     "screen": "computers",
     "purpose": "Computers list after redesign at 375 px: Access column drops, name, last seen and action remain",
     "source": "mcp-Claude_Browser-blob-1791871687994-bse5dg.jpg"
+  },
+  {
+    "file": "design-review/sessions/2026-10-13-1424-sessions-empty-before.jpg",
+    "when": "2026-10-13 14:24 UTC",
+    "size": "800x600",
+    "platform": "design-review",
+    "screen": "sessions",
+    "purpose": "Sessions before redesign: two empty bordered panels with counts and a redundant caption",
+    "pair": "sessions",
+    "role": "before",
+    "source": "mcp-Claude_Browser-blob-1791901458317-wkysex.jpg"
+  },
+  {
+    "file": "design-review/sessions/2026-10-13-1425-sessions-history-after.jpg",
+    "when": "2026-10-13 14:25 UTC",
+    "size": "800x600",
+    "platform": "design-review",
+    "screen": "sessions",
+    "purpose": "Sessions after redesign: one table (computer, access, result, when); Active block appears only while a session runs",
+    "pair": "sessions",
+    "role": "after",
+    "source": "mcp-Claude_Browser-blob-1791901519535-e9jldw.jpg"
   }
 ]
