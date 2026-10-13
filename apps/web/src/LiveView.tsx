@@ -80,6 +80,24 @@ export function LiveView({
     document.addEventListener("fullscreenchange", sync);
     return () => document.removeEventListener("fullscreenchange", sync);
   }, []);
+  // On a phone, full screen means landscape with the picture filling the screen and the toolbar
+  // folded into one button. Browsers that cannot lock orientation just stay as they are.
+  const touchDevice =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(pointer: coarse)").matches;
+  const compact = isFullscreen && touchDevice;
+  const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => {
+    if (!compact) {
+      setMenuOpen(false);
+      return;
+    }
+    const orientation = screen.orientation as ScreenOrientation & {
+      lock?: (mode: string) => Promise<void>;
+    };
+    void orientation.lock?.("landscape").catch(() => undefined);
+    return () => orientation.unlock?.();
+  }, [compact]);
   useEffect(() => {
     const startedAt = performance.now();
     const expired = viewDeadline(
@@ -526,7 +544,7 @@ export function LiveView({
       className="live-view"
       aria-label={`${name} remote viewer`}
     >
-      <header className="viewer-toolbar">
+      <header className={`viewer-toolbar${compact ? " compact" : ""}`}>
         <div className="viewer-identity">
           <strong>{name}</strong>
           <span>
@@ -538,7 +556,16 @@ export function LiveView({
             {grant.expiresAtMillis === 0 ? " · Until stopped" : ""}
           </span>
         </div>
-        <div className="viewer-actions">
+        {compact && (
+          <button
+            className="viewer-control viewer-menu"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            {menuOpen ? "Hide" : "Menu"}
+          </button>
+        )}
+        <div className="viewer-actions" hidden={compact && !menuOpen}>
           <label className="viewer-scale">
             Scale
             <select

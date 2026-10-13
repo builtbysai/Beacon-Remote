@@ -2055,3 +2055,24 @@ li {
   border-radius: 6px;
   user-select: all;
 }
+
+/* Phone full screen: one slim bar, with the controls behind a Menu button. */
+.live-view .viewer-toolbar.compact {
+  min-height: 0;
+  flex-wrap: wrap;
+  padding: 4px 10px;
+}
+.viewer-toolbar.compact .viewer-identity span {
+  display: none;
+}
+.viewer-toolbar.compact .viewer-identity {
+  width: auto;
+  flex: 1;
+}
+.viewer-toolbar.compact .viewer-actions {
+  width: 100%;
+  flex-wrap: wrap;
+}
+.viewer-toolbar.compact .viewer-actions[hidden] {
+  display: none;
+}
