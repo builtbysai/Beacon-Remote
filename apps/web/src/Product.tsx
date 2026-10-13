@@ -319,6 +319,8 @@ type Release = {
   bytes: number;
   sha256: string;
   publishedAt: string;
+  // The double-click installer, when one was published with this build.
+  installer?: { file: string; bytes: number; sha256: string };
 };
 
 // The published build is described by /downloads/manifest.json, written when a build is published.
@@ -338,7 +340,23 @@ function useRelease(): Release | null | undefined {
           /^[a-f0-9]{64}$/.test(body.sha256) &&
           typeof body.version === "string" &&
           typeof body.bytes === "number";
-        if (live) setRelease(ok ? (body as Release) : null);
+        const installer = body?.installer;
+        const installerOk =
+          installer &&
+          typeof installer.file === "string" &&
+          /^BeaconRemoteSetup-[a-f0-9]{8,40}\.exe$/.test(installer.file) &&
+          typeof installer.sha256 === "string" &&
+          /^[a-f0-9]{64}$/.test(installer.sha256) &&
+          typeof installer.bytes === "number";
+        if (live)
+          setRelease(
+            ok
+              ? ({
+                  ...body,
+                  installer: installerOk ? installer : undefined,
+                } as Release)
+              : null,
+          );
       })
       .catch(() => live && setRelease(null));
     return () => {
@@ -350,6 +368,7 @@ function useRelease(): Release | null | undefined {
 
 function DownloadsPage({ workspace }: { workspace: string }) {
   const release = useRelease();
+  const installer = release?.installer;
   return (
     <section className="public-section">
       <p className="eyebrow">SETUP</p>
@@ -363,22 +382,24 @@ function DownloadsPage({ workspace }: { workspace: string }) {
             <>
               <p>
                 Version {release.version} · Windows x64 ·{" "}
-                {(release.bytes / 1_048_576).toFixed(1)} MB
+                {((installer?.bytes ?? release.bytes) / 1_048_576).toFixed(1)}{" "}
+                MB
               </p>
               <p>
-                This is an unsigned build for your own computers. Windows may
-                warn about it, and there are no automatic updates yet. Check the
-                SHA-256 below matches the file you downloaded.
+                Installs for your Windows account only, with no administrator
+                rights, and updates itself. This build is not signed yet, so
+                Windows may warn before it opens; choose More info, then Run
+                anyway, and check the SHA-256 below matches.
               </p>
               <a
                 className="button"
-                href={`/downloads/${release.file}`}
+                href={`/downloads/${installer?.file ?? release.file}`}
                 download
               >
-                Download for Windows
+                {installer ? "Download installer" : "Download for Windows"}
               </a>
               <p className="note">
-                SHA-256 <code>{release.sha256}</code>
+                SHA-256 <code>{installer?.sha256 ?? release.sha256}</code>
               </p>
             </>
           ) : (
@@ -397,19 +418,23 @@ function DownloadsPage({ workspace }: { workspace: string }) {
       <h2>Set up a computer</h2>
       <ol>
         <li>
-          Extract the download, then run Install.ps1 with PowerShell. It
-          installs for your user only and asks for no administrator rights.
+          {installer
+            ? "Open the installer. It adds Beacon Remote to the Start menu and starts it when you sign in."
+            : "Extract the download, then run Install.ps1 with PowerShell. It installs for your user only."}
         </li>
         <li>
-          Open Beacon Remote Development from the Start menu, then choose Host.
+          In your workspace choose Add a computer, then enter the server
+          address, a name and the one-use code in the Beacon Remote window
+          within five minutes.
         </li>
         <li>
-          In your workspace choose Add a computer, and enter the server address,
-          a name and the one-use code in the host window within five minutes.
+          In the Beacon Remote window decide whether your own account may
+          connect without asking. Nothing is shared until you allow it, and you
+          can stop or pause at any time.
         </li>
         <li>
-          Choose Start host. In the host window you can turn on start at sign-in
-          and decide whether your own account may connect without asking.
+          To remove it, use Apps and features in Windows settings. That also
+          deletes the sign-in saved on the computer.
         </li>
       </ol>
       <a className="button" href={workspace}>
