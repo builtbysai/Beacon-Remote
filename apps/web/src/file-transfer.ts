@@ -173,6 +173,10 @@ export class FileSender {
     private readonly changed: (transfer: Transfer | null) => void,
     private readonly readyChanged: (ready: boolean) => void,
     private readonly offered: (offer: Offer | null) => void = () => undefined,
+    private readonly extras: {
+      permissions?: (allowed: { files: boolean; recording: boolean }) => void;
+      recordingDenied?: () => void;
+    } = {},
   ) {
     channel.binaryType = "arraybuffer";
     channel.bufferedAmountLowThreshold = 1024 * 1024;
@@ -190,7 +194,15 @@ export class FileSender {
       if (message.t === "ready") {
         this.ready = true;
         this.maxFile = Number(message.maxFile) || 0;
-        this.readyChanged(true);
+        // Hosts that predate recording only open this channel for files.
+        const files = message.files !== false;
+        this.readyChanged(files);
+        this.extras.permissions?.({
+          files,
+          recording: message.recording === true,
+        });
+      } else if (message.t === "recording") {
+        if (message.denied === true) this.extras.recordingDenied?.();
       } else if (message.t === "send") {
         const id = Number(message.id);
         const name = typeof message.name === "string" ? message.name : "";
@@ -233,6 +245,12 @@ export class FileSender {
       );
       this.stopReceive("cancelled");
     }
+  }
+
+  /** Tells the computer that this viewer started or stopped recording, so its sharing window can say so. */
+  announceRecording(on: boolean) {
+    if (this.channel.readyState === "open")
+      this.channel.send(JSON.stringify({ t: "recording", on }));
   }
 
   /** Takes a file the computer offered. It is held in memory, checked, then saved through the browser. */

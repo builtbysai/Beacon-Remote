@@ -246,6 +246,7 @@ Originals are kept as captured (no re-encoding). **Do not delete these in cleanu
 | [2026-10-13-0517-restyled-first-pass.png](windows-host/consent/2026-10-13-0517-restyled-first-pass.png) | 2026-10-13 05:17 UTC | 802x815 | AFTER (first pass): consent window matching the approved design; long address cut off. |
 | [2026-10-13-0525-restyled-final.png](windows-host/consent/2026-10-13-0525-restyled-final.png) | 2026-10-13 05:25 UTC | 802x833 | AFTER: consent window, full requester address, clear focus ring. (after · consent-window) |
 | [2026-10-13-1533-consent-file-transfer-option.png](windows-host/consent/2026-10-13-1533-consent-file-transfer-option.png) | 2026-10-13 15:33 UTC | 802x833 | Consent window with the new opt-in 'Also allow receiving files' check box (off by default) |
+| [2026-10-13-1748-consent-recording-option.png](windows-host/consent/2026-10-13-1748-consent-recording-option.png) | 2026-10-13 17:48 UTC | 802x875 | Consent window with two opt-in boxes, receiving files and letting the helper record, both off by default |
 
 ## windows-host / control-tests
 
@@ -276,3 +277,4 @@ Originals are kept as captured (no re-encoding). **Do not delete these in cleanu
 | [2026-10-13-0527-paused.png](windows-host/sharing/2026-10-13-0527-paused.png) | 2026-10-13 05:27 UTC | 802x710 | Active-sharing window while paused. |
 | [2026-10-13-1533-sharing-file-received.png](windows-host/sharing/2026-10-13-1533-sharing-file-received.png) | 2026-10-13 15:33 UTC | 802x710 | Sharing window while file transfer is allowed: the row announces the last received file (CON.txt was saved as _CON.txt) |
 | [2026-10-13-1629-sharing-send-a-file.png](windows-host/sharing/2026-10-13-1629-sharing-send-a-file.png) | 2026-10-13 16:29 UTC | 802x710 | Sharing window with the new 'Send a file…' button (shown when file transfer is allowed) after a file was offered to the helper |
+| [2026-10-13-1748-sharing-recording.png](windows-host/sharing/2026-10-13-1748-sharing-recording.png) | 2026-10-13 17:48 UTC | 802x710 | Sharing window while the helper records: the permissions row says so plainly |

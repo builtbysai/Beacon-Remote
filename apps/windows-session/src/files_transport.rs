@@ -29,6 +29,10 @@ enum Control {
         id: u32,
         sha256: String,
     },
+    // The viewer announces that it started or stopped recording (only valid when recording was allowed).
+    Recording {
+        on: bool,
+    },
     Cancel {
         id: u32,
     },
@@ -147,6 +151,7 @@ impl Receiver {
                 }
                 Ok(Reply::None)
             }
+            Control::Recording { .. } => Ok(Reply::None),
             // Answers about this computer's own offers are the outbound side's business.
             Control::Accept { .. }
             | Control::Reject { .. }
@@ -330,9 +335,22 @@ impl Outbound {
     }
 }
 
-pub fn start(channel: Arc<dyn DataChannel>, authority: Authority) -> tokio::task::JoinHandle<()> {
+/// What the person at the computer allowed for this session on the extras channel.
+#[derive(Clone, Copy)]
+pub struct Permissions {
+    pub files: bool,
+    pub recording: bool,
+}
+
+pub fn start(
+    channel: Arc<dyn DataChannel>,
+    authority: Authority,
+    permissions: Permissions,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        if run(channel, &authority).await.is_err() {
+        let result = run(channel, &authority, permissions).await;
+        files::set_recording(false);
+        if result.is_err() {
             println!("File transfer stopped: invalid message, expired authority or no folder.");
         }
     })
@@ -361,7 +379,11 @@ async fn send_frame(channel: &Arc<dyn DataChannel>, frame: Frame) -> Result<(), 
     }
 }
 
-async fn run(channel: Arc<dyn DataChannel>, authority: &Authority) -> Result<(), ()> {
+async fn run(
+    channel: Arc<dyn DataChannel>,
+    authority: &Authority,
+    permissions: Permissions,
+) -> Result<(), ()> {
     let folder = files::received_folder().ok_or(())?;
     let mut receiver = Receiver::new(folder);
     let mut outbound = Outbound::new();
@@ -393,7 +415,7 @@ async fn run(channel: Arc<dyn DataChannel>, authority: &Authority) -> Result<(),
                 }
                 outbound.expire();
                 // A file the person at this computer picked in the sharing window.
-                if opened && outbound.idle() {
+                if opened && permissions.files && outbound.idle() {
                     if let Some(path) = files::take_send() {
                         if crate::pause::is_paused() {
                             files::set_status("Resume sharing before sending a file");
@@ -418,7 +440,7 @@ async fn run(channel: Arc<dyn DataChannel>, authority: &Authority) -> Result<(),
                     last_message = Instant::now();
                     channel.set_buffered_amount_low_threshold(256 * 1024).await.map_err(|_| ())?;
                     channel.set_buffered_amount_high_threshold(1024 * 1024).await.map_err(|_| ())?;
-                    send(&channel, serde_json::json!({"t":"ready","maxFile":MAX_FILE,"chunk":MAX_CHUNK})).await?;
+                    send(&channel, serde_json::json!({"t":"ready","maxFile":MAX_FILE,"chunk":MAX_CHUNK,"files":permissions.files,"recording":permissions.recording})).await?;
                 }
                 Some(DataChannelEvent::OnBufferedAmountHigh) => blocked = true,
                 Some(DataChannelEvent::OnBufferedAmountLow) => blocked = false,
@@ -428,6 +450,23 @@ async fn run(channel: Arc<dyn DataChannel>, authority: &Authority) -> Result<(),
                     let reply = if message.is_string {
                         if message.data.len() > 2048 { return Err(()); }
                         let control = parse(&message.data)?;
+                        if let Control::Recording { on } = control {
+                            // Only the announcement is honoured, and only when it was allowed.
+                            if permissions.recording {
+                                files::set_recording(on);
+                                send(&channel, serde_json::json!({"t":"recording","on":on})).await?;
+                            } else {
+                                send(&channel, serde_json::json!({"t":"recording","on":false,"denied":true})).await?;
+                            }
+                            continue;
+                        }
+                        if !permissions.files {
+                            // Without file permission every file message ends the channel's usefulness.
+                            if let Control::Offer { id, .. } = control {
+                                send(&channel, serde_json::json!({"t":"reject","id":id,"reason":"disabled"})).await?;
+                            }
+                            continue;
+                        }
                         // Even ids are this computer's own offers; odd ids are the viewer's.
                         let ours = match &control {
                             Control::Accept { .. } | Control::Reject { .. } | Control::Done { .. } | Control::Failed { .. } => true,
@@ -440,6 +479,7 @@ async fn run(channel: Arc<dyn DataChannel>, authority: &Authority) -> Result<(),
                         }
                         receiver.handle(control, crate::pause::is_paused())?
                     } else {
+                        if !permissions.files { continue; }
                         if crate::pause::is_paused() { receiver.abort(); continue; }
                         receiver.chunk(&message.data)?
                     };

@@ -51,6 +51,7 @@ struct WindowState {
     control: bool,
     // The helper may send files (chosen in the consent window); received files are announced here.
     files: bool,
+    recording: bool,
     deadline: Option<Instant>,
     controller: String,
     session: String,
@@ -75,6 +76,7 @@ impl WindowState {
             desktop,
             control,
             files: false,
+            recording: false,
             deadline,
             controller: String::new(),
             session: String::new(),
@@ -177,7 +179,11 @@ unsafe fn paint(window: HWND, state: &WindowState) {
             Icon::Lock,
             44.0,
             270.0,
-            if state.files { p.accent } else { p.faint },
+            if state.files || state.recording {
+                p.accent
+            } else {
+                p.faint
+            },
         );
         canvas.line(28.0, 372.0, 492.0, 372.0, p.line, 1.0);
     }
@@ -242,6 +248,23 @@ unsafe fn draw_item(state: &WindowState, item: &DRAWITEMSTRUCT) {
 
 /// The standard Windows open dialog, owned by the sharing window. The person at this computer picks the file;
 /// nothing is sent until the helper accepts it.
+/// The permissions row: what the helper may do beyond looking, and what is happening right now. While the
+/// helper records, that is said plainly.
+fn extras_line(files: bool, recording: bool, note: &str) -> String {
+    if recording && crate::files::recording() {
+        return "● Recording · the helper is recording this session".to_string();
+    }
+    if files && !note.is_empty() {
+        return format!("File transfer · {note}");
+    }
+    match (files, recording) {
+        (true, true) => "File transfer and recording allowed".to_string(),
+        (true, false) => "File transfer allowed · saved in Downloads\\Beacon Remote".to_string(),
+        (false, true) => "Recording allowed · shown while it records".to_string(),
+        (false, false) => "File transfer and recording not allowed".to_string(),
+    }
+}
+
 unsafe fn choose_file(window: HWND) -> Option<std::path::PathBuf> {
     use windows_sys::Win32::UI::Controls::Dialogs::{
         GetOpenFileNameW, OFN_EXPLORER, OFN_FILEMUSTEXIST, OFN_HIDEREADONLY, OFN_PATHMUSTEXIST,
@@ -314,7 +337,7 @@ unsafe extern "system" fn procedure(
                 let color = match GetDlgCtrlID(lparam as HWND) {
                     HEADING_ID | NAME_ID | PANEL_ID => p.strong,
                     STATUS_ID | SESSION_ID | FOOTER_ID => p.muted,
-                    ROW_LIMITS_ID if (*state).files => p.text,
+                    ROW_LIMITS_ID if (*state).files || (*state).recording => p.text,
                     TAG_ID | ROW_LIMITS_ID => p.faint,
                     _ => p.text,
                 };
@@ -405,13 +428,12 @@ unsafe extern "system" fn procedure(
             SetWindowTextW(control, text.as_ptr());
             InvalidateRect(window, std::ptr::null(), 0);
         }
-        if (*state).files {
-            let note = crate::files::status();
-            let line = wide(&if note.is_empty() {
-                "File transfer allowed · saved in Downloads\\Beacon Remote".to_string()
-            } else {
-                format!("File transfer · {note}")
-            });
+        if (*state).files || (*state).recording {
+            let line = wide(&extras_line(
+                (*state).files,
+                (*state).recording,
+                &crate::files::status(),
+            ));
             let row = GetDlgItem(window, ROW_LIMITS_ID);
             let mut shown = [0_u16; 160];
             let length = GetWindowTextW(row, shown.as_mut_ptr(), shown.len() as i32).max(0);
@@ -469,11 +491,13 @@ impl Indicator {
         deadline: Option<Instant>,
         control: bool,
         files: bool,
+        recording: bool,
         session: String,
     ) -> Result<Self, Error> {
         let (ready, received) = mpsc::channel();
         let mut state = WindowState::new(active.clone(), connected, desktop, control, deadline);
         state.files = files && desktop;
+        state.recording = recording && desktop;
         state.controller = controller
             .chars()
             .filter(|character| !character.is_control())
@@ -634,11 +658,7 @@ impl Indicator {
                     );
                     let row_limits = make_text(
                         ROW_LIMITS_ID,
-                        if state.files {
-                            "File transfer allowed · saved in Downloads\\Beacon Remote"
-                        } else {
-                            "File transfer not allowed"
-                        },
+                        &extras_line(state.files, state.recording, ""),
                         70,
                         268,
                         410,
