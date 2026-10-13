@@ -195,6 +195,53 @@ export async function createApp(pool: Pool, config: Config) {
     },
   );
 
+  // Operator-issued one-time link: sets a new password, signs out every browser, and leaves
+  // two-step sign-in in place (an operator removes that separately when the authenticator is lost).
+  app.post(
+    "/api/account/recover",
+    { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      if (!sameOrigin(request))
+        return reply.code(403).send({ error: "Origin rejected" });
+      const parsed = z
+        .object({
+          token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+          password: z.string().min(16).max(512),
+        })
+        .strict()
+        .safeParse(request.body);
+      if (!parsed.success)
+        return reply.code(400).send({ error: "Invalid recovery" });
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const claimed = await client.query<{ account_id: string }>(
+          "UPDATE account_recoveries SET claimed_at=now() WHERE token_hash=$1 AND claimed_at IS NULL AND expires_at>now() RETURNING account_id",
+          [digest(parsed.data.token)],
+        );
+        if (!claimed.rowCount) {
+          await client.query("ROLLBACK");
+          return reply.code(403).send({ error: "Recovery link unavailable" });
+        }
+        const accountId = claimed.rows[0]!.account_id;
+        await client.query("UPDATE accounts SET password_hash=$2 WHERE id=$1", [
+          accountId,
+          await hash(parsed.data.password),
+        ]);
+        await client.query("DELETE FROM browser_sessions WHERE account_id=$1", [
+          accountId,
+        ]);
+        await client.query("COMMIT");
+        return { ok: true };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+  );
+
   app.post(
     "/api/login",
     { config: { rateLimit: { max: 8, timeWindow: "1 minute" } } },

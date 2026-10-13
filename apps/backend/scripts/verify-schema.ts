@@ -26,6 +26,12 @@ try {
       "version",
       "updated_at",
     ],
+    account_recoveries: [
+      "token_hash",
+      "account_id",
+      "expires_at",
+      "claimed_at",
+    ],
     account_mfa: [
       "account_id",
       "secret",
