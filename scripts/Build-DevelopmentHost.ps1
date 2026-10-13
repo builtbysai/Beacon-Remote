@@ -26,5 +26,12 @@ try {
     @{kind = 'beacon-remote-development-v2'; commit = $commit; files = @($files)} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $output 'manifest.json') -Encoding UTF8
     Compress-Archive -Path (Join-Path $output '*') -DestinationPath "$output.zip"
     Get-FileHash -Algorithm SHA256 -LiteralPath "$output.zip" | Format-List
+    # The double-click installer carries the same three programs and manifest. The zip stays the update payload.
+    $env:BEACON_PAYLOAD_DIR = $output
+    try { & cargo build --release -p beacon-remote-setup; if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' } } finally { Remove-Item Env:BEACON_PAYLOAD_DIR -ErrorAction SilentlyContinue }
+    $setup = Join-Path $root "dist\BeaconRemoteSetup-$($commit.Substring(0, 8)).exe"
+    Copy-Item -LiteralPath (Join-Path $root 'target\release\beacon-remote-setup.exe') -Destination $setup
+    Get-FileHash -Algorithm SHA256 -LiteralPath $setup | Format-List
+    Write-Host "Unsigned installer: $setup (sign with Authenticode before distributing)"
     Write-Host "Unsigned internal development package: $output.zip"
 } finally { Pop-Location }
