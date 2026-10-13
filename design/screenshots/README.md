@@ -275,3 +275,4 @@ Originals are kept as captured (no re-encoding). **Do not delete these in cleanu
 | [2026-10-13-0526-connected.png](windows-host/sharing/2026-10-13-0526-connected.png) | 2026-10-13 05:26 UTC | 802x710 | Active-sharing window while connected (permissions, Pause, Stop). |
 | [2026-10-13-0527-paused.png](windows-host/sharing/2026-10-13-0527-paused.png) | 2026-10-13 05:27 UTC | 802x710 | Active-sharing window while paused. |
 | [2026-10-13-1533-sharing-file-received.png](windows-host/sharing/2026-10-13-1533-sharing-file-received.png) | 2026-10-13 15:33 UTC | 802x710 | Sharing window while file transfer is allowed: the row announces the last received file (CON.txt was saved as _CON.txt) |
+| [2026-10-13-1629-sharing-send-a-file.png](windows-host/sharing/2026-10-13-1629-sharing-send-a-file.png) | 2026-10-13 16:29 UTC | 802x710 | Sharing window with the new 'Send a file…' button (shown when file transfer is allowed) after a file was offered to the helper |
