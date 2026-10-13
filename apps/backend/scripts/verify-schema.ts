@@ -17,6 +17,7 @@ try {
       "approval",
       "policy_version",
       "display_id",
+      "relationship_id",
     ],
     machine_access: [
       "machine_id",
@@ -24,6 +25,15 @@ try {
       "allow_control",
       "version",
       "updated_at",
+    ],
+    support_relationships: [
+      "id",
+      "machine_id",
+      "helper_account_id",
+      "capability",
+      "expires_at",
+      "created_at",
+      "revoked_at",
     ],
     support_invitations: [
       "code_hash",

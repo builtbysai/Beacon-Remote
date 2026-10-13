@@ -4,6 +4,7 @@ import { api } from "./api.js";
 import { activityLabel, type Activity } from "./AccountPanels.js";
 import { sessionState, type SessionRecord } from "./SessionHistory.js";
 import { WorkspaceIcon } from "./WorkspaceIcon.js";
+import { SupportAccess } from "./SupportAccess.js";
 import "./computer-inspector.css";
 
 export function ComputerInspector({
@@ -304,6 +305,11 @@ export function ComputerInspector({
           )
         )}
       </div>
+      <SupportAccess
+        machineId={machine.id}
+        controlEnabled={controlEnabled}
+        disabled={Boolean(machine.revokedAt)}
+      />
       <div className="inspector-detail-group">
         <h3>Last report</h3>
         <dl>

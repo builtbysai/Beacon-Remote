@@ -23,6 +23,7 @@ type Session = {
   approval: "local" | "policy";
   policy_version: number | null;
   display_id: string | null;
+  relationship_id: string | null;
 };
 type Role = "viewer" | "machine";
 type Authorization = { session: Session; role: Role; request: FastifyRequest };
@@ -130,7 +131,7 @@ export async function registerSessions(
   // request is under two minutes old, and, for a policy session, the computer's policy still
   // allows what was granted. Sign-in and revocation are re-checked on every lease renewal.
   function liveDuration(alias: string, seconds = 0) {
-    return `(${alias}.expires_at>now()+interval '${seconds} seconds' AND (${alias}.status='active' OR ${alias}.created_at>now()-interval '120 seconds') AND (${alias}.approval='local' OR EXISTS (SELECT 1 FROM machine_access pa WHERE pa.machine_id=${alias}.machine_id AND pa.mode='trusted' AND pa.version=${alias}.policy_version AND (${alias}.capability<>'desktop:control' OR pa.allow_control))))`;
+    return `(${alias}.expires_at>now()+interval '${seconds} seconds' AND (${alias}.status='active' OR ${alias}.created_at>now()-interval '120 seconds') AND (${alias}.approval='local' OR EXISTS (SELECT 1 FROM machine_access pa WHERE pa.machine_id=${alias}.machine_id AND pa.mode='trusted' AND pa.version=${alias}.policy_version AND (${alias}.capability<>'desktop:control' OR pa.allow_control)))) AND (${alias}.relationship_id IS NULL OR EXISTS (SELECT 1 FROM support_relationships rr WHERE rr.id=${alias}.relationship_id AND rr.revoked_at IS NULL AND rr.expires_at>now()))`;
   }
   // Clients are told 0, meaning no fixed expiry: the cap is enforced here and the lease is the clock.
   const expiryMillis = () => 0;
@@ -287,6 +288,7 @@ export async function registerSessions(
       capability: "desktop:view" | "desktop:control";
       displayId: string | null;
       support: boolean;
+      relationshipId?: string;
     },
   ): Promise<Session | "busy"> {
     await client.query(
@@ -328,9 +330,10 @@ export async function registerSessions(
       approval: byPolicy ? "policy" : "local",
       policy_version: byPolicy ? policy.version : null,
       display_id: input.displayId,
+      relationship_id: input.relationshipId ?? null,
     };
     await client.query(
-      "INSERT INTO view_sessions(id,account_id,machine_id,source,token_hash,expires_at,status,capability,approval,policy_version,display_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+      "INSERT INTO view_sessions(id,account_id,machine_id,source,token_hash,expires_at,status,capability,approval,policy_version,display_id,relationship_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
       [
         session.id,
         input.account,
@@ -343,6 +346,7 @@ export async function registerSessions(
         session.approval,
         session.policy_version,
         session.display_id,
+        session.relationship_id,
       ],
     );
     const action = `${session.capability === "desktop:control" ? "desktop.control" : "desktop.view"}.requested:${session.source}`;
@@ -520,6 +524,226 @@ export async function registerSessions(
           iceServers: sessionIce(opened),
           iceTransportPolicy,
           machineName: machine.rows[0]!.name,
+        };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+  );
+  // Remembered support (ADR 0024). The owner names an account; that account may then request
+  // sessions on this computer until the expiry, and every session still needs the local Allow.
+  const relationshipParams = z.object({ id: z.uuid() });
+  app.post("/api/machines/:id/relationships", async (request, reply) => {
+    if (request.headers.origin !== config.WEB_ORIGIN)
+      return reply.code(403).send({ error: "Origin rejected" });
+    const account = await owner(request);
+    if (!account) return reply.code(401).send({ error: "Sign in required" });
+    const path = params.safeParse(request.params);
+    const body = z
+      .object({
+        email: z.email().max(254),
+        capability: z.enum(["desktop:view", "desktop:control"]),
+        days: z.number().int().min(1).max(90),
+      })
+      .strict()
+      .safeParse(request.body);
+    if (!path.success || !body.success)
+      return reply.code(400).send({ error: "Invalid support access" });
+    if (body.data.capability === "desktop:control" && !controlEnabled)
+      return reply.code(403).send({ error: "Control unavailable" });
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const machine = await client.query(
+        "SELECT id FROM machines WHERE id=$1 AND account_id=$2 AND revoked_at IS NULL FOR UPDATE",
+        [path.data.id, account],
+      );
+      const helper = await client.query<{ id: string }>(
+        "SELECT id FROM accounts WHERE lower(email)=lower($1) AND id<>$2",
+        [body.data.email, account],
+      );
+      if (!machine.rowCount || !helper.rowCount) {
+        await client.query("ROLLBACK");
+        return reply
+          .code(404)
+          .send({ error: "Could not share with that account" });
+      }
+      await client.query(
+        "UPDATE support_relationships SET revoked_at=now() WHERE machine_id=$1 AND helper_account_id=$2 AND revoked_at IS NULL",
+        [path.data.id, helper.rows[0]!.id],
+      );
+      const id = randomUUID();
+      const expiresAt = new Date(Date.now() + body.data.days * 86_400_000);
+      await client.query(
+        "INSERT INTO support_relationships(id,machine_id,helper_account_id,capability,expires_at) VALUES ($1,$2,$3,$4,$5)",
+        [id, path.data.id, helper.rows[0]!.id, body.data.capability, expiresAt],
+      );
+      await client.query(
+        "INSERT INTO audit_events(account_id,machine_id,action) VALUES ($1,$2,$3)",
+        [
+          account,
+          path.data.id,
+          `support.relationship.granted:${body.data.capability === "desktop:control" ? "control" : "view"}`,
+        ],
+      );
+      await client.query("COMMIT");
+      return { id, expiresAtMillis: expiresAt.getTime() };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  });
+  app.get("/api/machines/:id/relationships", async (request, reply) => {
+    const account = await owner(request);
+    if (!account) return reply.code(401).send({ error: "Sign in required" });
+    const path = params.safeParse(request.params);
+    if (!path.success)
+      return reply.code(400).send({ error: "Invalid computer" });
+    const result = await pool.query(
+      `SELECT r.id,a.email AS "helperEmail",r.capability,
+              (extract(epoch FROM r.expires_at)*1000)::bigint AS "expiresAtMillis"
+       FROM support_relationships r JOIN accounts a ON a.id=r.helper_account_id
+       JOIN machines m ON m.id=r.machine_id
+       WHERE r.machine_id=$1 AND m.account_id=$2 AND r.revoked_at IS NULL AND r.expires_at>now()
+       ORDER BY r.created_at`,
+      [path.data.id, account],
+    );
+    return {
+      relationships: result.rows.map((row) => ({
+        ...row,
+        expiresAtMillis: Number(row.expiresAtMillis),
+      })),
+    };
+  });
+  app.post("/api/relationships/:id/revoke", async (request, reply) => {
+    if (request.headers.origin !== config.WEB_ORIGIN)
+      return reply.code(403).send({ error: "Origin rejected" });
+    const account = await owner(request);
+    if (!account) return reply.code(401).send({ error: "Sign in required" });
+    const path = relationshipParams.safeParse(request.params);
+    if (!path.success)
+      return reply.code(400).send({ error: "Invalid support access" });
+    const revoked = await pool.query<{ machine_id: string }>(
+      `UPDATE support_relationships r SET revoked_at=now()
+       FROM machines m WHERE r.id=$1 AND m.id=r.machine_id AND m.account_id=$2 AND r.revoked_at IS NULL
+       RETURNING r.machine_id`,
+      [path.data.id, account],
+    );
+    if (!revoked.rowCount)
+      return reply.code(404).send({ error: "Support access unavailable" });
+    await pool.query(
+      "INSERT INTO audit_events(account_id,machine_id,action) VALUES ($1,$2,'support.relationship.revoked')",
+      [account, revoked.rows[0]!.machine_id],
+    );
+    // A session that relied on it ends now, not at its next renewal.
+    const live = await pool.query<{ id: string }>(
+      "SELECT id FROM view_sessions WHERE relationship_id=$1 AND status IN ('requested','connecting','active')",
+      [path.data.id],
+    );
+    for (const row of live.rows) await finish(row.id);
+    return { ok: true, ended: live.rowCount ?? 0 };
+  });
+  // What a helper can reach: computers whose owners named this account.
+  app.get("/api/shared", async (request, reply) => {
+    const account = await owner(request);
+    if (!account) return reply.code(401).send({ error: "Sign in required" });
+    const result = await pool.query(
+      `SELECT r.id,m.name AS "machineName",r.capability,
+              (extract(epoch FROM r.expires_at)*1000)::bigint AS "expiresAtMillis",
+              (m.last_seen_at>now()-interval '45 seconds') AS online
+       FROM support_relationships r JOIN machines m ON m.id=r.machine_id
+       WHERE r.helper_account_id=$1 AND r.revoked_at IS NULL AND r.expires_at>now() AND m.revoked_at IS NULL
+       ORDER BY r.created_at`,
+      [account],
+    );
+    return {
+      shared: result.rows.map((row) => ({
+        ...row,
+        expiresAtMillis: Number(row.expiresAtMillis),
+      })),
+    };
+  });
+  app.post(
+    "/api/relationships/:id/sessions",
+    { config: { rateLimit: { max: 4, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      if (request.headers.origin !== config.WEB_ORIGIN)
+        return reply.code(403).send({ error: "Origin rejected" });
+      const account = await owner(request);
+      if (!account) return reply.code(401).send({ error: "Sign in required" });
+      if (!enabled)
+        return reply.code(503).send({ error: "View sessions disabled" });
+      const path = relationshipParams.safeParse(request.params);
+      const body = z
+        .object({
+          capability: z
+            .enum(["desktop:view", "desktop:control"])
+            .default("desktop:view"),
+        })
+        .strict()
+        .safeParse(request.body ?? {});
+      if (!path.success || !body.success)
+        return reply.code(400).send({ error: "Invalid session" });
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const found = await client.query<{
+          machine_id: string;
+          capability: string;
+          machine_name: string;
+        }>(
+          `SELECT r.machine_id,r.capability,m.name AS machine_name FROM support_relationships r
+           JOIN machines m ON m.id=r.machine_id
+           WHERE r.id=$1 AND r.helper_account_id=$2 AND r.revoked_at IS NULL AND r.expires_at>now()
+             AND m.revoked_at IS NULL AND m.last_seen_at>now()-interval '45 seconds'
+           FOR UPDATE OF m`,
+          [path.data.id, account],
+        );
+        const relationship = found.rows[0];
+        if (!relationship) {
+          await client.query("ROLLBACK");
+          return reply.code(404).send({ error: "Computer unavailable" });
+        }
+        // Control only if it was granted, and the server allows it.
+        if (
+          body.data.capability === "desktop:control" &&
+          (relationship.capability !== "desktop:control" || !controlEnabled)
+        ) {
+          await client.query("ROLLBACK");
+          return reply.code(403).send({ error: "Control unavailable" });
+        }
+        const opened = await openSession(client, {
+          account,
+          machineId: relationship.machine_id,
+          source: "desktop",
+          capability: body.data.capability,
+          displayId: null,
+          support: true,
+          relationshipId: path.data.id,
+        });
+        if (opened === "busy") {
+          await client.query("ROLLBACK");
+          return reply
+            .code(409)
+            .send({ error: "A view session is already active" });
+        }
+        await client.query("COMMIT");
+        wake(opened.machine_id);
+        return {
+          id: opened.id,
+          source: opened.source,
+          capability: opened.capability,
+          expiresAtMillis: expiryMillis(),
+          approval: opened.approval,
+          reconnectSeconds: reconnectSeconds(opened),
+          iceServers: sessionIce(opened),
+          iceTransportPolicy,
+          machineName: relationship.machine_name,
         };
       } catch (error) {
         await client.query("ROLLBACK");

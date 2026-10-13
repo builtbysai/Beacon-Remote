@@ -35,6 +35,28 @@ export function activityLabel(action: string) {
       return "Viewing requested";
     case "desktop.view.requested:synthetic":
       return "Video test requested";
+    case "machine.access.attended":
+      return "Approval required again";
+    case "machine.access.trusted-view":
+      return "Trusted viewing turned on";
+    case "machine.access.trusted-control":
+      return "Trusted control turned on";
+    case "machine.access.control-off":
+      return "Trusted control turned off";
+    case "support.invitation.created:view":
+      return "Support code created (view)";
+    case "support.invitation.created:control":
+      return "Support code created (control)";
+    case "support.invitation.claimed:view":
+      return "Support code used (view)";
+    case "support.invitation.claimed:control":
+      return "Support code used (control)";
+    case "support.relationship.granted:view":
+      return "Support access given (view)";
+    case "support.relationship.granted:control":
+      return "Support access given (control)";
+    case "support.relationship.revoked":
+      return "Support access removed";
     default:
       return action;
   }
