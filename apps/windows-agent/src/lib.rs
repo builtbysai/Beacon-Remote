@@ -2,6 +2,7 @@ mod credentials;
 #[cfg(windows)]
 mod helper_lifetime;
 mod sessions;
+mod update;
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use ed25519_dalek::{Signer, SigningKey};
@@ -121,6 +122,41 @@ fn post_access(
     } else {
         Err("The server did not accept the access change".into())
     }
+}
+
+/// A newer signed build of this host (ADR 0028). Nothing is downloaded until the person asks.
+pub struct UpdateOffer(update::Feed);
+impl UpdateOffer {
+    pub fn version(&self) -> &str {
+        &self.0.version
+    }
+}
+
+/// Asks this computer's server for the signed update feed. `None` means this host is current.
+pub fn check_for_update() -> Result<Option<UpdateOffer>, HostError> {
+    let identity = load_identity()?;
+    let server = validate_server(&identity.server)?;
+    Ok(update::check(&client()?, &server)?.map(UpdateOffer))
+}
+
+/// Downloads and checks the update, then starts its installer. The caller then closes this host.
+pub fn install_update(offer: &UpdateOffer) -> Result<(), HostError> {
+    let identity = load_identity()?;
+    let server = validate_server(&identity.server)?;
+    let staged = update::stage(&client()?, &server, &offer.0, &update::work_dir()?)?;
+    update::begin_apply(&staged, &offer.0)
+}
+
+/// Entry points for the staged host's `--apply-update` and `--rollback` modes.
+pub fn apply_update(
+    install: &std::path::Path,
+    old_pid: u32,
+    sequence: u64,
+) -> Result<(), HostError> {
+    update::apply(install, old_pid, sequence)
+}
+pub fn rollback_update(install: &std::path::Path) -> Result<(), HostError> {
+    update::rollback(install)
 }
 
 /// A one-time code for attended support (ADR 0023). It is shown only to the person at this
@@ -600,6 +636,25 @@ pub fn cli() -> Result<(), HostError> {
                     );
                 }
                 None => println!("{}", helpers_name(local_access().helpers)),
+            }
+            Ok(())
+        }
+        "update" => {
+            match std::env::args().nth(2).as_deref() {
+                Some("install") => match check_for_update()? {
+                    Some(offer) => {
+                        println!("Installing {}. This program closes while it updates.", offer.version());
+                        install_update(&offer)?;
+                    }
+                    None => println!("Already up to date."),
+                },
+                _ => match check_for_update()? {
+                    Some(offer) => println!(
+                        "Update available: {}. Run `update install`, or use Check for updates in the host window.",
+                        offer.version()
+                    ),
+                    None => println!("Already up to date."),
+                },
             }
             Ok(())
         }
