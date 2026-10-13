@@ -192,7 +192,7 @@ export async function registerSessions(
       `SELECT s.id, m.name AS "machineName", s.source, s.capability,
        CASE WHEN NOT ${liveDuration("s")} AND s.status IN ('requested','connecting','active') THEN 'expired' ELSE s.status END AS status,
        s.created_at AS "createdAt", s.expires_at AS "expiresAt",
-       CASE WHEN s.account_id<>$1 THEN (SELECT email FROM accounts WHERE id=s.account_id) END AS "controller"
+       CASE WHEN s.account_id<>$1 THEN (SELECT CASE WHEN guest_expires_at IS NOT NULL THEN 'Guest helper (no account)' ELSE email END FROM accounts WHERE id=s.account_id) END AS "controller"
        FROM view_sessions s JOIN machines m ON m.id=s.machine_id
        WHERE (s.account_id=$1 OR m.account_id=$1) AND ($2::uuid IS NULL OR s.machine_id=$2)
        ORDER BY s.created_at DESC,s.id LIMIT 100`,
@@ -1233,7 +1233,7 @@ export async function registerSessions(
     if (!enabled) return [];
     async function load() {
       const result = await pool.query<Session & { controller: string }>(
-        `SELECT s.*,a.email AS controller FROM view_sessions s JOIN accounts a ON a.id=s.account_id JOIN machines m ON m.id=s.machine_id WHERE s.machine_id=$1 AND m.revoked_at IS NULL AND s.status='requested' AND ${liveDuration("s", 1)} AND s.created_at>now()-interval '119 seconds' ORDER BY s.created_at LIMIT 1`,
+        `SELECT s.*,CASE WHEN a.guest_expires_at IS NOT NULL THEN 'Guest helper (no account)' ELSE a.email END AS controller FROM view_sessions s JOIN accounts a ON a.id=s.account_id JOIN machines m ON m.id=s.machine_id WHERE s.machine_id=$1 AND m.revoked_at IS NULL AND s.status='requested' AND ${liveDuration("s", 1)} AND s.created_at>now()-interval '119 seconds' ORDER BY s.created_at LIMIT 1`,
         [machineId],
       );
       return result.rows
