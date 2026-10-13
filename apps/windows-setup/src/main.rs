@@ -35,6 +35,10 @@ pub const OWNED: [&str; 6] = [
 
 /// The short form shown in Apps and features, from the package manifest's commit.
 pub fn display_version(manifest: &[u8]) -> String {
+    // PowerShell writes the package manifest with a byte order mark.
+    let manifest = manifest
+        .strip_prefix(&[0xEF, 0xBB, 0xBF])
+        .unwrap_or(manifest);
     serde_json::from_slice::<serde_json::Value>(manifest)
         .ok()
         .and_then(|value| value["commit"].as_str().map(str::to_owned))
@@ -55,5 +59,8 @@ mod tests {
         assert_eq!(display_version(good), "0.1.0 (01234567)");
         assert_eq!(display_version(br#"{"commit":"not hex!!"}"#), "0.1.0");
         assert_eq!(display_version(b"garbage"), "0.1.0");
+        let mut bom = vec![0xEF, 0xBB, 0xBF];
+        bom.extend_from_slice(good);
+        assert_eq!(display_version(&bom), "0.1.0 (01234567)");
     }
 }

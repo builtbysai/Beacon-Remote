@@ -232,6 +232,7 @@ Originals are kept as captured (no re-encoding). **Do not delete these in cleanu
 | [2026-10-13-0413-before-restyle-plain-win32.png](windows-host/consent/2026-10-13-0413-before-restyle-plain-win32.png) | 2026-10-13 04:13 UTC | 862x425 | BEFORE: the original consent window (plain Win32 controls). (before · consent-window) |
 | [2026-10-13-0517-restyled-first-pass.png](windows-host/consent/2026-10-13-0517-restyled-first-pass.png) | 2026-10-13 05:17 UTC | 802x815 | AFTER (first pass): consent window matching the approved design; long address cut off. |
 | [2026-10-13-0525-restyled-final.png](windows-host/consent/2026-10-13-0525-restyled-final.png) | 2026-10-13 05:25 UTC | 802x833 | AFTER: consent window, full requester address, clear focus ring. (after · consent-window) |
+| [2026-10-13-1533-consent-file-transfer-option.png](windows-host/consent/2026-10-13-1533-consent-file-transfer-option.png) | 2026-10-13 15:33 UTC | 802x833 | Consent window with the new opt-in 'Also allow receiving files' check box (off by default) |
 
 ## windows-host / control-tests
 
@@ -259,3 +260,4 @@ Originals are kept as captured (no re-encoding). **Do not delete these in cleanu
 | --- | --- | --- | --- |
 | [2026-10-13-0526-connected.png](windows-host/sharing/2026-10-13-0526-connected.png) | 2026-10-13 05:26 UTC | 802x710 | Active-sharing window while connected (permissions, Pause, Stop). |
 | [2026-10-13-0527-paused.png](windows-host/sharing/2026-10-13-0527-paused.png) | 2026-10-13 05:27 UTC | 802x710 | Active-sharing window while paused. |
+| [2026-10-13-1533-sharing-file-received.png](windows-host/sharing/2026-10-13-1533-sharing-file-received.png) | 2026-10-13 15:33 UTC | 802x710 | Sharing window while file transfer is allowed: the row announces the last received file (CON.txt was saved as _CON.txt) |

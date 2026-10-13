@@ -209,6 +209,7 @@ dependencies = [
  "rtc",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tokio-tungstenite",
  "url",

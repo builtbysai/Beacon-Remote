@@ -524,7 +524,8 @@ mod tests {
                         "Primary display",
                         "S-0000",
                     )
-                    .unwrap(),
+                    .unwrap()
+                    .decision,
                     crate::consent::Decision::Declined
                 );
 
@@ -535,6 +536,7 @@ mod tests {
                     true,
                     "guard-test@example.invalid".into(),
                     Some(Instant::now() + Duration::from_secs(1)),
+                    false,
                     false,
                     "S-0000".into(),
                 )

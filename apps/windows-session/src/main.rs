@@ -8,6 +8,10 @@ mod consent;
 #[cfg(windows)]
 mod encoder;
 #[cfg(windows)]
+mod files;
+#[cfg(windows)]
+mod files_transport;
+#[cfg(windows)]
 mod indicator;
 #[cfg(windows)]
 mod input;

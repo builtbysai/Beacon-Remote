@@ -1,3 +1,4 @@
+import { FileSender, type Transfer } from "./file-transfer.js";
 import { useEffect, useRef, useState } from "react";
 import { playForSession } from "./playback.js";
 import { viewDeadline } from "./deadline.js";
@@ -55,6 +56,16 @@ export function LiveView({
   const touchModeRef = useRef(touchMode);
   touchModeRef.current = touchMode;
   const controlling = grant.capability === "desktop:control";
+  async function sendFiles(list: FileList | File[]) {
+    const current = sender.current;
+    if (!current || sending.current) return;
+    sending.current = true;
+    try {
+      for (const file of Array.from(list)) await current.send(file);
+    } finally {
+      sending.current = false;
+    }
+  }
   const [route, setRoute] = useState("Not established");
   const [iceState, setIceState] = useState<RTCIceConnectionState>("new");
   const [localRelays, setLocalRelays] = useState(0);
@@ -71,6 +82,12 @@ export function LiveView({
   }>({});
   const [presentedFps, setPresentedFps] = useState<number | null>(null);
   const [pictureHeight, setPictureHeight] = useState<number | null>(null);
+  // File transfer exists only when the person at the computer allowed it for this session.
+  const sender = useRef<FileSender | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [fileReady, setFileReady] = useState(false);
+  const [transfer, setTransfer] = useState<Transfer | null>(null);
+  const sending = useRef(false);
   const [roundTripMillis, setRoundTripMillis] = useState<number | null>(null);
   const [transportAttempt, setTransportAttempt] = useState(0);
   // Relay credentials are short; each resume brings fresh ones for the next transport.
@@ -266,6 +283,19 @@ export function LiveView({
       ws.send(JSON.stringify({ ...body, generation }));
     };
     pc.ondatachannel = (event) => {
+      if (
+        event.channel.label === "beacon-files-v1" &&
+        grant.source === "desktop" &&
+        !sender.current &&
+        event.channel.ordered
+      ) {
+        sender.current = new FileSender(
+          event.channel,
+          setTransfer,
+          setFileReady,
+        );
+        return;
+      }
       if (
         !controlling ||
         !element ||
@@ -645,6 +675,28 @@ export function LiveView({
           >
             {isFullscreen ? "Exit full screen" : "Full screen"}
           </button>
+          {fileReady && (
+            <>
+              <button
+                className="viewer-control"
+                title="Send a file to this computer. It is saved in Downloads\Beacon Remote."
+                disabled={transfer?.status === "sending"}
+                onClick={() => fileInput.current?.click()}
+              >
+                Send file
+              </button>
+              <input
+                ref={fileInput}
+                type="file"
+                hidden
+                onChange={(event) => {
+                  const picked = event.currentTarget.files;
+                  if (picked?.length) void sendFiles(picked);
+                  event.currentTarget.value = "";
+                }}
+              />
+            </>
+          )}
           <details className="viewer-diagnostics">
             <summary>Connection</summary>
             <div className="viewer-diagnostics-panel">
@@ -715,7 +767,18 @@ export function LiveView({
           </button>
         </div>
       </header>
-      <div className={`viewer-stage ${scale}`}>
+      <div
+        className={`viewer-stage ${scale}`}
+        onDragOver={(event) => {
+          if (fileReady) event.preventDefault();
+        }}
+        onDrop={(event) => {
+          if (!fileReady) return;
+          event.preventDefault();
+          if (event.dataTransfer.files.length)
+            void sendFiles(event.dataTransfer.files);
+        }}
+      >
         <video
           ref={video}
           autoPlay
@@ -750,6 +813,37 @@ export function LiveView({
         <span role="status" data-decoded-frames={frames}>
           {status}
         </span>
+        {transfer && (
+          <span role="status" className="viewer-transfer">
+            {transfer.status === "sending" || transfer.status === "waiting"
+              ? `Sending ${transfer.name} · ${
+                  transfer.size
+                    ? Math.floor((transfer.sent / transfer.size) * 100)
+                    : 0
+                }%`
+              : transfer.status === "done"
+                ? `Sent ${transfer.name}${
+                    transfer.note && transfer.note !== transfer.name
+                      ? ` (saved as ${transfer.note})`
+                      : ""
+                  }`
+                : transfer.status === "cancelled"
+                  ? `Cancelled ${transfer.name}`
+                  : `Could not send ${transfer.name}. ${transfer.note ?? ""}`}
+            {(transfer.status === "sending" ||
+              transfer.status === "waiting") && (
+              <>
+                {" "}
+                <button
+                  className="viewer-control"
+                  onClick={() => sender.current?.cancel()}
+                >
+                  Cancel
+                </button>
+              </>
+            )}
+          </span>
+        )}
         {route !== "Not established" && (
           <span className="viewer-quality">
             {[

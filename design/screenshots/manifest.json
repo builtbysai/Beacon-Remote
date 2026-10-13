@@ -676,5 +676,23 @@
     "screen": "support",
     "purpose": "Public support page with the accountless guest connect form (replaces the 'not available' placeholder)",
     "source": "mcp-Claude_Browser-blob-1791903484106-s964d9.jpg"
+  },
+  {
+    "file": "windows-host/consent/2026-10-13-1533-consent-file-transfer-option.png",
+    "when": "2026-10-13 15:33 UTC",
+    "size": "802x833",
+    "platform": "windows-host",
+    "screen": "consent",
+    "purpose": "Consent window with the new opt-in 'Also allow receiving files' check box (off by default)",
+    "source": "consent-files.png"
+  },
+  {
+    "file": "windows-host/sharing/2026-10-13-1533-sharing-file-received.png",
+    "when": "2026-10-13 15:33 UTC",
+    "size": "802x710",
+    "platform": "windows-host",
+    "screen": "sharing",
+    "purpose": "Sharing window while file transfer is allowed: the row announces the last received file (CON.txt was saved as _CON.txt)",
+    "source": "sharing-files.png"
   }
 ]

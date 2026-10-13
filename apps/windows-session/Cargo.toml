@@ -17,6 +17,7 @@ futures-util = "0.3"
 serde.workspace = true
 serde_json.workspace = true
 bytes = "1"
+sha2 = "0.10"
 url = "2"
 windows-capture = "=2.0.1"
 windows = { version = "=0.62.2", features = ["Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_System_Ole", "Win32_System_Variant"] }

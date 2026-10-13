@@ -594,6 +594,46 @@ pub unsafe fn radio_card(
     }
 }
 
+/// A labelled check box: a small rounded square, a tick when checked, then the text.
+pub unsafe fn checkbox(
+    canvas: &Canvas,
+    p: &Palette,
+    (w, h): (f32, f32),
+    label: &str,
+    checked: bool,
+    state: State,
+) {
+    let top = (h - 18.0) / 2.0;
+    if checked {
+        canvas.fill(1.0, top, 18.0, 18.0, 4.0, p.accent);
+        canvas.line(5.0, top + 9.5, 8.5, top + 13.0, p.window, 2.0);
+        canvas.line(8.5, top + 13.0, 15.0, top + 5.5, p.window, 2.0);
+    } else {
+        canvas.fill(1.0, top, 18.0, 18.0, 4.0, p.surface);
+        canvas.stroke(
+            1.0,
+            top,
+            18.0,
+            18.0,
+            4.0,
+            if state.hot { p.accent } else { p.faint },
+            1.5,
+        );
+    }
+    canvas.text(
+        label,
+        (30.0, top, w - 30.0, 18.0),
+        13.0,
+        400,
+        p.text,
+        Align::Left,
+        false,
+    );
+    if state.focused {
+        canvas.stroke(0.0, 0.0, w, h, 6.0, p.accent, 2.0);
+    }
+}
+
 /// A rounded avatar with initials.
 pub unsafe fn avatar(canvas: &Canvas, p: &Palette, cx: f32, cy: f32, r: f32, initials: &str) {
     canvas.circle(cx, cy, r, p.accent_soft);

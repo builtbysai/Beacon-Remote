@@ -44,8 +44,22 @@ pub enum Decision {
     Control,
 }
 
+/// What the person chose: the access level, and whether the helper may also send files.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Access {
+    pub decision: Decision,
+    pub files: bool,
+}
+impl Access {
+    const DECLINED: Self = Self {
+        decision: Decision::Declined,
+        files: false,
+    };
+}
+
 const VIEW_CARD: i32 = 201;
 const CONTROL_CARD: i32 = 202;
+const FILES_BOX: i32 = 203;
 const HEADING: i32 = 301;
 const SUBTITLE: i32 = 302;
 const PANEL_TITLE: i32 = 303;
@@ -67,6 +81,7 @@ struct State {
     scale: f32,
     control_requested: bool,
     control_chosen: bool,
+    files_chosen: bool,
     controller: String,
     session: String,
     hot: i32,
@@ -85,6 +100,7 @@ impl State {
             scale: 1.0,
             control_requested: false,
             control_chosen: false,
+            files_chosen: false,
             controller: String::new(),
             session: String::new(),
             hot: 0,
@@ -149,7 +165,6 @@ unsafe fn paint(window: HWND, state: &State) {
                 p.faint
             },
         );
-        ui::icon(&canvas, Icon::Lock, 44.0, 270.0, p.faint);
         // Divider above the footer.
         canvas.line(28.0, 460.0, 492.0, 460.0, p.line, 1.0);
     }
@@ -179,13 +194,19 @@ unsafe fn draw_item(state: &State, item: &DRAWITEMSTRUCT) {
     let w = (item.rcItem.right - item.rcItem.left) as f32 / state.scale;
     let h = (item.rcItem.bottom - item.rcItem.top) as f32 / state.scale;
     // The control paints its own background first, so rounded corners meet the window.
-    let brush = CreateSolidBrush(ui::colorref(state.palette.window));
+    let id = item.CtlID as i32;
+    // The check box sits on the access panel, not on the window.
+    let backdrop = if id == FILES_BOX {
+        state.palette.subtle
+    } else {
+        state.palette.window
+    };
+    let brush = CreateSolidBrush(ui::colorref(backdrop));
     FillRect(item.hDC, &item.rcItem, brush);
     DeleteObject(brush);
     let Some(canvas) = ui::Canvas::new(item.hDC, state.scale) else {
         return;
     };
-    let id = item.CtlID as i32;
     let flags = ui::State {
         hot: state.hot == id,
         pressed: item.itemState & ODS_SELECTED != 0,
@@ -214,6 +235,14 @@ unsafe fn draw_item(state: &State, item: &DRAWITEMSTRUCT) {
                 "Not requested."
             },
             state.control_chosen,
+            flags,
+        ),
+        FILES_BOX => ui::checkbox(
+            &canvas,
+            p,
+            (w, h),
+            "Also allow receiving files (saved in Downloads\\Beacon Remote)",
+            state.files_chosen,
             flags,
         ),
         IDYES => ui::button(
@@ -255,7 +284,7 @@ unsafe fn track_hover(window: HWND, state: &mut State) {
     } else {
         GetDlgCtrlID(over)
     };
-    let hot = if matches!(id, IDYES | IDNO | VIEW_CARD | CONTROL_CARD) {
+    let hot = if matches!(id, IDYES | IDNO | VIEW_CARD | CONTROL_CARD | FILES_BOX) {
         id
     } else {
         0
@@ -321,6 +350,11 @@ unsafe extern "system" fn procedure(
                     }
                     CONTROL_CARD => {
                         choose(window, &mut *state, true);
+                        return 0;
+                    }
+                    FILES_BOX => {
+                        (*state).files_chosen = !(*state).files_chosen;
+                        InvalidateRect(GetDlgItem(window, FILES_BOX), std::ptr::null(), 0);
                         return 0;
                     }
                     // Only the explicit Allow once can approve. A close, Escape, error, expired or
@@ -403,7 +437,9 @@ pub fn request(
         false,
         "Primary display",
         "S-0000",
-    )? != Decision::Declined)
+    )?
+    .decision
+        != Decision::Declined)
 }
 
 pub fn request_access(
@@ -414,10 +450,10 @@ pub fn request_access(
     unlimited: bool,
     display: &str,
     session: &str,
-) -> Result<Decision, Error> {
+) -> Result<Access, Error> {
     let mut state = State::new(pending, deadline);
     if !state.live() {
-        return Ok(Decision::Declined);
+        return Ok(Access::DECLINED);
     }
     // Keep the complete account identity; control characters never reach the window.
     state.controller = controller
@@ -445,7 +481,7 @@ pub fn request_access(
         if RegisterClassW(&definition) == 0 {
             return Err(io::Error::last_os_error().into());
         }
-        let result = (|| -> Result<Decision, Error> {
+        let result = (|| -> Result<Access, Error> {
             let dpi = GetDpiForSystem().max(96);
             let factor = dpi as f32 / 96.0;
             state.scale = factor;
@@ -557,15 +593,6 @@ pub fn request_access(
                     20,
                     0,
                 );
-                let row_limits = make_text(
-                    ROW_FAINT,
-                    "File transfer and administration not included",
-                    70,
-                    268,
-                    410,
-                    20,
-                    0,
-                );
                 let footer = make_text(
                     FOOTER,
                     &format!(
@@ -605,6 +632,7 @@ pub fn request_access(
                     64,
                     if control { 0 } else { WS_DISABLED },
                 );
+                let files_box = make_button(FILES_BOX, "", 44, 264, 440, 26, 0);
                 let decline = make_button(IDNO, "Decline", 248, 398, 104, 40, 0);
                 let allow = make_button(IDYES, "Allow once", 364, 398, 128, 40, 0);
                 let controls = [
@@ -616,10 +644,10 @@ pub fn request_access(
                     panel_title,
                     row_view,
                     row_control,
-                    row_limits,
                     footer,
                     view_card,
                     control_card,
+                    files_box,
                     decline,
                     allow,
                 ];
@@ -647,7 +675,6 @@ pub fn request_access(
                     (subtitle, body_font),
                     (row_view, body_font),
                     (row_control, body_font),
-                    (row_limits, body_font),
                     (session_text, small_font),
                     (footer, small_font),
                     (tag, tag_font),
@@ -703,9 +730,12 @@ pub fn request_access(
             let _ = GetFocus();
             initialized?;
             Ok(if state.accepted && state.live() {
-                state.allowed
+                Access {
+                    decision: state.allowed,
+                    files: state.files_chosen && state.allowed != Decision::Declined,
+                }
             } else {
-                Decision::Declined
+                Access::DECLINED
             })
         })();
         UnregisterClassW(class.as_ptr(), instance);

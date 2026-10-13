@@ -31,7 +31,7 @@ pub struct Authority {
     pub connected: Arc<AtomicBool>,
 }
 impl Authority {
-    fn live(&self) -> bool {
+    pub fn live(&self) -> bool {
         self.session_active.load(Ordering::Acquire)
             && self.peer_active.load(Ordering::Acquire)
             && self.connected.load(Ordering::Acquire)
