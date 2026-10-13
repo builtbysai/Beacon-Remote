@@ -218,6 +218,71 @@ pub fn status() -> String {
         .unwrap_or_default()
 }
 
+/// A file the person at this computer chose to send to the helper (picked in the sharing window).
+static OUTBOX: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+pub fn request_send(path: PathBuf) {
+    if let Ok(mut outbox) = OUTBOX.lock() {
+        *outbox = Some(path);
+    }
+}
+pub fn take_send() -> Option<PathBuf> {
+    OUTBOX.lock().ok().and_then(|mut outbox| outbox.take())
+}
+
+/// One outgoing file: read in small chunks, hashed as it goes.
+pub struct Outgoing {
+    file: File,
+    pub name: String,
+    pub size: u64,
+    sent: u64,
+    hasher: Sha256,
+}
+
+impl Outgoing {
+    pub fn open(path: &Path) -> io::Result<Self> {
+        let file = File::open(path)?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_FILE {
+            return Err(io::Error::other("not a sendable file"));
+        }
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(safe_name)
+            .ok_or_else(|| io::Error::other("unusable file name"))?;
+        Ok(Self {
+            file,
+            name,
+            size: metadata.len(),
+            sent: 0,
+            hasher: Sha256::new(),
+        })
+    }
+    pub fn sent(&self) -> u64 {
+        self.sent
+    }
+    /// The next chunk, or None at the end of the file.
+    pub fn next_chunk(&mut self) -> io::Result<Option<Vec<u8>>> {
+        use std::io::Read;
+        let mut buffer = vec![0u8; 16 * 1024];
+        let read = self.file.read(&mut buffer)?;
+        if read == 0 {
+            return Ok(None);
+        }
+        buffer.truncate(read);
+        self.hasher.update(&buffer);
+        self.sent += read as u64;
+        Ok(Some(buffer))
+    }
+    /// The SHA-256 of everything read so far, once the file is finished.
+    pub fn digest(&self) -> io::Result<String> {
+        if self.sent != self.size {
+            return Err(io::Error::other("file changed while sending"));
+        }
+        Ok(hex(&self.hasher.clone().finalize()))
+    }
+}
+
 /// Where received files go: `Downloads\Beacon Remote` in the signed-in user's profile.
 pub fn received_folder() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE").map(|profile| {
@@ -342,6 +407,30 @@ mod tests {
             Incoming::begin(&folder, "...", 5).err(),
             Some(Refusal::Name)
         );
+        let _ = fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn an_outgoing_file_streams_whole_and_hashes_to_what_the_other_side_will_check() {
+        let folder = temp();
+        let data: Vec<u8> = (0..50_000u32).map(|n| (n % 251) as u8).collect();
+        let path = folder.join("report.bin");
+        fs::write(&path, &data).unwrap();
+        let mut outgoing = Outgoing::open(&path).unwrap();
+        assert_eq!(outgoing.name, "report.bin");
+        assert_eq!(outgoing.size, 50_000);
+        assert!(outgoing.digest().is_err(), "not finished yet");
+        let mut received = Vec::new();
+        while let Some(chunk) = outgoing.next_chunk().unwrap() {
+            assert!(chunk.len() <= 16 * 1024);
+            received.extend_from_slice(&chunk);
+        }
+        assert_eq!(received, data);
+        assert_eq!(outgoing.digest().unwrap(), hex(&Sha256::digest(&data)));
+        // Empty files and folders are refused.
+        fs::write(folder.join("empty"), b"").unwrap();
+        assert!(Outgoing::open(&folder.join("empty")).is_err());
+        assert!(Outgoing::open(&folder).is_err());
         let _ = fs::remove_dir_all(folder);
     }
 }

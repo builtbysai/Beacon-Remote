@@ -132,9 +132,17 @@ export type Transfer = {
   name: string;
   size: number;
   sent: number;
-  status: "waiting" | "sending" | "done" | "failed" | "cancelled";
+  status: "waiting" | "sending" | "receiving" | "done" | "failed" | "cancelled";
   note?: string;
+  /** True for a file coming from the computer rather than going to it. */
+  incoming?: boolean;
 };
+
+/** A file the person at the computer wants to send to this viewer. */
+export type Offer = { id: number; name: string; size: number };
+
+// Received files are held in memory until their checksum is verified, so the size is bounded.
+const MAX_RECEIVE = 512 * 1024 * 1024;
 
 const REASONS: Record<string, string> = {
   "too-large": "The file is too large.",
@@ -153,16 +161,26 @@ export class FileSender {
   private next = 1;
   private cancelled = false;
   private waiter: ((reply: Record<string, unknown>) => void) | null = null;
+  private receiving: {
+    offer: Offer;
+    chunks: Uint8Array[];
+    got: number;
+    hash: Sha256;
+  } | null = null;
 
   constructor(
     private readonly channel: RTCDataChannel,
     private readonly changed: (transfer: Transfer | null) => void,
     private readonly readyChanged: (ready: boolean) => void,
+    private readonly offered: (offer: Offer | null) => void = () => undefined,
   ) {
     channel.binaryType = "arraybuffer";
     channel.bufferedAmountLowThreshold = 1024 * 1024;
     channel.onmessage = (event) => {
-      if (typeof event.data !== "string") return;
+      if (typeof event.data !== "string") {
+        this.chunk(event.data);
+        return;
+      }
       let message: Record<string, unknown>;
       try {
         message = JSON.parse(event.data) as Record<string, unknown>;
@@ -173,14 +191,34 @@ export class FileSender {
         this.ready = true;
         this.maxFile = Number(message.maxFile) || 0;
         this.readyChanged(true);
+      } else if (message.t === "send") {
+        const id = Number(message.id);
+        const name = typeof message.name === "string" ? message.name : "";
+        const size = Number(message.size);
+        // The computer's own ids are even; anything else is not a valid offer.
+        if (id % 2 === 0 && id > 0 && name && name.length <= 255 && size > 0)
+          this.offered({ id, name, size });
+      } else if (message.t === "end" && this.receiving) {
+        void this.finishReceive(message);
+      } else if (
+        message.t === "cancel" &&
+        this.receiving &&
+        message.id === this.receiving.offer.id
+      ) {
+        this.stopReceive("cancelled", "The computer stopped sending it.");
+      } else if (message.t === "cancel" && !this.waiter) {
+        this.offered(null);
       } else if (message.t === "paused") {
         this.cancelled = true;
+        if (this.receiving)
+          this.stopReceive("cancelled", "Sharing is paused on the computer.");
         this.waiter?.(message);
       } else this.waiter?.(message);
     };
     channel.onclose = () => {
       this.ready = false;
       this.cancelled = true;
+      this.receiving = null;
       this.waiter?.({ t: "failed", reason: "closed" });
       this.readyChanged(false);
     };
@@ -189,6 +227,124 @@ export class FileSender {
   cancel() {
     this.cancelled = true;
     this.waiter?.({ t: "cancel" });
+    if (this.receiving) {
+      this.channel.send(
+        JSON.stringify({ t: "cancel", id: this.receiving.offer.id }),
+      );
+      this.stopReceive("cancelled");
+    }
+  }
+
+  /** Takes a file the computer offered. It is held in memory, checked, then saved through the browser. */
+  accept(offer: Offer) {
+    this.offered(null);
+    if (this.receiving || this.channel.readyState !== "open") {
+      this.decline(offer, "busy");
+      return;
+    }
+    if (offer.size > MAX_RECEIVE) {
+      this.decline(offer, "too-large");
+      this.changed({
+        incoming: true,
+        name: offer.name,
+        size: offer.size,
+        sent: 0,
+        status: "failed",
+        note: "That file is too large for the browser to receive safely.",
+      });
+      return;
+    }
+    this.receiving = { offer, chunks: [], got: 0, hash: new Sha256() };
+    this.channel.send(JSON.stringify({ t: "accept", id: offer.id }));
+    this.changed({
+      incoming: true,
+      name: offer.name,
+      size: offer.size,
+      sent: 0,
+      status: "receiving",
+    });
+  }
+
+  decline(offer: Offer, reason = "declined") {
+    this.offered(null);
+    if (this.channel.readyState === "open")
+      this.channel.send(JSON.stringify({ t: "reject", id: offer.id, reason }));
+  }
+
+  private chunk(data: unknown) {
+    const receiving = this.receiving;
+    if (!receiving || !(data instanceof ArrayBuffer) || data.byteLength <= 4)
+      return;
+    const view = new DataView(data);
+    if (view.getUint32(0) !== receiving.offer.id) return;
+    const bytes = new Uint8Array(data, 4);
+    if (receiving.got + bytes.length > receiving.offer.size) {
+      this.channel.send(
+        JSON.stringify({ t: "failed", id: receiving.offer.id, reason: "size" }),
+      );
+      this.stopReceive("failed", "More arrived than was announced.");
+      return;
+    }
+    receiving.chunks.push(bytes);
+    receiving.hash.update(bytes);
+    receiving.got += bytes.length;
+    this.changed({
+      incoming: true,
+      name: receiving.offer.name,
+      size: receiving.offer.size,
+      sent: receiving.got,
+      status: "receiving",
+    });
+  }
+
+  private async finishReceive(message: Record<string, unknown>) {
+    const receiving = this.receiving;
+    if (!receiving || message.id !== receiving.offer.id) return;
+    const intact =
+      receiving.got === receiving.offer.size &&
+      typeof message.sha256 === "string" &&
+      receiving.hash.hex() === message.sha256.toLowerCase();
+    if (!intact) {
+      this.channel.send(
+        JSON.stringify({
+          t: "failed",
+          id: receiving.offer.id,
+          reason: "incomplete",
+        }),
+      );
+      this.stopReceive("failed", "It did not arrive intact and was discarded.");
+      return;
+    }
+    const url = URL.createObjectURL(new Blob(receiving.chunks as BlobPart[]));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = receiving.offer.name;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    this.channel.send(JSON.stringify({ t: "done", id: receiving.offer.id }));
+    this.changed({
+      incoming: true,
+      name: receiving.offer.name,
+      size: receiving.offer.size,
+      sent: receiving.offer.size,
+      status: "done",
+      note: receiving.offer.name,
+    });
+    this.receiving = null;
+  }
+
+  private stopReceive(status: "failed" | "cancelled", note?: string) {
+    const receiving = this.receiving;
+    this.receiving = null;
+    if (receiving)
+      this.changed({
+        incoming: true,
+        name: receiving.offer.name,
+        size: receiving.offer.size,
+        sent: receiving.got,
+        status,
+        note,
+      });
   }
 
   private reply(): Promise<Record<string, unknown>> {
