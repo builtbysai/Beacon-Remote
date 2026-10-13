@@ -44,6 +44,7 @@ const SERVER: usize = 103;
 const NAME: usize = 104;
 const CODE: usize = 105;
 const AUTOSTART: usize = 120;
+const FILES: usize = 121;
 const UPDATE: usize = 150;
 const SUPPORT_VIEW: usize = 130;
 const SUPPORT_CONTROL: usize = 131;
@@ -66,7 +67,7 @@ const H_INFO: i32 = 304;
 const H_LABEL: i32 = 305;
 const H_STATUS: i32 = 306;
 const H_INTRO: i32 = 307;
-const PAIRED_HEIGHT: i32 = 566;
+const PAIRED_HEIGHT: i32 = 592;
 const UNPAIRED_HEIGHT: i32 = 436;
 
 struct Worker {
@@ -110,6 +111,7 @@ struct State {
     scale: f32,
     hot: i32,
     autostart_on: bool,
+    files: HWND,
     pill_key: u8,
     fonts: Vec<HFONT>,
 }
@@ -326,6 +328,14 @@ impl State {
     unsafe fn show_access(&self) {
         let chosen = access_choice(self.access);
         let _ = chosen;
+        // Sending files without asking only makes sense once trusted access is on.
+        if !self.files.is_null() {
+            EnableWindow(
+                self.files,
+                i32::from(self.access.trusted && self.access_job.is_none() && !self.closing),
+            );
+            InvalidateRect(self.files, null(), 0);
+        }
         for &radio in &self.radios {
             InvalidateRect(radio, null(), 0);
             EnableWindow(radio, i32::from(self.access_job.is_none() && !self.closing));
@@ -340,6 +350,7 @@ impl State {
             trusted: choice > 0,
             allow_control: choice == 2,
             helpers: self.access.helpers,
+            files: choice > 0 && self.access.files,
         };
         let raising = choice > access_choice(self.access);
         if raising {
@@ -470,12 +481,12 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
         MoveWindow(
             self.action,
             px(28),
-            px(if self.paired { 472 } else { 322 }),
+            px(if self.paired { 498 } else { 322 }),
             px(if self.paired { 120 } else { 160 }),
             px(38),
             1,
         );
-        MoveWindow(self.stop, px(160), px(472), px(110), px(38), 1);
+        MoveWindow(self.stop, px(160), px(498), px(110), px(38), 1);
         // The window is as tall as its current view needs.
         let mut bounds = RECT {
             left: 0,
@@ -841,8 +852,13 @@ unsafe fn draw_item(state: &State, item: &DRAWITEMSTRUCT) {
         if flags.focused {
             canvas.stroke(0.0, 0.0, w, h, 6.0, p.accent, 2.0);
         }
-    } else if id == AUTOSTART {
-        let on = state.autostart_on;
+    } else if id == AUTOSTART || id == FILES {
+        let on = if id == FILES {
+            state.access.files
+        } else {
+            state.autostart_on
+        };
+        let ink = if flags.disabled { p.faint } else { p.text };
         let top = (h - 18.0) / 2.0;
         if on {
             canvas.fill(2.0, top, 18.0, 18.0, 5.0, p.accent);
@@ -856,7 +872,7 @@ unsafe fn draw_item(state: &State, item: &DRAWITEMSTRUCT) {
             (30.0, 0.0, w - 30.0, h),
             13.5,
             400,
-            p.text,
+            ink,
             ui::Align::Left,
             true,
         );
@@ -932,6 +948,15 @@ unsafe extern "system" fn procedure(
                         text((*state).status, "Could not change start at sign-in.");
                     }
                     InvalidateRect((*state).autostart, null(), 0);
+                }
+                FILES => {
+                    let wanted = !(*state).access.files;
+                    if beacon_remote_agent::set_files(wanted).is_ok() {
+                        (*state).access = beacon_remote_agent::local_access();
+                    } else {
+                        text((*state).status, "Could not change file transfer.");
+                    }
+                    InvalidateRect((*state).files, null(), 0);
                 }
                 SUPPORT_VIEW => (*state).ask_support(false),
                 SUPPORT_CONTROL => (*state).ask_support(true),
@@ -1092,6 +1117,7 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             scale: factor,
             hot: 0,
             autostart_on: autostart_enabled(),
+            files: null_mut(),
             pill_key: 255,
             fonts: Vec::new(),
         };
@@ -1343,22 +1369,33 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                 AUTOSTART,
             )?;
             state.paired_details.push(state.autostart);
+            state.files = child(
+                "BUTTON",
+                "Also let my account send files to this computer",
+                28,
+                460,
+                464,
+                24,
+                owner_draw,
+                FILES,
+            )?;
+            state.paired_details.push(state.files);
             state.action = child(
                 "BUTTON",
                 "Pair computer",
                 28,
-                if paired { 472 } else { 322 },
+                if paired { 498 } else { 322 },
                 if paired { 120 } else { 160 },
                 38,
                 owner_draw | WS_VISIBLE,
                 ACTION,
             )?;
-            state.stop = child("BUTTON", "Stop host", 160, 472, 110, 38, owner_draw, STOP)?;
+            state.stop = child("BUTTON", "Stop host", 160, 498, 110, 38, owner_draw, STOP)?;
             state.update_button = child(
                 "BUTTON",
                 "Check for updates",
                 282,
-                472,
+                498,
                 170,
                 38,
                 owner_draw,
@@ -1372,7 +1409,7 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             .into_iter()
             .enumerate()
             {
-                let button = child("BUTTON", label, x, 520, width, 38, owner_draw, id)?;
+                let button = child("BUTTON", label, x, 546, width, 38, owner_draw, id)?;
                 state.support[index] = button;
                 state.paired_details.push(button);
             }

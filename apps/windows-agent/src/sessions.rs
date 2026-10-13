@@ -125,8 +125,12 @@ impl Helpers {
             } else {
                 local.trusted && (!controlling || local.allow_control)
             };
+            // File transfer without the consent window only for this account's own sessions.
+            let files_here =
+                grant["viaRelationship"].as_bool() != Some(true) && local.trusted && local.files;
             object.remove("viaRelationship");
             object.insert("localTrusted".into(), Value::Bool(trusted_here));
+            object.insert("localFiles".into(), Value::Bool(trusted_here && files_here));
             let bytes = serde_json::to_vec(&payload)?;
             if bytes.len() > 8192 {
                 return Err("Session grant too large".into());

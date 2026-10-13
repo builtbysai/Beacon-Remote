@@ -63,6 +63,9 @@ pub struct Grant {
     // Added by the local agent only when this computer's own setting also allows trusted access.
     #[serde(default)]
     local_trusted: bool,
+    // Added by the local agent: this computer's own setting lets this account send files without asking.
+    #[serde(default)]
+    local_files: bool,
     // The display the viewer chose, from the list this computer reported. None is the primary.
     #[serde(default)]
     display_id: Option<String>,
@@ -438,6 +441,7 @@ async fn stream(
     let mut files_allowed = false;
     let by_policy = desktop && grant.approval.as_deref() == Some("policy") && grant.local_trusted;
     if by_policy {
+        files_allowed = grant.local_files;
         println!(
             "TRUSTED ACCESS: {} connected under this computer's trusted-access setting.",
             grant.controller

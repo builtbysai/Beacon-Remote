@@ -259,6 +259,7 @@ Originals are kept as captured (no re-encoding). **Do not delete these in cleanu
 | [2026-10-13-0533-paired-restyled.png](windows-host/host-window/2026-10-13-0533-paired-restyled.png) | 2026-10-13 05:33 UTC | 804x908 | Host window after the restyle, paired, centred in the work area. |
 | [2026-10-13-0533-setup-restyled.png](windows-host/host-window/2026-10-13-0533-setup-restyled.png) | 2026-10-13 05:33 UTC | 804x713 | Host window setup (unpaired) screen after the restyle. |
 | [2026-10-13-0536-title-bar-icon.png](windows-host/host-window/2026-10-13-0536-title-bar-icon.png) | 2026-10-13 05:36 UTC | 420x60 | Title bar with the embedded Beacon icon. |
+| [2026-10-13-1603-host-window-files-setting.png](windows-host/host-window/2026-10-13-1603-host-window-files-setting.png) | 2026-10-13 16:03 UTC | 804x947 | Host window with trusted access on and the new 'Also let my account send files to this computer' setting (dimmed unless trusted access is on) |
 
 ## windows-host / sharing
 

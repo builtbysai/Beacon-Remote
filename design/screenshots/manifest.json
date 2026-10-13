@@ -703,5 +703,14 @@
     "screen": "signin",
     "purpose": "Sign-in card without the decorative lock tile, with Create an account and Forgot your password links when mail is configured",
     "source": "mcp-Claude_Browser-blob-1791906246614-i9o4kt.jpg"
+  },
+  {
+    "file": "windows-host/host-window/2026-10-13-1603-host-window-files-setting.png",
+    "when": "2026-10-13 16:03 UTC",
+    "size": "804x947",
+    "platform": "windows-host",
+    "screen": "host-window",
+    "purpose": "Host window with trusted access on and the new 'Also let my account send files to this computer' setting (dimmed unless trusted access is on)",
+    "source": "host-window-files.png"
   }
 ]
