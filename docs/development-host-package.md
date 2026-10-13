@@ -32,9 +32,10 @@ in Beacon Remote first, then explicitly run the installed `Uninstall.ps1
 -ForgetIdentity` to remove the current user's local identity too. No credentials
 are carried in the archive, manifest, shortcut arguments or command lines.
 
-The package provides no Windows service, service IPC, startup/reboot recovery,
-automatic updates or rollback. Those remain independent installation
-work. It does not enable production media/input or claim consumer readiness.
+The package provides no Windows service (ADR 0022), automatic updates or rollback. The host
+window can start it when the user signs in, which restores presence after a reboot without
+re-pairing. Whether production viewing and control are on is decided by the server. The package is
+unsigned and is not a consumer release.
 
 Acceptance: verify payload hashes and tamper refusal, install into an isolated
 test profile, inspect shortcuts, execute the matching binaries' help, uninstall
