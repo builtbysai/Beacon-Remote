@@ -169,3 +169,17 @@ Open the generated HTTPS URL for the owner; the fragment is removed immediately.
 The owner enters and submits their password themselves. Invitations expire after
 30 minutes and cannot be reused. Reloading the setup page discards the token;
 issue a replacement if needed. This does not enable general registration.
+
+## Weekly restore drill
+
+`beacon-remote-restore-drill.timer` runs `restore-check` every Sunday at 05:30 UTC (after the 04:30 backup). It
+restores the latest encrypted backup into the fixed throwaway database, checks that the restored schema matches the
+live one and that accounts survived, then drops only what it created. Counts are not compared because the live
+service keeps changing (guest accounts expire); run the manual check below while writes are quiesced for that.
+Install once, after building the operations images (`docker compose build backup restore-check`):
+
+```
+sudo cp infrastructure/oracle/beacon-remote-restore-drill.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now beacon-remote-restore-drill.timer
+sudo systemctl start beacon-remote-restore-drill.service   # first drill now; see journalctl -u beacon-remote-restore-drill
+```
