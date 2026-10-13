@@ -38,6 +38,8 @@ export function LiveView({
   const [scale, setScale] = useState<"fit" | "actual">("fit");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [needsPlay, setNeedsPlay] = useState(false);
+  // The person at the computer paused sharing; screen and input are off until they resume.
+  const [peerPaused, setPeerPaused] = useState(false);
   const [displayError, setDisplayError] = useState("");
   const [status, setStatus] = useState(
     grant.source === "desktop"
@@ -133,6 +135,7 @@ export function LiveView({
     let socketClosed = () => {};
     const recoveryAbort = new AbortController();
     let resumable = false;
+    let controlGranted = true;
     let generation = 0;
     let messages = 0;
     let serial = Promise.resolve();
@@ -240,9 +243,11 @@ export function LiveView({
           if (pc.connectionState === "connected")
             setStatus(
               grant.source === "desktop"
-                ? controlling
+                ? controlling && controlGranted
                   ? "Connected — click the desktop to control. Escape releases input."
-                  : "Connected — view only."
+                  : controlling
+                    ? "Connected — view only. Control was not allowed on the computer."
+                    : "Connected — view only."
                 : "Connected — synthetic video only.",
             );
         },
@@ -316,9 +321,11 @@ export function LiveView({
       if (pc.connectionState === "connected") {
         setStatus(
           grant.source === "desktop"
-            ? controlling
+            ? controlling && controlGranted
               ? "Connected — click the desktop to control. Escape releases input."
-              : "Connected — view only."
+              : controlling
+                ? "Connected — view only. Control was not allowed on the computer."
+                : "Connected — view only."
             : "Connected — synthetic video only.",
         );
       }
@@ -404,6 +411,8 @@ export function LiveView({
                 finish("Sharing was declined on Windows.");
               else {
                 resumable = message.resumable === true;
+                // The person at the computer may allow viewing but not the control that was asked for.
+                if (message.control === false) controlGranted = false;
                 if (resumable) rememberView({ id: grant.id, name });
                 approvedAt ??= performance.now();
                 setTimings((current) => ({
@@ -452,6 +461,11 @@ export function LiveView({
               else candidates.push(candidate);
               break;
             }
+            case "paused":
+              if (typeof message.paused !== "boolean")
+                throw new Error("Invalid pause");
+              setPeerPaused(message.paused);
+              break;
             case "ended":
               finish("Session ended.");
               break;
@@ -716,6 +730,12 @@ export function LiveView({
         {(frames === 0 || ended) && (
           <p className="viewer-placeholder" aria-hidden="true">
             {status}
+          </p>
+        )}
+        {peerPaused && !ended && (
+          <p className="viewer-paused" role="status">
+            Sharing is paused by the person at the computer. Screen and input
+            resume when they choose.
           </p>
         )}
         {needsPlay && !ended && (

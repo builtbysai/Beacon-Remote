@@ -124,6 +124,15 @@ fn post_access(
     }
 }
 
+/// The host name of the server this computer is paired with, for the host window.
+pub fn paired_server() -> Option<String> {
+    let identity = load_identity().ok()?;
+    reqwest::Url::parse(&identity.server)
+        .ok()?
+        .host_str()
+        .map(str::to_owned)
+}
+
 /// A newer signed build of this host (ADR 0028). Nothing is downloaded until the person asks.
 pub struct UpdateOffer(update::Feed);
 impl UpdateOffer {

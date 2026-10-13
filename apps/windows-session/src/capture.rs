@@ -514,15 +514,19 @@ mod tests {
             let result = std::panic::catch_unwind(|| {
                 assert_ne!(SetThreadDesktop(desktop), 0);
                 assert!(!desktop_receives_input());
-                assert!(!crate::consent::request_access(
-                    "guard-test@example.invalid",
-                    Arc::new(AtomicBool::new(true)),
-                    Instant::now() + Duration::from_secs(1),
-                    false,
-                    false,
-                    "Primary display",
-                )
-                .unwrap());
+                assert_eq!(
+                    crate::consent::request_access(
+                        "guard-test@example.invalid",
+                        Arc::new(AtomicBool::new(true)),
+                        Instant::now() + Duration::from_secs(1),
+                        false,
+                        false,
+                        "Primary display",
+                        "S-0000",
+                    )
+                    .unwrap(),
+                    crate::consent::Decision::Declined
+                );
 
                 let active = Arc::new(AtomicBool::new(true));
                 assert!(crate::indicator::Indicator::start_access(
@@ -532,6 +536,7 @@ mod tests {
                     "guard-test@example.invalid".into(),
                     Some(Instant::now() + Duration::from_secs(1)),
                     false,
+                    "S-0000".into(),
                 )
                 .is_err());
                 assert!(!active.load(Ordering::Acquire));

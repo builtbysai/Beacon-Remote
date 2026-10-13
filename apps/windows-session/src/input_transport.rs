@@ -114,6 +114,11 @@ async fn run(channel: Arc<dyn DataChannel>, authority: &Authority) -> Result<(),
                     let body: Envelope = serde_json::from_slice(&message.data).map_err(|_| ())?;
                     if body.version != 1 || body.session_id != authority.session || body.lease_id != authority.session || body.sequence > 9_007_199_254_740_991 || sequence.is_some_and(|last| body.sequence <= last) { return Err(()); }
                     sequence = Some(body.sequence);
+                    // While sharing is paused nothing is injected and nothing stays pressed.
+                    if crate::pause::is_paused() {
+                        desktop.release_held();
+                        continue;
+                    }
                     desktop.input(&body.session_id, &body.lease_id, &body.input, Instant::now()).map_err(|_| ())?;
                     // A clipboard read is answered only after the lease check above, at most once a second.
                     if matches!(body.input, Input::ClipboardRead) && last_clipboard.is_none_or(|at| at.elapsed() >= Duration::from_secs(1)) {
