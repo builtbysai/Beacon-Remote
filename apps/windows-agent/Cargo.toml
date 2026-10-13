@@ -9,8 +9,8 @@ beacon-remote-core = { path = "../../crates/remote-core" }
 serde.workspace = true
 serde_json.workspace = true
 base64 = "0.23"
-ed25519-dalek = { version = "2", features = ["rand_core"] }
-rand = "0.8"
+ed25519-dalek = { version = "3", features = ["rand_core"] }
+rand = "0.10"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 uuid = { version = "1", features = ["v4"] }
 zeroize = "1"
