@@ -2,7 +2,7 @@
 #[path = "../../windows-session/src/window_style.rs"]
 mod window_style;
 
-use beacon_remote_agent::{HostError, HostStatus, LocalAccess, SupportCode};
+use beacon_remote_agent::{HostError, HostStatus, LocalAccess, SupportCode, UpdateOffer};
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
@@ -38,6 +38,7 @@ const SERVER: usize = 103;
 const NAME: usize = 104;
 const CODE: usize = 105;
 const AUTOSTART: usize = 120;
+const UPDATE: usize = 150;
 const SUPPORT_VIEW: usize = 130;
 const SUPPORT_CONTROL: usize = 131;
 const HELPERS_OFF: usize = 140;
@@ -78,6 +79,10 @@ struct State {
     access: LocalAccess,
     radios: [HWND; 3],
     helper_radios: [HWND; 3],
+    update_button: HWND,
+    update_offer: Option<UpdateOffer>,
+    update_check: Option<JoinHandle<Result<Option<UpdateOffer>, HostError>>>,
+    update_install: Option<JoinHandle<Result<(), HostError>>>,
     helpers_job: Option<(JoinHandle<Result<(), HostError>>, u8)>,
     autostart: HWND,
     support: [HWND; 2],
@@ -295,6 +300,39 @@ impl State {
         ));
         self.show_helpers();
     }
+    // Updates are signed by the Beacon Remote update key and only ever installed when asked for.
+    unsafe fn update_clicked(&mut self, window: HWND) {
+        if self.update_check.is_some() || self.update_install.is_some() || self.closing {
+            return;
+        }
+        let Some(offer) = &self.update_offer else {
+            text(self.status, "Checking for updates…");
+            self.update_check = Some(thread::spawn(beacon_remote_agent::check_for_update));
+            EnableWindow(self.update_button, 0);
+            return;
+        };
+        let message = format!(
+            "Install {}?
+
+Beacon Remote will close and start again. Any sharing stops while it updates, and the previous version is kept in case it needs to be put back.",
+            offer.version()
+        );
+        if MessageBoxW(
+            window,
+            wide(&message).as_ptr(),
+            wide("Install update").as_ptr(),
+            MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2,
+        ) != IDYES
+        {
+            return;
+        }
+        text(self.status, "Downloading and checking the update…");
+        let offer = self.update_offer.take().unwrap();
+        self.update_install = Some(thread::spawn(move || {
+            beacon_remote_agent::install_update(&offer)
+        }));
+        EnableWindow(self.update_button, 0);
+    }
     unsafe fn ask_support(&mut self, control: bool) {
         if self.support_job.is_some() || self.closing || !self.paired {
             return;
@@ -419,6 +457,46 @@ impl State {
             }
         }
         if self
+            .update_check
+            .as_ref()
+            .is_some_and(|job| job.is_finished())
+        {
+            match self.update_check.take().unwrap().join() {
+                Ok(Ok(Some(offer))) => {
+                    text(
+                        self.status,
+                        &format!("{} is available. Select Install update.", offer.version()),
+                    );
+                    text(self.update_button, "Install update");
+                    self.update_offer = Some(offer);
+                }
+                Ok(Ok(None)) => text(self.status, "This host is up to date."),
+                _ => text(
+                    self.status,
+                    "Could not check for updates. Check your network and try again.",
+                ),
+            }
+            EnableWindow(self.update_button, i32::from(!self.closing));
+        }
+        if self
+            .update_install
+            .as_ref()
+            .is_some_and(|job| job.is_finished())
+        {
+            if matches!(self.update_install.take().unwrap().join(), Ok(Ok(()))) {
+                // The updater waits for this process to exit, then swaps the files and restarts.
+                self.closing = true;
+                PostMessageW(window, WM_CLOSE, 0, 0);
+            } else {
+                text(
+                    self.status,
+                    "The update could not be installed. Nothing was changed.",
+                );
+                text(self.update_button, "Check for updates");
+                EnableWindow(self.update_button, i32::from(!self.closing));
+            }
+        }
+        if self
             .helpers_job
             .as_ref()
             .is_some_and(|(job, _)| job.is_finished())
@@ -527,6 +605,7 @@ unsafe extern "system" fn procedure(
                 }
                 SUPPORT_VIEW => (*state).ask_support(false),
                 SUPPORT_CONTROL => (*state).ask_support(true),
+                UPDATE => (*state).update_clicked(window),
                 HELPERS_OFF => (*state).choose_helpers(window, 0),
                 HELPERS_VIEW => (*state).choose_helpers(window, 1),
                 HELPERS_CONTROL => (*state).choose_helpers(window, 2),
@@ -669,6 +748,10 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             access: beacon_remote_agent::local_access(),
             radios: [null_mut(); 3],
             helper_radios: [null_mut(); 3],
+            update_button: null_mut(),
+            update_offer: None,
+            update_check: None,
+            update_install: None,
             helpers_job: None,
             autostart: null_mut(),
             support: [null_mut(); 2],
@@ -913,6 +996,17 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                 ACTION,
             )?;
             state.stop = child("BUTTON", "Stop host", 216, 480, 156, 34, WS_TABSTOP, STOP)?;
+            state.update_button = child(
+                "BUTTON",
+                "Check for updates",
+                388,
+                480,
+                164,
+                34,
+                WS_TABSTOP,
+                UPDATE,
+            )?;
+            state.paired_details.push(state.update_button);
             for (index, (label, id, x, width)) in [
                 ("Support code: view only", SUPPORT_VIEW, 28, 250),
                 ("Support code: view and control", SUPPORT_CONTROL, 294, 258),

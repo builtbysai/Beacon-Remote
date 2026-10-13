@@ -1,7 +1,9 @@
-// Writes the downloads manifest for a built development package. Usage:
-//   node scripts/publish-download.mjs dist/BeaconRemoteDevelopment-<commit>.zip <out-dir>
-// Copy the zip and manifest.json to the server's /opt/beacon-remote/downloads (manifest last).
-import { createHash } from "node:crypto";
+// Writes the downloads manifest for a built development package, and signs it for host updates
+// (ADR 0028) when a private key is given. Usage:
+//   node scripts/publish-download.mjs dist/BeaconRemoteDevelopment-<commit>.zip <out-dir> [key.pem]
+// Copy the zip, then manifest.json and manifest.sig, to the server's /opt/beacon-remote/downloads
+// (manifest.json and manifest.sig last, in that order, so a signature never refers to a missing zip).
+import { createHash, createPrivateKey, sign } from "node:crypto";
 import {
   copyFileSync,
   mkdirSync,
@@ -11,7 +13,7 @@ import {
 } from "node:fs";
 import { basename, join } from "node:path";
 
-const [zip, out] = process.argv.slice(2);
+const [zip, out, keyPath] = process.argv.slice(2);
 if (!zip || !out)
   throw new Error("usage: publish-download.mjs <zip> <out-dir>");
 const file = basename(zip);
@@ -20,8 +22,7 @@ if (!match) throw new Error("unexpected package name");
 const bytes = readFileSync(zip);
 mkdirSync(out, { recursive: true });
 copyFileSync(zip, join(out, file));
-writeFileSync(
-  join(out, "manifest.json"),
+const manifest =
   JSON.stringify(
     {
       version: `development-${match[1]}`,
@@ -29,10 +30,21 @@ writeFileSync(
       file,
       bytes: statSync(zip).size,
       sha256: createHash("sha256").update(bytes).digest("hex"),
+      // Hosts only accept a feed newer than the last one they installed, so an old signed manifest
+      // cannot be replayed to roll them back.
+      sequence: Math.floor(Date.now() / 1000),
       publishedAt: new Date().toISOString(),
     },
     null,
     2,
-  ) + "\n",
-);
+  ) + "\n";
+writeFileSync(join(out, "manifest.json"), manifest);
+if (keyPath) {
+  const key = createPrivateKey(readFileSync(keyPath));
+  writeFileSync(
+    join(out, "manifest.sig"),
+    sign(null, Buffer.from(manifest), key).toString("base64") + "\n",
+  );
+  console.log(`Signed ${join(out, "manifest.json")}`);
+}
 console.log(`Wrote ${join(out, "manifest.json")}`);
