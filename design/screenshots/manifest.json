@@ -694,5 +694,14 @@
     "screen": "sharing",
     "purpose": "Sharing window while file transfer is allowed: the row announces the last received file (CON.txt was saved as _CON.txt)",
     "source": "sharing-files.png"
+  },
+  {
+    "file": "design-review/signin/2026-10-13-1544-signin-with-signup.jpg",
+    "when": "2026-10-13 15:44 UTC",
+    "size": "799x609",
+    "platform": "design-review",
+    "screen": "signin",
+    "purpose": "Sign-in card without the decorative lock tile, with Create an account and Forgot your password links when mail is configured",
+    "source": "mcp-Claude_Browser-blob-1791906246614-i9o4kt.jpg"
   }
 ]

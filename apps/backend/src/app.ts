@@ -29,6 +29,8 @@ import type { Config } from "./config.js";
 import { registerSessions } from "./sessions.js";
 import { registerAccountData } from "./account-data.js";
 import { registerMfa } from "./mfa.js";
+import { createMailer, type Mailer } from "./mail.js";
+import { registerSignup } from "./signup.js";
 
 // A support code is typed by hand, so it is short-lived and single-use.
 const SUPPORT_CODE_MINUTES = 15;
@@ -38,7 +40,11 @@ const login = z
   .object({ email: z.email().max(254), password: z.string().min(1).max(512) })
   .strict();
 
-export async function createApp(pool: Pool, config: Config) {
+export async function createApp(
+  pool: Pool,
+  config: Config,
+  options: { mailer?: Mailer | null } = {},
+) {
   const app = Fastify({
     bodyLimit: 4096,
     logger:
@@ -179,6 +185,15 @@ export async function createApp(pool: Pool, config: Config) {
       maxAge: 8 * 3600,
     });
   }
+  registerSignup(
+    app,
+    pool,
+    config,
+    options.mailer === undefined ? createMailer(config) : options.mailer,
+    sameOrigin,
+    startSession,
+    setSessionCookie,
+  );
   const mfa = registerMfa(
     app,
     pool,
@@ -312,8 +327,12 @@ export async function createApp(pool: Pool, config: Config) {
       const parsed = login.safeParse(request.body);
       if (!parsed.success)
         return reply.code(400).send({ error: "Invalid login" });
-      const result = await pool.query<{ id: string; password_hash: string }>(
-        "SELECT id,password_hash FROM accounts WHERE email=$1 AND guest_expires_at IS NULL",
+      const result = await pool.query<{
+        id: string;
+        password_hash: string;
+        email_verified: boolean;
+      }>(
+        "SELECT id,password_hash,email_verified FROM accounts WHERE email=$1 AND guest_expires_at IS NULL",
         [parsed.data.email.toLowerCase()],
       );
       const account = result.rows[0];
@@ -323,6 +342,11 @@ export async function createApp(pool: Pool, config: Config) {
       );
       if (!valid || !account)
         return reply.code(401).send({ error: "Invalid login" });
+      // Only after the right password is it said that the address still needs confirming.
+      if (!account.email_verified)
+        return reply
+          .code(403)
+          .send({ error: "Confirm your email first", unverified: true });
       // With two-step sign-in on, the password alone starts nothing: the browser gets a short-lived
       // challenge and must present a code before any session exists.
       if (mfa.available && (await mfa.enabled(account.id)))

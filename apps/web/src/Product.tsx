@@ -14,7 +14,9 @@ export type Page =
   | "settings";
 
 export function pageFromHash(): Page {
-  const page = window.location.hash.slice(1);
+  const raw = window.location.hash.slice(1);
+  // Sign-up and password-reset are views of the sign-in card.
+  const page = raw === "signup" || raw === "forgot" ? "signin" : raw;
   return [
     "signin",
     "computers",

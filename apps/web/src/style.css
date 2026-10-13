@@ -2230,3 +2230,7 @@ button.danger {
     gap: 28px;
   }
 }
+
+.note a {
+  text-decoration: underline;
+}
