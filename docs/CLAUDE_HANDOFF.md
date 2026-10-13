@@ -2,6 +2,14 @@
 
 **Prepared 2026-10-10.** This is a continuation document, not a statement that every feature or release gate is complete. Recheck GitHub and the actual machines before acting.
 
+> **Superseded in part (2026-10-13).** Production now runs sessions, remote control and the dedicated relay, and the
+> product has grown well past what is described below: access modes, MFA and recovery, signed updates, the native
+> windows, adaptive video, the per-user installer, file transfer, guest support and email sign-up (closed until mail
+> is configured). **Read `docs/roadmap.md` (status per feature) and ADRs 0021 to 0032 first**; where this
+> document or the other dated validation notes disagree with them, they win. Statements below that production
+> media or control is disabled, that milestone 4 is the active gate, or that features such as file transfer or
+> other operating systems are out of scope are historical.
+
 The next viewer recovery slice ends a browser request on peer loss immediately,
 matching the native helper, and scopes autoplay/manual Play results to the
 original session lifetime. It clears ended playback controls and preserves
