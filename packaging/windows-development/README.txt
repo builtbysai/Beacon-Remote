@@ -20,8 +20,8 @@ If your policy blocks unsigned scripts, use an approved signing/testing process.
    Plain Uninstall preserves identity for deliberate reinstall and leaves
    unrecognized files alone. Stop the agent and helper before uninstalling.
 
-No Windows service, service IPC, reboot recovery, update or rollback exists
-in this package yet. The native host uses a private anonymous child pipe for
+No Windows service (ADR 0022) or automatic update exists in this package. The host
+can start at sign-in and can check for signed updates when you ask (ADR 0028). The native host uses a private anonymous child pipe for
 graceful helper cancellation, not a public local command endpoint. Desktop/control
 production gates remain disabled. The host clears development input enablement. Owner-device
 install/pair/view/stop/uninstall acceptance is required before distribution.
