@@ -192,7 +192,16 @@ export async function registerSessions(
       `SELECT s.id, m.name AS "machineName", s.source, s.capability,
        CASE WHEN NOT ${liveDuration("s")} AND s.status IN ('requested','connecting','active') THEN 'expired' ELSE s.status END AS status,
        s.created_at AS "createdAt", s.expires_at AS "expiresAt",
-       CASE WHEN s.account_id<>$1 THEN (SELECT CASE WHEN guest_expires_at IS NOT NULL THEN 'Guest helper (no account)' ELSE email END FROM accounts WHERE id=s.account_id) END AS "controller"
+       CASE WHEN s.account_id<>$1 THEN (SELECT CASE WHEN guest_expires_at IS NOT NULL THEN 'Guest helper (no account)' ELSE email END FROM accounts WHERE id=s.account_id) END AS "controller",
+       (SELECT jsonb_build_object(
+          'samples', count(*),
+          'route', mode() WITHIN GROUP (ORDER BY q.route),
+          'height', max(q.height),
+          'fps', round(avg(q.fps)::numeric,0),
+          'rttMs', round(avg(q.rtt_ms)::numeric,0),
+          'rttP95Ms', round((percentile_cont(0.95) WITHIN GROUP (ORDER BY q.rtt_ms))::numeric,0),
+          'lossPct', round(avg(q.loss_pct)::numeric,1))
+        FROM session_quality q WHERE q.session_id=s.id HAVING count(*)>0) AS "quality"
        FROM view_sessions s JOIN machines m ON m.id=s.machine_id
        WHERE (s.account_id=$1 OR m.account_id=$1) AND ($2::uuid IS NULL OR s.machine_id=$2)
        ORDER BY s.created_at DESC,s.id LIMIT 100`,
@@ -200,6 +209,48 @@ export async function registerSessions(
     );
     return { available: true, sessions: result.rows };
   });
+  // The viewer reports a few measured numbers every so often while a session runs. Only the session's own
+  // viewer may add them, at most one sample every eight seconds and a bounded number per session.
+  app.post(
+    "/api/sessions/:id/quality",
+    { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      if (request.headers.origin !== config.WEB_ORIGIN)
+        return reply.code(403).send({ error: "Origin rejected" });
+      const account = await owner(request);
+      if (!account) return reply.code(401).send({ error: "Sign in required" });
+      const path = z.object({ id: z.uuid() }).safeParse(request.params);
+      const sample = z
+        .object({
+          route: z.enum(["Direct", "Relayed", "Unavailable"]),
+          height: z.number().int().min(0).max(4320).nullable(),
+          fps: z.number().min(0).max(240).nullable(),
+          rttMs: z.number().min(0).max(60000).nullable(),
+          lossPct: z.number().min(0).max(100).nullable(),
+        })
+        .strict()
+        .safeParse(request.body);
+      if (!path.success || !sample.success)
+        return reply.code(400).send({ error: "Invalid sample" });
+      const inserted = await pool.query(
+        `INSERT INTO session_quality(session_id,route,height,fps,rtt_ms,loss_pct)
+         SELECT s.id,$3,$4,$5,$6,$7 FROM view_sessions s
+         WHERE s.id=$1 AND s.account_id=$2 AND s.status IN ('connecting','active')
+           AND NOT EXISTS (SELECT 1 FROM session_quality q WHERE q.session_id=s.id AND q.sampled_at>now()-interval '8 seconds')
+           AND (SELECT count(*) FROM session_quality q WHERE q.session_id=s.id)<600`,
+        [
+          path.data.id,
+          account,
+          sample.data.route,
+          sample.data.height,
+          sample.data.fps,
+          sample.data.rttMs,
+          sample.data.lossPct,
+        ],
+      );
+      return reply.code(inserted.rowCount ? 204 : 202).send();
+    },
+  );
   const iceServers = [
     { urls: [config.STUN_URL ?? "stun:129.213.128.206:3478"] },
   ];

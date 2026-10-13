@@ -2143,7 +2143,10 @@ li {
 .session-table-head,
 .session-table li {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) 90px 110px minmax(150px, 1fr);
+  grid-template-columns: minmax(0, 1.3fr) 80px 100px minmax(0, 1.5fr) minmax(
+      150px,
+      1fr
+    );
   gap: 14px;
   align-items: center;
   padding: 0 16px;
