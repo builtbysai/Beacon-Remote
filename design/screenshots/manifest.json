@@ -614,5 +614,36 @@
     "screen": "relay",
     "purpose": "Synthetic video playing through the dedicated Remote relay (validation evidence).",
     "source": "file on disk"
+  },
+  {
+    "file": "design-review/computers/2026-10-13-0606-computers-list-before.jpg",
+    "when": "2026-10-13 06:06 UTC",
+    "size": "800x500",
+    "platform": "design-review",
+    "screen": "computers",
+    "purpose": "Computers list before redesign: identical primary button on every row, disabled buttons, no last-seen or access columns",
+    "pair": "computers-list",
+    "role": "before",
+    "source": "mcp-Claude_Browser-blob-1791871569908-9cepg0.jpg"
+  },
+  {
+    "file": "design-review/computers/2026-10-13-0607-computers-list-after.jpg",
+    "when": "2026-10-13 06:07 UTC",
+    "size": "800x500",
+    "platform": "design-review",
+    "screen": "computers",
+    "purpose": "Computers list after redesign: dense table, access and last-seen columns, one quiet action only for online computers",
+    "pair": "computers-list",
+    "role": "after",
+    "source": "mcp-Claude_Browser-blob-1791871650887-zkb53w.jpg"
+  },
+  {
+    "file": "design-review/computers/2026-10-13-0608-computers-list-phone.jpg",
+    "when": "2026-10-13 06:08 UTC",
+    "size": "750x1624",
+    "platform": "design-review",
+    "screen": "computers",
+    "purpose": "Computers list after redesign at 375 px: Access column drops, name, last seen and action remain",
+    "source": "mcp-Claude_Browser-blob-1791871687994-bse5dg.jpg"
   }
 ]

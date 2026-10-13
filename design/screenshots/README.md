@@ -40,6 +40,14 @@ Originals are kept as captured (no re-encoding). **Do not delete these in cleanu
 | [2026-10-13-0503-soft-keyboard-open.png](android-chrome/viewer/2026-10-13-0503-soft-keyboard-open.png)                 | 2026-10-13 05:03 UTC | 900x2000 | Android soft keyboard open to type on the remote computer (autofill suggestion visible). |
 | [2026-10-13-0552-full-screen-landscape-menu.jpg](android-chrome/viewer/2026-10-13-0552-full-screen-landscape-menu.jpg) | 2026-10-13 05:52 UTC | 2000x900 | AFTER: landscape full screen on the phone with the toolbar folded into one Menu button.  |
 
+## design-review / computers
+
+| File                                                                                                           | When                 | Size     | What it shows                                                                                                                                     |
+| -------------------------------------------------------------------------------------------------------------- | -------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [2026-10-13-0606-computers-list-before.jpg](design-review/computers/2026-10-13-0606-computers-list-before.jpg) | 2026-10-13 06:06 UTC | 800x500  | Computers list before redesign: identical primary button on every row, disabled buttons, no last-seen or access columns (before · computers-list) |
+| [2026-10-13-0607-computers-list-after.jpg](design-review/computers/2026-10-13-0607-computers-list-after.jpg)   | 2026-10-13 06:07 UTC | 800x500  | Computers list after redesign: dense table, access and last-seen columns, one quiet action only for online computers (after · computers-list)     |
+| [2026-10-13-0608-computers-list-phone.jpg](design-review/computers/2026-10-13-0608-computers-list-phone.jpg)   | 2026-10-13 06:08 UTC | 750x1624 | Computers list after redesign at 375 px: Access column drops, name, last seen and action remain                                                   |
+
 ## reference / connecting
 
 | File                                                                 | When       | Size        | What it shows                                                                                   |
