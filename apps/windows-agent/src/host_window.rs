@@ -19,7 +19,8 @@ use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::{GetSysColorBrush, COLOR_WINDOW},
     System::{
-        LibraryLoader::GetModuleHandleW, SystemServices::SS_NOPREFIX, Threading::CreateMutexW,
+        LibraryLoader::GetModuleHandleW, Registry::*, SystemServices::SS_NOPREFIX,
+        Threading::CreateMutexW,
     },
     UI::{
         Controls::EM_SETLIMITTEXT,
@@ -36,6 +37,7 @@ const STOP: usize = 102;
 const SERVER: usize = 103;
 const NAME: usize = 104;
 const CODE: usize = 105;
+const AUTOSTART: usize = 120;
 const ACCESS_ASK: usize = 110;
 const ACCESS_VIEW: usize = 111;
 const ACCESS_CONTROL: usize = 112;
@@ -70,7 +72,93 @@ struct State {
     taskbar_created: u32,
     access: LocalAccess,
     radios: [HWND; 3],
+    autostart: HWND,
     access_job: Option<(JoinHandle<Result<(), HostError>>, LocalAccess)>,
+}
+// Starting at sign-in is a visible, per-user choice made here. No service or elevation is involved.
+const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+const RUN_VALUE: &str = "BeaconRemoteHost";
+fn autostart_command() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    Some(format!("\"{}\" --background", exe.display()))
+}
+fn autostart_enabled() -> bool {
+    unsafe {
+        let mut key = null_mut();
+        if RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            wide(RUN_KEY).as_ptr(),
+            0,
+            KEY_QUERY_VALUE,
+            &mut key,
+        ) != 0
+        {
+            return false;
+        }
+        let mut size = 0u32;
+        let found = RegQueryValueExW(
+            key,
+            wide(RUN_VALUE).as_ptr(),
+            null(),
+            null_mut(),
+            null_mut(),
+            &mut size,
+        ) == 0;
+        let mut buffer = vec![0u16; (size as usize / 2).max(1)];
+        let mut length = (buffer.len() * 2) as u32;
+        let read = found
+            && RegQueryValueExW(
+                key,
+                wide(RUN_VALUE).as_ptr(),
+                null(),
+                null_mut(),
+                buffer.as_mut_ptr().cast(),
+                &mut length,
+            ) == 0;
+        RegCloseKey(key);
+        let value = String::from_utf16_lossy(&buffer[..(length as usize / 2).min(buffer.len())]);
+        read && Some(value.trim_end_matches('\0').to_string()) == autostart_command()
+    }
+}
+fn set_autostart(enabled: bool) -> bool {
+    unsafe {
+        let mut key = null_mut();
+        if RegCreateKeyExW(
+            HKEY_CURRENT_USER,
+            wide(RUN_KEY).as_ptr(),
+            0,
+            null(),
+            0,
+            KEY_SET_VALUE,
+            null(),
+            &mut key,
+            null_mut(),
+        ) != 0
+        {
+            return false;
+        }
+        let ok = if enabled {
+            match autostart_command() {
+                Some(command) => {
+                    let value = wide(&command);
+                    RegSetValueExW(
+                        key,
+                        wide(RUN_VALUE).as_ptr(),
+                        0,
+                        REG_SZ,
+                        value.as_ptr().cast(),
+                        (value.len() * 2) as u32,
+                    ) == 0
+                }
+                None => false,
+            }
+        } else {
+            let result = RegDeleteValueW(key, wide(RUN_VALUE).as_ptr());
+            result == 0 || result == ERROR_FILE_NOT_FOUND
+        };
+        RegCloseKey(key);
+        ok
+    }
 }
 fn access_choice(access: LocalAccess) -> usize {
     match (access.trusted, access.allow_control) {
@@ -323,6 +411,13 @@ unsafe extern "system" fn procedure(
             match wparam & 0xffff {
                 ACTION => (*state).start(),
                 STOP => (*state).stop(),
+                AUTOSTART => {
+                    let wanted = SendMessageW((*state).autostart, BM_GETCHECK, 0, 0) == 1;
+                    if !set_autostart(wanted) {
+                        text((*state).status, "Could not change start at sign-in.");
+                        SendMessageW((*state).autostart, BM_SETCHECK, usize::from(!wanted), 0);
+                    }
+                }
                 ACCESS_ASK => (*state).choose_access(window, 0),
                 ACCESS_VIEW => (*state).choose_access(window, 1),
                 ACCESS_CONTROL => (*state).choose_access(window, 2),
@@ -402,7 +497,7 @@ unsafe extern "system" fn procedure(
     DefWindowProcW(window, message, wparam, lparam)
 }
 
-pub fn show() -> Result<(), io::Error> {
+pub fn show(background: bool) -> Result<(), io::Error> {
     unsafe {
         let local = std::env::var_os("LOCALAPPDATA")
             .ok_or_else(|| io::Error::other("LOCALAPPDATA required"))?;
@@ -461,6 +556,7 @@ pub fn show() -> Result<(), io::Error> {
             taskbar_created: RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()),
             access: beacon_remote_agent::local_access(),
             radios: [null_mut(); 3],
+            autostart: null_mut(),
             access_job: None,
         };
         let style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
@@ -630,6 +726,23 @@ pub fn show() -> Result<(), io::Error> {
                 state.radios[index] = radio;
                 state.paired_details.push(radio);
             }
+            state.autostart = child(
+                "BUTTON",
+                "Start Beacon Remote when I sign in to Windows",
+                28,
+                386,
+                524,
+                24,
+                WS_TABSTOP | BS_AUTOCHECKBOX as u32,
+                AUTOSTART,
+            )?;
+            SendMessageW(
+                state.autostart,
+                BM_SETCHECK,
+                usize::from(autostart_enabled()),
+                0,
+            );
+            state.paired_details.push(state.autostart);
             state.show_access();
             state.status = child(
                 "STATIC",
@@ -639,9 +752,9 @@ pub fn show() -> Result<(), io::Error> {
                     "Not paired · Generate a code in your signed-in workspace."
                 },
                 28,
-                393,
+                418,
                 524,
-                52,
+                38,
                 SS_NOPREFIX,
                 0,
             )?;
@@ -670,7 +783,14 @@ pub fn show() -> Result<(), io::Error> {
             return Err(io::Error::last_os_error());
         }
         state.tray = Shell_NotifyIconW(NIM_ADD, &tray_data(window, "Beacon Remote host")) != 0;
-        ShowWindow(window, SW_SHOW);
+        // Started at sign-in: go straight to the tray and bring the host online. The owner chose
+        // this above, and the tray icon and sharing indicator stay visible.
+        if background && state.paired && state.tray {
+            ShowWindow(window, SW_HIDE);
+            state.start();
+        } else {
+            ShowWindow(window, SW_SHOW);
+        }
         SetFocus(if state.paired {
             state.action
         } else {
