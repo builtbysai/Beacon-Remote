@@ -152,23 +152,15 @@ resuming still validates the original login, current helper and unchanged
 deadline. Include real refresh/Stop/lock/expiry checks when staging that pair.
 The native loopback recovery regression opens no consent dialog or capture.
 
-## Sessions without a fixed development duration
+## Session duration and reconnection
 
-The isolated loopback development fixture can set `DEV_SESSION_UNLIMITED=true`
-on the backend and `REMOTE_DEV_SESSION_UNLIMITED=true` on its matching native
-helper. Backend startup rejects this mode in production, without `SESSION_SECRET`,
-with a non-loopback web origin, or with TURN configured. Ordinary deployments
-retain finite session grants. Apply migration `004_development_session_duration.sql`
-and restart the isolated backend/helper together before testing this mode.
-
-An unlimited development grant uses `expiresAtMillis: 0` and a nullable database
-expiry. The browser displays “Until stopped”; it has no fixed session timer.
-Pending approval still expires after two minutes, and accepting an old request
-is rejected. Live authorization renewals still expire after three seconds;
-Stop, revoked identity, expired browser login, lost control transport, lock and
-backend/helper restart still end access. This setting does not enable input:
-the separate development control switches and local control approval remain required.
-No relay or production deployment is changed by this fixture mode.
+Sessions have no two-minute limit anywhere (ADR 0021). Clients see
+`expiresAtMillis: 0` and the browser shows “Until stopped”; the server keeps an
+absolute safety cap (`SESSION_MAX_HOURS`, default 12, 1–24). A dropped viewer may
+reconnect for `RECONNECT_WINDOW_SECONDS` (default 120 attended, 300 trusted; 5–900).
+A pending request still expires after two minutes, and the three-second authorization
+lease, Stop, revocation, lock and a lowered access policy still end a session.
+Migrations are applied in order by `applyMigrations` and must be safe to re-run.
 
 ## Shared infrastructure contract
 
@@ -227,10 +219,9 @@ recover old artifacts without editing each other's repository.
 See [input-development.md](input-development.md). The explicit fixture uses
 loopback 3011/5175 and a fresh disposable schema in Remote's `_test` database,
 without modifying the ordinary 3010/5174 launcher or its ownership state. Native
-control is disabled unless `REMOTE_DEV_CONTROL=true`; backend control additionally
-requires `DEV_CONTROL_ENABLED=true` outside production. Ordinary local startup
-strips both switches along with media configuration. Matching helper binaries
-and manual Windows Allow control are required. No production rollout.
+control is offered only when the backend sets `CONTROL_ENABLED=true` (which needs
+`SESSION_SECRET`). Matching helper binaries and either manual Windows Allow control
+or the computer's own trusted-access setting are required. No production rollout.
 
 ## Internal Windows development package
 

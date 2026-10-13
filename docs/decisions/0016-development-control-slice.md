@@ -1,5 +1,7 @@
 # 0016 — Independent implementation and attended development control
 
+> Superseded in part by [ADR 0021](0021-access-policy-and-session-lifecycle.md): control sessions are no longer limited to two minutes, and a computer may be set to trusted access.
+
 Date: 2026-10-12
 
 The owner explicitly replaced sequential milestone implementation with independent

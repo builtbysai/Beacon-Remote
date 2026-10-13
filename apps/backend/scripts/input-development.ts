@@ -17,8 +17,6 @@ import { createApp } from "../src/app.js";
 import { heartbeatMessage } from "../../../packages/protocol/src/index.js";
 import { applyMigrations } from "../src/migrations.js";
 
-if (process.env.REMOTE_DEV_CONTROL !== "true")
-  throw new Error("Set REMOTE_DEV_CONTROL=true for this development fixture");
 if (process.platform !== "win32")
   throw new Error("Windows interactive session required");
 const root = resolve(import.meta.dirname, "../../..");
@@ -179,10 +177,7 @@ try {
           resolve(root, "target/release/beacon-remote-session.exe"),
           ["media-test"],
           {
-            env: {
-              ...process.env,
-              REMOTE_DEV_CONTROL: "true",
-            },
+            env: process.env,
             stdio: ["pipe", "inherit", "inherit"],
           },
         );

@@ -5,9 +5,6 @@
 mod host_window;
 
 fn main() {
-    // The consumer GUI never inherits development-only control or duration overrides.
-    std::env::remove_var("REMOTE_DEV_CONTROL");
-    std::env::remove_var("REMOTE_DEV_SESSION_UNLIMITED");
     #[cfg(windows)]
     if host_window::show(std::env::args().any(|argument| argument == "--background")).is_err() {
         host_window::show_startup_error();

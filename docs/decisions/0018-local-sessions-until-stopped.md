@@ -1,5 +1,7 @@
 # Local development sessions until stopped
 
+> Superseded by [ADR 0021](0021-access-policy-and-session-lifecycle.md): the `DEV_SESSION_UNLIMITED` and `REMOTE_DEV_*` switches are gone; open-ended sessions are the normal behaviour with a server-side cap.
+
 The owner requested removal of the demonstration timeout after its two-minute
 cutoff interrupted real input acceptance. The isolated loopback fixture now runs
 until explicitly stopped. Approved sessions have no fixed maximum duration.

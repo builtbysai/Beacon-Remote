@@ -5,7 +5,6 @@ viewing/control remain disabled. Start Docker's existing Remote PostgreSQL and
 build matching Windows binaries using `scripts/Test-RemoteCi.ps1 -NativeOnly`.
 
 ```powershell
-$env:REMOTE_DEV_CONTROL = 'true'
 pnpm --filter @beacon-remote/backend exec tsx scripts/input-development.ts
 ```
 
@@ -16,7 +15,7 @@ pairing API and signs heartbeats. It launches the matching native helper only wh
 a request exists. Login details are in ignored `.remote-dev/input-development/login.json`;
 never copy that file into evidence or Git. The fixture runs until explicitly stopped
 and reuses those local demo credentials across restarts. Active sessions have no
-fixed duration in this loopback-only mode. A pending request still requires approval
+fixed duration. A pending request still requires approval
 within two minutes. If a prior
 STOP marker exists, remove it deliberately before a new run.
 
