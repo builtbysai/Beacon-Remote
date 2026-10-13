@@ -43,6 +43,9 @@ pub struct EncodedFrame {
 
 pub struct Encoder {
     transform: IMFTransform,
+    // Set for a hardware (asynchronous) transform: its work is driven by events, not by polling output.
+    events: Option<IMFMediaEventGenerator>,
+    need_input: u32,
     width: u32,
     height: u32,
     fps: u32,
@@ -51,7 +54,21 @@ pub struct Encoder {
 }
 
 impl Encoder {
+    /// The graphics card's H.264 encoder when it works (far less CPU), otherwise the inbox software one.
+    /// `BEACON_SOFTWARE_ENCODER=1` forces software.
     pub fn new(width: u32, height: u32, fps: u32, bitrate: u32) -> Result<Self, Error> {
+        if std::env::var_os("BEACON_SOFTWARE_ENCODER").is_none() {
+            match Self::hardware(width, height, fps, bitrate) {
+                Ok(encoder) => return Ok(encoder),
+                Err(error) => {
+                    println!("Hardware H.264 encoder unavailable ({error}); using software.")
+                }
+            }
+        }
+        Self::software(width, height, fps, bitrate)
+    }
+
+    fn check(width: u32, height: u32, fps: u32, bitrate: u32) -> Result<(), Error> {
         if width == 0
             || height == 0
             || width > 1920
@@ -64,8 +81,13 @@ impl Encoder {
         {
             return Err("Invalid bounded encoder configuration".into());
         }
+        Ok(())
+    }
+
+    pub fn software(width: u32, height: u32, fps: u32, bitrate: u32) -> Result<Self, Error> {
+        Self::check(width, height, fps, bitrate)?;
         let runtime = Runtime::start()?;
-        // Explicit inbox software MFT: hardware enumeration is reported separately.
+        // Explicit inbox software MFT.
         let transform: IMFTransform =
             unsafe { CoCreateInstance(&CLSID_MSH264EncoderMFT, None, CLSCTX_INPROC_SERVER)? };
         unsafe {
@@ -85,11 +107,150 @@ impl Encoder {
         }
         Ok(Self {
             transform,
+            events: None,
+            need_input: 0,
             width,
             height,
             fps,
             _runtime: runtime,
         })
+    }
+
+    /// The first hardware H.264 encoder, proven by encoding a few blank frames before it is trusted.
+    fn hardware(width: u32, height: u32, fps: u32, bitrate: u32) -> Result<Self, Error> {
+        Self::check(width, height, fps, bitrate)?;
+        let runtime = Runtime::start()?;
+        let input_type = MFT_REGISTER_TYPE_INFO {
+            guidMajorType: MFMediaType_Video,
+            guidSubtype: MFVideoFormat_NV12,
+        };
+        let output_type = MFT_REGISTER_TYPE_INFO {
+            guidMajorType: MFMediaType_Video,
+            guidSubtype: MFVideoFormat_H264,
+        };
+        let transform: IMFTransform = unsafe {
+            let mut pointer = std::ptr::null_mut();
+            let mut count = 0;
+            MFTEnumEx(
+                MFT_CATEGORY_VIDEO_ENCODER,
+                MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER,
+                Some(&input_type),
+                Some(&output_type),
+                &mut pointer,
+                &mut count,
+            )?;
+            if count == 0 || pointer.is_null() {
+                return Err("no hardware encoder".into());
+            }
+            let mut found = None;
+            for activation in std::slice::from_raw_parts_mut(pointer, count as usize) {
+                if let Some(activation) = activation.take() {
+                    if found.is_none() {
+                        found = activation.ActivateObject::<IMFTransform>().ok();
+                    }
+                }
+            }
+            CoTaskMemFree(Some(pointer.cast()));
+            found.ok_or("hardware encoder could not be activated")?
+        };
+        unsafe {
+            let attributes = transform.GetAttributes()?;
+            if attributes.GetUINT32(&MF_TRANSFORM_ASYNC).unwrap_or(0) == 0 {
+                return Err("hardware encoder is not asynchronous".into());
+            }
+            attributes.SetUINT32(&MF_TRANSFORM_ASYNC_UNLOCK, 1)?;
+            attributes.SetUINT32(&MF_LOW_LATENCY, 1)?;
+            let codec: ICodecAPI = transform.cast()?;
+            let _ = codec.SetValue(&CODECAPI_AVLowLatencyMode, &VARIANT::from(true));
+            let _ = codec.SetValue(&CODECAPI_AVEncMPVDefaultBPictureCount, &VARIANT::from(0u32));
+            let _ = codec.SetValue(&CODECAPI_AVEncMPVGOPSize, &VARIANT::from(fps));
+            let _ = codec.SetValue(&CODECAPI_AVEncCommonRateControlMode, &VARIANT::from(0u32));
+            let _ = codec.SetValue(&CODECAPI_AVEncCommonMeanBitRate, &VARIANT::from(bitrate));
+            let output = media_type(width, height, fps, &MFVideoFormat_H264)?;
+            output.SetUINT32(&MF_MT_AVG_BITRATE, bitrate)?;
+            output.SetUINT32(&MF_MT_MPEG2_PROFILE, 66)?;
+            transform.SetOutputType(0, &output, 0)?;
+            let input = media_type(width, height, fps, &MFVideoFormat_NV12)?;
+            transform.SetInputType(0, &input, 0)?;
+            transform.ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0)?;
+            transform.ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0)?;
+        }
+        let events: IMFMediaEventGenerator = transform.cast()?;
+        let mut encoder = Self {
+            transform,
+            events: Some(events),
+            need_input: 0,
+            width,
+            height,
+            fps,
+            _runtime: runtime,
+        };
+        // Proof of life: a few blank frames must come back as H.264 promptly, or this device is not used.
+        let blank = vec![128u8; (width * height * 3 / 2) as usize];
+        let mut produced = 0;
+        for index in 0..6 {
+            produced += encoder.encode(&blank, index)?.len();
+        }
+        if produced == 0 {
+            return Err("hardware encoder produced no output".into());
+        }
+        Ok(encoder)
+    }
+
+    pub fn is_hardware(&self) -> bool {
+        self.events.is_some()
+    }
+
+    /// Handles whatever the hardware encoder has announced: it wants input, or has output to collect.
+    fn pump_events(&mut self, frames: &mut Vec<EncodedFrame>) -> Result<(), Error> {
+        let Some(events) = self.events.clone() else {
+            return Ok(());
+        };
+        for _ in 0..64 {
+            let event = unsafe { events.GetEvent(MF_EVENT_FLAG_NO_WAIT) };
+            let event = match event {
+                Ok(event) => event,
+                Err(error) if error.code() == MF_E_NO_EVENTS_AVAILABLE => return Ok(()),
+                Err(error) => return Err(error.into()),
+            };
+            let kind = unsafe { event.GetType()? };
+            if kind == METransformNeedInput.0 as u32 {
+                self.need_input += 1;
+            } else if kind == METransformHaveOutput.0 as u32 {
+                if let Some(frame) = self.take_output()? {
+                    frames.push(frame);
+                }
+            } else if kind == MEError.0 as u32 {
+                return Err("hardware encoder reported an error".into());
+            }
+        }
+        Ok(())
+    }
+
+    fn encode_hardware(&mut self, sample: &IMFSample) -> Result<Vec<EncodedFrame>, Error> {
+        let mut frames = Vec::new();
+        // The encoder says when it can take a frame.
+        let waited = Instant::now();
+        while self.need_input == 0 {
+            self.pump_events(&mut frames)?;
+            if self.need_input == 0 {
+                if waited.elapsed() > Duration::from_millis(250) {
+                    return Err("hardware encoder stopped asking for frames".into());
+                }
+                std::thread::sleep(Duration::from_micros(500));
+            }
+        }
+        unsafe { self.transform.ProcessInput(0, sample, 0)? };
+        self.need_input -= 1;
+        // Hardware usually answers within a few milliseconds; wait briefly so the frame leaves with its own tick.
+        let started = Instant::now();
+        while frames.is_empty() && started.elapsed() < Duration::from_millis(40) {
+            self.pump_events(&mut frames)?;
+            if frames.is_empty() {
+                std::thread::sleep(Duration::from_micros(500));
+            }
+        }
+        Ok(frames)
     }
 
     pub fn encode(&mut self, nv12: &[u8], index: u64) -> Result<Vec<EncodedFrame>, Error> {
@@ -109,12 +270,29 @@ impl Encoder {
             sample.AddBuffer(&buffer)?;
             sample.SetSampleTime(index as i64 * 10_000_000 / i64::from(self.fps))?;
             sample.SetSampleDuration(10_000_000 / i64::from(self.fps))?;
+            if self.events.is_some() {
+                return self.encode_hardware(&sample);
+            }
             self.transform.ProcessInput(0, &sample, 0)?;
         }
         self.receive()
     }
 
     pub fn drain(&mut self) -> Result<Vec<EncodedFrame>, Error> {
+        if self.events.is_some() {
+            // An asynchronous encoder is drained by command, then its remaining output is collected.
+            unsafe {
+                self.transform
+                    .ProcessMessage(MFT_MESSAGE_COMMAND_DRAIN, 0)?
+            };
+            let mut frames = Vec::new();
+            let started = Instant::now();
+            while started.elapsed() < Duration::from_millis(500) {
+                self.pump_events(&mut frames)?;
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            return Ok(frames);
+        }
         unsafe {
             self.transform
                 .ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0)?;
@@ -128,6 +306,17 @@ impl Encoder {
         let mut frames = Vec::new();
         // Bound output work and memory even if a platform codec misbehaves.
         for _ in 0..8 {
+            match self.take_output()? {
+                Some(frame) => frames.push(frame),
+                None => return Ok(frames),
+            }
+        }
+        Err("Encoder exceeded bounded output polling".into())
+    }
+
+    /// One encoded frame, or None when the encoder needs more input.
+    fn take_output(&mut self) -> Result<Option<EncodedFrame>, Error> {
+        {
             let info = unsafe { self.transform.GetOutputStreamInfo(0)? };
             let size = info.cbSize.max(1024 * 1024);
             if size > MAX_PACKET {
@@ -160,7 +349,15 @@ impl Encoder {
             drop(unsafe { ManuallyDrop::take(&mut output.pEvents) });
             if let Err(error) = result {
                 if error.code() == MF_E_TRANSFORM_NEED_MORE_INPUT {
-                    return Ok(frames);
+                    return Ok(None);
+                }
+                if error.code() == MF_E_TRANSFORM_STREAM_CHANGE {
+                    // The encoder settled its real output format (it now knows its sequence headers): accept it.
+                    unsafe {
+                        let format = self.transform.GetOutputAvailableType(0, 0)?;
+                        self.transform.SetOutputType(0, &format, 0)?;
+                    }
+                    return Ok(None);
                 }
                 return Err(error.into());
             }
@@ -179,9 +376,8 @@ impl Encoder {
             unsafe {
                 buffer.Unlock()?;
             }
-            frames.push(EncodedFrame { bytes, timestamp });
+            Ok(Some(EncodedFrame { bytes, timestamp }))
         }
-        Err("Encoder exceeded bounded output polling".into())
     }
 }
 
@@ -235,7 +431,11 @@ fn hardware_count() -> Result<u32, Error> {
 
 pub fn benchmark() -> Result<(), Error> {
     let mut encoder = Encoder::new(1280, 720, 30, 2_500_000)?;
-    println!("Advertised hardware H.264 encoders: {}. Benchmark uses inbox SOFTWARE H.264, Baseline, low latency, no B frames.", hardware_count()?);
+    println!(
+        "Advertised hardware H.264 encoders: {}. Benchmark uses the {} encoder, Baseline, low latency, no B frames.",
+        hardware_count()?,
+        if encoder.is_hardware() { "HARDWARE" } else { "inbox software" }
+    );
     let mut nv12 = vec![128u8; 1280 * 720 * 3 / 2];
     let started = Instant::now();
     let mut encode_time = Duration::ZERO;
@@ -273,7 +473,9 @@ pub fn benchmark() -> Result<(), Error> {
             *pixel = 16 + ((index / 1280 + frame as usize * 4) % 220) as u8;
         }
         let encoding = Instant::now();
-        let packets = encoder.encode(&nv12, frame)?;
+        let packets = encoder
+            .encode(&nv12, frame)
+            .map_err(|error| format!("encode of frame {frame} failed: {error}"))?;
         encode_time += encoding.elapsed();
         consume(packets)?;
         let deadline = started + Duration::from_secs_f64((frame + 1) as f64 / 30.0);
@@ -281,7 +483,11 @@ pub fn benchmark() -> Result<(), Error> {
             std::thread::sleep(remaining);
         }
     }
-    consume(encoder.drain()?)?;
+    consume(
+        encoder
+            .drain()
+            .map_err(|error| format!("drain failed: {error}"))?,
+    )?;
     if outputs != 90 || idr == 0 || sps == 0 || pps == 0 {
         return Err(
             "Synthetic H.264 output did not contain all frames and Annex-B SPS/PPS/IDR".into(),

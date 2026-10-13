@@ -1067,7 +1067,20 @@ async fn media_cycle(
             {
                 break;
             }
-            for packet in encoder.encode(&nv12, index)? {
+            let encode_started = Instant::now();
+            let encoded = match encoder.encode(&nv12, index) {
+                Ok(frames) => frames,
+                Err(error) if encoder.is_hardware() => {
+                    // A graphics driver that misbehaves mid-session must not end the session.
+                    println!("Hardware encoder failed ({error}); switching to software.");
+                    encoder = Encoder::software(tier.width, tier.height, tier.fps, tier.bitrate)?;
+                    index = 0;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            let encode_time = encode_started.elapsed();
+            for packet in encoded {
                 if packets.try_send(packet).is_err() {
                     worker_active.store(false, Ordering::Release);
                     return Err("Media consumer stalled".into());
@@ -1075,8 +1088,13 @@ async fn media_cycle(
             }
             index += 1;
             let interval = Duration::from_micros(1_000_000 / u64::from(tier.fps));
-            busy = busy * 0.9
-                + (started.elapsed().as_secs_f64() / interval.as_secs_f64()).min(2.0) * 0.1;
+            // Waiting for a graphics encoder is not computer load; only converting and a software encode are.
+            let load = if encoder.is_hardware() {
+                started.elapsed().saturating_sub(encode_time)
+            } else {
+                started.elapsed()
+            };
+            busy = busy * 0.9 + (load.as_secs_f64() / interval.as_secs_f64()).min(2.0) * 0.1;
             worker_cost.store((busy * 1000.0) as u32, Ordering::Release);
             if let Some(delay) = interval.checked_sub(started.elapsed()) {
                 std::thread::sleep(delay);
