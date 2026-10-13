@@ -19,6 +19,10 @@ what the person at the computer chooses, visibly, and revocable at once.
   locally next to the access setting and never sent to the server; the agent tells the helper
   (`localFiles`) only for the account's own sessions, never for support codes or remembered helpers. Turning it
   off, or lowering trusted access, applies from the next session.
+- **Sending to the helper.** The sharing window has "Send a file…" while file transfer is allowed. The person
+  at the computer picks the file in the standard Windows dialog; the helper's browser is offered it (`send`,
+  even ids) and nothing flows until the helper chooses Save. It is held in memory (up to 512 MB), checked against
+  the computer's SHA-256 and only then handed to the browser to save; a mismatch is discarded and reported.
 - **Channel.** A second ordered, reliable data channel, `beacon-files-v1`, created by the computer next to the
   video track (and the input channel when control was allowed). Text messages are JSON control messages
   (`offer`, `end`, `cancel` from the viewer; `ready`, `accept`, `reject`, `done`, `failed`, `paused` from the
@@ -35,6 +39,5 @@ what the person at the computer chooses, visibly, and revocable at once.
 
 ## Not done
 
-Receiving from the computer (the person at the computer picking a file to send), resume of an interrupted
-transfer, and revoking the trusted-session setting from the web (it is local only). The web side only offers
+Resume of an interrupted transfer, files larger than 512 MB towards the browser (needs streaming to disk), and revoking the trusted-session setting from the web (it is local only). The web side only offers
 Send file when the computer opened the channel.
