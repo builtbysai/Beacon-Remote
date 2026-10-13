@@ -555,6 +555,17 @@ export function LiveView({
           {controlReady && (
             <button
               className="viewer-control"
+              title="Open your keyboard to type on the remote computer"
+              onClick={() =>
+                video.current?.dispatchEvent(new Event("beacon-keyboard"))
+              }
+            >
+              Keyboard
+            </button>
+          )}
+          {controlReady && (
+            <button
+              className="viewer-control"
               aria-pressed={touchMode === "direct"}
               title="Trackpad moves the cursor like a laptop touchpad. Touch acts where you tap."
               onClick={() =>
