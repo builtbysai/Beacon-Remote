@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/remote-core", "apps/windows-agent", "apps/windows-session"]
+members = ["crates/remote-core", "apps/windows-agent", "apps/windows-session", "apps/windows-setup"]
 resolver = "2"
 
 [workspace.package]

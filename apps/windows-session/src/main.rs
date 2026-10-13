@@ -1,9 +1,16 @@
+mod adapt;
 #[cfg(windows)]
 mod capture;
+#[cfg(windows)]
+mod clipboard;
 #[cfg(windows)]
 mod consent;
 #[cfg(windows)]
 mod encoder;
+#[cfg(windows)]
+mod files;
+#[cfg(windows)]
+mod files_transport;
 #[cfg(windows)]
 mod indicator;
 #[cfg(windows)]
@@ -12,12 +19,14 @@ mod input;
 mod input_transport;
 #[cfg(windows)]
 mod media;
+#[cfg(windows)]
+mod native_ui;
+#[cfg(windows)]
+mod pause;
 #[cfg(any(windows, test))]
 mod pixels;
 #[cfg(any(windows, test))]
 mod renewal;
-#[cfg(windows)]
-mod window_style;
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     #[cfg(windows)]

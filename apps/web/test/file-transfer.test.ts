@@ -1,0 +1,138 @@
+import assert from "node:assert/strict";
+import { createHash, randomBytes } from "node:crypto";
+import { test } from "node:test";
+import { Sha256 } from "../src/file-transfer.js";
+
+test("incremental SHA-256 matches the platform hash for every padding boundary and chunking", () => {
+  for (const length of [
+    0, 1, 3, 55, 56, 57, 63, 64, 65, 119, 120, 128, 1000, 100_003,
+  ]) {
+    const data = randomBytes(length);
+    const expected = createHash("sha256").update(data).digest("hex");
+    for (const step of [1, 7, 16384, 99_999]) {
+      const hash = new Sha256();
+      for (let offset = 0; offset < data.length; offset += step)
+        hash.update(data.subarray(offset, offset + step));
+      assert.equal(hash.hex(), expected, `${length} bytes in steps of ${step}`);
+    }
+  }
+});
+
+test("reading the digest does not disturb a hash that keeps going", () => {
+  const first = randomBytes(100);
+  const second = randomBytes(77);
+  const hash = new Sha256().update(first);
+  hash.hex();
+  hash.update(second);
+  assert.equal(
+    hash.hex(),
+    createHash("sha256").update(first).update(second).digest("hex"),
+  );
+});
+
+// A stand-in for the browser's RTCDataChannel: records what is sent and lets the test deliver messages.
+function fakeChannel() {
+  const sent: (string | Uint8Array)[] = [];
+  const channel = {
+    readyState: "open",
+    bufferedAmount: 0,
+    bufferedAmountLowThreshold: 0,
+    binaryType: "blob",
+    onmessage: null as ((event: { data: unknown }) => void) | null,
+    onclose: null as (() => void) | null,
+    onbufferedamountlow: null as (() => void) | null,
+    send: (data: string | Uint8Array) => void sent.push(data),
+  };
+  return { channel: channel as unknown as RTCDataChannel, raw: channel, sent };
+}
+const frame = (id: number, bytes: Uint8Array) => {
+  const out = new Uint8Array(4 + bytes.length);
+  new DataView(out.buffer).setUint32(0, id);
+  out.set(bytes, 4);
+  return out.buffer;
+};
+
+test("a file the computer offers is received only after the person accepts, and only if it arrives intact", async () => {
+  const { FileSender } = await import("../src/file-transfer.js");
+  const downloads: string[] = [];
+  (globalThis as unknown as { document: unknown }).document = {
+    createElement: () => {
+      const element = {
+        download: "",
+        href: "",
+        click() {
+          downloads.push(element.download);
+        },
+      };
+      return element;
+    },
+  };
+  const offers: unknown[] = [];
+  const transfers: { status: string; incoming?: boolean }[] = [];
+  const { channel, raw, sent } = fakeChannel();
+  const sender = new FileSender(
+    channel,
+    (t) => t && transfers.push(t),
+    () => undefined,
+    (offer) => offers.push(offer),
+  );
+  const deliver = (data: unknown) => raw.onmessage!({ data });
+
+  // The computer's ids are even; an odd or malformed offer is ignored.
+  deliver(JSON.stringify({ t: "send", id: 3, name: "x", size: 5 }));
+  deliver(JSON.stringify({ t: "send", id: 2, name: "", size: 5 }));
+  assert.equal(offers.length, 0);
+  deliver(JSON.stringify({ t: "send", id: 2, name: "log.txt", size: 11 }));
+  assert.equal(offers.length, 1);
+  assert.equal(sent.length, 0, "nothing is accepted until the person says so");
+
+  sender.accept({ id: 2, name: "log.txt", size: 11 });
+  assert.deepEqual(JSON.parse(sent[0] as string), { t: "accept", id: 2 });
+  const data = new TextEncoder().encode("hello world");
+  deliver(frame(9, data)); // someone else's id: ignored
+  deliver(frame(2, data));
+  const good = new Sha256().update(data).hex();
+
+  // A wrong checksum is discarded and reported, nothing is saved.
+  const bad = fakeChannel();
+  const second = new FileSender(
+    bad.channel,
+    () => undefined,
+    () => undefined,
+    () => undefined,
+  );
+  second.accept({ id: 4, name: "bad.txt", size: 11 });
+  bad.raw.onmessage!({ data: frame(4, data) });
+  bad.raw.onmessage!({
+    data: JSON.stringify({ t: "end", id: 4, sha256: "0".repeat(64) }),
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(JSON.parse(bad.sent[1] as string), {
+    t: "failed",
+    id: 4,
+    reason: "incomplete",
+  });
+  assert.equal(downloads.length, 0);
+
+  deliver(JSON.stringify({ t: "end", id: 2, sha256: good }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(JSON.parse(sent[1] as string), { t: "done", id: 2 });
+  assert.deepEqual(downloads, ["log.txt"]);
+  assert.equal(transfers.at(-1)?.status, "done");
+  assert.equal(transfers.at(-1)?.incoming, true);
+
+  // Too large for the browser: declined with a reason, never accepted.
+  const huge = fakeChannel();
+  const third = new FileSender(
+    huge.channel,
+    () => undefined,
+    () => undefined,
+    () => undefined,
+  );
+  third.accept({ id: 6, name: "big.iso", size: 600 * 1024 * 1024 });
+  assert.deepEqual(JSON.parse(huge.sent[0] as string), {
+    t: "reject",
+    id: 6,
+    reason: "too-large",
+  });
+});

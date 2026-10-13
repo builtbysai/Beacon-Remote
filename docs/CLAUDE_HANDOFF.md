@@ -2,6 +2,14 @@
 
 **Prepared 2026-10-10.** This is a continuation document, not a statement that every feature or release gate is complete. Recheck GitHub and the actual machines before acting.
 
+> **Superseded in part (2026-10-13).** Production now runs sessions, remote control and the dedicated relay, and the
+> product has grown well past what is described below: access modes, MFA and recovery, signed updates, the native
+> windows, adaptive video, the per-user installer, file transfer, guest support and email sign-up (closed until mail
+> is configured). **Read `docs/roadmap.md` (status per feature) and ADRs 0021 to 0032 first**; where this
+> document or the other dated validation notes disagree with them, they win. Statements below that production
+> media or control is disabled, that milestone 4 is the active gate, or that features such as file transfer or
+> other operating systems are out of scope are historical.
+
 The next viewer recovery slice ends a browser request on peer loss immediately,
 matching the native helper, and scopes autoplay/manual Play results to the
 original session lifetime. It clears ended playback controls and preserves
@@ -149,7 +157,7 @@ Beacon is a suite:
 
 - **Beacon View**: camera monitoring/recording, a separate codebase, database and permission realm.
 - **Beacon Remote**: secure, self-hosted browser-to-Windows remote access and support, initially Windows host/browser client, with direct WebRTC preferred and authenticated Coturn relay fallback.
-- **Potential future**: Lighthouse-style observability plus authorized human/AI remote operations. Keep capture, snapshots, input, identity, session/control leases and policies behind transport-independent interfaces. **Do not build AI, MCP, shell, file transfer, recording, multi-OS support or enterprise management during current milestones.**
+- **Potential future**: Lighthouse-style observability plus authorized human/AI remote operations. Keep capture, snapshots, input, identity, session/control leases and policies behind transport-independent interfaces. These are now planned (see `docs/roadmap.md` phases 2 to 4); each needs explicit consent, bounded capability, visible state and immediate revocation.
 
 Consumer journey: install host → register/sign in → pair → see online → request view → local person approves → desktop appears → separately approve mouse/keyboard control → Stop or disconnect safely. For one-time support, require scoped, expiring invitation and fresh local consent; do not imply persistent machine enrollment. No screenshot/media storage is required.
 
@@ -242,7 +250,7 @@ Set `TEST_DATABASE_URL` to a **separate** database whose name ends `_test` befor
 1. With owner-approved access, obtain the OCI instance public address, authorized username, host fingerprint (out of band) and SSH identity path. Example shape **only**, not an asserted working command: `ssh -i <authorized-private-key-path> <verified-user>@<verified-public-ip>`.
 2. Inspect **read-only** first: `whoami`, `hostname`, `uname -m`, `df -h`, `free -h`, `sudo docker ps --format 'table {{.Names}}\t{{.Status}}'`, `sudo systemctl list-timers --all`, `readlink -f /opt/beacon-remote/current`.
 3. Separate hosts/origins:
-   - `https://remote.builtbysai.com`: production Remote control plane, video/control disabled until release gates.
+   - `https://remote.builtbysai.com`: production Remote control plane with sessions, control and relay enabled; verify live configuration before deploying.
    - `https://remote-test.builtbysai.com`: temporary acceptance origin. Its host fixture and test containers were **stopped** at handoff; do not assume currently online.
    - Beacon View remains independent but shares edge/Coturn infrastructure. Confirm its public health separately.
 4. Repo-controlled deployment definition: `infrastructure/oracle/compose.yaml`; on VM releases live under `/opt/beacon-remote/releases/<sha>` and `/opt/beacon-remote/current` selects validated release. Protected Remote credentials/backups and relay overrides live under `/etc/beacon-remote/`; NEVER print .env values or rendered Compose configuration containing secrets.

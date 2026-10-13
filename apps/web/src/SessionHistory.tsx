@@ -9,7 +9,34 @@ export type SessionRecord = {
   status: string;
   createdAt: string;
   expiresAt: string | null;
+  // Set when someone else (a support helper) ran this session on your computer.
+  controller?: string | null;
+  // Measured by the viewer while the session ran; absent when nothing was sampled.
+  quality?: {
+    samples: number;
+    route: string;
+    height: number | null;
+    fps: number | null;
+    rttMs: number | null;
+    rttP95Ms: number | null;
+    lossPct: number | null;
+  } | null;
 };
+
+export function qualityLine(quality: SessionRecord["quality"]): string {
+  if (!quality) return "—";
+  return [
+    quality.route,
+    quality.height ? `${quality.height}p` : null,
+    quality.fps ? `${quality.fps} fps` : null,
+    quality.rttMs === null ? null : `${quality.rttMs} ms`,
+    quality.lossPct && quality.lossPct >= 0.5
+      ? `${quality.lossPct}% loss`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 export function sessionState(status: string) {
   switch (status) {
@@ -91,10 +118,7 @@ export function SessionHistory() {
   return (
     <section className="workspace-page sessions-page">
       <div className="workspace-page-heading">
-        <div>
-          <h1>Sessions</h1>
-          <p>Current connections and recent access requests</p>
-        </div>
+        <h1>Sessions</h1>
         <button
           className="secondary"
           disabled={loading}
@@ -108,102 +132,99 @@ export function SessionHistory() {
           {error}
         </p>
       )}
-      <div className="sessions-workspace">
-        <section className="workspace-panel">
-          <div className="workspace-panel-heading">
-            <h2>Active</h2>
-            <span>
-              {active.length}{" "}
-              {active.length === 1 ? "connection" : "connections"}
-            </span>
-          </div>
-          {loading && !data ? (
-            <p className="workspace-panel-empty" role="status">
-              Loading sessions…
-            </p>
-          ) : error && !data ? (
-            <p className="workspace-panel-empty">Unable to load sessions.</p>
-          ) : data && !data.available ? (
-            <p className="workspace-panel-empty">
-              Desktop sessions are not enabled on this server.
-            </p>
-          ) : active.length === 0 ? (
-            <div className="workspace-panel-empty">
-              <strong>No active sessions</strong>
-              <p>Start a viewing request from Computers.</p>
-            </div>
-          ) : (
-            <ul className="session-rows">
-              {active.map((session) => (
-                <li key={session.id}>
-                  <div>
-                    <strong>{session.machineName}</strong>
-                    <span>
-                      {sessionState(session.status)} ·{" "}
-                      {session.source === "desktop"
-                        ? session.capability === "desktop:control"
-                          ? "Mouse and keyboard"
-                          : "View only"
-                        : "Video test"}
-                      {session.expiresAt === null
-                        ? session.status === "active"
-                          ? " · Until stopped"
-                          : " · Approval expires after two minutes"
-                        : ""}
-                    </span>
-                  </div>
-                  <button
-                    className="secondary"
-                    disabled={stopping === session.id}
-                    onClick={() => void stopSession(session.id)}
-                  >
-                    {stopping === session.id ? "Stopping…" : "Stop"}
-                  </button>
-                </li>
-              ))}
-            </ul>
+      {loading && !data ? (
+        <p className="note" role="status">
+          Loading sessions…
+        </p>
+      ) : error && !data ? (
+        <p className="note">Unable to load sessions.</p>
+      ) : data && !data.available ? (
+        <p className="note">Desktop sessions are not enabled on this server.</p>
+      ) : (
+        <>
+          {active.length > 0 && (
+            <section className="workspace-panel" aria-label="Active sessions">
+              <ul className="session-rows">
+                {active.map((session) => (
+                  <li key={session.id}>
+                    <span className="status-dot online" aria-hidden="true" />
+                    <div>
+                      <strong>
+                        {session.machineName}
+                        {session.controller
+                          ? ` · by ${session.controller}`
+                          : ""}
+                      </strong>
+                      <span>
+                        {sessionState(session.status)} ·{" "}
+                        {session.source === "desktop"
+                          ? session.capability === "desktop:control"
+                            ? "Mouse and keyboard"
+                            : "View only"
+                          : "Video test"}
+                        {session.expiresAt === null
+                          ? session.status === "active"
+                            ? " · Until stopped"
+                            : " · Approval expires after two minutes"
+                          : ""}
+                      </span>
+                    </div>
+                    <button
+                      className="secondary"
+                      disabled={stopping === session.id}
+                      onClick={() => void stopSession(session.id)}
+                    >
+                      {stopping === session.id ? "Stopping…" : "Stop"}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
-        </section>
-        <section className="workspace-panel">
-          <div className="workspace-panel-heading">
-            <h2>Recent sessions</h2>
-            <span>{recent.length} shown</span>
-          </div>
-          {loading && !data ? (
-            <p className="workspace-panel-empty" role="status">
-              Loading history…
+          {recent.length === 0 && active.length === 0 ? (
+            <p className="note">
+              No sessions yet. Connect to a computer from Computers and it will
+              be listed here.
             </p>
-          ) : error && !data ? (
-            <p className="workspace-panel-empty">Unable to load history.</p>
-          ) : recent.length === 0 ? (
-            <p className="workspace-panel-empty">No recent sessions.</p>
           ) : (
-            <ol className="session-rows">
-              {recent.map((session) => (
-                <li key={session.id}>
-                  <div>
-                    <strong>{session.machineName}</strong>
-                    <span>
-                      {session.source === "desktop"
-                        ? session.capability === "desktop:control"
-                          ? "Desktop control"
-                          : "Desktop view"
-                        : "Video test"}{" "}
-                      · {sessionState(session.status)}
-                    </span>
-                  </div>
-                  <time dateTime={session.createdAt}>
-                    {new Date(session.createdAt).toLocaleString()}
-                  </time>
-                </li>
-              ))}
-            </ol>
+            recent.length > 0 && (
+              <section className="workspace-panel" aria-label="Recent sessions">
+                <div className="session-table-head" aria-hidden="true">
+                  <span>Computer</span>
+                  <span>Access</span>
+                  <span>Result</span>
+                  <span>Connection</span>
+                  <span>When</span>
+                </div>
+                <ol className="session-rows session-table">
+                  {recent.map((session) => (
+                    <li key={session.id}>
+                      <strong>
+                        {session.machineName}
+                        {session.controller
+                          ? ` · by ${session.controller}`
+                          : ""}
+                      </strong>
+                      <span>
+                        {session.source === "desktop"
+                          ? session.capability === "desktop:control"
+                            ? "Control"
+                            : "View"
+                          : "Video test"}
+                      </span>
+                      <span>{sessionState(session.status)}</span>
+                      <span>{qualityLine(session.quality)}</span>
+                      <time dateTime={session.createdAt}>
+                        {new Date(session.createdAt).toLocaleString()}
+                      </time>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )
           )}
-        </section>
-      </div>
-      <p className="workspace-footnote">
-        A request or approval does not establish that desktop video was viewed.
-      </p>
+        </>
+      )}
     </section>
   );
 }

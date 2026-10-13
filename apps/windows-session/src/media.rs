@@ -63,6 +63,9 @@ pub struct Grant {
     // Added by the local agent only when this computer's own setting also allows trusted access.
     #[serde(default)]
     local_trusted: bool,
+    // Added by the local agent: this computer's own setting lets this account send files without asking.
+    #[serde(default)]
+    local_files: bool,
     // The display the viewer chose, from the list this computer reported. None is the primary.
     #[serde(default)]
     display_id: Option<String>,
@@ -433,8 +436,12 @@ async fn stream(
     .await??;
     // The server said "policy" and this computer's own setting agrees. Sharing stays visible
     // through the Stop window below, and Stop, sign-out or revocation still end it.
+    let mut control_allowed = control;
+    // File transfer is only ever what the person at this computer ticked in the consent window.
+    let mut files_allowed = false;
     let by_policy = desktop && grant.approval.as_deref() == Some("policy") && grant.local_trusted;
     if by_policy {
+        files_allowed = grant.local_files;
         println!(
             "TRUSTED ACCESS: {} connected under this computer's trusted-access setting.",
             grant.controller
@@ -447,15 +454,30 @@ async fn stream(
         let _cancel_prompt = StopOnDrop(pending.clone());
         let dialog_pending = pending.clone();
         let display_label = crate::capture::display_label(grant.display_id.as_deref());
+        let session_label = format!(
+            "S-{}",
+            grant.id.chars().take(4).collect::<String>().to_uppercase()
+        );
+        let chosen_control = Arc::new(AtomicBool::new(false));
+        let reported_control = chosen_control.clone();
+        let chosen_files = Arc::new(AtomicBool::new(false));
+        let reported_files = chosen_files.clone();
         let mut dialog = tokio::task::spawn_blocking(move || {
-            crate::consent::request_access(
+            let decision = crate::consent::request_access(
                 &controller,
                 dialog_pending,
                 deadline,
                 control,
                 unlimited,
                 &display_label,
-            )
+                &session_label,
+            )?;
+            reported_control.store(
+                decision.decision == crate::consent::Decision::Control,
+                Ordering::Release,
+            );
+            reported_files.store(decision.files, Ordering::Release);
+            Ok::<_, Error>(decision.decision != crate::consent::Decision::Declined)
         });
         let accepted = tokio::select! {
             accepted = consent_while_signaling(&mut socket, async { (&mut dialog).await? }, deadline, control) => accepted,
@@ -490,6 +512,9 @@ async fn stream(
         {
             return Err("View grant expired during consent".into());
         }
+        // The person may allow viewing without the control that was asked for.
+        control_allowed = chosen_control.load(Ordering::Acquire);
+        files_allowed = chosen_files.load(Ordering::Acquire);
     }
     let deadline = (grant.expires_at_millis != 0).then_some(deadline);
     let active = parent_active;
@@ -502,18 +527,29 @@ async fn stream(
         desktop,
         grant.controller.clone(),
         deadline,
-        control,
+        control_allowed,
+        files_allowed,
+        format!(
+            "S-{}",
+            grant.id.chars().take(4).collect::<String>().to_uppercase()
+        ),
     )?;
     timeout(
         Duration::from_millis(500),
         socket.send(Message::Text(
-            json!({"type":"consent","accepted":true,"resumable":true})
-                .to_string()
-                .into(),
+            if control && !control_allowed {
+                json!({"type":"consent","accepted":true,"resumable":true,"control":false})
+            } else {
+                json!({"type":"consent","accepted":true,"resumable":true})
+            }
+            .to_string()
+            .into(),
         )),
     )
     .await??;
     let mut authorization = MediaAuthorization {
+        control_allowed,
+        files_allowed,
         epoch: Instant::now(),
         lease: Arc::new(AtomicU64::new(0)),
         ice: Arc::new(std::sync::Mutex::new(grant.ice_servers.clone())),
@@ -574,6 +610,10 @@ struct MediaAuthorization {
     lease: Arc<AtomicU64>,
     // Current ICE servers. The server re-issues short relay credentials inside lease replies.
     ice: Arc<std::sync::Mutex<Vec<IceServer>>>,
+    // Whether the person at the computer allowed the control that was asked for.
+    control_allowed: bool,
+    // Whether they also allowed the helper to send files.
+    files_allowed: bool,
 }
 
 // Renewal must not wait behind peer setup, encoder creation or peer cleanup.
@@ -603,6 +643,8 @@ impl SignalSocket {
             let mut tick = tokio::time::interval(Duration::from_millis(100));
             let mut next = Instant::now();
             let mut generation = 0;
+            // What the viewer has been told about pausing; None means "tell it the current state".
+            let mut told_paused: Option<bool> = None;
             let result: Result<(), Error> = async {
                 loop {
                     let elapsed = epoch.elapsed().as_millis() as u64;
@@ -618,6 +660,13 @@ impl SignalSocket {
                     }
                     tokio::select! {
                         _ = tick.tick() => {
+                            let paused = crate::pause::is_paused();
+                            if told_paused != Some(paused) {
+                                if told_paused.is_some() || paused {
+                                    timeout(Duration::from_millis(500), raw.send(Message::Text(json!({"type":"paused","paused":paused}).to_string().into()))).await??;
+                                }
+                                told_paused = Some(paused);
+                            }
                             if Instant::now() >= next {
                                 let nonce = renewals.issue(epoch.elapsed().as_millis() as u64);
                                 timeout(Duration::from_millis(500), raw.send(Message::Text(json!({"type":"renew","nonce":nonce}).to_string().into()))).await??;
@@ -663,6 +712,7 @@ impl SignalSocket {
                                         if body["generation"].as_u64() != Some(generation + 1) || generation >= MAX_GENERATIONS {return Err("Invalid recovery generation".into());}
                                         generation += 1;
                                         viewer.store(generation, Ordering::Release);
+                                        told_paused = None;
                                     }
                                 }
                                 Message::Ping(_) | Message::Pong(_) => continue,
@@ -759,6 +809,8 @@ async fn media_cycle(
     generation: u64,
 ) -> Result<bool, Error> {
     let desktop = grant.source == "desktop";
+    let control_allowed = authorization.control_allowed;
+    let files_allowed = authorization.files_allowed;
     let setup_started = Instant::now();
     indicator_connected.store(false, Ordering::Release);
     let connected = Arc::new(AtomicBool::new(false));
@@ -843,7 +895,7 @@ async fn media_cycle(
         ),
     )?);
     let sender = pc.add_track(track.clone() as Arc<dyn TrackLocal>).await?;
-    let input_worker = if grant.capability == "desktop:control" {
+    let input_worker = if grant.capability == "desktop:control" && control_allowed {
         let channel = pc
             .create_data_channel(
                 "beacon-input-v1",
@@ -854,6 +906,32 @@ async fn media_cycle(
             )
             .await?;
         Some(crate::input_transport::start(
+            channel,
+            crate::input_transport::Authority {
+                session: grant.id.clone(),
+                display_id: grant.display_id.clone(),
+                deadline,
+                epoch,
+                lease: lease.clone(),
+                session_active: session_active.clone(),
+                peer_active: active.clone(),
+                connected: connected.clone(),
+            },
+        ))
+    } else {
+        None
+    };
+    let files_worker = if desktop && files_allowed {
+        let channel = pc
+            .create_data_channel(
+                "beacon-files-v1",
+                Some(webrtc::data_channel::RTCDataChannelInit {
+                    ordered: true,
+                    ..Default::default()
+                }),
+            )
+            .await?;
+        Some(crate::files_transport::start(
             channel,
             crate::input_transport::Authority {
                 session: grant.id.clone(),
@@ -889,6 +967,12 @@ async fn media_cycle(
         setup_started.elapsed().as_millis()
     );
     let (packets, mut receiver) = mpsc::channel::<crate::encoder::EncodedFrame>(2);
+    // The quality tier the signaling task chooses from receiver reports, and the encoder's measured
+    // cost per frame (thousandths of a frame interval) that it reports back.
+    let quality = Arc::new(std::sync::atomic::AtomicUsize::new(crate::adapt::START));
+    let encode_cost = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let worker_quality = quality.clone();
+    let worker_cost = encode_cost.clone();
     let worker_active = active.clone();
     let worker_connected = connected.clone();
     let worker_lease = lease.clone();
@@ -897,9 +981,11 @@ async fn media_cycle(
     let viewer_generation = socket.viewer_generation.clone();
     let worker_viewer_generation = viewer_generation.clone();
     let worker = tokio::task::spawn_blocking(move || -> Result<(), Error> {
-        let mut encoder = Encoder::new(1280, 720, 30, 2_500_000)?;
-        let mut nv12 = vec![128; 1280 * 720 * 3 / 2];
+        let mut tier = crate::adapt::TIERS[worker_quality.load(Ordering::Acquire)];
+        let mut encoder = Encoder::new(tier.width, tier.height, tier.fps, tier.bitrate)?;
+        let mut nv12 = vec![128; (tier.width * tier.height * 3 / 2) as usize];
         let mut index = 0;
+        let mut busy = 0.0_f64;
         let mut capture = None::<crate::capture::DesktopCapture>;
         while worker_active.load(Ordering::Acquire)
             && worker_session_active.load(Ordering::Acquire)
@@ -913,6 +999,7 @@ async fn media_cycle(
             }
             if !worker_connected.load(Ordering::Acquire)
                 || last == 0
+                || crate::pause::is_paused()
                 || worker_viewer_generation.load(Ordering::Acquire) != generation
             {
                 // Drop the capture source, including cached pixels, while the
@@ -920,6 +1007,14 @@ async fn media_cycle(
                 capture.take();
                 std::thread::sleep(Duration::from_millis(10));
                 continue;
+            }
+            let wanted = crate::adapt::TIERS[worker_quality.load(Ordering::Acquire)];
+            if wanted != tier {
+                // A new encoder starts with a keyframe, so the viewer recovers at once.
+                tier = wanted;
+                encoder = Encoder::new(tier.width, tier.height, tier.fps, tier.bitrate)?;
+                nv12 = vec![128; (tier.width * tier.height * 3 / 2) as usize];
+                index = 0;
             }
             let started = Instant::now();
             if desktop {
@@ -934,10 +1029,18 @@ async fn media_cycle(
                     std::thread::sleep(Duration::from_millis(10));
                     continue;
                 };
-                crate::pixels::nv12(&frame.bgra, frame.width, frame.height, &mut nv12, 1280, 720)?;
+                crate::pixels::nv12(
+                    &frame.bgra,
+                    frame.width,
+                    frame.height,
+                    &mut nv12,
+                    tier.width,
+                    tier.height,
+                )?;
             } else {
-                for (offset, pixel) in nv12[..1280 * 720].iter_mut().enumerate() {
-                    *pixel = 16 + ((offset / 1280 + index as usize * 4) % 220) as u8;
+                let row = tier.width as usize;
+                for (offset, pixel) in nv12[..row * tier.height as usize].iter_mut().enumerate() {
+                    *pixel = 16 + ((offset / row + index as usize * 4) % 220) as u8;
                 }
             }
             if !worker_active.load(Ordering::Acquire)
@@ -952,7 +1055,11 @@ async fn media_cycle(
                 }
             }
             index += 1;
-            if let Some(delay) = Duration::from_millis(33).checked_sub(started.elapsed()) {
+            let interval = Duration::from_micros(1_000_000 / u64::from(tier.fps));
+            busy = busy * 0.9
+                + (started.elapsed().as_secs_f64() / interval.as_secs_f64()).min(2.0) * 0.1;
+            worker_cost.store((busy * 1000.0) as u32, Ordering::Release);
+            if let Some(delay) = interval.checked_sub(started.elapsed()) {
                 std::thread::sleep(delay);
             }
         }
@@ -962,6 +1069,8 @@ async fn media_cycle(
     let mut detached = false;
     let result:Result<(),Error> = async {
         let mut tick=tokio::time::interval(Duration::from_millis(100));
+        let mut quality_tick=tokio::time::interval(Duration::from_secs(2));
+        let mut controller=crate::adapt::Controller::new(Instant::now());
         let mut answered=false;
         let mut reported_first_packet=false;
         let mut requested_retry=false;
@@ -978,6 +1087,28 @@ async fn media_cycle(
                 candidate=candidate_receiver.recv()=>{
                     let Some(candidate)=candidate else {break;};
                     timeout(Duration::from_millis(500),socket.send(Message::Text(json!({"type":"candidate","candidate":candidate.candidate,"sdpMid":candidate.sdp_mid,"sdpMLineIndex":candidate.sdp_mline_index,"generation":generation}).to_string().into()))).await??;
+                }
+                _=quality_tick.tick()=>{
+                    if !answered || !connected.load(Ordering::Acquire) {continue;}
+                    let now=Instant::now();
+                    let busy=f64::from(encode_cost.load(Ordering::Acquire))/1000.0;
+                    let mut next=controller.observe_cost(busy,now);
+                    if next.is_none() {
+                        if let Ok(Ok(report))=timeout(Duration::from_millis(500),sender.get_stats(now)).await {
+                            let reported=report.iter().find_map(|entry| match entry {
+                                webrtc::peer_connection::RTCStatsReportEntry::RemoteInboundRtp(stats)=>Some(crate::adapt::Sample{loss:stats.fraction_lost,rtt:stats.round_trip_time}),
+                                _=>None,
+                            });
+                            if let Some(sample)=reported {
+                                next=controller.observe(sample,now,controller.may_upgrade_for_cost(busy));
+                            }
+                        }
+                    }
+                    if let Some(tier)=next {
+                        let index=crate::adapt::TIERS.iter().position(|candidate| *candidate==tier).unwrap_or(crate::adapt::START);
+                        quality.store(index,Ordering::Release);
+                        println!("Video quality: {}x{} at {} fps, {} kbit/s.",tier.width,tier.height,tier.fps,tier.bitrate/1000);
+                    }
                 }
                 _=tick.tick()=>{
                     indicator_connected.store(connected.load(Ordering::Acquire), Ordering::Release);
@@ -1007,7 +1138,7 @@ async fn media_cycle(
                     if !connected.load(Ordering::Acquire) || viewer_generation.load(Ordering::Acquire) != generation {continue;}
                     let budget=lease_remaining.min(deadline.map_or(lease_remaining, |end| end.saturating_duration_since(Instant::now()))).min(Duration::from_millis(500));
                     if budget.is_zero() {break;}
-                    timeout(budget,track.sample_writer(7_230_001,payload).write_sample(&Sample{data:bytes::Bytes::from(packet.bytes),duration:Duration::from_secs_f64(1.0/30.0),..Sample::new(Instant::now())})).await??;
+                    timeout(budget,track.sample_writer(7_230_001,payload).write_sample(&Sample{data:bytes::Bytes::from(packet.bytes),duration:Duration::from_micros(1_000_000/u64::from(crate::adapt::TIERS[quality.load(Ordering::Acquire)].fps)),..Sample::new(Instant::now())})).await??;
                     if !reported_first_packet {println!("First video packet sent: generation {generation}, {} ms.",setup_started.elapsed().as_millis()); reported_first_packet=true;}
                 }
                 message=socket.next()=>{
@@ -1044,6 +1175,9 @@ async fn media_cycle(
     active.store(false, Ordering::Release);
     if let Some(input_worker) = input_worker {
         let _ = timeout(Duration::from_secs(1), input_worker).await;
+    }
+    if let Some(files_worker) = files_worker {
+        let _ = timeout(Duration::from_secs(1), files_worker).await;
     }
     indicator_connected.store(false, Ordering::Release);
     let cleanup_started = Instant::now();
@@ -1376,6 +1510,8 @@ mod tests {
                 .unwrap();
             let active = Arc::new(AtomicBool::new(mode != "stop"));
             let mut authorization = MediaAuthorization {
+                control_allowed: false,
+                files_allowed: false,
                 epoch: Instant::now()
                     - Duration::from_millis(if mode == "lease" { MAX_AGE_MS + 1 } else { 10 }),
                 lease: Arc::new(AtomicU64::new(1)),

@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { DataPanel } from "./DataPanel.js";
+import { MfaPanel } from "./MfaPanel.js";
 import { api } from "./api.js";
 
 type BrowserSession = { expiresAt: string; current: boolean };
@@ -43,6 +45,12 @@ export function activityLabel(action: string) {
       return "Trusted control turned on";
     case "machine.access.control-off":
       return "Trusted control turned off";
+    case "machine.helpers.off":
+      return "Helpers need approval again";
+    case "machine.helpers.view":
+      return "Remembered helpers may view without asking";
+    case "machine.helpers.control":
+      return "Remembered helpers may control without asking";
     case "support.invitation.created:view":
       return "Support code created (view)";
     case "support.invitation.created:control":
@@ -245,14 +253,17 @@ export function AccountPanels({ activity }: { activity: boolean }) {
       </section>
     );
   return (
-    <section className="public-section">
-      <h1>Settings</h1>
-      <button
-        disabled={loading || busy}
-        onClick={() => setRefresh((value) => value + 1)}
-      >
-        {loading ? "Refreshing…" : error ? "Try again" : "Refresh"}
-      </button>
+    <section className="workspace-page settings-page">
+      <div className="workspace-page-heading">
+        <h1>Settings</h1>
+        <button
+          className="secondary"
+          disabled={loading || busy}
+          onClick={() => setRefresh((value) => value + 1)}
+        >
+          {loading ? "Refreshing…" : error ? "Try again" : "Refresh"}
+        </button>
+      </div>
       {error && (
         <p role="alert" className="error">
           {error}
@@ -260,13 +271,12 @@ export function AccountPanels({ activity }: { activity: boolean }) {
       )}
       {notice && <p role="status">{notice}</p>}
       <>
-        <h2>Account security</h2>
-        <p>
-          Browser sessions expire after eight hours. Sign out to end this
-          browser’s session.
-        </p>
         <div className="quiet-panel">
-          <h3>Browser sessions</h3>
+          <h2>Browser sessions</h2>
+          <p>
+            Sessions expire after eight hours. Sign out to end this browser’s
+            session.
+          </p>
           {sessions === null && !error ? (
             <p role="status">Loading browser sessions…</p>
           ) : (
@@ -294,10 +304,8 @@ export function AccountPanels({ activity }: { activity: boolean }) {
             {busy ? "Ending sessions…" : "End other browser sessions"}
           </button>
         </div>
-        <div className="quiet-panel">
-          <h3>Authenticator and recovery</h3>
-          <p>MFA and password recovery are not available yet.</p>
-        </div>
+        <MfaPanel />
+        <DataPanel />
       </>
     </section>
   );

@@ -80,6 +80,9 @@ services:
     depends_on: { backend: { condition: service_healthy } }
     user: "1000:1000"
     read_only: true
+    volumes:
+      # Published installer and its manifest; written by the operator, read-only here.
+      - /opt/beacon-remote/downloads:/srv/downloads:ro
     tmpfs:
       - /config:uid=1000,gid=1000,mode=0700
       - /data:uid=1000,gid=1000,mode=0700
@@ -120,6 +123,7 @@ services:
       <<: *backup-env
       REMOTE_ADMIN_PASSWORD: ${REMOTE_ADMIN_PASSWORD:?required}
       REMOTE_ALLOW_ISOLATED_RESTORE: ${REMOTE_ALLOW_ISOLATED_RESTORE:-}
+      REMOTE_RESTORE_SCHEMA_ONLY: ${REMOTE_RESTORE_SCHEMA_ONLY:-}
     networks: [private, backup-egress]
     depends_on: { postgres: { condition: service_healthy } }
     read_only: true

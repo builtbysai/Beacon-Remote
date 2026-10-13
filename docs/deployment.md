@@ -1,5 +1,17 @@
 # Deployment gates
 
+October 12 (evening) manual rollout: merged main
+`410a7d19cb0eec2fc0032b8c3e09854b8d4f699a` (PR 34: ADRs 0021-0024) is the current
+Remote production release, after encrypted backup/integrity check, rollback tags
+`rollback-74a4e6e`, additive migrations 005-008, schema/role verification and public
+health/readiness for both products. The owner then authorized going live, so production
+now runs with sessions, remote control and the dedicated relay enabled: the backend reads
+`SESSION_SECRET`, `CONTROL_ENABLED`, `TURN_URLS`, `TURN_SECRET` and `ICE_TRANSPORT_POLICY`
+from root-only `/etc/beacon-remote/production-media.env` through the compose override
+`/etc/beacon-remote/production-media.override.yaml` (outside Git). Include that override on
+every compose command that recreates the backend, or media silently turns off. Predecessor
+`74a4e6e` images are tagged for rollback; the additive schema is compatible with it.
+
 October 12 manual rollout: exact feature-branch source
 `74a4e6e4d6573836c3da6dfc766b4c84c90c02e7` is the current Remote
 production release, media disabled, after local control-plane validation,
@@ -157,3 +169,17 @@ Open the generated HTTPS URL for the owner; the fragment is removed immediately.
 The owner enters and submits their password themselves. Invitations expire after
 30 minutes and cannot be reused. Reloading the setup page discards the token;
 issue a replacement if needed. This does not enable general registration.
+
+## Weekly restore drill
+
+`beacon-remote-restore-drill.timer` runs `restore-check` every Sunday at 05:30 UTC (after the 04:30 backup). It
+restores the latest encrypted backup into the fixed throwaway database, checks that the restored schema matches the
+live one and that accounts survived, then drops only what it created. Counts are not compared because the live
+service keeps changing (guest accounts expire); run the manual check below while writes are quiesced for that.
+Install once, after building the operations images (`docker compose build backup restore-check`):
+
+```
+sudo cp infrastructure/oracle/beacon-remote-restore-drill.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now beacon-remote-restore-drill.timer
+sudo systemctl start beacon-remote-restore-drill.service   # first drill now; see journalctl -u beacon-remote-restore-drill
+```

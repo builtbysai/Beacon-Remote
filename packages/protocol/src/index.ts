@@ -58,6 +58,28 @@ export const accessRequest = z
   .strict()
   .refine((request) => request.mode === "trusted" || !request.allowControl);
 
+// Whether remembered helpers may connect without the local Allow, set only by the computer itself.
+export const helpersLevel = z.enum(["off", "view", "control"]);
+export const helpersRequest = z
+  .object({
+    version: z.literal(PROTOCOL_VERSION),
+    machineId: z.string().uuid(),
+    timestamp: z.number().int().positive(),
+    nonce: z.string().uuid(),
+    level: helpersLevel,
+    signature: z.string().regex(/^[A-Za-z0-9+/]{86}==$/),
+  })
+  .strict();
+
+export function helpersMessage(
+  machineId: string,
+  timestamp: number,
+  nonce: string,
+  level: z.infer<typeof helpersLevel>,
+): string {
+  return `beacon-remote:helpers:v1\n${machineId}\n${timestamp}\n${nonce}\n${level}`;
+}
+
 // The person at the computer asks for a one-time support code, signed with the computer's key.
 export const supportRequest = z
   .object({
@@ -105,6 +127,7 @@ export interface Machine {
   // The computer's own access policy (ADR 0021). Only the computer can raise it.
   accessMode: "attended" | "trusted";
   allowControl: boolean;
+  helpersUnattended: "off" | "view" | "control";
   displays: DisplayInfo[];
 }
 
@@ -141,6 +164,7 @@ export const inputEnvelope = z
         .strict(),
       z.object({ type: z.literal("release_all") }).strict(),
       z.object({ type: z.literal("keep_alive") }).strict(),
+      z.object({ type: z.literal("clipboard_read") }).strict(),
       z
         .object({
           type: z.literal("type_text"),

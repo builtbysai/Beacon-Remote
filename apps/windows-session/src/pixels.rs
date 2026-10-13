@@ -18,8 +18,8 @@ pub fn nv12(
         || source_size != bgra.len() as u64
         || w < 2
         || h < 2
-        || w > 1280
-        || h > 720
+        || w > 1920
+        || h > 1080
         || !w.is_multiple_of(2)
         || !h.is_multiple_of(2)
         || target_size != output.len() as u64

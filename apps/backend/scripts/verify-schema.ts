@@ -25,6 +25,22 @@ try {
       "allow_control",
       "version",
       "updated_at",
+      "helpers_unattended",
+    ],
+    account_recoveries: [
+      "token_hash",
+      "account_id",
+      "expires_at",
+      "claimed_at",
+    ],
+    account_mfa: [
+      "account_id",
+      "secret",
+      "enabled_at",
+      "last_step",
+      "failures",
+      "locked_until",
+      "recovery",
     ],
     support_relationships: [
       "id",

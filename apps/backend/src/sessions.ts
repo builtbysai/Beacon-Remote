@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import websocket from "@fastify/websocket";
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Pool, PoolClient } from "pg";
 import type { WebSocket } from "ws";
 import { z } from "zod";
@@ -90,8 +90,13 @@ const signal = z.discriminatedUnion("type", [
       type: z.literal("consent"),
       accepted: z.boolean(),
       resumable: z.boolean().optional(),
+      // False when the person at the computer approved viewing but not the control that was asked for.
+      control: z.boolean().optional(),
     })
     .strict(),
+  // The person at the computer paused or resumed sharing; the viewer is told so it can say why the
+  // picture stopped.
+  z.object({ type: z.literal("paused"), paused: z.boolean() }).strict(),
   z
     .object({
       type: z.literal("renew"),
@@ -120,6 +125,10 @@ export async function registerSessions(
   pool: Pool,
   config: Config,
   owner: (request: FastifyRequest) => Promise<string | null>,
+  guests?: {
+    create(client: PoolClient): Promise<{ account: string; token: string }>;
+    setCookie(reply: FastifyReply, token: string): void;
+  },
 ) {
   await app.register(websocket, {
     options: { maxPayload: 65536, perMessageDeflate: false },
@@ -131,7 +140,7 @@ export async function registerSessions(
   // request is under two minutes old, and, for a policy session, the computer's policy still
   // allows what was granted. Sign-in and revocation are re-checked on every lease renewal.
   function liveDuration(alias: string, seconds = 0) {
-    return `(${alias}.expires_at>now()+interval '${seconds} seconds' AND (${alias}.status='active' OR ${alias}.created_at>now()-interval '120 seconds') AND (${alias}.approval='local' OR EXISTS (SELECT 1 FROM machine_access pa WHERE pa.machine_id=${alias}.machine_id AND pa.mode='trusted' AND pa.version=${alias}.policy_version AND (${alias}.capability<>'desktop:control' OR pa.allow_control)))) AND (${alias}.relationship_id IS NULL OR EXISTS (SELECT 1 FROM support_relationships rr WHERE rr.id=${alias}.relationship_id AND rr.revoked_at IS NULL AND rr.expires_at>now()))`;
+    return `(${alias}.expires_at>now()+interval '${seconds} seconds' AND (${alias}.status='active' OR ${alias}.created_at>now()-interval '120 seconds') AND (${alias}.approval='local' OR EXISTS (SELECT 1 FROM machine_access pa WHERE pa.machine_id=${alias}.machine_id AND pa.version=${alias}.policy_version AND CASE WHEN ${alias}.relationship_id IS NULL THEN pa.mode='trusted' AND (${alias}.capability<>'desktop:control' OR pa.allow_control) ELSE pa.helpers_unattended='control' OR (pa.helpers_unattended='view' AND ${alias}.capability='desktop:view') END))) AND (${alias}.relationship_id IS NULL OR EXISTS (SELECT 1 FROM support_relationships rr WHERE rr.id=${alias}.relationship_id AND rr.revoked_at IS NULL AND rr.expires_at>now()))`;
   }
   // Clients are told 0, meaning no fixed expiry: the cap is enforced here and the lease is the clock.
   const expiryMillis = () => 0;
@@ -182,14 +191,66 @@ export async function registerSessions(
     const result = await pool.query(
       `SELECT s.id, m.name AS "machineName", s.source, s.capability,
        CASE WHEN NOT ${liveDuration("s")} AND s.status IN ('requested','connecting','active') THEN 'expired' ELSE s.status END AS status,
-       s.created_at AS "createdAt", s.expires_at AS "expiresAt"
-       FROM view_sessions s JOIN machines m ON m.id=s.machine_id AND m.account_id=s.account_id
-       WHERE s.account_id=$1 AND ($2::uuid IS NULL OR s.machine_id=$2)
+       s.created_at AS "createdAt", s.expires_at AS "expiresAt",
+       CASE WHEN s.account_id<>$1 THEN (SELECT CASE WHEN guest_expires_at IS NOT NULL THEN 'Guest helper (no account)' ELSE email END FROM accounts WHERE id=s.account_id) END AS "controller",
+       (SELECT jsonb_build_object(
+          'samples', count(*),
+          'route', mode() WITHIN GROUP (ORDER BY q.route),
+          'height', max(q.height),
+          'fps', round(avg(q.fps)::numeric,0),
+          'rttMs', round(avg(q.rtt_ms)::numeric,0),
+          'rttP95Ms', round((percentile_cont(0.95) WITHIN GROUP (ORDER BY q.rtt_ms))::numeric,0),
+          'lossPct', round(avg(q.loss_pct)::numeric,1))
+        FROM session_quality q WHERE q.session_id=s.id HAVING count(*)>0) AS "quality"
+       FROM view_sessions s JOIN machines m ON m.id=s.machine_id
+       WHERE (s.account_id=$1 OR m.account_id=$1) AND ($2::uuid IS NULL OR s.machine_id=$2)
        ORDER BY s.created_at DESC,s.id LIMIT 100`,
       [account, query.data.machineId ?? null],
     );
     return { available: true, sessions: result.rows };
   });
+  // The viewer reports a few measured numbers every so often while a session runs. Only the session's own
+  // viewer may add them, at most one sample every eight seconds and a bounded number per session.
+  app.post(
+    "/api/sessions/:id/quality",
+    { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      if (request.headers.origin !== config.WEB_ORIGIN)
+        return reply.code(403).send({ error: "Origin rejected" });
+      const account = await owner(request);
+      if (!account) return reply.code(401).send({ error: "Sign in required" });
+      const path = z.object({ id: z.uuid() }).safeParse(request.params);
+      const sample = z
+        .object({
+          route: z.enum(["Direct", "Relayed", "Unavailable"]),
+          height: z.number().int().min(0).max(4320).nullable(),
+          fps: z.number().min(0).max(240).nullable(),
+          rttMs: z.number().min(0).max(60000).nullable(),
+          lossPct: z.number().min(0).max(100).nullable(),
+        })
+        .strict()
+        .safeParse(request.body);
+      if (!path.success || !sample.success)
+        return reply.code(400).send({ error: "Invalid sample" });
+      const inserted = await pool.query(
+        `INSERT INTO session_quality(session_id,route,height,fps,rtt_ms,loss_pct)
+         SELECT s.id,$3,$4,$5,$6,$7 FROM view_sessions s
+         WHERE s.id=$1 AND s.account_id=$2 AND s.status IN ('connecting','active')
+           AND NOT EXISTS (SELECT 1 FROM session_quality q WHERE q.session_id=s.id AND q.sampled_at>now()-interval '8 seconds')
+           AND (SELECT count(*) FROM session_quality q WHERE q.session_id=s.id)<600`,
+        [
+          path.data.id,
+          account,
+          sample.data.route,
+          sample.data.height,
+          sample.data.fps,
+          sample.data.rttMs,
+          sample.data.lossPct,
+        ],
+      );
+      return reply.code(inserted.rowCount ? 204 : 202).send();
+    },
+  );
   const iceServers = [
     { urls: [config.STUN_URL ?? "stun:129.213.128.206:3478"] },
   ];
@@ -306,16 +367,23 @@ export async function registerSessions(
       mode: string;
       allow_control: boolean;
       version: number;
+      helpers_unattended: string;
     }>(
-      "SELECT mode,allow_control,version FROM machine_access WHERE machine_id=$1",
+      "SELECT mode,allow_control,version,helpers_unattended FROM machine_access WHERE machine_id=$1",
       [input.machineId],
     );
     const policy = access.rows[0];
+    // A one-time support code always needs the local Allow. A remembered helper skips it only when
+    // the computer itself said so, at a level that covers what was asked.
     const byPolicy =
-      !input.support &&
-      policy?.mode === "trusted" &&
       input.source === "desktop" &&
-      (input.capability === "desktop:view" || policy.allow_control);
+      (input.relationshipId
+        ? policy?.helpers_unattended === "control" ||
+          (policy?.helpers_unattended === "view" &&
+            input.capability === "desktop:view")
+        : !input.support &&
+          policy?.mode === "trusted" &&
+          (input.capability === "desktop:view" || policy.allow_control));
     const session: Session = {
       id: randomUUID(),
       account_id: input.account,
@@ -328,7 +396,7 @@ export async function registerSessions(
       created_at: new Date(),
       status: "requested",
       approval: byPolicy ? "policy" : "local",
-      policy_version: byPolicy ? policy.version : null,
+      policy_version: byPolicy ? policy!.version : null,
       display_id: input.displayId,
       relationship_id: input.relationshipId ?? null,
     };
@@ -442,14 +510,15 @@ export async function registerSessions(
   );
   // A helper redeems a one-time support code. The person at the computer still approves locally,
   // and nothing here leaves the helper with standing access to the computer.
-  app.post(
-    "/api/support/claim",
-    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
-    async (request, reply) => {
+  const claimSupport =
+    (allowGuest: boolean) =>
+    async (request: FastifyRequest, reply: FastifyReply) => {
       if (request.headers.origin !== config.WEB_ORIGIN)
         return reply.code(403).send({ error: "Origin rejected" });
-      const account = await owner(request);
-      if (!account) return reply.code(401).send({ error: "Sign in required" });
+      // Without an account the helper becomes a temporary guest once the code is known to be good.
+      let account = await owner(request);
+      if (!account && !(allowGuest && guests))
+        return reply.code(401).send({ error: "Sign in required" });
       if (!enabled)
         return reply.code(503).send({ error: "View sessions disabled" });
       const body = z
@@ -485,6 +554,12 @@ export async function registerSessions(
           await client.query("ROLLBACK");
           return reply.code(403).send({ error: "Control unavailable" });
         }
+        let guestToken: string | null = null;
+        if (!account) {
+          const guest = await guests!.create(client);
+          account = guest.account;
+          guestToken = guest.token;
+        }
         const opened = await openSession(client, {
           account,
           machineId: found.machine_id,
@@ -513,6 +588,7 @@ export async function registerSessions(
           ],
         );
         await client.query("COMMIT");
+        if (guestToken) guests!.setCookie(reply, guestToken);
         wake(opened.machine_id);
         return {
           id: opened.id,
@@ -531,8 +607,13 @@ export async function registerSessions(
       } finally {
         client.release();
       }
-    },
-  );
+    };
+  const claimLimit = {
+    config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+  };
+  app.post("/api/support/claim", claimLimit, claimSupport(false));
+  // The same redemption for a helper with no account: they become a temporary guest (migration 012).
+  app.post("/api/support/guest", claimLimit, claimSupport(true));
   // Remembered support (ADR 0024). The owner names an account; that account may then request
   // sessions on this computer until the expiry, and every session still needs the local Allow.
   const relationshipParams = z.object({ id: z.uuid() });
@@ -1117,7 +1198,8 @@ export async function registerSessions(
                   session.id,
                   body.accepted ? "active" : "denied",
                   body.accepted
-                    ? session.capability === "desktop:control"
+                    ? session.capability === "desktop:control" &&
+                      body.control !== false
                       ? "desktop.control.accepted"
                       : "desktop.view.accepted"
                     : session.capability === "desktop:control"
@@ -1134,12 +1216,14 @@ export async function registerSessions(
                 type: "consent",
                 accepted: body.accepted,
                 ...(live.resumable ? { resumable: true } : {}),
+                ...(body.control === false ? { control: false } : {}),
               });
               if (!body.accepted) await finish(session.id, "denied");
               return;
             }
             if (
               (body.type === "offer" && role !== "machine") ||
+              (body.type === "paused" && role !== "machine") ||
               (body.type === "retry" &&
                 (role !== "machine" || !live.resumable)) ||
               (body.type === "answer" && role !== "viewer")
@@ -1200,7 +1284,7 @@ export async function registerSessions(
     if (!enabled) return [];
     async function load() {
       const result = await pool.query<Session & { controller: string }>(
-        `SELECT s.*,a.email AS controller FROM view_sessions s JOIN accounts a ON a.id=s.account_id JOIN machines m ON m.id=s.machine_id WHERE s.machine_id=$1 AND m.revoked_at IS NULL AND s.status='requested' AND ${liveDuration("s", 1)} AND s.created_at>now()-interval '119 seconds' ORDER BY s.created_at LIMIT 1`,
+        `SELECT s.*,CASE WHEN a.guest_expires_at IS NOT NULL THEN 'Guest helper (no account)' ELSE a.email END AS controller FROM view_sessions s JOIN accounts a ON a.id=s.account_id JOIN machines m ON m.id=s.machine_id WHERE s.machine_id=$1 AND m.revoked_at IS NULL AND s.status='requested' AND ${liveDuration("s", 1)} AND s.created_at>now()-interval '119 seconds' ORDER BY s.created_at LIMIT 1`,
         [machineId],
       );
       return result.rows
@@ -1214,6 +1298,7 @@ export async function registerSessions(
           expiresAtMillis: expiryMillis(),
           approval: session.approval,
           displayId: session.display_id,
+          viaRelationship: session.relationship_id !== null,
           approvalExpiresAtMillis: session.created_at.getTime() + 120000,
           reconnectSeconds: reconnectSeconds(session),
           iceServers: sessionIce(session),

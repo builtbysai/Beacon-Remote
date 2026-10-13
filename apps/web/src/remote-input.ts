@@ -1,4 +1,5 @@
 // Browser events become bounded physical-pixel input, only on an approved channel.
+import { isModifierCode, modifierChanges } from "./modifiers.js";
 import { pasteSteps, type PasteInput } from "./paste.js";
 import { TouchPad, type TouchAction, type TouchMode } from "./touch-input.js";
 const scans: Record<string, number> = {
@@ -165,6 +166,7 @@ export function attachRemoteInput(
   };
   // Ctrl+V types the viewer's clipboard on the computer, paced under the channel's rate limit.
   const held = new Set<number>();
+  const synthetic = new Set<number>();
   let pasting: PasteInput[] = [];
   const pasteTimer = setInterval(() => {
     const step = pasting.shift();
@@ -351,8 +353,40 @@ export function attachRemoteInput(
       return;
     }
     const heldCode = scan | (event.code in extended ? 0x100 : 0);
+    const sendKey = (code: number, down: boolean) =>
+      send({ type: "key", scanCode: code & 0xff, extended: code > 0xff, down });
+    if (!isModifierCode(heldCode)) {
+      // Line the computer's modifiers up with this event's flags before the key itself.
+      for (const change of modifierChanges(held, {
+        ctrl: event.ctrlKey,
+        shift: event.shiftKey,
+        alt: event.altKey,
+        meta: event.metaKey,
+      })) {
+        sendKey(change.code, change.down);
+        if (change.down) {
+          held.add(change.code);
+          synthetic.add(change.code);
+        } else held.delete(change.code);
+      }
+    }
     if (event.type === "keydown") held.add(heldCode);
     else held.delete(heldCode);
+    if (event.type === "keyup" && !isModifierCode(heldCode)) {
+      // A modifier added only to match this event's flags ends with the key.
+      send({
+        type: "key",
+        scanCode: scan,
+        extended: event.code in extended,
+        down: false,
+      });
+      for (const code of synthetic) {
+        sendKey(code, false);
+        held.delete(code);
+      }
+      synthetic.clear();
+      return;
+    }
     send({
       type: "key",
       scanCode: scan,
@@ -360,13 +394,113 @@ export function attachRemoteInput(
       down: event.type === "keydown",
     });
   };
+  // A phone's soft keyboard sends text, not physical key codes. A hidden field takes its input
+  // (a toolbar button asks for it with a "beacon-keyboard" event) and types it as text; keys it does
+  // identify (Backspace, Enter, arrows) go through the normal key path.
+  let sink: HTMLTextAreaElement | null = null;
+  const typed = (text: string) => {
+    const { steps } = pasteSteps(text);
+    pasting.push(...steps);
+  };
+  const openKeyboard = () => {
+    if (!display) return;
+    if (!sink) {
+      // A textarea with every helper off, so the phone offers no autofill or suggestions for it.
+      sink = document.createElement("textarea");
+      sink.setAttribute("aria-label", "Type to the remote computer");
+      sink.setAttribute("autocorrect", "off");
+      sink.setAttribute("autocomplete", "off");
+      sink.setAttribute("data-lpignore", "true");
+      sink.rows = 1;
+      sink.autocapitalize = "off";
+      sink.spellcheck = false;
+      sink.style.cssText =
+        "position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0;border:0;padding:0";
+      sink.addEventListener("keydown", key);
+      sink.addEventListener("keyup", key);
+      sink.addEventListener("beforeinput", (event) => {
+        // Composition (predictive text, IME) is sent once it is committed.
+        if (
+          event.inputType === "insertText" &&
+          event.data &&
+          !event.isComposing
+        ) {
+          event.preventDefault();
+          typed(event.data);
+        }
+      });
+      sink.addEventListener("compositionend", (event) => {
+        if (event.data) typed(event.data);
+        if (sink) sink.value = "";
+      });
+      sink.addEventListener("blur", release);
+      (element.parentElement ?? document.body).appendChild(sink);
+    }
+    sink.focus();
+  };
   const context = (event: Event) => {
     if (display) event.preventDefault();
   };
   const visibility = () => {
     if (document.hidden) release();
   };
+  // Copy from the computer: the viewer asks, the computer answers once with its clipboard text, and
+  // that text goes to this browser's clipboard. Nothing is sent unasked.
+  let awaitingClipboard: ReturnType<typeof setTimeout> | null = null;
+  const requestClipboard = () => {
+    if (!display || awaitingClipboard) return;
+    awaitingClipboard = setTimeout(() => {
+      awaitingClipboard = null;
+      onNotice("The computer did not answer. Try again.");
+    }, 4000);
+    send({ type: "clipboard_read" });
+  };
+  const receiveClipboard = async (data: unknown) => {
+    const reply = data as {
+      type?: unknown;
+      text?: unknown;
+      truncated?: unknown;
+      unavailable?: unknown;
+    };
+    if (
+      !awaitingClipboard ||
+      reply.type !== "clipboard" ||
+      typeof reply.text !== "string" ||
+      reply.text.length > 32768
+    )
+      throw new Error();
+    clearTimeout(awaitingClipboard);
+    awaitingClipboard = null;
+    if (reply.unavailable === true || !reply.text) {
+      onNotice("The computer's clipboard has no text to copy.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(reply.text);
+      onNotice(
+        reply.truncated
+          ? "Copied the start of the computer's clipboard."
+          : "Copied from the computer.",
+      );
+    } catch {
+      onNotice(
+        "Allow clipboard access in your browser to copy from the computer.",
+      );
+    }
+  };
   channel.onmessage = (event) => {
+    if (
+      display &&
+      typeof event.data === "string" &&
+      event.data.length <= 120_000
+    ) {
+      try {
+        void receiveClipboard(JSON.parse(event.data)).catch(onFailure);
+      } catch {
+        onFailure();
+      }
+      return;
+    }
     if (
       disposed ||
       typeof event.data !== "string" ||
@@ -435,6 +569,8 @@ export function attachRemoteInput(
   element.addEventListener("keyup", key);
   element.addEventListener("blur", release);
   element.addEventListener("contextmenu", context);
+  element.addEventListener("beacon-keyboard", openKeyboard);
+  element.addEventListener("beacon-clipboard-read", requestClipboard);
   window.addEventListener("blur", release);
   document.addEventListener("visibilitychange", visibility);
   const heartbeat = setInterval(() => send({ type: "keep_alive" }), 400);
@@ -461,6 +597,11 @@ export function attachRemoteInput(
     element.removeEventListener("keyup", key);
     element.removeEventListener("blur", release);
     element.removeEventListener("contextmenu", context);
+    element.removeEventListener("beacon-keyboard", openKeyboard);
+    element.removeEventListener("beacon-clipboard-read", requestClipboard);
+    if (awaitingClipboard) clearTimeout(awaitingClipboard);
+    sink?.remove();
+    sink = null;
     window.removeEventListener("blur", release);
     document.removeEventListener("visibilitychange", visibility);
   };
