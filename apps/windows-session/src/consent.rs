@@ -116,7 +116,14 @@ pub fn request(
     pending: Arc<AtomicBool>,
     deadline: Instant,
 ) -> Result<bool, Error> {
-    request_access(controller, pending, deadline, false, false)
+    request_access(
+        controller,
+        pending,
+        deadline,
+        false,
+        false,
+        "Primary display",
+    )
 }
 pub fn request_access(
     controller: &str,
@@ -124,6 +131,7 @@ pub fn request_access(
     deadline: Instant,
     control: bool,
     unlimited: bool,
+    display: &str,
 ) -> Result<bool, Error> {
     let mut state = State {
         pending,
@@ -226,12 +234,26 @@ pub fn request_access(
                 let details = CreateWindowExW(
                     0,
                     label_class.as_ptr(),
-                    wide(match (control, unlimited) {
-                        (true, true) => "View and control · Mouse and keyboard · Until stopped\nStop sharing anytime, or lock Windows.",
-                        (false, true) => "View only · Primary display · Until stopped\nStop sharing anytime, or lock Windows.",
-                        (true, false) => "View and control · Mouse and keyboard · Up to two minutes\nStop sharing anytime, or lock Windows.",
-                        (false, false) => "View only · Primary display · Up to two minutes\nStop sharing anytime, or lock Windows.",
-                    }).as_ptr(),
+                    wide(&format!(
+                        "{} · {}{} · {}\nStop sharing anytime, or lock Windows.",
+                        if control {
+                            "View and control"
+                        } else {
+                            "View only"
+                        },
+                        display,
+                        if control {
+                            " · Mouse and keyboard"
+                        } else {
+                            ""
+                        },
+                        if unlimited {
+                            "Until stopped"
+                        } else {
+                            "Up to two minutes"
+                        },
+                    ))
+                    .as_ptr(),
                     WS_CHILD | WS_VISIBLE | SS_NOPREFIX,
                     scale(24),
                     scale(100),

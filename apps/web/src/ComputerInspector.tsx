@@ -24,13 +24,19 @@ export function ComputerInspector({
   onUpdated: () => Promise<void>;
   onRevoke: () => Promise<void>;
   stale: boolean;
-  onRequestView?: () => void;
-  onRequestControl?: () => void;
+  onRequestView?: (displayId?: string) => void;
+  onRequestControl?: (displayId?: string) => void;
   viewEnabled?: boolean;
   controlEnabled?: boolean;
   requesting?: boolean;
   sessionActive?: boolean;
 }) {
+  const [display, setDisplay] = useState("");
+  const displays = machine.displays ?? [];
+  // Only a display this computer reported can be chosen; otherwise the primary display is shared.
+  const displayId = displays.some((entry) => entry.id === display)
+    ? display
+    : undefined;
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(machine.name);
   const [busy, setBusy] = useState(false);
@@ -170,10 +176,27 @@ export function ComputerInspector({
               ? "Online"
               : "Offline"}
       </p>
+      {displays.length > 1 && (
+        <label className="inspector-display">
+          Display
+          <select
+            value={displayId ?? ""}
+            onChange={(event) => setDisplay(event.target.value)}
+          >
+            <option value="">Primary display</option>
+            {displays.map((entry, index) => (
+              <option key={entry.id} value={entry.id}>
+                Display {index + 1} · {entry.width}×{entry.height}
+                {entry.primary ? " · Primary" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <div className="inspector-command">
         <button
           disabled={cannotConnect || !controlEnabled || !onRequestControl}
-          onClick={onRequestControl}
+          onClick={() => onRequestControl?.(displayId)}
           title={
             !controlEnabled
               ? "Keyboard and mouse control are unavailable on this server"
@@ -187,7 +210,7 @@ export function ComputerInspector({
         <button
           className="secondary"
           disabled={cannotConnect || !onRequestView}
-          onClick={onRequestView}
+          onClick={() => onRequestView?.(displayId)}
         >
           {requesting ? "Requesting…" : "View only"}
         </button>

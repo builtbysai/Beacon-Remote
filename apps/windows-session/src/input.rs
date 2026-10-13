@@ -88,8 +88,8 @@ impl InputBackend for WindowsInput {
         }
         input.validate()?;
         // A changed display layout ends control; don't inject using stale geometry.
-        let current =
-            crate::capture::primary_display().map_err(|_| ControlError::PlatformUnavailable)?;
+        let current = crate::capture::display(Some(&self.display.id))
+            .map_err(|_| ControlError::PlatformUnavailable)?;
         if current.id != self.display.id
             || current.width != self.display.width
             || current.height != self.display.height

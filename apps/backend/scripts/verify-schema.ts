@@ -16,6 +16,7 @@ try {
       "created_at",
       "approval",
       "policy_version",
+      "display_id",
     ],
     machine_access: [
       "machine_id",
@@ -36,6 +37,7 @@ try {
       "last_seen_at",
       "revoked_at",
       "created_at",
+      "displays",
     ],
     heartbeat_nonces: ["machine_id", "nonce", "received_at"],
     audit_events: ["id", "account_id", "machine_id", "action", "occurred_at"],

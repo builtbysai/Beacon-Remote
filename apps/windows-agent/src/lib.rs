@@ -193,6 +193,57 @@ pub enum HostStatus {
     Stopped,
     Rejected,
 }
+/// The displays attached to this computer, in physical pixels, for the viewer to choose from.
+/// The session helper re-reads the display it is asked for, so this is only a selector.
+#[cfg(windows)]
+fn local_displays() -> Vec<serde_json::Value> {
+    use windows_sys::Win32::Graphics::Gdi::{
+        EnumDisplayMonitors, EnumDisplaySettingsW, GetMonitorInfoW, DEVMODEW,
+        ENUM_CURRENT_SETTINGS, HDC, HMONITOR, MONITORINFOEXW,
+    };
+    unsafe extern "system" fn collect(
+        monitor: HMONITOR,
+        _: HDC,
+        _: *mut windows_sys::Win32::Foundation::RECT,
+        found: isize,
+    ) -> i32 {
+        let found = &mut *(found as *mut Vec<serde_json::Value>);
+        let mut info: MONITORINFOEXW = std::mem::zeroed();
+        info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+        if GetMonitorInfoW(monitor, std::ptr::addr_of_mut!(info).cast()) == 0 {
+            return 1;
+        }
+        let mut mode: DEVMODEW = std::mem::zeroed();
+        mode.dmSize = std::mem::size_of::<DEVMODEW>() as u16;
+        if EnumDisplaySettingsW(info.szDevice.as_ptr(), ENUM_CURRENT_SETTINGS, &mut mode) == 0 {
+            return 1;
+        }
+        let length = info.szDevice.iter().position(|&c| c == 0).unwrap_or(0);
+        found.push(serde_json::json!({
+            "id": String::from_utf16_lossy(&info.szDevice[..length]),
+            "width": mode.dmPelsWidth,
+            "height": mode.dmPelsHeight,
+            "primary": info.monitorInfo.dwFlags & 1 != 0,
+        }));
+        1
+    }
+    let mut found: Vec<serde_json::Value> = Vec::new();
+    unsafe {
+        EnumDisplayMonitors(
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            Some(collect),
+            std::ptr::addr_of_mut!(found) as isize,
+        );
+    }
+    found.truncate(8);
+    found
+}
+#[cfg(not(windows))]
+fn local_displays() -> Vec<serde_json::Value> {
+    Vec::new()
+}
+
 pub fn is_paired() -> bool {
     state_path().is_ok_and(|path| path.is_file())
 }
@@ -284,6 +335,7 @@ pub fn run(cancel: Arc<AtomicBool>, status: SyncSender<HostStatus>) -> Result<()
         .timeout(Duration::from_secs(25)).query(&query).json(&serde_json::json!({
             "version": 1, "machineId": identity.machine_id, "timestamp": timestamp,
             "nonce": nonce, "signature": STANDARD.encode(key.sign(message.as_bytes()).to_bytes()),
+            "displays": local_displays(),
         })).send();
         match response {
             Ok(response) if response.status().is_success() => {

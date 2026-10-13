@@ -22,6 +22,7 @@ struct Envelope {
 }
 pub struct Authority {
     pub session: String,
+    pub display_id: Option<String>,
     pub deadline: Option<Instant>,
     pub epoch: Instant,
     pub lease: Arc<AtomicU64>,
@@ -63,7 +64,7 @@ pub fn start(channel: Arc<dyn DataChannel>, authority: Authority) -> tokio::task
     })
 }
 async fn run(channel: Arc<dyn DataChannel>, authority: &Authority) -> Result<(), ()> {
-    let display = crate::capture::primary_display().map_err(|_| ())?;
+    let display = crate::capture::display(authority.display_id.as_deref()).map_err(|_| ())?;
     let geometry = serde_json::json!({"type":"display", "id":display.id,"width":display.width,"height":display.height});
     let mut desktop = ControlledDesktop::new(WindowsInput::new(display));
     // Declared after the desktop so it revokes capture/transport before any

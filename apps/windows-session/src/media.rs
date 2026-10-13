@@ -63,6 +63,9 @@ pub struct Grant {
     // Added by the local agent only when this computer's own setting also allows trusted access.
     #[serde(default)]
     local_trusted: bool,
+    // The display the viewer chose, from the list this computer reported. None is the primary.
+    #[serde(default)]
+    display_id: Option<String>,
     // How long the server waits for the viewer to reconnect; capture stays off meanwhile.
     #[serde(default)]
     reconnect_seconds: Option<u64>,
@@ -443,6 +446,7 @@ async fn stream(
         let pending = Arc::new(AtomicBool::new(true));
         let _cancel_prompt = StopOnDrop(pending.clone());
         let dialog_pending = pending.clone();
+        let display_label = crate::capture::display_label(grant.display_id.as_deref());
         let mut dialog = tokio::task::spawn_blocking(move || {
             crate::consent::request_access(
                 &controller,
@@ -450,6 +454,7 @@ async fn stream(
                 deadline,
                 control,
                 unlimited,
+                &display_label,
             )
         });
         let accepted = tokio::select! {
@@ -822,7 +827,7 @@ async fn media_cycle(
             "beacon-test-stream".into(),
             "beacon-test-video".into(),
             if desktop {
-                "Primary desktop".into()
+                "Desktop".into()
             } else {
                 "Synthetic video — no desktop".into()
             },
@@ -852,6 +857,7 @@ async fn media_cycle(
             channel,
             crate::input_transport::Authority {
                 session: grant.id.clone(),
+                display_id: grant.display_id.clone(),
                 deadline,
                 epoch,
                 lease: lease.clone(),
@@ -887,6 +893,7 @@ async fn media_cycle(
     let worker_connected = connected.clone();
     let worker_lease = lease.clone();
     let worker_session_active = session_active.clone();
+    let worker_display = grant.display_id.clone();
     let viewer_generation = socket.viewer_generation.clone();
     let worker_viewer_generation = viewer_generation.clone();
     let worker = tokio::task::spawn_blocking(move || -> Result<(), Error> {
@@ -920,6 +927,7 @@ async fn media_cycle(
                     capture = Some(crate::capture::DesktopCapture::start_with_session(
                         Arc::new(AtomicBool::new(true)),
                         worker_session_active.clone(),
+                        worker_display.as_deref(),
                     )?);
                 }
                 let Some(frame) = capture.as_mut().ok_or("Capture unavailable")?.snapshot()? else {

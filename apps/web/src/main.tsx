@@ -141,6 +141,7 @@ function App() {
   async function testVideo(
     machine: Machine,
     capability: "desktop:view" | "desktop:control" = "desktop:view",
+    displayId?: string,
   ) {
     const context = viewContext.current;
     if (!context.active) return;
@@ -151,6 +152,7 @@ function App() {
         api<ViewGrant>(`machines/${machine.id}/sessions`, {
           source: "desktop",
           capability,
+          ...(displayId ? { displayId } : {}),
         }),
         () => context.active,
         (grant) => setView({ grant, name: machine.name }),
@@ -688,15 +690,18 @@ function App() {
                   controlEnabled={controlEnabled}
                   requesting={busy}
                   sessionActive={view !== null}
-                  onRequestView={() => {
+                  onRequestView={(displayId) => {
                     void testVideo(
                       machines.find((machine) => machine.id === selected)!,
+                      "desktop:view",
+                      displayId,
                     );
                   }}
-                  onRequestControl={() => {
+                  onRequestControl={(displayId) => {
                     void testVideo(
                       machines.find((machine) => machine.id === selected)!,
                       "desktop:control",
+                      displayId,
                     );
                   }}
                   machine={machines.find((machine) => machine.id === selected)!}

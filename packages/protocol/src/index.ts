@@ -11,6 +11,17 @@ export const enrollment = z
   })
   .strict();
 
+// A display the computer reports. The id is the Windows device name, never user text.
+export const displayInfo = z
+  .object({
+    id: z.string().regex(/^\\\\\.\\DISPLAY\d{1,3}$/),
+    width: z.number().int().min(1).max(32768),
+    height: z.number().int().min(1).max(32768),
+    primary: z.boolean(),
+  })
+  .strict();
+export type DisplayInfo = z.infer<typeof displayInfo>;
+
 export const heartbeat = z
   .object({
     version: z.literal(PROTOCOL_VERSION),
@@ -18,6 +29,7 @@ export const heartbeat = z
     timestamp: z.number().int().positive(),
     nonce: z.string().uuid(),
     signature: z.string().regex(/^[A-Za-z0-9+/]{86}==$/),
+    displays: z.array(displayInfo).max(8).optional(),
   })
   .strict();
 
@@ -65,6 +77,7 @@ export interface Machine {
   // The computer's own access policy (ADR 0021). Only the computer can raise it.
   accessMode: "attended" | "trusted";
   allowControl: boolean;
+  displays: DisplayInfo[];
 }
 
 // Later WebRTC: reliable ordered state/keys/buttons; unreliable unordered pointer

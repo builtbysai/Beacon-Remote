@@ -215,7 +215,7 @@ export async function createApp(pool: Pool, config: Config) {
     const result = await pool.query(
       `SELECT m.id,m.name,m.last_seen_at AS "lastSeenAt",m.revoked_at AS "revokedAt",
        COALESCE((m.revoked_at IS NULL AND m.last_seen_at>now()-interval '45 seconds'),false) AS online,
-       COALESCE(a.mode,'attended') AS "accessMode",COALESCE(a.allow_control,false) AS "allowControl"
+       COALESCE(a.mode,'attended') AS "accessMode",COALESCE(a.allow_control,false) AS "allowControl",m.displays
        FROM machines m LEFT JOIN machine_access a ON a.machine_id=m.id
        WHERE m.account_id=$1 ORDER BY m.created_at`,
       [account],
@@ -392,9 +392,10 @@ export async function createApp(pool: Pool, config: Config) {
         await client.query("ROLLBACK");
         return reply.code(409).send({ error: "Heartbeat rejected" });
       }
-      await client.query("UPDATE machines SET last_seen_at=now() WHERE id=$1", [
-        body.machineId,
-      ]);
+      await client.query(
+        "UPDATE machines SET last_seen_at=now(),displays=COALESCE($2::jsonb,displays) WHERE id=$1",
+        [body.machineId, body.displays ? JSON.stringify(body.displays) : null],
+      );
       // Keep nonces longer than the signed timestamp acceptance window.
       await client.query(
         "DELETE FROM heartbeat_nonces WHERE machine_id=$1 AND received_at<now()-interval '2 minutes'",

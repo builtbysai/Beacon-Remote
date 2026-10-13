@@ -139,12 +139,25 @@ try {
     await sleep(250);
   }
   pass("the agent reports presence");
+  const reported = (
+    await pool.query("SELECT displays FROM machines WHERE id=$1", [machineId])
+  ).rows[0].displays as { id: string; primary: boolean }[];
+  check(
+    reported.some((display) => display.primary),
+    `the agent reports its displays (${reported.map((display) => display.id).join(", ")})`,
+  );
 
   const created = await app.inject({
     method: "POST",
     url: `/api/machines/${machineId}/sessions`,
     headers,
-    payload: { source: "desktop", capability: "desktop:view" },
+    payload: {
+      source: "desktop",
+      capability: "desktop:view",
+      displayId: reported.find(
+        (display) => display.primary !== Boolean(process.env.E2E_SECONDARY),
+      )!.id,
+    },
   });
   check(created.statusCode === 200, "the owner requests a session");
   const sessionId = created.json().id as string;

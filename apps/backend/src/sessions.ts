@@ -5,6 +5,7 @@ import type { Pool } from "pg";
 import type { WebSocket } from "ws";
 import { z } from "zod";
 import type { Config } from "./config.js";
+import { displayInfo } from "../../../packages/protocol/src/index.js";
 import { relayCredentials, relayExpiry } from "./relay.js";
 
 type Session = {
@@ -18,6 +19,7 @@ type Session = {
   status: string;
   approval: "local" | "policy";
   policy_version: number | null;
+  display_id: string | null;
 };
 type Role = "viewer" | "machine";
 type Authorization = { session: Session; role: Role; request: FastifyRequest };
@@ -287,6 +289,7 @@ export async function registerSessions(
           capability: z
             .enum(["desktop:view", "desktop:control"])
             .default("desktop:view"),
+          displayId: displayInfo.shape.id.optional(),
         })
         .strict()
         .safeParse(request.body);
@@ -301,12 +304,22 @@ export async function registerSessions(
       try {
         await client.query("BEGIN");
         const machine = await client.query(
-          "SELECT id FROM machines WHERE id=$1 AND account_id=$2 AND revoked_at IS NULL AND last_seen_at>now()-interval '45 seconds' FOR UPDATE",
+          "SELECT id,displays FROM machines WHERE id=$1 AND account_id=$2 AND revoked_at IS NULL AND last_seen_at>now()-interval '45 seconds' FOR UPDATE",
           [parsed.data.id, account],
         );
         if (!machine.rowCount) {
           await client.query("ROLLBACK");
           return reply.code(404).send({ error: "Computer unavailable" });
+        }
+        // Only a display the computer itself reported can be chosen.
+        const known = machine.rows[0].displays as { id: string }[];
+        if (
+          body.data.displayId &&
+          (body.data.source !== "desktop" ||
+            !known.some((display) => display.id === body.data.displayId))
+        ) {
+          await client.query("ROLLBACK");
+          return reply.code(400).send({ error: "Unknown display" });
         }
         await client.query(
           `UPDATE view_sessions s SET status='ended' WHERE machine_id=$1 AND NOT ${liveDuration("s")} AND status IN ('requested','connecting','active')`,
@@ -350,9 +363,10 @@ export async function registerSessions(
           status: "requested",
           approval: byPolicy ? "policy" : "local",
           policy_version: byPolicy ? policy.version : null,
+          display_id: body.data.displayId ?? null,
         };
         await client.query(
-          "INSERT INTO view_sessions(id,account_id,machine_id,source,token_hash,expires_at,status,capability,approval,policy_version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+          "INSERT INTO view_sessions(id,account_id,machine_id,source,token_hash,expires_at,status,capability,approval,policy_version,display_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
           [
             session.id,
             account,
@@ -364,6 +378,7 @@ export async function registerSessions(
             session.capability,
             session.approval,
             session.policy_version,
+            session.display_id,
           ],
         );
         await client.query(
@@ -854,6 +869,7 @@ export async function registerSessions(
           capability: session.capability,
           expiresAtMillis: expiryMillis(),
           approval: session.approval,
+          displayId: session.display_id,
           approvalExpiresAtMillis: session.created_at.getTime() + 120000,
           reconnectSeconds: reconnectSeconds(session),
           iceServers: sessionIce(session),
