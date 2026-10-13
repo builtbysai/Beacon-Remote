@@ -11,7 +11,32 @@ export type SessionRecord = {
   expiresAt: string | null;
   // Set when someone else (a support helper) ran this session on your computer.
   controller?: string | null;
+  // Measured by the viewer while the session ran; absent when nothing was sampled.
+  quality?: {
+    samples: number;
+    route: string;
+    height: number | null;
+    fps: number | null;
+    rttMs: number | null;
+    rttP95Ms: number | null;
+    lossPct: number | null;
+  } | null;
 };
+
+export function qualityLine(quality: SessionRecord["quality"]): string {
+  if (!quality) return "—";
+  return [
+    quality.route,
+    quality.height ? `${quality.height}p` : null,
+    quality.fps ? `${quality.fps} fps` : null,
+    quality.rttMs === null ? null : `${quality.rttMs} ms`,
+    quality.lossPct && quality.lossPct >= 0.5
+      ? `${quality.lossPct}% loss`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 export function sessionState(status: string) {
   switch (status) {
@@ -168,6 +193,7 @@ export function SessionHistory() {
                   <span>Computer</span>
                   <span>Access</span>
                   <span>Result</span>
+                  <span>Connection</span>
                   <span>When</span>
                 </div>
                 <ol className="session-rows session-table">
@@ -187,6 +213,7 @@ export function SessionHistory() {
                           : "Video test"}
                       </span>
                       <span>{sessionState(session.status)}</span>
+                      <span>{qualityLine(session.quality)}</span>
                       <time dateTime={session.createdAt}>
                         {new Date(session.createdAt).toLocaleString()}
                       </time>
