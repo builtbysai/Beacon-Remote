@@ -1,3 +1,4 @@
+mod adapt;
 #[cfg(windows)]
 mod capture;
 #[cfg(windows)]

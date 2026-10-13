@@ -926,6 +926,12 @@ async fn media_cycle(
         setup_started.elapsed().as_millis()
     );
     let (packets, mut receiver) = mpsc::channel::<crate::encoder::EncodedFrame>(2);
+    // The quality tier the signaling task chooses from receiver reports, and the encoder's measured
+    // cost per frame (thousandths of a frame interval) that it reports back.
+    let quality = Arc::new(std::sync::atomic::AtomicUsize::new(crate::adapt::START));
+    let encode_cost = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let worker_quality = quality.clone();
+    let worker_cost = encode_cost.clone();
     let worker_active = active.clone();
     let worker_connected = connected.clone();
     let worker_lease = lease.clone();
@@ -934,9 +940,11 @@ async fn media_cycle(
     let viewer_generation = socket.viewer_generation.clone();
     let worker_viewer_generation = viewer_generation.clone();
     let worker = tokio::task::spawn_blocking(move || -> Result<(), Error> {
-        let mut encoder = Encoder::new(1280, 720, 30, 2_500_000)?;
-        let mut nv12 = vec![128; 1280 * 720 * 3 / 2];
+        let mut tier = crate::adapt::TIERS[worker_quality.load(Ordering::Acquire)];
+        let mut encoder = Encoder::new(tier.width, tier.height, tier.fps, tier.bitrate)?;
+        let mut nv12 = vec![128; (tier.width * tier.height * 3 / 2) as usize];
         let mut index = 0;
+        let mut busy = 0.0_f64;
         let mut capture = None::<crate::capture::DesktopCapture>;
         while worker_active.load(Ordering::Acquire)
             && worker_session_active.load(Ordering::Acquire)
@@ -959,6 +967,14 @@ async fn media_cycle(
                 std::thread::sleep(Duration::from_millis(10));
                 continue;
             }
+            let wanted = crate::adapt::TIERS[worker_quality.load(Ordering::Acquire)];
+            if wanted != tier {
+                // A new encoder starts with a keyframe, so the viewer recovers at once.
+                tier = wanted;
+                encoder = Encoder::new(tier.width, tier.height, tier.fps, tier.bitrate)?;
+                nv12 = vec![128; (tier.width * tier.height * 3 / 2) as usize];
+                index = 0;
+            }
             let started = Instant::now();
             if desktop {
                 if capture.is_none() {
@@ -972,10 +988,18 @@ async fn media_cycle(
                     std::thread::sleep(Duration::from_millis(10));
                     continue;
                 };
-                crate::pixels::nv12(&frame.bgra, frame.width, frame.height, &mut nv12, 1280, 720)?;
+                crate::pixels::nv12(
+                    &frame.bgra,
+                    frame.width,
+                    frame.height,
+                    &mut nv12,
+                    tier.width,
+                    tier.height,
+                )?;
             } else {
-                for (offset, pixel) in nv12[..1280 * 720].iter_mut().enumerate() {
-                    *pixel = 16 + ((offset / 1280 + index as usize * 4) % 220) as u8;
+                let row = tier.width as usize;
+                for (offset, pixel) in nv12[..row * tier.height as usize].iter_mut().enumerate() {
+                    *pixel = 16 + ((offset / row + index as usize * 4) % 220) as u8;
                 }
             }
             if !worker_active.load(Ordering::Acquire)
@@ -990,7 +1014,11 @@ async fn media_cycle(
                 }
             }
             index += 1;
-            if let Some(delay) = Duration::from_millis(33).checked_sub(started.elapsed()) {
+            let interval = Duration::from_micros(1_000_000 / u64::from(tier.fps));
+            busy = busy * 0.9
+                + (started.elapsed().as_secs_f64() / interval.as_secs_f64()).min(2.0) * 0.1;
+            worker_cost.store((busy * 1000.0) as u32, Ordering::Release);
+            if let Some(delay) = interval.checked_sub(started.elapsed()) {
                 std::thread::sleep(delay);
             }
         }
@@ -1000,6 +1028,8 @@ async fn media_cycle(
     let mut detached = false;
     let result:Result<(),Error> = async {
         let mut tick=tokio::time::interval(Duration::from_millis(100));
+        let mut quality_tick=tokio::time::interval(Duration::from_secs(2));
+        let mut controller=crate::adapt::Controller::new(Instant::now());
         let mut answered=false;
         let mut reported_first_packet=false;
         let mut requested_retry=false;
@@ -1016,6 +1046,28 @@ async fn media_cycle(
                 candidate=candidate_receiver.recv()=>{
                     let Some(candidate)=candidate else {break;};
                     timeout(Duration::from_millis(500),socket.send(Message::Text(json!({"type":"candidate","candidate":candidate.candidate,"sdpMid":candidate.sdp_mid,"sdpMLineIndex":candidate.sdp_mline_index,"generation":generation}).to_string().into()))).await??;
+                }
+                _=quality_tick.tick()=>{
+                    if !answered || !connected.load(Ordering::Acquire) {continue;}
+                    let now=Instant::now();
+                    let busy=f64::from(encode_cost.load(Ordering::Acquire))/1000.0;
+                    let mut next=controller.observe_cost(busy,now);
+                    if next.is_none() {
+                        if let Ok(Ok(report))=timeout(Duration::from_millis(500),sender.get_stats(now)).await {
+                            let reported=report.iter().find_map(|entry| match entry {
+                                webrtc::peer_connection::RTCStatsReportEntry::RemoteInboundRtp(stats)=>Some(crate::adapt::Sample{loss:stats.fraction_lost,rtt:stats.round_trip_time}),
+                                _=>None,
+                            });
+                            if let Some(sample)=reported {
+                                next=controller.observe(sample,now,controller.may_upgrade_for_cost(busy));
+                            }
+                        }
+                    }
+                    if let Some(tier)=next {
+                        let index=crate::adapt::TIERS.iter().position(|candidate| *candidate==tier).unwrap_or(crate::adapt::START);
+                        quality.store(index,Ordering::Release);
+                        println!("Video quality: {}x{} at {} fps, {} kbit/s.",tier.width,tier.height,tier.fps,tier.bitrate/1000);
+                    }
                 }
                 _=tick.tick()=>{
                     indicator_connected.store(connected.load(Ordering::Acquire), Ordering::Release);
@@ -1045,7 +1097,7 @@ async fn media_cycle(
                     if !connected.load(Ordering::Acquire) || viewer_generation.load(Ordering::Acquire) != generation {continue;}
                     let budget=lease_remaining.min(deadline.map_or(lease_remaining, |end| end.saturating_duration_since(Instant::now()))).min(Duration::from_millis(500));
                     if budget.is_zero() {break;}
-                    timeout(budget,track.sample_writer(7_230_001,payload).write_sample(&Sample{data:bytes::Bytes::from(packet.bytes),duration:Duration::from_secs_f64(1.0/30.0),..Sample::new(Instant::now())})).await??;
+                    timeout(budget,track.sample_writer(7_230_001,payload).write_sample(&Sample{data:bytes::Bytes::from(packet.bytes),duration:Duration::from_micros(1_000_000/u64::from(crate::adapt::TIERS[quality.load(Ordering::Acquire)].fps)),..Sample::new(Instant::now())})).await??;
                     if !reported_first_packet {println!("First video packet sent: generation {generation}, {} ms.",setup_started.elapsed().as_millis()); reported_first_packet=true;}
                 }
                 message=socket.next()=>{
