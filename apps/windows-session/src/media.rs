@@ -433,6 +433,7 @@ async fn stream(
     .await??;
     // The server said "policy" and this computer's own setting agrees. Sharing stays visible
     // through the Stop window below, and Stop, sign-out or revocation still end it.
+    let mut control_allowed = control;
     let by_policy = desktop && grant.approval.as_deref() == Some("policy") && grant.local_trusted;
     if by_policy {
         println!(
@@ -447,15 +448,27 @@ async fn stream(
         let _cancel_prompt = StopOnDrop(pending.clone());
         let dialog_pending = pending.clone();
         let display_label = crate::capture::display_label(grant.display_id.as_deref());
+        let session_label = format!(
+            "S-{}",
+            grant.id.chars().take(4).collect::<String>().to_uppercase()
+        );
+        let chosen_control = Arc::new(AtomicBool::new(false));
+        let reported_control = chosen_control.clone();
         let mut dialog = tokio::task::spawn_blocking(move || {
-            crate::consent::request_access(
+            let decision = crate::consent::request_access(
                 &controller,
                 dialog_pending,
                 deadline,
                 control,
                 unlimited,
                 &display_label,
-            )
+                &session_label,
+            )?;
+            reported_control.store(
+                decision == crate::consent::Decision::Control,
+                Ordering::Release,
+            );
+            Ok::<_, Error>(decision != crate::consent::Decision::Declined)
         });
         let accepted = tokio::select! {
             accepted = consent_while_signaling(&mut socket, async { (&mut dialog).await? }, deadline, control) => accepted,
@@ -490,6 +503,8 @@ async fn stream(
         {
             return Err("View grant expired during consent".into());
         }
+        // The person may allow viewing without the control that was asked for.
+        control_allowed = chosen_control.load(Ordering::Acquire);
     }
     let deadline = (grant.expires_at_millis != 0).then_some(deadline);
     let active = parent_active;
@@ -502,18 +517,27 @@ async fn stream(
         desktop,
         grant.controller.clone(),
         deadline,
-        control,
+        control_allowed,
+        format!(
+            "S-{}",
+            grant.id.chars().take(4).collect::<String>().to_uppercase()
+        ),
     )?;
     timeout(
         Duration::from_millis(500),
         socket.send(Message::Text(
-            json!({"type":"consent","accepted":true,"resumable":true})
-                .to_string()
-                .into(),
+            if control && !control_allowed {
+                json!({"type":"consent","accepted":true,"resumable":true,"control":false})
+            } else {
+                json!({"type":"consent","accepted":true,"resumable":true})
+            }
+            .to_string()
+            .into(),
         )),
     )
     .await??;
     let mut authorization = MediaAuthorization {
+        control_allowed,
         epoch: Instant::now(),
         lease: Arc::new(AtomicU64::new(0)),
         ice: Arc::new(std::sync::Mutex::new(grant.ice_servers.clone())),
@@ -574,6 +598,8 @@ struct MediaAuthorization {
     lease: Arc<AtomicU64>,
     // Current ICE servers. The server re-issues short relay credentials inside lease replies.
     ice: Arc<std::sync::Mutex<Vec<IceServer>>>,
+    // Whether the person at the computer allowed the control that was asked for.
+    control_allowed: bool,
 }
 
 // Renewal must not wait behind peer setup, encoder creation or peer cleanup.
@@ -603,6 +629,8 @@ impl SignalSocket {
             let mut tick = tokio::time::interval(Duration::from_millis(100));
             let mut next = Instant::now();
             let mut generation = 0;
+            // What the viewer has been told about pausing; None means "tell it the current state".
+            let mut told_paused: Option<bool> = None;
             let result: Result<(), Error> = async {
                 loop {
                     let elapsed = epoch.elapsed().as_millis() as u64;
@@ -618,6 +646,13 @@ impl SignalSocket {
                     }
                     tokio::select! {
                         _ = tick.tick() => {
+                            let paused = crate::pause::is_paused();
+                            if told_paused != Some(paused) {
+                                if told_paused.is_some() || paused {
+                                    timeout(Duration::from_millis(500), raw.send(Message::Text(json!({"type":"paused","paused":paused}).to_string().into()))).await??;
+                                }
+                                told_paused = Some(paused);
+                            }
                             if Instant::now() >= next {
                                 let nonce = renewals.issue(epoch.elapsed().as_millis() as u64);
                                 timeout(Duration::from_millis(500), raw.send(Message::Text(json!({"type":"renew","nonce":nonce}).to_string().into()))).await??;
@@ -663,6 +698,7 @@ impl SignalSocket {
                                         if body["generation"].as_u64() != Some(generation + 1) || generation >= MAX_GENERATIONS {return Err("Invalid recovery generation".into());}
                                         generation += 1;
                                         viewer.store(generation, Ordering::Release);
+                                        told_paused = None;
                                     }
                                 }
                                 Message::Ping(_) | Message::Pong(_) => continue,
@@ -759,6 +795,7 @@ async fn media_cycle(
     generation: u64,
 ) -> Result<bool, Error> {
     let desktop = grant.source == "desktop";
+    let control_allowed = authorization.control_allowed;
     let setup_started = Instant::now();
     indicator_connected.store(false, Ordering::Release);
     let connected = Arc::new(AtomicBool::new(false));
@@ -843,7 +880,7 @@ async fn media_cycle(
         ),
     )?);
     let sender = pc.add_track(track.clone() as Arc<dyn TrackLocal>).await?;
-    let input_worker = if grant.capability == "desktop:control" {
+    let input_worker = if grant.capability == "desktop:control" && control_allowed {
         let channel = pc
             .create_data_channel(
                 "beacon-input-v1",
@@ -913,6 +950,7 @@ async fn media_cycle(
             }
             if !worker_connected.load(Ordering::Acquire)
                 || last == 0
+                || crate::pause::is_paused()
                 || worker_viewer_generation.load(Ordering::Acquire) != generation
             {
                 // Drop the capture source, including cached pixels, while the
@@ -1376,6 +1414,7 @@ mod tests {
                 .unwrap();
             let active = Arc::new(AtomicBool::new(mode != "stop"));
             let mut authorization = MediaAuthorization {
+                control_allowed: false,
                 epoch: Instant::now()
                     - Duration::from_millis(if mode == "lease" { MAX_AGE_MS + 1 } else { 10 }),
                 lease: Arc::new(AtomicU64::new(1)),

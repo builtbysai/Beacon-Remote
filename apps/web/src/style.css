@@ -2076,3 +2076,15 @@ li {
 .viewer-toolbar.compact .viewer-actions[hidden] {
   display: none;
 }
+
+.viewer-paused {
+  position: absolute;
+  inset: auto 16px 16px 16px;
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: rgba(20, 34, 56, 0.92);
+  color: #eef4fc;
+  font-size: 13px;
+  text-align: center;
+}

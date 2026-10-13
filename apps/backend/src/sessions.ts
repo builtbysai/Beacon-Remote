@@ -90,8 +90,13 @@ const signal = z.discriminatedUnion("type", [
       type: z.literal("consent"),
       accepted: z.boolean(),
       resumable: z.boolean().optional(),
+      // False when the person at the computer approved viewing but not the control that was asked for.
+      control: z.boolean().optional(),
     })
     .strict(),
+  // The person at the computer paused or resumed sharing; the viewer is told so it can say why the
+  // picture stopped.
+  z.object({ type: z.literal("paused"), paused: z.boolean() }).strict(),
   z
     .object({
       type: z.literal("renew"),
@@ -1125,7 +1130,8 @@ export async function registerSessions(
                   session.id,
                   body.accepted ? "active" : "denied",
                   body.accepted
-                    ? session.capability === "desktop:control"
+                    ? session.capability === "desktop:control" &&
+                      body.control !== false
                       ? "desktop.control.accepted"
                       : "desktop.view.accepted"
                     : session.capability === "desktop:control"
@@ -1142,12 +1148,14 @@ export async function registerSessions(
                 type: "consent",
                 accepted: body.accepted,
                 ...(live.resumable ? { resumable: true } : {}),
+                ...(body.control === false ? { control: false } : {}),
               });
               if (!body.accepted) await finish(session.id, "denied");
               return;
             }
             if (
               (body.type === "offer" && role !== "machine") ||
+              (body.type === "paused" && role !== "machine") ||
               (body.type === "retry" &&
                 (role !== "machine" || !live.resumable)) ||
               (body.type === "answer" && role !== "viewer")
