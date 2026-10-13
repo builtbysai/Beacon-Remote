@@ -189,7 +189,8 @@ impl InputBackend for WindowsInput {
                 }
                 Ok(())
             }
-            Input::KeepAlive => Ok(()),
+            // The transport answers a clipboard read after the lease check; nothing is injected.
+            Input::KeepAlive | Input::ClipboardRead => Ok(()),
             Input::ReleaseAll => {
                 self.release_all();
                 if self.keys.is_empty() && self.buttons.is_empty() && self.unicode.is_empty() {

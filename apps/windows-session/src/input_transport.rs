@@ -76,6 +76,7 @@ async fn run(channel: Arc<dyn DataChannel>, authority: &Authority) -> Result<(),
     let mut rate_start = Instant::now();
     let mut messages = 0;
     let mut last_message = Instant::now();
+    let mut last_clipboard: Option<Instant> = None;
     loop {
         tokio::select! {
             _ = tick.tick() => {
@@ -106,6 +107,15 @@ async fn run(channel: Arc<dyn DataChannel>, authority: &Authority) -> Result<(),
                     if body.version != 1 || body.session_id != authority.session || body.lease_id != authority.session || body.sequence > 9_007_199_254_740_991 || sequence.is_some_and(|last| body.sequence <= last) { return Err(()); }
                     sequence = Some(body.sequence);
                     desktop.input(&body.session_id, &body.lease_id, &body.input, Instant::now()).map_err(|_| ())?;
+                    // A clipboard read is answered only after the lease check above, at most once a second.
+                    if matches!(body.input, Input::ClipboardRead) && last_clipboard.is_none_or(|at| at.elapsed() >= Duration::from_secs(1)) {
+                        last_clipboard = Some(Instant::now());
+                        let reply = match crate::clipboard::read_text() {
+                            Some(clip) => serde_json::json!({"type":"clipboard","text":clip.text,"truncated":clip.truncated}),
+                            None => serde_json::json!({"type":"clipboard","text":"","truncated":false,"unavailable":true}),
+                        };
+                        tokio::time::timeout(Duration::from_millis(500), channel.send_text(&reply.to_string())).await.map_err(|_| ())?.map_err(|_| ())?;
+                    }
                 }
                 Some(DataChannelEvent::OnClose | DataChannelEvent::OnError) | None => return Ok(()),
                 _ => {},

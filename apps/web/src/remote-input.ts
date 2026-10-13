@@ -440,7 +440,63 @@ export function attachRemoteInput(
   const visibility = () => {
     if (document.hidden) release();
   };
+  // Copy from the computer: the viewer asks, the computer answers once with its clipboard text, and
+  // that text goes to this browser's clipboard. Nothing is sent unasked.
+  let awaitingClipboard: ReturnType<typeof setTimeout> | null = null;
+  const requestClipboard = () => {
+    if (!display || awaitingClipboard) return;
+    awaitingClipboard = setTimeout(() => {
+      awaitingClipboard = null;
+      onNotice("The computer did not answer. Try again.");
+    }, 4000);
+    send({ type: "clipboard_read" });
+  };
+  const receiveClipboard = async (data: unknown) => {
+    const reply = data as {
+      type?: unknown;
+      text?: unknown;
+      truncated?: unknown;
+      unavailable?: unknown;
+    };
+    if (
+      !awaitingClipboard ||
+      reply.type !== "clipboard" ||
+      typeof reply.text !== "string" ||
+      reply.text.length > 32768
+    )
+      throw new Error();
+    clearTimeout(awaitingClipboard);
+    awaitingClipboard = null;
+    if (reply.unavailable === true || !reply.text) {
+      onNotice("The computer's clipboard has no text to copy.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(reply.text);
+      onNotice(
+        reply.truncated
+          ? "Copied the start of the computer's clipboard."
+          : "Copied from the computer.",
+      );
+    } catch {
+      onNotice(
+        "Allow clipboard access in your browser to copy from the computer.",
+      );
+    }
+  };
   channel.onmessage = (event) => {
+    if (
+      display &&
+      typeof event.data === "string" &&
+      event.data.length <= 120_000
+    ) {
+      try {
+        void receiveClipboard(JSON.parse(event.data)).catch(onFailure);
+      } catch {
+        onFailure();
+      }
+      return;
+    }
     if (
       disposed ||
       typeof event.data !== "string" ||
@@ -510,6 +566,7 @@ export function attachRemoteInput(
   element.addEventListener("blur", release);
   element.addEventListener("contextmenu", context);
   element.addEventListener("beacon-keyboard", openKeyboard);
+  element.addEventListener("beacon-clipboard-read", requestClipboard);
   window.addEventListener("blur", release);
   document.addEventListener("visibilitychange", visibility);
   const heartbeat = setInterval(() => send({ type: "keep_alive" }), 400);
@@ -537,6 +594,8 @@ export function attachRemoteInput(
     element.removeEventListener("blur", release);
     element.removeEventListener("contextmenu", context);
     element.removeEventListener("beacon-keyboard", openKeyboard);
+    element.removeEventListener("beacon-clipboard-read", requestClipboard);
+    if (awaitingClipboard) clearTimeout(awaitingClipboard);
     sink?.remove();
     sink = null;
     window.removeEventListener("blur", release);

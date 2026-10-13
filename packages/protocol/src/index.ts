@@ -141,6 +141,7 @@ export const inputEnvelope = z
         .strict(),
       z.object({ type: z.literal("release_all") }).strict(),
       z.object({ type: z.literal("keep_alive") }).strict(),
+      z.object({ type: z.literal("clipboard_read") }).strict(),
       z
         .object({
           type: z.literal("type_text"),
