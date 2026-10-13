@@ -182,10 +182,15 @@ impl InputBackend for WindowsInput {
                     Self::unicode(scan, true)?;
                     Self::unicode(scan, false)?;
                     self.unicode.remove(&scan);
+                    // Some apps (the new Notepad among them) read a queued Unicode key through
+                    // shared state and see the latest character for all of them, so characters
+                    // must arrive one at a time rather than as a burst.
+                    std::thread::sleep(std::time::Duration::from_millis(4));
                 }
                 Ok(())
             }
-            Input::KeepAlive => Ok(()),
+            // The transport answers a clipboard read after the lease check; nothing is injected.
+            Input::KeepAlive | Input::ClipboardRead => Ok(()),
             Input::ReleaseAll => {
                 self.release_all();
                 if self.keys.is_empty() && self.buttons.is_empty() && self.unicode.is_empty() {

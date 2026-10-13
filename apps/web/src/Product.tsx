@@ -1,3 +1,6 @@
+import { GuestSupport } from "./GuestSupport.js";
+import { useEffect, useState } from "react";
+
 export type Page =
   | "home"
   | "signin"
@@ -11,7 +14,9 @@ export type Page =
   | "settings";
 
 export function pageFromHash(): Page {
-  const page = window.location.hash.slice(1);
+  const raw = window.location.hash.slice(1);
+  // Sign-up and password-reset are views of the sign-in card.
+  const page = raw === "signup" || raw === "forgot" ? "signin" : raw;
   return [
     "signin",
     "computers",
@@ -173,58 +178,50 @@ export function ProductPage({
         </section>
       </>
     );
-  if (page === "downloads")
-    return (
-      <section className="public-section">
-        <p className="eyebrow">SETUP</p>
-        <h1>Download Beacon Remote</h1>
-        <p>Windows host software connects your computer to the workspace.</p>
-        <div className="download-panel">
-          <Monitor />
-          <div>
-            <h2>Windows agent</h2>
-            <p>Development build · Windows x64</p>
-            <p>
-              A signed installer and automatic updates are not available yet. No
-              production download is published.
-            </p>
-            <button disabled>Installer unavailable</button>
-          </div>
-        </div>
-        <h2>Pair an existing development agent</h2>
-        <ol>
-          <li>Sign in and choose Add a computer.</li>
-          <li>Run the agent’s pair command on your Windows computer.</li>
-          <li>
-            Enter the server address, computer name and one-use code within five
-            minutes.
-          </li>
-        </ol>
-        <a className="button" href={workspace}>
-          Open workspace →
-        </a>
-      </section>
-    );
+  if (page === "downloads") return <DownloadsPage workspace={workspace} />;
   if (page === "support" || page === "assist")
     return (
       <section className="public-section">
-        <p className="eyebrow">ATTENDED SUPPORT</p>
+        <p className="eyebrow">SUPPORT</p>
         <h1>Help, with permission.</h1>
-        <p>
-          Accountless support codes and control approval are not available in
-          this alpha.
-        </p>
+        <div className="support-columns">
+          <div>
+            <h2>Getting help</h2>
+            <ol className="help-steps">
+              <li>
+                Open Beacon Remote on your Windows computer and choose Support
+                code.
+              </li>
+              <li>
+                Read the code to the person helping you. It works once and
+                expires in 15 minutes.
+              </li>
+              <li>
+                Choose Allow when they connect. You can pause or stop at any
+                time, and nothing is shared until you allow it.
+              </li>
+            </ol>
+          </div>
+          <div>
+            <h2>Helping someone</h2>
+            <p>
+              Enter the code they read out. You do not need an account; a
+              temporary guest session is created that can only run this one
+              support session.
+            </p>
+            <GuestSupport />
+          </div>
+        </div>
         <div className="quiet-panel">
           <h2>Already paired?</h2>
           <p>
-            Open Computers to request view-only access. The person at the
-            Windows computer must approve sharing and can stop it locally.
+            Open Computers to connect to your own computers, or Assist for
+            computers shared with you.
           </p>
           <a className="button" href={workspace}>
             My computers →
           </a>
         </div>
-        <button disabled>Start guest support — unavailable</button>
       </section>
     );
   if (page === "security")
@@ -260,7 +257,7 @@ export function ProductPage({
         <div className="quiet-panel">
           <h2>Alpha limitations</h2>
           <p>
-            MFA, password recovery, signed installation and the full
+            Email password recovery, a signed installer and the full
             cross-network recovery test matrix are unfinished. WebRTC uses
             transport encryption; this alpha does not claim end-to-end peer
             authentication against the signaling service.
@@ -314,5 +311,137 @@ export function Monitor() {
       <rect x="3" y="3" width="18" height="13" rx="2" />
       <path d="M8 21h8m-4-5v5" />
     </svg>
+  );
+}
+
+type Release = {
+  version: string;
+  commit: string;
+  file: string;
+  bytes: number;
+  sha256: string;
+  publishedAt: string;
+  // The double-click installer, when one was published with this build.
+  installer?: { file: string; bytes: number; sha256: string };
+};
+
+// The published build is described by /downloads/manifest.json, written when a build is published.
+// A missing or malformed manifest means nothing is published.
+function useRelease(): Release | null | undefined {
+  const [release, setRelease] = useState<Release | null | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    fetch("/downloads/manifest.json", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body) => {
+        const ok =
+          body &&
+          typeof body.file === "string" &&
+          /^[A-Za-z0-9._-]+\.zip$/.test(body.file) &&
+          typeof body.sha256 === "string" &&
+          /^[a-f0-9]{64}$/.test(body.sha256) &&
+          typeof body.version === "string" &&
+          typeof body.bytes === "number";
+        const installer = body?.installer;
+        const installerOk =
+          installer &&
+          typeof installer.file === "string" &&
+          /^BeaconRemoteSetup-[a-f0-9]{8,40}\.exe$/.test(installer.file) &&
+          typeof installer.sha256 === "string" &&
+          /^[a-f0-9]{64}$/.test(installer.sha256) &&
+          typeof installer.bytes === "number";
+        if (live)
+          setRelease(
+            ok
+              ? ({
+                  ...body,
+                  installer: installerOk ? installer : undefined,
+                } as Release)
+              : null,
+          );
+      })
+      .catch(() => live && setRelease(null));
+    return () => {
+      live = false;
+    };
+  }, []);
+  return release;
+}
+
+function DownloadsPage({ workspace }: { workspace: string }) {
+  const release = useRelease();
+  const installer = release?.installer;
+  return (
+    <section className="public-section">
+      <p className="eyebrow">SETUP</p>
+      <h1>Download Beacon Remote</h1>
+      <p>Windows host software connects your computer to the workspace.</p>
+      <div className="download-panel">
+        <Monitor />
+        <div>
+          <h2>Windows host</h2>
+          {release ? (
+            <>
+              <p>
+                Version {release.version} · Windows x64 ·{" "}
+                {((installer?.bytes ?? release.bytes) / 1_048_576).toFixed(1)}{" "}
+                MB
+              </p>
+              <p>
+                Installs for your Windows account only, with no administrator
+                rights, and updates itself. This build is not signed yet, so
+                Windows may warn before it opens; choose More info, then Run
+                anyway, and check the SHA-256 below matches.
+              </p>
+              <a
+                className="button"
+                href={`/downloads/${installer?.file ?? release.file}`}
+                download
+              >
+                {installer ? "Download installer" : "Download for Windows"}
+              </a>
+              <p className="note">
+                SHA-256 <code>{installer?.sha256 ?? release.sha256}</code>
+              </p>
+            </>
+          ) : (
+            <>
+              <p>Windows x64</p>
+              <p>
+                {release === undefined
+                  ? "Checking for the current build…"
+                  : "No build is published right now."}
+              </p>
+              <button disabled>Installer unavailable</button>
+            </>
+          )}
+        </div>
+      </div>
+      <h2>Set up a computer</h2>
+      <ol>
+        <li>
+          {installer
+            ? "Open the installer. It adds Beacon Remote to the Start menu and starts it when you sign in."
+            : "Extract the download, then run Install.ps1 with PowerShell. It installs for your user only."}
+        </li>
+        <li>
+          In your workspace choose Add a computer, then enter the server
+          address, a name and the one-use code in the Beacon Remote window
+          within five minutes.
+        </li>
+        <li>
+          In the Beacon Remote window decide whether your own account may
+          connect without asking. Nothing is shared until you allow it, and you
+          can stop or pause at any time.
+        </li>
+        <li>
+          To remove it, use Apps and features in Windows settings. That also
+          deletes the sign-in saved on the computer.
+        </li>
+      </ol>
+      <a className="button" href={workspace}>
+        Open workspace →
+      </a>
+    </section>
   );
 }

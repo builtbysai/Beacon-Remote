@@ -188,6 +188,7 @@ test(
       assert.deepEqual((await beat()).access, {
         mode: "trusted",
         allowControl: false,
+        helpers: "off",
         version: 1,
       });
 

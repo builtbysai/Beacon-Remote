@@ -6,7 +6,13 @@ import {
   randomUUID,
   sign,
 } from "node:crypto";
-import { readFile, mkdir, writeFile, access } from "node:fs/promises";
+import {
+  readFile,
+  mkdir,
+  writeFile,
+  access,
+  appendFile,
+} from "node:fs/promises";
 import { hostname } from "node:os";
 import { spawn, type ChildProcess } from "node:child_process";
 import { resolve } from "node:path";
@@ -85,16 +91,32 @@ try {
     "INSERT INTO browser_sessions VALUES ($1,$2,now()+interval '30 minutes')",
     [createHash("sha256").update(loginToken).digest("hex"), account],
   );
-  app = await createApp(pool, {
-    DATABASE_URL: database,
-    WEB_ORIGIN: origin,
-    NODE_ENV: "development",
-    HOST: "127.0.0.1",
-    PORT: 3011,
-    SESSION_SECRET: randomBytes(32).toString("hex"),
-    CONTROL_ENABLED: "true",
-    STUN_URL: "stun:stun.l.google.com:19302",
-  });
+  // Sign-up and email recovery are open here, and "email" goes to a file instead of the internet.
+  const outbox = resolve(state, "mail-outbox.jsonl");
+  app = await createApp(
+    pool,
+    {
+      DATABASE_URL: database,
+      WEB_ORIGIN: origin,
+      NODE_ENV: "development",
+      HOST: "127.0.0.1",
+      PORT: 3011,
+      SESSION_SECRET: randomBytes(32).toString("hex"),
+      CONTROL_ENABLED: "true",
+      STUN_URL: "stun:stun.l.google.com:19302",
+      RESEND_API_KEY: "development-only-no-mail-is-sent",
+      MAIL_FROM: "Beacon Remote <development@example.invalid>",
+      PUBLIC_SIGNUP: "true",
+    },
+    {
+      mailer: {
+        send: async (mail) => {
+          await mkdir(state, { recursive: true });
+          await appendFile(outbox, JSON.stringify(mail) + "\n");
+        },
+      },
+    },
+  );
   const enrollment = await app.inject({
     method: "POST",
     url: "/api/enrollments",
@@ -119,6 +141,14 @@ try {
   if (enrolled.statusCode !== 200)
     throw new Error("Development pairing failed");
   const machineId = enrolled.json().machineId as string;
+  // FIXTURE_TRUSTED=1 stands in for a computer set to trusted access, so the real desktop can be
+  // reviewed in the browser without clicking the native Allow. Never use it on a real computer.
+  const trusted = process.env.FIXTURE_TRUSTED === "1";
+  if (trusted)
+    await pool.query(
+      "INSERT INTO machine_access(machine_id,mode,allow_control) VALUES ($1,'trusted',true)",
+      [machineId],
+    );
   await app.listen({ host: "127.0.0.1", port: 3011 });
   process.env.REMOTE_API_ORIGIN = server;
   web = await createServer({
@@ -185,7 +215,17 @@ try {
           console.error("Matching native helper unavailable");
           void stop();
         });
-        helper.stdin!.end(JSON.stringify({ ...grant, server }));
+        helper.stdin!.end(
+          JSON.stringify({
+            ...grant,
+            // The real agent consumes this field before handing the grant to the helper.
+            viaRelationship: undefined,
+            server,
+            localTrusted: trusted,
+            // The real agent adds this from the computer's own "send files" setting.
+            localFiles: trusted,
+          }),
+        );
       }
     } catch {
       console.error(

@@ -1,3 +1,4 @@
+import { FileSender, type Offer, type Transfer } from "./file-transfer.js";
 import { useEffect, useRef, useState } from "react";
 import { playForSession } from "./playback.js";
 import { viewDeadline } from "./deadline.js";
@@ -22,6 +23,30 @@ export type ViewGrant = {
   iceTransportPolicy: RTCIceTransportPolicy;
 };
 
+function transferLine(transfer: Transfer): string {
+  const percent = transfer.size
+    ? Math.floor((transfer.sent / transfer.size) * 100)
+    : 0;
+  if (transfer.incoming) {
+    if (transfer.status === "receiving")
+      return `Receiving ${transfer.name} · ${percent}%`;
+    if (transfer.status === "done") return `Received ${transfer.name}`;
+    if (transfer.status === "cancelled")
+      return `Cancelled ${transfer.name}${transfer.note ? `. ${transfer.note}` : ""}`;
+    return `Could not receive ${transfer.name}. ${transfer.note ?? ""}`;
+  }
+  if (transfer.status === "sending" || transfer.status === "waiting")
+    return `Sending ${transfer.name} · ${percent}%`;
+  if (transfer.status === "done")
+    return `Sent ${transfer.name}${
+      transfer.note && transfer.note !== transfer.name
+        ? ` (saved as ${transfer.note})`
+        : ""
+    }`;
+  if (transfer.status === "cancelled") return `Cancelled ${transfer.name}`;
+  return `Could not send ${transfer.name}. ${transfer.note ?? ""}`;
+}
+
 export function LiveView({
   grant,
   name,
@@ -38,6 +63,8 @@ export function LiveView({
   const [scale, setScale] = useState<"fit" | "actual">("fit");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [needsPlay, setNeedsPlay] = useState(false);
+  // The person at the computer paused sharing; screen and input are off until they resume.
+  const [peerPaused, setPeerPaused] = useState(false);
   const [displayError, setDisplayError] = useState("");
   const [status, setStatus] = useState(
     grant.source === "desktop"
@@ -53,6 +80,16 @@ export function LiveView({
   const touchModeRef = useRef(touchMode);
   touchModeRef.current = touchMode;
   const controlling = grant.capability === "desktop:control";
+  async function sendFiles(list: FileList | File[]) {
+    const current = sender.current;
+    if (!current || sending.current) return;
+    sending.current = true;
+    try {
+      for (const file of Array.from(list)) await current.send(file);
+    } finally {
+      sending.current = false;
+    }
+  }
   const [route, setRoute] = useState("Not established");
   const [iceState, setIceState] = useState<RTCIceConnectionState>("new");
   const [localRelays, setLocalRelays] = useState(0);
@@ -68,18 +105,85 @@ export function LiveView({
     afterApproval?: number;
   }>({});
   const [presentedFps, setPresentedFps] = useState<number | null>(null);
+  const [pictureHeight, setPictureHeight] = useState<number | null>(null);
+  // File transfer exists only when the person at the computer allowed it for this session.
+  const sender = useRef<FileSender | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [fileReady, setFileReady] = useState(false);
+  const [transfer, setTransfer] = useState<Transfer | null>(null);
+  const [offer, setOffer] = useState<Offer | null>(null);
+  const sending = useRef(false);
   const [roundTripMillis, setRoundTripMillis] = useState<number | null>(null);
+  const [lossPct, setLossPct] = useState<number | null>(null);
   const [transportAttempt, setTransportAttempt] = useState(0);
   // Relay credentials are short; each resume brings fresh ones for the next transport.
   const ice = useRef({ id: grant.id, servers: grant.iceServers });
   if (ice.current.id !== grant.id)
     ice.current = { id: grant.id, servers: grant.iceServers };
+  // Measured numbers go to the server every 15 s while the picture flows, so a real device and network can be
+  // judged from the session history instead of by feel. No media or content is sent.
+  const measured = useRef({
+    route,
+    pictureHeight,
+    presentedFps,
+    roundTripMillis,
+    lossPct,
+  });
+  measured.current = {
+    route,
+    pictureHeight,
+    presentedFps,
+    roundTripMillis,
+    lossPct,
+  };
+  useEffect(() => {
+    if (ended) return;
+    const timer = setInterval(() => {
+      const now = measured.current;
+      if (!["Direct", "Relayed"].includes(now.route)) return;
+      void fetch(`/api/sessions/${grant.id}/quality`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          route: now.route,
+          height: now.pictureHeight,
+          fps: now.presentedFps === null ? null : Math.round(now.presentedFps),
+          rttMs:
+            now.roundTripMillis === null
+              ? null
+              : Math.round(now.roundTripMillis),
+          lossPct:
+            now.lossPct === null ? null : Math.round(now.lossPct * 10) / 10,
+        }),
+      }).catch(() => undefined);
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, [grant.id, ended]);
   useEffect(() => {
     const sync = () =>
       setIsFullscreen(document.fullscreenElement === shell.current);
     document.addEventListener("fullscreenchange", sync);
     return () => document.removeEventListener("fullscreenchange", sync);
   }, []);
+  // On a phone, full screen means landscape with the picture filling the screen and the toolbar
+  // folded into one button. Browsers that cannot lock orientation just stay as they are.
+  const touchDevice =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(pointer: coarse)").matches;
+  const compact = isFullscreen && touchDevice;
+  const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => {
+    if (!compact) {
+      setMenuOpen(false);
+      return;
+    }
+    const orientation = screen.orientation as ScreenOrientation & {
+      lock?: (mode: string) => Promise<void>;
+    };
+    void orientation.lock?.("landscape").catch(() => undefined);
+    return () => orientation.unlock?.();
+  }, [compact]);
   useEffect(() => {
     const startedAt = performance.now();
     const expired = viewDeadline(
@@ -115,6 +219,7 @@ export function LiveView({
     let socketClosed = () => {};
     const recoveryAbort = new AbortController();
     let resumable = false;
+    let controlGranted = true;
     let generation = 0;
     let messages = 0;
     let serial = Promise.resolve();
@@ -222,9 +327,11 @@ export function LiveView({
           if (pc.connectionState === "connected")
             setStatus(
               grant.source === "desktop"
-                ? controlling
+                ? controlling && controlGranted
                   ? "Connected — click the desktop to control. Escape releases input."
-                  : "Connected — view only."
+                  : controlling
+                    ? "Connected — view only. Control was not allowed on the computer."
+                    : "Connected — view only."
                 : "Connected — synthetic video only.",
             );
         },
@@ -242,6 +349,20 @@ export function LiveView({
       ws.send(JSON.stringify({ ...body, generation }));
     };
     pc.ondatachannel = (event) => {
+      if (
+        event.channel.label === "beacon-files-v1" &&
+        grant.source === "desktop" &&
+        !sender.current &&
+        event.channel.ordered
+      ) {
+        sender.current = new FileSender(
+          event.channel,
+          setTransfer,
+          setFileReady,
+          setOffer,
+        );
+        return;
+      }
       if (
         !controlling ||
         !element ||
@@ -298,9 +419,11 @@ export function LiveView({
       if (pc.connectionState === "connected") {
         setStatus(
           grant.source === "desktop"
-            ? controlling
+            ? controlling && controlGranted
               ? "Connected — click the desktop to control. Escape releases input."
-              : "Connected — view only."
+              : controlling
+                ? "Connected — view only. Control was not allowed on the computer."
+                : "Connected — view only."
             : "Connected — synthetic video only.",
         );
       }
@@ -325,6 +448,7 @@ export function LiveView({
           }
           if (time - lastCount >= 1000 || lastCount === 0) {
             setFrames(metadata.presentedFrames);
+            setPictureHeight(metadata.height);
             if (lastCount !== 0)
               setPresentedFps(
                 Math.max(
@@ -386,6 +510,8 @@ export function LiveView({
                 finish("Sharing was declined on Windows.");
               else {
                 resumable = message.resumable === true;
+                // The person at the computer may allow viewing but not the control that was asked for.
+                if (message.control === false) controlGranted = false;
                 if (resumable) rememberView({ id: grant.id, name });
                 approvedAt ??= performance.now();
                 setTimings((current) => ({
@@ -434,6 +560,11 @@ export function LiveView({
               else candidates.push(candidate);
               break;
             }
+            case "paused":
+              if (typeof message.paused !== "boolean")
+                throw new Error("Invalid pause");
+              setPeerPaused(message.paused);
+              break;
             case "ended":
               finish("Session ended.");
               break;
@@ -468,6 +599,12 @@ export function LiveView({
           let selected: string | undefined;
           stats.forEach((report) => {
             reports.set(report.id, report);
+            if (report.type === "inbound-rtp" && report.kind === "video") {
+              const lost = Number(report.packetsLost) || 0;
+              const received = Number(report.packetsReceived) || 0;
+              if (lost + received > 0)
+                setLossPct((lost / (lost + received)) * 100);
+            }
             if (
               report.type === "transport" &&
               typeof report.selectedCandidatePairId === "string"
@@ -526,7 +663,7 @@ export function LiveView({
       className="live-view"
       aria-label={`${name} remote viewer`}
     >
-      <header className="viewer-toolbar">
+      <header className={`viewer-toolbar${compact ? " compact" : ""}`}>
         <div className="viewer-identity">
           <strong>{name}</strong>
           <span>
@@ -538,7 +675,16 @@ export function LiveView({
             {grant.expiresAtMillis === 0 ? " · Until stopped" : ""}
           </span>
         </div>
-        <div className="viewer-actions">
+        {compact && (
+          <button
+            className="viewer-control viewer-menu"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            {menuOpen ? "Hide" : "Menu"}
+          </button>
+        )}
+        <div className="viewer-actions" hidden={compact && !menuOpen}>
           <label className="viewer-scale">
             Scale
             <select
@@ -552,6 +698,28 @@ export function LiveView({
               <option value="actual">100%</option>
             </select>
           </label>
+          {controlReady && (
+            <button
+              className="viewer-control"
+              title="Open your keyboard to type on the remote computer"
+              onClick={() =>
+                video.current?.dispatchEvent(new Event("beacon-keyboard"))
+              }
+            >
+              Keyboard
+            </button>
+          )}
+          {controlReady && (
+            <button
+              className="viewer-control"
+              title="Copy the computer's clipboard text to this device"
+              onClick={() =>
+                video.current?.dispatchEvent(new Event("beacon-clipboard-read"))
+              }
+            >
+              Copy from computer
+            </button>
+          )}
           {controlReady && (
             <button
               className="viewer-control"
@@ -580,6 +748,28 @@ export function LiveView({
           >
             {isFullscreen ? "Exit full screen" : "Full screen"}
           </button>
+          {fileReady && (
+            <>
+              <button
+                className="viewer-control"
+                title="Send a file to this computer. It is saved in Downloads\Beacon Remote."
+                disabled={transfer?.status === "sending"}
+                onClick={() => fileInput.current?.click()}
+              >
+                Send file
+              </button>
+              <input
+                ref={fileInput}
+                type="file"
+                hidden
+                onChange={(event) => {
+                  const picked = event.currentTarget.files;
+                  if (picked?.length) void sendFiles(picked);
+                  event.currentTarget.value = "";
+                }}
+              />
+            </>
+          )}
           <details className="viewer-diagnostics">
             <summary>Connection</summary>
             <div className="viewer-diagnostics-panel">
@@ -650,7 +840,18 @@ export function LiveView({
           </button>
         </div>
       </header>
-      <div className={`viewer-stage ${scale}`}>
+      <div
+        className={`viewer-stage ${scale}`}
+        onDragOver={(event) => {
+          if (fileReady) event.preventDefault();
+        }}
+        onDrop={(event) => {
+          if (!fileReady) return;
+          event.preventDefault();
+          if (event.dataTransfer.files.length)
+            void sendFiles(event.dataTransfer.files);
+        }}
+      >
         <video
           ref={video}
           autoPlay
@@ -669,6 +870,12 @@ export function LiveView({
             {status}
           </p>
         )}
+        {peerPaused && !ended && (
+          <p className="viewer-paused" role="status">
+            Sharing is paused by the person at the computer. Screen and input
+            resume when they choose.
+          </p>
+        )}
         {needsPlay && !ended && (
           <button className="viewer-play" onClick={() => void play.current()}>
             Play video
@@ -679,7 +886,57 @@ export function LiveView({
         <span role="status" data-decoded-frames={frames}>
           {status}
         </span>
-        {route !== "Not established" && <span>{route}</span>}
+        {offer && (
+          <span role="status" className="viewer-transfer">
+            The computer wants to send {offer.name} (
+            {(offer.size / 1_048_576).toFixed(offer.size < 10_485_760 ? 1 : 0)}{" "}
+            MB).{" "}
+            <button
+              className="viewer-control"
+              onClick={() => sender.current?.accept(offer)}
+            >
+              Save
+            </button>{" "}
+            <button
+              className="viewer-control"
+              onClick={() => sender.current?.decline(offer)}
+            >
+              Decline
+            </button>
+          </span>
+        )}
+        {transfer && (
+          <span role="status" className="viewer-transfer">
+            {transferLine(transfer)}
+            {(transfer.status === "sending" ||
+              transfer.status === "waiting" ||
+              transfer.status === "receiving") && (
+              <>
+                {" "}
+                <button
+                  className="viewer-control"
+                  onClick={() => sender.current?.cancel()}
+                >
+                  Cancel
+                </button>
+              </>
+            )}
+          </span>
+        )}
+        {route !== "Not established" && (
+          <span className="viewer-quality">
+            {[
+              route,
+              pictureHeight ? `${pictureHeight}p` : null,
+              presentedFps === null ? null : `${Math.round(presentedFps)} fps`,
+              roundTripMillis === null
+                ? null
+                : `${Math.round(roundTripMillis)} ms`,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+        )}
         {displayError && <span role="alert">{displayError}</span>}
       </footer>
     </section>

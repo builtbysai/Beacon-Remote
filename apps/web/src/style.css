@@ -748,7 +748,7 @@ header nav a {
   border-right: 1px solid #d9e1ed;
   background: #fff;
   font-size: 10px;
-  color: #8a98aa;
+  color: #5c6b80;
 }
 .preview-sidebar > * {
   padding: 8px;
@@ -771,7 +771,7 @@ header nav a {
   font-size: 13px;
 }
 .preview-heading span {
-  color: #6682ad;
+  color: #4d6a96;
   font-size: 10px;
 }
 .preview-device {
@@ -791,7 +791,7 @@ header nav a {
 .preview-device .monitor {
   width: 18px;
   height: 18px;
-  color: #6682ad;
+  color: #4d6a96;
 }
 .preview-device strong {
   overflow: hidden;
@@ -800,7 +800,7 @@ header nav a {
 }
 .preview-device span {
   margin-left: auto;
-  color: #75849b;
+  color: #566579;
   font-size: 9px;
 }
 .preview-device b {
@@ -812,7 +812,7 @@ header nav a {
 }
 .preview-content > p {
   margin-top: 10px;
-  color: #8296b3;
+  color: #5f7087;
   font-size: 9px;
 }
 @media (max-width: 650px) {
@@ -1282,32 +1282,67 @@ select {
 .inventory-empty button {
   margin-top: 12px;
 }
+.device-head,
 .device-row {
-  display: flex;
-  gap: 14px;
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) 110px 100px 64px;
+  gap: 0 14px;
   align-items: center;
-  flex-wrap: wrap;
-  padding: 16px;
+  padding: 0 16px;
+}
+.device-head {
+  height: 30px;
+  grid-template-columns: minmax(0, 1fr) 110px 100px 64px;
+  padding-left: 38px;
   border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.device-row {
+  min-height: 40px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.device-row:hover {
+  background: var(--bluewash);
 }
 .device-row:last-child {
   border-bottom: 0;
 }
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+}
+.status-dot.offline {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--muted);
+}
 .device-name {
   border: 0;
   background: transparent;
-  padding: 6px 0;
+  padding: 9px 0;
   justify-content: flex-start;
   overflow-wrap: anywhere;
   text-align: left;
-  flex: 1;
-  min-width: 120px;
+  font-weight: 600;
+  min-width: 0;
 }
-.device-row p {
+.device-access,
+.device-seen {
+  color: var(--muted);
   font-size: 12px;
-  margin: 0 10px;
 }
-.device-row button {
+.device-row button.device-open {
+  background: transparent;
+  color: var(--blue);
+  box-shadow: inset 0 0 0 1px var(--line);
+  height: 26px;
+  padding: 0 10px;
   font-size: 12px;
 }
 .online {
@@ -1756,11 +1791,19 @@ li {
   .heading {
     flex-wrap: wrap;
   }
+  .device-head,
   .device-row {
-    gap: 10px;
+    grid-template-columns: 8px minmax(0, 1fr) 84px 56px;
+    gap: 0 10px;
+    padding: 0 12px;
   }
-  .device-row p {
-    margin-left: auto;
+  .device-head {
+    grid-template-columns: minmax(0, 1fr) 84px 56px;
+    padding-left: 30px;
+  }
+  .device-head span:nth-child(2),
+  .device-access {
+    display: none;
   }
   .inventory-tools {
     flex-wrap: wrap;
@@ -1793,9 +1836,6 @@ li {
   }
   .hero .actions > * {
     width: auto;
-  }
-  .device-row > button {
-    max-width: 100%;
   }
   .download-panel {
     padding: 20px;
@@ -2037,4 +2077,213 @@ li {
 .support-actions {
   display: flex;
   gap: 6px;
+}
+
+.mfa-form {
+  display: grid;
+  gap: 10px;
+  max-width: 420px;
+}
+.mfa-key,
+.recovery-codes {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.08em;
+}
+.recovery-codes {
+  padding: 12px;
+  border: 1px solid var(--line, #d0d5dd);
+  border-radius: 6px;
+  user-select: all;
+}
+
+/* Phone full screen: one slim bar, with the controls behind a Menu button. */
+.live-view .viewer-toolbar.compact {
+  min-height: 0;
+  flex-wrap: wrap;
+  padding: 4px 10px;
+}
+.viewer-toolbar.compact .viewer-identity span {
+  display: none;
+}
+.viewer-toolbar.compact .viewer-identity {
+  width: auto;
+  flex: 1;
+}
+.viewer-toolbar.compact .viewer-actions {
+  width: 100%;
+  flex-wrap: wrap;
+}
+.viewer-toolbar.compact .viewer-actions[hidden] {
+  display: none;
+}
+
+.viewer-paused {
+  position: absolute;
+  inset: auto 16px 16px 16px;
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: rgba(20, 34, 56, 0.92);
+  color: #eef4fc;
+  font-size: 13px;
+  text-align: center;
+}
+
+.device-row:hover button.device-open:not(:disabled),
+.device-row.is-selected button.device-open:not(:disabled) {
+  background: var(--blue);
+  color: #fff;
+  box-shadow: none;
+}
+
+.sessions-page .workspace-panel + .workspace-panel,
+.sessions-page .workspace-panel + .note {
+  margin-top: 16px;
+}
+.session-table-head,
+.session-table li {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) 80px 100px minmax(0, 1.5fr) minmax(
+      150px,
+      1fr
+    );
+  gap: 14px;
+  align-items: center;
+  padding: 0 16px;
+}
+.session-table-head {
+  height: 30px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.session-table li {
+  min-height: 40px;
+  padding-block: 0;
+}
+.session-table time {
+  text-align: right;
+}
+.session-table-head span:last-child {
+  text-align: right;
+}
+.session-rows li > .status-dot {
+  flex: none;
+}
+@media (max-width: 650px) {
+  .session-table-head {
+    display: none;
+  }
+  .session-table li {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding-block: 8px;
+    row-gap: 2px;
+  }
+  .session-table li strong {
+    grid-column: 1;
+  }
+  .session-table li time {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .session-table li span {
+    grid-column: 1 / -1;
+    display: inline;
+  }
+}
+
+button.danger {
+  background: var(--red);
+  border-color: var(--red);
+  color: #fff;
+}
+
+.quiet-panel h2:not(:first-child) {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.support-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 48px;
+  margin: 28px 0;
+}
+.support-columns h2 {
+  margin-bottom: 12px;
+}
+.help-steps {
+  margin: 0;
+  padding-left: 20px;
+}
+.help-steps li {
+  margin: 0 0 12px;
+}
+.support-columns .assist-panel-body {
+  padding: 0;
+  max-width: 360px;
+}
+@media (max-width: 800px) {
+  .support-columns {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+}
+
+.note a {
+  text-decoration: underline;
+}
+
+/* Settings: flat sections with the label on the left, not cards inside cards. One quiet button style;
+   only deleting the account is loud. */
+.settings-page .quiet-panel {
+  display: grid;
+  grid-template-columns: minmax(150px, 220px) minmax(0, 1fr);
+  gap: 10px 40px;
+  padding: 24px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.settings-page .quiet-panel > h2 {
+  grid-column: 1;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 14px;
+}
+.settings-page .quiet-panel > *:not(h2) {
+  grid-column: 2;
+  max-width: 560px;
+}
+.settings-page .quiet-panel > p {
+  margin: 0;
+}
+.settings-page .quiet-panel button:not(.danger):not(.password-toggle) {
+  background: transparent;
+  color: var(--blue);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.settings-page .quiet-panel button:not(.danger):not(.password-toggle):hover {
+  background: var(--bluewash);
+}
+@media (max-width: 800px) {
+  .settings-page .quiet-panel {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .settings-page .quiet-panel > h2,
+  .settings-page .quiet-panel > *:not(h2) {
+    grid-column: 1;
+  }
+}
+.settings-page .quiet-panel > button {
+  justify-self: start;
+  width: auto;
 }

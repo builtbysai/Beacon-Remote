@@ -154,6 +154,8 @@ pub enum Input {
     },
     ReleaseAll,
     KeepAlive,
+    // Asks the computer to send back its clipboard text. Reads only; it never changes it.
+    ClipboardRead,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -276,6 +278,13 @@ impl<B: InputBackend> ControlledDesktop<B> {
         self.sessions.stop();
         self.backend.release_all();
     }
+
+    /// Lets go of every held key and button but keeps the controller's lease. Used when the viewer
+    /// goes quiet for a moment (a network blip, a phone stalling): nothing stays pressed, nothing
+    /// queued is replayed, and control continues when input returns.
+    pub fn release_held(&mut self) {
+        self.backend.release_all();
+    }
 }
 
 impl<B: InputBackend> Drop for ControlledDesktop<B> {
@@ -309,6 +318,28 @@ mod tests {
             state.releases += 1;
         }
     }
+    #[test]
+    fn a_quiet_viewer_releases_held_input_but_keeps_its_lease() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let now = Instant::now();
+        let mut desktop = ControlledDesktop::new(Backend(state.clone()));
+        desktop
+            .start("s".into(), "c".into(), Duration::from_secs(5), now)
+            .unwrap();
+        let press = Input::Key {
+            scan_code: 0x1d,
+            extended: false,
+            down: true,
+        };
+        desktop.input("s", "c", &press, now).unwrap();
+        assert!(state.lock().unwrap().held);
+        desktop.release_held();
+        assert!(!state.lock().unwrap().held, "nothing stays pressed");
+        // The same controller can go on without a new approval.
+        desktop.input("s", "c", &press, now).unwrap();
+        assert!(state.lock().unwrap().held);
+    }
+
     #[test]
     fn renewal_requires_the_same_live_controller_and_preserves_held_input() {
         let state = Arc::new(Mutex::new(State::default()));

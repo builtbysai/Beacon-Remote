@@ -6,7 +6,7 @@ import {
   randomUUID,
   verify as verifySignature,
 } from "node:crypto";
-import Fastify, { type FastifyRequest } from "fastify";
+import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
 import { hash, verify } from "@node-rs/argon2";
@@ -19,12 +19,18 @@ import {
   enrollment,
   heartbeat,
   heartbeatMessage,
+  helpersMessage,
+  helpersRequest,
   SUPPORT_CODE_ALPHABET,
   supportMessage,
   supportRequest,
 } from "../../../packages/protocol/src/index.js";
 import type { Config } from "./config.js";
 import { registerSessions } from "./sessions.js";
+import { registerAccountData } from "./account-data.js";
+import { registerMfa } from "./mfa.js";
+import { createMailer, type Mailer } from "./mail.js";
+import { registerSignup } from "./signup.js";
 
 // A support code is typed by hand, so it is short-lived and single-use.
 const SUPPORT_CODE_MINUTES = 15;
@@ -34,7 +40,11 @@ const login = z
   .object({ email: z.email().max(254), password: z.string().min(1).max(512) })
   .strict();
 
-export async function createApp(pool: Pool, config: Config) {
+export async function createApp(
+  pool: Pool,
+  config: Config,
+  options: { mailer?: Mailer | null } = {},
+) {
   const app = Fastify({
     bodyLimit: 4096,
     logger:
@@ -70,15 +80,64 @@ export async function createApp(pool: Pool, config: Config) {
       .send({ error: status === 429 ? "Too many requests" : "Request failed" });
   });
 
-  async function owner(request: FastifyRequest): Promise<string | null> {
+  async function browserSession(
+    request: FastifyRequest,
+  ): Promise<{ account: string; guest: boolean } | null> {
     const token = request.cookies.remote_session;
     if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
-    const result = await pool.query<{ account_id: string }>(
-      "SELECT account_id FROM browser_sessions WHERE token_hash=$1 AND expires_at>now()",
+    const result = await pool.query<{ account_id: string; guest: boolean }>(
+      `SELECT b.account_id,(a.guest_expires_at IS NOT NULL) AS guest
+       FROM browser_sessions b JOIN accounts a ON a.id=b.account_id
+       WHERE b.token_hash=$1 AND b.expires_at>now()`,
       [digest(token)],
     );
-    return result.rows[0]?.account_id ?? null;
+    const row = result.rows[0];
+    return row ? { account: row.account_id, guest: row.guest } : null;
   }
+  // The signed-in account. A guest (a helper who redeemed a support code without an account) is not one.
+  async function owner(request: FastifyRequest): Promise<string | null> {
+    const session = await browserSession(request);
+    return session && !session.guest ? session.account : null;
+  }
+  // Accounts and guests alike: only support-session routes accept a guest.
+  async function accountOrGuest(request: FastifyRequest) {
+    return (await browserSession(request))?.account ?? null;
+  }
+  const GUEST_HOURS = 4;
+  const guests = {
+    hours: GUEST_HOURS,
+    async create(client: { query: Pool["query"] }) {
+      const id = randomUUID();
+      const token = randomBytes(32).toString("base64url");
+      await client.query(
+        "INSERT INTO accounts(id,email,password_hash,guest_expires_at) VALUES ($1,$2,'!',now()+make_interval(hours=>$3))",
+        [id, `guest-${id}@guest.invalid`, GUEST_HOURS],
+      );
+      await client.query(
+        "INSERT INTO browser_sessions VALUES ($1,$2,now()+make_interval(hours=>$3))",
+        [digest(token), id, GUEST_HOURS],
+      );
+      return { account: id, token };
+    },
+    setCookie(reply: FastifyReply, token: string) {
+      reply.setCookie("remote_session", token, {
+        httpOnly: true,
+        secure: config.NODE_ENV === "production",
+        sameSite: "strict",
+        path: "/",
+        maxAge: GUEST_HOURS * 3600,
+      });
+    },
+  };
+  // Expired guests, their sessions and history go away with their account.
+  const purgeGuests = () =>
+    void pool
+      .query("DELETE FROM accounts WHERE guest_expires_at<now()")
+      .catch(() => undefined);
+  purgeGuests();
+  const purgeTimer = setInterval(purgeGuests, 10 * 60 * 1000);
+  purgeTimer.unref();
+  app.addHook("onClose", async () => clearInterval(purgeTimer));
   function sameOrigin(request: FastifyRequest) {
     return request.headers.origin === config.WEB_ORIGIN;
   }
@@ -109,7 +168,51 @@ export async function createApp(pool: Pool, config: Config) {
       Buffer.from(signature, "base64"),
     );
   }
-  const sessionRequests = await registerSessions(app, pool, config, owner);
+  async function startSession(accountId: string) {
+    const token = randomBytes(32).toString("base64url");
+    await pool.query(
+      "INSERT INTO browser_sessions VALUES ($1,$2,now()+interval '8 hours')",
+      [digest(token), accountId],
+    );
+    return token;
+  }
+  function setSessionCookie(reply: FastifyReply, token: string) {
+    reply.setCookie("remote_session", token, {
+      httpOnly: true,
+      secure: config.NODE_ENV === "production",
+      sameSite: "strict",
+      path: "/",
+      maxAge: 8 * 3600,
+    });
+  }
+  registerSignup(
+    app,
+    pool,
+    config,
+    options.mailer === undefined ? createMailer(config) : options.mailer,
+    sameOrigin,
+    startSession,
+    setSessionCookie,
+  );
+  const mfa = registerMfa(
+    app,
+    pool,
+    config,
+    owner,
+    sameOrigin,
+    startSession,
+    setSessionCookie,
+  );
+  registerAccountData(app, pool, owner, sameOrigin, mfa, (reply) =>
+    reply.clearCookie("remote_session", { path: "/" }),
+  );
+  const sessionRequests = await registerSessions(
+    app,
+    pool,
+    config,
+    accountOrGuest,
+    guests,
+  );
 
   app.get("/health", async () => ({ status: "ok", service: "beacon-remote" }));
   app.get("/ready", async () => {
@@ -168,6 +271,53 @@ export async function createApp(pool: Pool, config: Config) {
     },
   );
 
+  // Operator-issued one-time link: sets a new password, signs out every browser, and leaves
+  // two-step sign-in in place (an operator removes that separately when the authenticator is lost).
+  app.post(
+    "/api/account/recover",
+    { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      if (!sameOrigin(request))
+        return reply.code(403).send({ error: "Origin rejected" });
+      const parsed = z
+        .object({
+          token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+          password: z.string().min(16).max(512),
+        })
+        .strict()
+        .safeParse(request.body);
+      if (!parsed.success)
+        return reply.code(400).send({ error: "Invalid recovery" });
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const claimed = await client.query<{ account_id: string }>(
+          "UPDATE account_recoveries SET claimed_at=now() WHERE token_hash=$1 AND claimed_at IS NULL AND expires_at>now() RETURNING account_id",
+          [digest(parsed.data.token)],
+        );
+        if (!claimed.rowCount) {
+          await client.query("ROLLBACK");
+          return reply.code(403).send({ error: "Recovery link unavailable" });
+        }
+        const accountId = claimed.rows[0]!.account_id;
+        await client.query("UPDATE accounts SET password_hash=$2 WHERE id=$1", [
+          accountId,
+          await hash(parsed.data.password),
+        ]);
+        await client.query("DELETE FROM browser_sessions WHERE account_id=$1", [
+          accountId,
+        ]);
+        await client.query("COMMIT");
+        return { ok: true };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+  );
+
   app.post(
     "/api/login",
     { config: { rateLimit: { max: 8, timeWindow: "1 minute" } } },
@@ -177,8 +327,12 @@ export async function createApp(pool: Pool, config: Config) {
       const parsed = login.safeParse(request.body);
       if (!parsed.success)
         return reply.code(400).send({ error: "Invalid login" });
-      const result = await pool.query<{ id: string; password_hash: string }>(
-        "SELECT id,password_hash FROM accounts WHERE email=$1",
+      const result = await pool.query<{
+        id: string;
+        password_hash: string;
+        email_verified: boolean;
+      }>(
+        "SELECT id,password_hash,email_verified FROM accounts WHERE email=$1 AND guest_expires_at IS NULL",
         [parsed.data.email.toLowerCase()],
       );
       const account = result.rows[0];
@@ -188,18 +342,16 @@ export async function createApp(pool: Pool, config: Config) {
       );
       if (!valid || !account)
         return reply.code(401).send({ error: "Invalid login" });
-      const token = randomBytes(32).toString("base64url");
-      await pool.query(
-        "INSERT INTO browser_sessions VALUES ($1,$2,now()+interval '8 hours')",
-        [digest(token), account.id],
-      );
-      reply.setCookie("remote_session", token, {
-        httpOnly: true,
-        secure: config.NODE_ENV === "production",
-        sameSite: "strict",
-        path: "/",
-        maxAge: 8 * 3600,
-      });
+      // Only after the right password is it said that the address still needs confirming.
+      if (!account.email_verified)
+        return reply
+          .code(403)
+          .send({ error: "Confirm your email first", unverified: true });
+      // With two-step sign-in on, the password alone starts nothing: the browser gets a short-lived
+      // challenge and must present a code before any session exists.
+      if (mfa.available && (await mfa.enabled(account.id)))
+        return { mfaRequired: true, challenge: mfa.challengeFor(account.id) };
+      setSessionCookie(reply, await startSession(account.id));
       return { ok: true };
     },
   );
@@ -221,7 +373,7 @@ export async function createApp(pool: Pool, config: Config) {
     const result = await pool.query(
       `SELECT m.id,m.name,m.last_seen_at AS "lastSeenAt",m.revoked_at AS "revokedAt",
        COALESCE((m.revoked_at IS NULL AND m.last_seen_at>now()-interval '45 seconds'),false) AS online,
-       COALESCE(a.mode,'attended') AS "accessMode",COALESCE(a.allow_control,false) AS "allowControl",m.displays
+       COALESCE(a.mode,'attended') AS "accessMode",COALESCE(a.allow_control,false) AS "allowControl",COALESCE(a.helpers_unattended,'off') AS "helpersUnattended",m.displays
        FROM machines m LEFT JOIN machine_access a ON a.machine_id=m.id
        WHERE m.account_id=$1 ORDER BY m.created_at`,
       [account],
@@ -419,12 +571,20 @@ export async function createApp(pool: Pool, config: Config) {
     reply.raw.once("close", disconnect);
     try {
       const wait = query.data.wait === "1" && sessionRequests.enabled;
+      // Wait for a request first, then read the policy, so the answer is current: a long wait must
+      // not hand the computer a policy from before it changed its own setting.
+      const sessions = await sessionRequests.pending(body.machineId, {
+        wait,
+        handled: query.data.handled,
+        signal: aborted.signal,
+      });
       const policy = await pool.query<{
         mode: string;
         allow_control: boolean;
         version: number;
+        helpers_unattended: string;
       }>(
-        "SELECT mode,allow_control,version FROM machine_access WHERE machine_id=$1",
+        "SELECT mode,allow_control,version,helpers_unattended FROM machine_access WHERE machine_id=$1",
         [body.machineId],
       );
       return {
@@ -434,14 +594,11 @@ export async function createApp(pool: Pool, config: Config) {
         access: {
           mode: policy.rows[0]?.mode ?? "attended",
           allowControl: policy.rows[0]?.allow_control ?? false,
+          helpers: policy.rows[0]?.helpers_unattended ?? "off",
           version: policy.rows[0]?.version ?? 0,
         },
         pollAfterMillis: wait ? 0 : 15000,
-        sessions: await sessionRequests.pending(body.machineId, {
-          wait,
-          handled: query.data.handled,
-          signal: aborted.signal,
-        }),
+        sessions,
       };
     } finally {
       reply.raw.removeListener("close", disconnect);
@@ -616,6 +773,79 @@ export async function createApp(pool: Pool, config: Config) {
     },
   );
 
+  // The computer decides whether people the owner remembered may connect without the local Allow.
+  // Like trusted access, it is raised only here, signed with the computer's key (ADR 0027).
+  app.post(
+    "/api/agent/helpers",
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      const parsed = helpersRequest.safeParse(request.body);
+      if (!parsed.success)
+        return reply.code(400).send({ error: "Invalid helpers request" });
+      const body = parsed.data;
+      if (Math.abs(Date.now() - body.timestamp) > 30_000)
+        return reply.code(401).send({ error: "Helpers request rejected" });
+      if (
+        !(await signedByMachine(
+          body.machineId,
+          helpersMessage(
+            body.machineId,
+            body.timestamp,
+            body.nonce,
+            body.level,
+          ),
+          body.signature,
+        ))
+      )
+        return reply.code(401).send({ error: "Helpers request rejected" });
+      if (body.level === "control" && config.CONTROL_ENABLED !== "true")
+        return reply.code(403).send({ error: "Control unavailable" });
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const machine = await client.query<{ account_id: string }>(
+          "SELECT account_id FROM machines WHERE id=$1 AND revoked_at IS NULL FOR UPDATE",
+          [body.machineId],
+        );
+        if (!machine.rowCount) {
+          await client.query("ROLLBACK");
+          return reply.code(401).send({ error: "Helpers request rejected" });
+        }
+        const nonce = await client.query(
+          "INSERT INTO heartbeat_nonces(machine_id,nonce) VALUES ($1,$2) ON CONFLICT DO NOTHING RETURNING nonce",
+          [body.machineId, body.nonce],
+        );
+        if (!nonce.rowCount) {
+          await client.query("ROLLBACK");
+          return reply.code(409).send({ error: "Helpers request rejected" });
+        }
+        const saved = await client.query<{ version: number }>(
+          `INSERT INTO machine_access(machine_id,helpers_unattended) VALUES ($1,$2)
+           ON CONFLICT (machine_id) DO UPDATE SET helpers_unattended=$2,updated_at=now(),
+             version=CASE WHEN machine_access.helpers_unattended=$2
+               THEN machine_access.version ELSE machine_access.version+1 END
+           RETURNING version`,
+          [body.machineId, body.level],
+        );
+        await client.query(
+          "INSERT INTO audit_events(account_id,machine_id,action) VALUES ($1,$2,$3)",
+          [
+            machine.rows[0]!.account_id,
+            body.machineId,
+            `machine.helpers.${body.level}`,
+          ],
+        );
+        await client.query("COMMIT");
+        return { ok: true, level: body.level, version: saved.rows[0]!.version };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+  );
+
   // The signed-in owner can always lower a computer's access. Raising it needs the computer.
   app.post("/api/machines/:id/access", async (request, reply) => {
     if (!sameOrigin(request))
@@ -627,10 +857,27 @@ export async function createApp(pool: Pool, config: Config) {
       .union([
         z.object({ mode: z.literal("attended") }).strict(),
         z.object({ allowControl: z.literal(false) }).strict(),
+        z.object({ helpers: z.enum(["off", "view"]) }).strict(),
       ])
       .safeParse(request.body);
     if (!path.success || !body.success)
       return reply.code(400).send({ error: "Invalid access change" });
+    if ("helpers" in body.data) {
+      // Lowering how much remembered helpers may do without asking; a session that relied on the
+      // old level ends with the version bump.
+      const to = body.data.helpers;
+      const lowered = await pool.query(
+        `WITH lowered AS (
+           UPDATE machine_access a SET helpers_unattended=$3,updated_at=now(),version=a.version+1
+           FROM machines m WHERE a.machine_id=m.id AND m.id=$1 AND m.account_id=$2 AND m.revoked_at IS NULL
+             AND ((a.helpers_unattended='control') OR (a.helpers_unattended='view' AND $3='off'))
+           RETURNING m.id)
+         INSERT INTO audit_events(account_id,machine_id,action)
+         SELECT $2,id,'machine.helpers.'||$3 FROM lowered RETURNING machine_id`,
+        [path.data.id, account, to],
+      );
+      return { ok: true, changed: (lowered.rowCount ?? 0) > 0 };
+    }
     const attended = "mode" in body.data;
     const result = await pool.query(
       `WITH lowered AS (
