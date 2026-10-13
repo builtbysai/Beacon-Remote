@@ -84,7 +84,8 @@ export function SupportAccess({
       <h3>Support access</h3>
       <p className="note">
         People you name can ask to connect to this computer until the date
-        shown. You still approve each connection on the computer.
+        shown. You approve each connection on the computer, unless you turned on
+        remembered helpers without asking in Beacon Remote on that computer.
       </p>
       {list?.length ? (
         <ul className="support-list">

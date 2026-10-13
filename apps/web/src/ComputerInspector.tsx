@@ -66,7 +66,12 @@ export function ComputerInspector({
   const cannotConnect = Boolean(unavailable) || requesting || busy;
   const trusted = machine.accessMode === "trusted";
   // Trusted access is switched on at the computer; from here it can only be switched off.
-  async function lower(body: { mode: "attended" } | { allowControl: false }) {
+  async function lower(
+    body:
+      | { mode: "attended" }
+      | { allowControl: false }
+      | { helpers: "off" | "view" },
+  ) {
     setBusy(true);
     setError("");
     try {
@@ -276,7 +281,35 @@ export function ComputerInspector({
                 : "Not needed to view · Control asks on Windows"
               : "Required on Windows"}
           </dd>
+          <dt>Remembered helpers</dt>
+          <dd>
+            {machine.helpersUnattended === "control"
+              ? "May view and control without asking"
+              : machine.helpersUnattended === "view"
+                ? "May view without asking"
+                : "Approval required"}
+          </dd>
         </dl>
+        {machine.helpersUnattended !== "off" && !machine.revokedAt && (
+          <div className="actions">
+            {machine.helpersUnattended === "control" && (
+              <button
+                className="secondary"
+                disabled={busy}
+                onClick={() => void lower({ helpers: "view" })}
+              >
+                Helpers: view only
+              </button>
+            )}
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() => void lower({ helpers: "off" })}
+            >
+              Helpers: ask me every time
+            </button>
+          </div>
+        )}
         {trusted && !machine.revokedAt ? (
           <div className="actions">
             {machine.allowControl && (

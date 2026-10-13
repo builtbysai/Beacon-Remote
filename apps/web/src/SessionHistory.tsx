@@ -9,6 +9,8 @@ export type SessionRecord = {
   status: string;
   createdAt: string;
   expiresAt: string | null;
+  // Set when someone else (a support helper) ran this session on your computer.
+  controller?: string | null;
 };
 
 export function sessionState(status: string) {
@@ -137,7 +139,10 @@ export function SessionHistory() {
               {active.map((session) => (
                 <li key={session.id}>
                   <div>
-                    <strong>{session.machineName}</strong>
+                    <strong>
+                      {session.machineName}
+                      {session.controller ? ` · by ${session.controller}` : ""}
+                    </strong>
                     <span>
                       {sessionState(session.status)} ·{" "}
                       {session.source === "desktop"
@@ -182,7 +187,10 @@ export function SessionHistory() {
               {recent.map((session) => (
                 <li key={session.id}>
                   <div>
-                    <strong>{session.machineName}</strong>
+                    <strong>
+                      {session.machineName}
+                      {session.controller ? ` · by ${session.controller}` : ""}
+                    </strong>
                     <span>
                       {session.source === "desktop"
                         ? session.capability === "desktop:control"

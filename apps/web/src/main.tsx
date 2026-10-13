@@ -18,7 +18,11 @@ import { readView, forgetView } from "./resume-view.js";
 const invitation = new URLSearchParams(window.location.hash.slice(1)).get(
   "invite",
 );
-if (invitation) window.history.replaceState(null, "", window.location.pathname);
+const recovery = new URLSearchParams(window.location.hash.slice(1)).get(
+  "recover",
+);
+if (invitation || recovery)
+  window.history.replaceState(null, "", window.location.pathname);
 
 function App() {
   const viewContext = useRef({ active: false });
@@ -55,6 +59,8 @@ function App() {
     return () => preference.removeEventListener("change", apply);
   }, [theme]);
   const [invite, setInvite] = useState(invitation);
+  const [recoverToken, setRecoverToken] = useState(recovery);
+  const [recovered, setRecovered] = useState(false);
   const [machines, setMachines] = useState<Machine[] | null>(null);
   const [error, setError] = useState("");
   const [code, setCode] = useState<{ code: string; expiresAt: number } | null>(
@@ -242,6 +248,26 @@ function App() {
           : invite
             ? "Account setup failed. Check your details and invitation, then try again."
             : "Sign-in failed. Check your details and try again.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function recoverPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const password = String(
+      new FormData(event.currentTarget).get("password") ?? "",
+    );
+    setBusy(true);
+    setError("");
+    try {
+      await api("account/recover", { token: recoverToken, password });
+      setRecoverToken(null);
+      setRecovered(true);
+    } catch {
+      setError(
+        "That recovery link did not work. It may have expired or been used; ask for a new one.",
       );
     } finally {
       setBusy(false);
@@ -466,6 +492,7 @@ function App() {
         </header>
       )}
       {!invite &&
+      !recoverToken &&
       page !== "signin" &&
       !(
         ["computers", "sessions", "assist", "activity", "settings"].includes(
@@ -495,7 +522,7 @@ function App() {
         ) : (
           <ProductPage page={page} signedIn={signedIn} />
         )
-      ) : machines === null || invite ? (
+      ) : machines === null || invite || recoverToken ? (
         <section className="login">
           <div className="login-icon" aria-hidden="true">
             <svg
@@ -510,13 +537,39 @@ function App() {
               <path d="M8 10V7a4 4 0 0 1 8 0v3" />
             </svg>
           </div>
-          <h1>{invite ? "Create your account" : "Sign in"}</h1>
+          <h1>
+            {recoverToken
+              ? "Reset your password"
+              : invite
+                ? "Create your account"
+                : "Sign in"}
+          </h1>
           <p>
-            {invite
-              ? "Choose a password with at least 16 characters. Your invitation expires after 30 minutes."
-              : "Continue to your Beacon Remote workspace."}
+            {recoverToken
+              ? "Choose a new password. This link works once and expires after 30 minutes."
+              : recovered
+                ? "Your password was changed and your other browsers were signed out. Sign in with the new one."
+                : invite
+                  ? "Choose a password with at least 16 characters. Your invitation expires after 30 minutes."
+                  : "Continue to your Beacon Remote workspace."}
           </p>
-          {challenge ? (
+          {recoverToken ? (
+            <form key="recover" onSubmit={recoverPassword}>
+              <label>
+                New password (at least 16 characters)
+                <input
+                  name="password"
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={16}
+                  maxLength={512}
+                  required
+                  autoFocus
+                />
+              </label>
+              <button disabled={busy}>Set password</button>
+            </form>
+          ) : challenge ? (
             <form key="mfa-code" onSubmit={submitCode}>
               <label>
                 Authenticator or recovery code
@@ -578,7 +631,7 @@ function App() {
           )}
           <p className="note">
             Private alpha. Account creation requires an operator invitation.
-            Password recovery is not available yet.
+            Forgot your password? Ask the operator for a one-time recovery link.
           </p>
         </section>
       ) : (

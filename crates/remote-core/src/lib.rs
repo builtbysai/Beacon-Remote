@@ -154,6 +154,8 @@ pub enum Input {
     },
     ReleaseAll,
     KeepAlive,
+    // Asks the computer to send back its clipboard text. Reads only; it never changes it.
+    ClipboardRead,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]

@@ -25,6 +25,13 @@ try {
       "allow_control",
       "version",
       "updated_at",
+      "helpers_unattended",
+    ],
+    account_recoveries: [
+      "token_hash",
+      "account_id",
+      "expires_at",
+      "claimed_at",
     ],
     account_mfa: [
       "account_id",

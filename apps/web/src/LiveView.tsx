@@ -566,6 +566,17 @@ export function LiveView({
           {controlReady && (
             <button
               className="viewer-control"
+              title="Copy the computer's clipboard text to this device"
+              onClick={() =>
+                video.current?.dispatchEvent(new Event("beacon-clipboard-read"))
+              }
+            >
+              Copy from computer
+            </button>
+          )}
+          {controlReady && (
+            <button
+              className="viewer-control"
               aria-pressed={touchMode === "direct"}
               title="Trackpad moves the cursor like a laptop touchpad. Touch acts where you tap."
               onClick={() =>
