@@ -25,3 +25,5 @@ in this package yet. The native host uses a private anonymous child pipe for
 graceful helper cancellation, not a public local command endpoint. Desktop/control
 production gates remain disabled. The host clears development input enablement. Owner-device
 install/pair/view/stop/uninstall acceptance is required before distribution.
+
+Updates: after pairing, use Check for updates in the host window (or the agent command "update check"). Updates are signed by the Beacon Remote update key, installed only when you ask, and the previous version is kept in the "previous" folder next to the program.
