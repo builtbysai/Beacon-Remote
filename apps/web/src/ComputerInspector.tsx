@@ -145,9 +145,6 @@ export function ComputerInspector({
       }}
     >
       <div className="inspector-heading">
-        <span className="inspector-avatar">
-          <WorkspaceIcon name="computers" />
-        </span>
         <button
           className="secondary inspector-edit"
           aria-label={`Edit ${machine.name}`}
