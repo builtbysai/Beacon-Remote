@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 export type Page =
   | "home"
   | "signin"
@@ -173,38 +175,7 @@ export function ProductPage({
         </section>
       </>
     );
-  if (page === "downloads")
-    return (
-      <section className="public-section">
-        <p className="eyebrow">SETUP</p>
-        <h1>Download Beacon Remote</h1>
-        <p>Windows host software connects your computer to the workspace.</p>
-        <div className="download-panel">
-          <Monitor />
-          <div>
-            <h2>Windows agent</h2>
-            <p>Development build · Windows x64</p>
-            <p>
-              A signed installer and automatic updates are not available yet. No
-              production download is published.
-            </p>
-            <button disabled>Installer unavailable</button>
-          </div>
-        </div>
-        <h2>Pair an existing development agent</h2>
-        <ol>
-          <li>Sign in and choose Add a computer.</li>
-          <li>Run the agent’s pair command on your Windows computer.</li>
-          <li>
-            Enter the server address, computer name and one-use code within five
-            minutes.
-          </li>
-        </ol>
-        <a className="button" href={workspace}>
-          Open workspace →
-        </a>
-      </section>
-    );
+  if (page === "downloads") return <DownloadsPage workspace={workspace} />;
   if (page === "support" || page === "assist")
     return (
       <section className="public-section">
@@ -314,5 +285,112 @@ export function Monitor() {
       <rect x="3" y="3" width="18" height="13" rx="2" />
       <path d="M8 21h8m-4-5v5" />
     </svg>
+  );
+}
+
+type Release = {
+  version: string;
+  commit: string;
+  file: string;
+  bytes: number;
+  sha256: string;
+  publishedAt: string;
+};
+
+// The published build is described by /downloads/manifest.json, written when a build is published.
+// A missing or malformed manifest means nothing is published.
+function useRelease(): Release | null | undefined {
+  const [release, setRelease] = useState<Release | null | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    fetch("/downloads/manifest.json", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body) => {
+        const ok =
+          body &&
+          typeof body.file === "string" &&
+          /^[A-Za-z0-9._-]+\.zip$/.test(body.file) &&
+          typeof body.sha256 === "string" &&
+          /^[a-f0-9]{64}$/.test(body.sha256) &&
+          typeof body.version === "string" &&
+          typeof body.bytes === "number";
+        if (live) setRelease(ok ? (body as Release) : null);
+      })
+      .catch(() => live && setRelease(null));
+    return () => {
+      live = false;
+    };
+  }, []);
+  return release;
+}
+
+function DownloadsPage({ workspace }: { workspace: string }) {
+  const release = useRelease();
+  return (
+    <section className="public-section">
+      <p className="eyebrow">SETUP</p>
+      <h1>Download Beacon Remote</h1>
+      <p>Windows host software connects your computer to the workspace.</p>
+      <div className="download-panel">
+        <Monitor />
+        <div>
+          <h2>Windows host</h2>
+          {release ? (
+            <>
+              <p>
+                Version {release.version} · Windows x64 ·{" "}
+                {(release.bytes / 1_048_576).toFixed(1)} MB
+              </p>
+              <p>
+                This is an unsigned build for your own computers. Windows may
+                warn about it, and there are no automatic updates yet. Check the
+                SHA-256 below matches the file you downloaded.
+              </p>
+              <a
+                className="button"
+                href={`/downloads/${release.file}`}
+                download
+              >
+                Download for Windows
+              </a>
+              <p className="note">
+                SHA-256 <code>{release.sha256}</code>
+              </p>
+            </>
+          ) : (
+            <>
+              <p>Windows x64</p>
+              <p>
+                {release === undefined
+                  ? "Checking for the current build…"
+                  : "No build is published right now."}
+              </p>
+              <button disabled>Installer unavailable</button>
+            </>
+          )}
+        </div>
+      </div>
+      <h2>Set up a computer</h2>
+      <ol>
+        <li>
+          Extract the download, then run Install.ps1 with PowerShell. It
+          installs for your user only and asks for no administrator rights.
+        </li>
+        <li>
+          Open Beacon Remote Development from the Start menu, then choose Host.
+        </li>
+        <li>
+          In your workspace choose Add a computer, and enter the server address,
+          a name and the one-use code in the host window within five minutes.
+        </li>
+        <li>
+          Choose Start host. In the host window you can turn on start at sign-in
+          and decide whether your own account may connect without asking.
+        </li>
+      </ol>
+      <a className="button" href={workspace}>
+        Open workspace →
+      </a>
+    </section>
   );
 }
