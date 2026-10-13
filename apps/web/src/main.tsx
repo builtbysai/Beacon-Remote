@@ -447,7 +447,20 @@ function App() {
         page === "sessions" ? (
           <SessionHistory />
         ) : page === "assist" ? (
-          <AssistPanel />
+          <>
+            <AssistPanel
+              sessionActive={view !== null}
+              onClaimed={(grant, name) => setView({ grant, name })}
+            />
+            {view && (
+              <LiveView
+                key={view.grant.id}
+                grant={view.grant}
+                name={view.name}
+                onClose={() => setView(null)}
+              />
+            )}
+          </>
         ) : page === "settings" || page === "activity" ? (
           <AccountPanels activity={page === "activity"} />
         ) : (

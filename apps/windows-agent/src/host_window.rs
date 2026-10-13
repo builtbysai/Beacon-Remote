@@ -2,7 +2,7 @@
 #[path = "../../windows-session/src/window_style.rs"]
 mod window_style;
 
-use beacon_remote_agent::{HostError, HostStatus, LocalAccess};
+use beacon_remote_agent::{HostError, HostStatus, LocalAccess, SupportCode};
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
@@ -38,6 +38,8 @@ const SERVER: usize = 103;
 const NAME: usize = 104;
 const CODE: usize = 105;
 const AUTOSTART: usize = 120;
+const SUPPORT_VIEW: usize = 130;
+const SUPPORT_CONTROL: usize = 131;
 const ACCESS_ASK: usize = 110;
 const ACCESS_VIEW: usize = 111;
 const ACCESS_CONTROL: usize = 112;
@@ -73,6 +75,8 @@ struct State {
     access: LocalAccess,
     radios: [HWND; 3],
     autostart: HWND,
+    support: [HWND; 2],
+    support_job: Option<JoinHandle<Result<SupportCode, HostError>>>,
     access_job: Option<(JoinHandle<Result<(), HostError>>, LocalAccess)>,
 }
 // Starting at sign-in is a visible, per-user choice made here. No service or elevation is involved.
@@ -242,6 +246,18 @@ impl State {
         self.access_job = Some((handle, target));
         self.show_access();
     }
+    unsafe fn ask_support(&mut self, control: bool) {
+        if self.support_job.is_some() || self.closing || !self.paired {
+            return;
+        }
+        text(self.status, "Requesting a support code…");
+        self.support_job = Some(thread::spawn(move || {
+            beacon_remote_agent::request_support_code(control)
+        }));
+        for &button in &self.support {
+            EnableWindow(button, 0);
+        }
+    }
     unsafe fn controls(&self) {
         text(
             self.introduction,
@@ -327,6 +343,30 @@ impl State {
                         HostStatus::Rejected => "Host authorization rejected. Check this computer in your workspace.",
                     });
                 }
+            }
+        }
+        if self
+            .support_job
+            .as_ref()
+            .is_some_and(|job| job.is_finished())
+        {
+            let job = self.support_job.take().unwrap();
+            match job.join() {
+                Ok(Ok(support)) => text(
+                    self.status,
+                    &format!(
+                        "Support code {} · Works once, expires in {} minutes. You still approve the connection here.",
+                        support.code,
+                        support.expires_in.as_secs() / 60
+                    ),
+                ),
+                _ => text(
+                    self.status,
+                    "Could not get a support code. Check your network and try again.",
+                ),
+            }
+            for &button in &self.support {
+                EnableWindow(button, i32::from(!self.closing));
             }
         }
         if self
@@ -418,6 +458,8 @@ unsafe extern "system" fn procedure(
                         SendMessageW((*state).autostart, BM_SETCHECK, usize::from(!wanted), 0);
                     }
                 }
+                SUPPORT_VIEW => (*state).ask_support(false),
+                SUPPORT_CONTROL => (*state).ask_support(true),
                 ACCESS_ASK => (*state).choose_access(window, 0),
                 ACCESS_VIEW => (*state).choose_access(window, 1),
                 ACCESS_CONTROL => (*state).choose_access(window, 2),
@@ -557,6 +599,8 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             access: beacon_remote_agent::local_access(),
             radios: [null_mut(); 3],
             autostart: null_mut(),
+            support: [null_mut(); 2],
+            support_job: None,
             access_job: None,
         };
         let style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
@@ -564,7 +608,7 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             left: 0,
             top: 0,
             right: scale(580),
-            bottom: scale(520),
+            bottom: scale(574),
         };
         AdjustWindowRectEx(&mut bounds, style, 0, 0);
         let window = CreateWindowExW(
@@ -769,6 +813,17 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                 ACTION,
             )?;
             state.stop = child("BUTTON", "Stop host", 216, 462, 156, 34, WS_TABSTOP, STOP)?;
+            for (index, (label, id, x, width)) in [
+                ("Support code: view only", SUPPORT_VIEW, 28, 250),
+                ("Support code: view and control", SUPPORT_CONTROL, 294, 258),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let button = child("BUTTON", label, x, 510, width, 34, WS_TABSTOP, id)?;
+                state.support[index] = button;
+                state.paired_details.push(button);
+            }
             state.controls();
             Ok(())
         })();

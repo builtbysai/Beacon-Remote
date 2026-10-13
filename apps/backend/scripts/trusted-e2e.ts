@@ -268,6 +268,52 @@ try {
     (await status()) !== "active",
     `...and is recorded as ${await status()}`,
   );
+
+  // Attended support: the computer issues a one-time code and a different signed-in account
+  // redeems it. The session still waits for the local Allow, which no script clicks.
+  const support = (await run("beacon-remote-agent", ["support", "view"])).match(
+    /Support code: ([A-Z2-9]{4}-[A-Z2-9]{4})/,
+  );
+  check(Boolean(support), "the computer issues a one-time support code");
+  const helperId = randomUUID();
+  const helperEmail = `${helperId}@example.test`;
+  const helperPassword = randomBytes(32).toString("base64url");
+  await pool.query(
+    "INSERT INTO accounts(id,email,password_hash) VALUES ($1,$2,$3)",
+    [helperId, helperEmail, await hash(helperPassword)],
+  );
+  const helperLogin = await app.inject({
+    method: "POST",
+    url: "/api/login",
+    headers: { origin },
+    payload: { email: helperEmail, password: helperPassword },
+  });
+  const helperHeaders = {
+    origin,
+    cookie: String(helperLogin.headers["set-cookie"]).split(";")[0]!,
+  };
+  const claimed = await app.inject({
+    method: "POST",
+    url: "/api/support/claim",
+    headers: helperHeaders,
+    payload: { code: support![1] },
+  });
+  check(
+    claimed.statusCode === 200 && claimed.json().approval === "local",
+    "the helper redeems it and the session waits for the local Allow",
+  );
+  const repeat = await app.inject({
+    method: "POST",
+    url: "/api/support/claim",
+    headers: helperHeaders,
+    payload: { code: support![1] },
+  });
+  check(repeat.statusCode === 404, "the same code works only once");
+  await app.inject({
+    method: "POST",
+    url: `/api/sessions/${claimed.json().id}/stop`,
+    headers: helperHeaders,
+  });
   console.log("Trusted access end to end: all checks passed.");
 } finally {
   for (const socket of sockets) socket.terminate();

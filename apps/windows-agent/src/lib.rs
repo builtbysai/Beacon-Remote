@@ -118,6 +118,52 @@ fn post_access(
     }
 }
 
+/// A one-time code for attended support (ADR 0023). It is shown only to the person at this
+/// computer, expires, works once, and still needs this computer's local Allow when it is used.
+pub struct SupportCode {
+    pub code: String,
+    pub expires_in: Duration,
+}
+
+pub fn request_support_code(control: bool) -> Result<SupportCode, HostError> {
+    let identity = load_identity()?;
+    let server = validate_server(&identity.server)?;
+    let key = SigningKey::from_bytes(&identity.secret_key);
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
+    let nonce = uuid::Uuid::new_v4().to_string();
+    let capability = if control {
+        "desktop:control"
+    } else {
+        "desktop:view"
+    };
+    let message = format!(
+        "beacon-remote:support:v1\n{}\n{}\n{}\n{}",
+        identity.machine_id, timestamp, nonce, capability
+    );
+    let response = client()?
+        .post(server.join("/api/agent/support")?)
+        .json(&serde_json::json!({
+            "version": 1, "machineId": identity.machine_id, "timestamp": timestamp,
+            "nonce": nonce, "capability": capability,
+            "signature": STANDARD.encode(key.sign(message.as_bytes()).to_bytes()),
+        }))
+        .send()?;
+    if !response.status().is_success() {
+        return Err("The server did not issue a support code".into());
+    }
+    let body: serde_json::Value = response.json()?;
+    let code = body["code"]
+        .as_str()
+        .filter(|code| code.len() == 9 && code.is_ascii())
+        .ok_or("Unexpected support code")?
+        .to_owned();
+    let expires = body["expiresAtMillis"].as_u64().unwrap_or(0);
+    Ok(SupportCode {
+        code,
+        expires_in: Duration::from_millis(expires.saturating_sub(timestamp)),
+    })
+}
+
 /// Raises or lowers this computer's access. Lowering takes effect locally at once, whether or not
 /// the server can be reached (the next presence report repeats it); raising needs the server.
 pub fn set_access(trusted: bool, allow_control: bool) -> Result<(), HostError> {
@@ -449,6 +495,16 @@ pub fn cli() -> Result<(), HostError> {
                     );
                 }
             }
+            Ok(())
+        }
+        "support" => {
+            let control = std::env::args().nth(2).as_deref() == Some("control");
+            let support = request_support_code(control)?;
+            println!(
+                "Support code: {}\nGive it to the person helping you. It works once, expires in {} minutes, and you still approve the connection on this computer.",
+                support.code,
+                support.expires_in.as_secs() / 60
+            );
             Ok(())
         }
         "forget" => {

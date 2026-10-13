@@ -1985,3 +1985,19 @@ li {
   outline: 2px solid var(--accent, #3b82f6);
   outline-offset: -2px;
 }
+
+.assist-code {
+  display: grid;
+  gap: 6px;
+  max-width: 280px;
+  margin: 0 0 12px;
+  font-size: 12px;
+}
+.assist-code input {
+  font-size: 18px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.assist-error {
+  color: var(--danger, #b42318);
+}
