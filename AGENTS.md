@@ -15,5 +15,6 @@ Do not bypass UAC, UIPI, secure desktop, or Session 0 isolation.
 Only one authorized controller may inject input. Release held input on revoke,
 expiry, disconnect, and shutdown. Protect realistic regressions with the smallest
 useful suite; prefer real database and machine boundaries. Report actual checks
-and limitations rather than test counts. No AI, MCP, file transfer, terminal,
-recording, or extra operating systems in this milestone.
+and limitations rather than test counts. AI/MCP, file transfer, recording and other
+operating systems are roadmap items (see docs/roadmap.md); build each only as its own authorized,
+consent-preserving feature.
