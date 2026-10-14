@@ -107,7 +107,7 @@ try {
       // Optional relay for a phone or emulator that cannot reach the browser directly.
       ...(process.env.DEV_TURN_URLS && process.env.DEV_TURN_SECRET
         ? {
-            TURN_URLS: process.env.DEV_TURN_URLS,
+            TURN_URLS: process.env.DEV_TURN_URLS.split(","),
             TURN_SECRET: process.env.DEV_TURN_SECRET,
           }
         : {}),
