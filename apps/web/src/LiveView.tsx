@@ -76,6 +76,8 @@ export function LiveView({
   const [frames, setFrames] = useState(0);
   const [ended, setEnded] = useState(false);
   const [controlReady, setControlReady] = useState(false);
+  // The computer said it is an Android phone: Back, Home and Recents replace the clipboard button.
+  const [phoneHost, setPhoneHost] = useState(false);
   const [touchMode, setTouchMode] = useState<TouchMode>("trackpad");
   const touchModeRef = useRef(touchMode);
   touchModeRef.current = touchMode;
@@ -446,6 +448,11 @@ export function LiveView({
         () => finish("Control connection ended. Request control again."),
         () => touchModeRef.current,
         setDisplayError,
+        (platform) => {
+          setPhoneHost(platform === "android");
+          // A phone is touched where it is tapped; a cursor trackpad makes no sense there.
+          if (platform === "android") setTouchMode("direct");
+        },
       );
     };
     pc.onicecandidate = (event) => {
@@ -770,7 +777,29 @@ export function LiveView({
               Keyboard
             </button>
           )}
-          {controlReady && (
+          {controlReady &&
+            phoneHost &&
+            (
+              [
+                ["back", "Back", "The phone's Back button"],
+                ["home", "Home", "The phone's Home button"],
+                ["recents", "Recents", "The phone's recent apps"],
+              ] as const
+            ).map(([action, label, title]) => (
+              <button
+                key={action}
+                className="viewer-control"
+                title={title}
+                onClick={() =>
+                  video.current?.dispatchEvent(
+                    new CustomEvent("beacon-nav", { detail: action }),
+                  )
+                }
+              >
+                {label}
+              </button>
+            ))}
+          {controlReady && !phoneHost && (
             <button
               className="viewer-control"
               title="Copy the computer's clipboard text to this device"
@@ -781,7 +810,7 @@ export function LiveView({
               Copy from computer
             </button>
           )}
-          {controlReady && (
+          {controlReady && !phoneHost && (
             <button
               className="viewer-control"
               aria-pressed={touchMode === "direct"}

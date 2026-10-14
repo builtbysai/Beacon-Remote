@@ -15,6 +15,8 @@ import org.json.JSONObject
 class CaptureService : Service() {
     private var session: ShareSession? = null
     private var paused = false
+    private var controlling = false
+    private var controller = ""
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -27,8 +29,7 @@ class CaptureService : Service() {
             ACTION_PAUSE -> {
                 paused = !paused
                 session?.setPaused(paused)
-                getSystemService(NotificationManager::class.java)
-                    .notify(3, build(intent.getStringExtra("controller") ?: "", paused))
+                refresh()
                 return START_NOT_STICKY
             }
         }
@@ -40,17 +41,32 @@ class CaptureService : Service() {
             return START_NOT_STICKY
         }
         val grant = Grant.from(JSONObject(raw))
+        controller = grant.controller
         ServiceCompat.startForeground(
             this,
             3,
-            build(grant.controller, paused = false),
+            build(),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION,
         )
         HostState.sharing = true
         HostState.status = "Sharing your screen"
+        // Control happens only if the person chose it on the request screen and the accessibility service is on.
+        val control = intent.getBooleanExtra("control", false) && ControlService.instance != null
         session =
-            ShareSession(applicationContext, grant, Identity(this).server, data) { _ ->
+            ShareSession(
+                applicationContext,
+                grant,
+                Identity(this).server,
+                data,
+                control,
+                { active ->
+                    controlling = active
+                    HostState.controlling = active
+                    refresh()
+                },
+            ) { _ ->
                 HostState.sharing = false
+                HostState.controlling = false
                 HostState.status = "Available"
                 session = null
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -59,17 +75,25 @@ class CaptureService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun build(controller: String, paused: Boolean): Notification {
+    private fun refresh() = getSystemService(NotificationManager::class.java).notify(3, build())
+
+    private fun build(): Notification {
         fun action(name: String) =
             PendingIntent.getService(
                 this,
                 name.hashCode(),
-                Intent(this, CaptureService::class.java).setAction(name).putExtra("controller", controller),
+                Intent(this, CaptureService::class.java).setAction(name),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
         return NotificationCompat.Builder(this, AvailabilityService.SHARING)
             .setSmallIcon(R.drawable.ic_stat_beacon)
-            .setContentTitle(if (paused) "Sharing is paused" else "Sharing your screen")
+            .setContentTitle(
+                when {
+                    paused -> "Sharing is paused"
+                    controlling -> "Sharing and being controlled"
+                    else -> "Sharing your screen"
+                },
+            )
             .setContentText(controller)
             .setOngoing(true)
             // Stop must stay reachable, and visible, even on a locked screen.

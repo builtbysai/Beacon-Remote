@@ -132,6 +132,7 @@ export function attachRemoteInput(
   onFailure: () => void,
   touchMode: () => TouchMode = () => "trackpad",
   onNotice: (message: string) => void = () => undefined,
+  onPlatform: (platform: "android" | "desktop") => void = () => undefined,
 ) {
   let display: { id: string; width: number; height: number } | null = null;
   let sequence = 0,
@@ -524,6 +525,7 @@ export function attachRemoteInput(
       )
         throw new Error();
       display = data;
+      onPlatform(data.platform === "android" ? "android" : "desktop");
       // Ask the browser to deliver Alt+Tab, Win and similar keys to the remote computer while it
       // is full screen. Unsupported browsers keep their own shortcuts; Ctrl+Alt+Del cannot be sent.
       void (
@@ -569,7 +571,14 @@ export function attachRemoteInput(
   element.addEventListener("keyup", key);
   element.addEventListener("blur", release);
   element.addEventListener("contextmenu", context);
+  // A phone's Back, Home and Recents, asked for by the viewer's toolbar.
+  const navigate = (event: Event) => {
+    const action = (event as CustomEvent<string>).detail;
+    if (["back", "home", "recents", "notifications"].includes(action))
+      send({ type: "nav", action });
+  };
   element.addEventListener("beacon-keyboard", openKeyboard);
+  element.addEventListener("beacon-nav", navigate);
   element.addEventListener("beacon-clipboard-read", requestClipboard);
   window.addEventListener("blur", release);
   document.addEventListener("visibilitychange", visibility);
@@ -598,6 +607,7 @@ export function attachRemoteInput(
     element.removeEventListener("blur", release);
     element.removeEventListener("contextmenu", context);
     element.removeEventListener("beacon-keyboard", openKeyboard);
+    element.removeEventListener("beacon-nav", navigate);
     element.removeEventListener("beacon-clipboard-read", requestClipboard);
     if (awaitingClipboard) clearTimeout(awaitingClipboard);
     sink?.remove();

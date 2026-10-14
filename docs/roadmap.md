@@ -55,13 +55,13 @@ product. **Block** an actual external dependency. A dash means no, a tick means 
 
 A shared protocol and backend, built up progressively. Beacon View's credentials, permissions and databases stay separate.
 
-| Feature                                                               | Impl | Integ | Valid         | Rel | Block / note                                                            |
-| --------------------------------------------------------------------- | ---- | ----- | ------------- | --- | ----------------------------------------------------------------------- |
-| Controller: any modern desktop browser                                | ✓    | ✓     | ✓             | ✓   | Chrome verified; Safari, Firefox, Chromebook not yet                    |
-| Controller: Android phone and tablet (web)                            | ✓    | ✓     | ✓             | ✓   | Native Android controller not started                                   |
-| Controller: iPhone and iPad                                           | –    | –     | –             | –   | Web first; iOS cannot promise unrestricted control                      |
-| Host: Android, view only (MediaProjection, foreground services; 0034) | ✓    | ✓     | emulator only | –   | Control (AccessibilityService), audio, real phone, release key not done |
-| Host: macOS, Linux (X11 and Wayland), Raspberry Pi, Android TV        | –    | –     | –             | –   |                                                                         |
+| Feature                                                                                                  | Impl | Integ | Valid         | Rel | Block / note                                         |
+| -------------------------------------------------------------------------------------------------------- | ---- | ----- | ------------- | --- | ---------------------------------------------------- |
+| Controller: any modern desktop browser                                                                   | ✓    | ✓     | ✓             | ✓   | Chrome verified; Safari, Firefox, Chromebook not yet |
+| Controller: Android phone and tablet (web)                                                               | ✓    | ✓     | ✓             | ✓   | Native Android controller not started                |
+| Controller: iPhone and iPad                                                                              | –    | –     | –             | –   | Web first; iOS cannot promise unrestricted control   |
+| Host: Android: view and control (MediaProjection, AccessibilityService, foreground services; 0034, 0036) | ✓    | ✓     | emulator only | –   | Real phone, audio, multi-touch, release key not done |
+| Host: macOS, Linux (X11 and Wayland), Raspberry Pi, Android TV                                           | –    | –     | –             | –   |                                                      |
 
 ### Phase 4: advanced capabilities
 

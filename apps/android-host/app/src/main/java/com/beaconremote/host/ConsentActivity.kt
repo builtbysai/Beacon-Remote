@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.provider.Settings
 import android.graphics.Typeface
 import android.media.projection.MediaProjectionManager
 import android.os.Bundle
@@ -11,6 +12,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.TextView
 import org.json.JSONObject
@@ -22,6 +24,9 @@ import org.json.JSONObject
 class ConsentActivity : Activity() {
     private lateinit var grant: Grant
     private var answered = false
+    private var control: CheckBox? = null
+    private var controlNote: TextView? = null
+    private var controlSettings: Button? = null
     private val handler = Handler(Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -60,13 +65,30 @@ class ConsentActivity : Activity() {
             TextView(this).apply {
                 text =
                     if (grant.capability == "desktop:control") {
-                        "wants to see this screen. Control of this phone is not available, so they can only watch."
+                        "wants to see this screen, and asked to control it."
                     } else {
                         "wants to see this screen."
                     }
                 textSize = 16f
             },
         )
+        if (grant.capability == "desktop:control") {
+            control =
+                CheckBox(this).apply {
+                    text = "Also let them touch and type on this phone"
+                    textSize = 16f
+                    isChecked = false
+                }
+            controlNote = TextView(this).apply { textSize = 13f }
+            controlSettings =
+                Button(this).apply {
+                    text = "Turn on control in Settings"
+                    setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+                }
+            layout.addView(control)
+            layout.addView(controlNote)
+            layout.addView(controlSettings)
+        }
         layout.addView(
             TextView(this).apply {
                 text =
@@ -91,8 +113,26 @@ class ConsentActivity : Activity() {
         )
         layout.addView(buttons)
         setContentView(layout)
+        refreshControl()
         // The request expires on the server after two minutes.
         handler.postDelayed({ decline() }, 110_000)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshControl()
+    }
+
+    /** Control needs the accessibility service the person turns on in Settings; until then the box stays off. */
+    private fun refreshControl() {
+        val box = control ?: return
+        val on = ControlService.enabled(this) && ControlService.instance != null
+        box.isEnabled = on
+        if (!on) box.isChecked = false
+        controlNote?.text =
+            if (on) "Off unless you tick it. You can pause or stop at any time."
+            else "Control needs Beacon Remote's accessibility service. Turn it on once in Settings; it does nothing outside a session you approve."
+        controlSettings?.visibility = if (on) android.view.View.GONE else android.view.View.VISIBLE
     }
 
     private fun allow() {
@@ -113,7 +153,8 @@ class ConsentActivity : Activity() {
             startForegroundService(
                 Intent(this, CaptureService::class.java)
                     .putExtra("grant", intent.getStringExtra("grant"))
-                    .putExtra("data", data),
+                    .putExtra("data", data)
+                    .putExtra("control", control?.isChecked == true),
             )
             finish()
         } else {
