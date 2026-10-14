@@ -2383,3 +2383,11 @@ button.danger {
 .support-handoff select {
   flex: 1;
 }
+
+.session-hint {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted, #5b6677);
+  font-size: 12px;
+  line-height: 1.35;
+}

@@ -38,6 +38,26 @@ export function qualityLine(quality: SessionRecord["quality"]): string {
     .join(" · ");
 }
 
+/**
+ * What a person can do about a poor connection, from the numbers measured during the session. Null when it was fine,
+ * or when there is nothing measured to judge. One sentence, most useful first; it never blames a side it cannot know.
+ */
+export function diagnosis(quality: SessionRecord["quality"]): string | null {
+  if (!quality || quality.route === "Unavailable") return null;
+  if (quality.lossPct !== null && quality.lossPct >= 2)
+    return "Packets were being lost, usually weak Wi-Fi or a busy network on either side. A cable, or moving closer to the router, helps most.";
+  const slow = quality.rttP95Ms ?? quality.rttMs;
+  if (slow !== null && slow >= 250)
+    return quality.route === "Relayed"
+      ? "The connection was slow and went through the relay. A network that blocks direct connections (some mobile and office networks) causes this; another network may connect directly."
+      : "The connection was slow (high delay). A distant or congested network on either side is the usual cause.";
+  if (quality.fps !== null && quality.fps > 0 && quality.fps < 10)
+    return "The picture updated slowly although the network looked healthy. The computer may be busy, or its screen was mostly unchanged.";
+  if (quality.route === "Relayed")
+    return "Video went through the relay rather than directly. It worked, but a network that allows direct connections would add less delay.";
+  return null;
+}
+
 export function sessionState(status: string) {
   switch (status) {
     case "requested":
@@ -213,7 +233,14 @@ export function SessionHistory() {
                           : "Video test"}
                       </span>
                       <span>{sessionState(session.status)}</span>
-                      <span>{qualityLine(session.quality)}</span>
+                      <span>
+                        {qualityLine(session.quality)}
+                        {diagnosis(session.quality) && (
+                          <small className="session-hint">
+                            {diagnosis(session.quality)}
+                          </small>
+                        )}
+                      </span>
                       <time dateTime={session.createdAt}>
                         {new Date(session.createdAt).toLocaleString()}
                       </time>
