@@ -473,7 +473,15 @@ export class FileSender {
     });
   }
 
-  async send(file: File): Promise<void> {
+  /** Sends a file, carrying on from where an interrupted attempt stopped if the computer kept the start of it. */
+  async send(file: File): Promise<Transfer["status"]> {
+    return this.upload(file, false);
+  }
+
+  private async upload(
+    file: File,
+    fresh: boolean,
+  ): Promise<Transfer["status"]> {
     const id = this.next;
     this.next += 2;
     this.cancelled = false;
@@ -483,9 +491,10 @@ export class FileSender {
       sent: 0,
       status: "waiting",
     };
-    const show = (patch: Partial<Transfer>) => {
+    const show = (patch: Partial<Transfer>): Transfer["status"] => {
       Object.assign(state, patch);
       this.changed({ ...state });
+      return state.status;
     };
     if (!this.ready || this.channel.readyState !== "open")
       return show({
@@ -498,7 +507,13 @@ export class FileSender {
       return show({ status: "failed", note: REASONS["too-large"] });
     show({});
     this.channel.send(
-      JSON.stringify({ t: "offer", id, name: file.name, size: file.size }),
+      JSON.stringify({
+        t: "offer",
+        id,
+        name: file.name,
+        size: file.size,
+        ...(fresh ? { fresh: true } : {}),
+      }),
     );
     const answer = await this.reply();
     if (answer.t !== "accept" || answer.id !== id)
@@ -510,9 +525,38 @@ export class FileSender {
             ? undefined
             : "The computer did not accept it."),
       });
+    let hash = new Sha256();
+    let from = 0;
+    const kept = answer.resume as
+      { offset?: number; sha256?: string } | undefined;
+    if (kept && !fresh) {
+      const offset = Number(kept.offset);
+      if (Number.isInteger(offset) && offset > 0 && offset < file.size) {
+        // The computer kept the start of this file. Carry on from there only if its copy is exactly this
+        // file's first bytes; otherwise ask it to throw the part away and begin again.
+        const check = new Sha256();
+        const head = file.slice(0, offset).stream().getReader();
+        for (;;) {
+          const { value, done } = await head.read();
+          if (done) break;
+          check.update(value);
+        }
+        if (check.hex() === String(kept.sha256 ?? "").toLowerCase()) {
+          hash = check;
+          from = offset;
+          state.sent = offset;
+          show({ note: "Resuming" });
+        } else {
+          this.channel.send(JSON.stringify({ t: "cancel", id }));
+          return this.upload(file, true);
+        }
+      } else if (kept) {
+        this.channel.send(JSON.stringify({ t: "cancel", id }));
+        return this.upload(file, true);
+      }
+    }
     show({ status: "sending" });
-    const hash = new Sha256();
-    const reader = file.stream().getReader();
+    const reader = file.slice(from).stream().getReader();
     let pending = new Uint8Array(0);
     const flush = async (bytes: Uint8Array) => {
       const frame = new Uint8Array(4 + bytes.length);
@@ -564,17 +608,15 @@ export class FileSender {
     this.channel.send(JSON.stringify({ t: "end", id, sha256: hash.hex() }));
     const result = await finished;
     if (result.t === "done")
-      show({
+      return show({
         status: "done",
         sent: file.size,
         note: String(result.name ?? ""),
       });
-    else
-      show({
-        status: "failed",
-        note:
-          REASONS[String(result.reason ?? "")] ??
-          "The transfer did not finish.",
-      });
+    return show({
+      status: "failed",
+      note:
+        REASONS[String(result.reason ?? "")] ?? "The transfer did not finish.",
+    });
   }
 }
