@@ -183,3 +183,22 @@ sudo cp infrastructure/oracle/beacon-remote-restore-drill.{service,timer} /etc/s
 sudo systemctl daemon-reload && sudo systemctl enable --now beacon-remote-restore-drill.timer
 sudo systemctl start beacon-remote-restore-drill.service   # first drill now; see journalctl -u beacon-remote-restore-drill
 ```
+
+## Health alerts
+
+`beacon-remote-health.timer` runs `infrastructure/oracle/beacon-remote-health.sh` every five minutes. It checks the
+site's `/ready`, the backend, web, database and relay containers, disk space (85%), the TLS certificate (14 days),
+the last database backup (36 hours) and relay quota pressure (coturn refusing allocations). A problem is mailed after
+two failures in a row, again every six hours while it lasts, and once when it clears. Mail uses the backend's Resend
+key and sender from `production-media.env` and goes to the address in `/etc/beacon-remote/alert-to` (mode 0600, one
+line). Install once:
+
+```
+echo owner@example.com | sudo tee /etc/beacon-remote/alert-to && sudo chmod 600 /etc/beacon-remote/alert-to
+sudo cp infrastructure/oracle/beacon-remote-health.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now beacon-remote-health.timer
+sudo HEALTH_DRY_RUN=1 bash infrastructure/oracle/beacon-remote-health.sh   # print every check, send nothing
+sudo HEALTH_FORCE_FAIL=disk bash infrastructure/oracle/beacon-remote-health.sh   # run twice to test the mail path
+```
+
+It watches Beacon Remote only; Beacon View has its own monitor. It cannot report that the whole server is down.

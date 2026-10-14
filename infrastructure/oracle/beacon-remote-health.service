@@ -1,0 +1,8 @@
+[Unit]
+Description=Beacon Remote health check (site, containers, disk, certificate, backup, relay quota)
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/bin/bash /opt/beacon-remote/current/infrastructure/oracle/beacon-remote-health.sh
