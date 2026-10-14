@@ -51,6 +51,8 @@ const RECONNECT_ATTENDED_MS = 120_000;
 // Peers replaced within one session (each reconnect is one). Generous: a long session on a poor
 // network reconnects often, and each one is bounded by the lease and the reconnect window.
 const MAX_GENERATIONS = 1024;
+// A computer can be shared with a bounded number of helpers at once.
+const MAX_HELPERS_PER_MACHINE = 20;
 const RECONNECT_TRUSTED_MS = 300_000;
 const digest = (token: string) =>
   createHash("sha256").update(token).digest("hex");
@@ -656,6 +658,14 @@ export async function registerSessions(
         "UPDATE support_relationships SET revoked_at=now() WHERE machine_id=$1 AND helper_account_id=$2 AND revoked_at IS NULL",
         [path.data.id, helper.rows[0]!.id],
       );
+      const shared = await client.query(
+        "SELECT count(*)::int AS n FROM support_relationships WHERE machine_id=$1 AND revoked_at IS NULL AND expires_at>now()",
+        [path.data.id],
+      );
+      if (shared.rows[0].n >= MAX_HELPERS_PER_MACHINE) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "Too many helpers" });
+      }
       const id = randomUUID();
       const expiresAt = new Date(Date.now() + body.data.days * 86_400_000);
       await client.query(

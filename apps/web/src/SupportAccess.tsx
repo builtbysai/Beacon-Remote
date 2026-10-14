@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { api } from "./api.js";
+import { api, ApiError } from "./api.js";
 
 type Relationship = {
   id: string;
@@ -60,8 +60,12 @@ export function SupportAccess({
       });
       setEmail("");
       await load();
-    } catch {
-      setError("Could not share with that account. Check the email address.");
+    } catch (caught) {
+      setError(
+        caught instanceof ApiError && caught.status === 409
+          ? "This computer is already shared with the most helpers it allows. Remove one first."
+          : "Could not share with that account. Check the email address.",
+      );
     } finally {
       setBusy(false);
     }
