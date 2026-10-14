@@ -2034,7 +2034,12 @@ li {
 }
 
 .viewer-stage video.input-enabled {
-  cursor: crosshair;
+  /* The remote computer's own pointer, with its real shape, is part of the picture. A small dot marks where this
+     browser's pointer is without drawing a second arrow over it. */
+  cursor:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'><circle cx='5' cy='5' r='3' fill='white' stroke='%23111' stroke-width='1' opacity='.85'/></svg>")
+      5 5,
+    crosshair;
   touch-action: none;
 }
 .viewer-stage video.input-enabled:focus-visible {
