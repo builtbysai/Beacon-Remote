@@ -64,6 +64,19 @@ anyway). Uninstall from Apps and features; that also removes the saved sign-in.
 - [ ] On the computer with a graphics card, check the helper's CPU in Task Manager while viewing at 1080p. It uses
       the graphics card's H.264 encoder when it works and falls back to software on its own.
 
+## 7. Android phone as a host (view only)
+
+Build `apps/android-host` (`gradlew :app:assembleDebug`) and install the debug APK; it is not published yet.
+
+- [ ] In the workspace choose Add a computer; in the app enter the server, a name and the code. The phone appears
+      online in Computers.
+- [ ] View it from the web: the phone shows "Request to see your screen" naming who is asking. Decline works.
+- [ ] Allow once, then accept Android's own prompt: the picture appears in the viewer, Android shows its sharing
+      chip, and the notification offers Pause and Stop (also on the lock screen).
+- [ ] Pause shows the pause banner in the viewer; Resume clears it; Stop ends the session and the notification.
+- [ ] Switch the phone from Wi-Fi to mobile data during a session; lock the screen; check what happens.
+- [ ] Remove this phone in the app and in the workspace; it can no longer be reached.
+
 ## What to send back
 
 For anything that felt off: the time, what you did, and the session's row from Sessions (the Connection column).

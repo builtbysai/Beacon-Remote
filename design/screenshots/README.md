@@ -40,6 +40,24 @@ Originals are kept as captured (no re-encoding). **Do not delete these in cleanu
 | [2026-10-13-0503-soft-keyboard-open.png](android-chrome/viewer/2026-10-13-0503-soft-keyboard-open.png) | 2026-10-13 05:03 UTC | 900x2000 | Android soft keyboard open to type on the remote computer (autofill suggestion visible). |
 | [2026-10-13-0552-full-screen-landscape-menu.jpg](android-chrome/viewer/2026-10-13-0552-full-screen-landscape-menu.jpg) | 2026-10-13 05:52 UTC | 2000x900 | AFTER: landscape full screen on the phone with the toolbar folded into one Menu button. |
 
+## android-host / consent
+
+| File | When | Size | What it shows |
+| --- | --- | --- | --- |
+| [2026-10-13-2245-android-consent.png](android-host/consent/2026-10-13-2245-android-consent.png) | 2026-10-13 22:45 UTC | 1080x2400 | Android host: the request screen the person must approve before Android's own screen-capture prompt |
+
+## android-host / paired
+
+| File | When | Size | What it shows |
+| --- | --- | --- | --- |
+| [2026-10-14-0018-paired-available.png](android-host/paired/2026-10-14-0018-paired-available.png) | 2026-10-14 00:18 UTC | 1080x2400 | Android host after pairing: name, server, Available status, and the controls to stop or remove |
+
+## android-host / sharing
+
+| File | When | Size | What it shows |
+| --- | --- | --- | --- |
+| [2026-10-14-0018-sharing-notification.png](android-host/sharing/2026-10-14-0018-sharing-notification.png) | 2026-10-14 00:18 UTC | 1080x2400 | Android host while sharing: the public notification (expands to Pause and Stop) under Android's own sharing chip |
+
 ## design-review / computers
 
 | File | When | Size | What it shows |

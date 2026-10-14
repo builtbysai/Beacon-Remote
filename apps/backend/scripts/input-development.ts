@@ -104,6 +104,13 @@ try {
       SESSION_SECRET: randomBytes(32).toString("hex"),
       CONTROL_ENABLED: "true",
       STUN_URL: "stun:stun.l.google.com:19302",
+      // Optional relay for a phone or emulator that cannot reach the browser directly.
+      ...(process.env.DEV_TURN_URLS && process.env.DEV_TURN_SECRET
+        ? {
+            TURN_URLS: process.env.DEV_TURN_URLS.split(","),
+            TURN_SECRET: process.env.DEV_TURN_SECRET,
+          }
+        : {}),
       RESEND_API_KEY: "development-only-no-mail-is-sent",
       MAIL_FROM: "Beacon Remote <development@example.invalid>",
       PUBLIC_SIGNUP: "true",
