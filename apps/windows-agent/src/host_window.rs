@@ -92,6 +92,7 @@ struct State {
     paired_details: Vec<HWND>,
     tray: bool,
     tray_status: String,
+    incoming_seen: u64,
     taskbar_created: u32,
     access: LocalAccess,
     radios: [HWND; 3],
@@ -221,6 +222,30 @@ unsafe fn tray_data(window: HWND, status: &str) -> NOTIFYICONDATAW {
         *target = source;
     }
     data
+}
+/// One Windows notification from the tray icon. Quiet time (Focus Assist) is respected; the consent window is
+/// the real request, so a suppressed notification loses nothing.
+unsafe fn tray_notice(window: HWND, title: &str, text: &str) {
+    let mut data = NOTIFYICONDATAW {
+        cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+        hWnd: window,
+        uID: 1,
+        uFlags: NIF_INFO,
+        dwInfoFlags: NIIF_INFO | NIIF_RESPECT_QUIET_TIME,
+        ..Default::default()
+    };
+    for (target, source) in data
+        .szInfoTitle
+        .iter_mut()
+        .take(63)
+        .zip(title.encode_utf16())
+    {
+        *target = source;
+    }
+    for (target, source) in data.szInfo.iter_mut().take(255).zip(text.encode_utf16()) {
+        *target = source;
+    }
+    Shell_NotifyIconW(NIM_MODIFY, &data);
 }
 unsafe fn restore(window: HWND) {
     ShowWindow(window, SW_RESTORE);
@@ -735,6 +760,10 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
                 Shell_NotifyIconW(NIM_MODIFY, &tray_data(window, &status));
                 self.tray_status = status;
             }
+            if let Some(request) = beacon_remote_agent::incoming::next(&mut self.incoming_seen) {
+                let (title, text) = beacon_remote_agent::incoming::notice(&request);
+                tray_notice(window, &title, &text);
+            }
         }
     }
 }
@@ -1099,6 +1128,7 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             paired_details: Vec::new(),
             tray: false,
             tray_status: String::new(),
+            incoming_seen: beacon_remote_agent::incoming::mark(),
             taskbar_created: RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()),
             access: beacon_remote_agent::local_access(),
             radios: [null_mut(); 3],

@@ -64,6 +64,12 @@ anyway). Uninstall from Apps and features; that also removes the saved sign-in.
 - [ ] On the computer with a graphics card, check the helper's CPU in Task Manager while viewing at 1080p. It uses
       the graphics card's H.264 encoder when it works and falls back to software on its own.
 
+## Incoming-request notification (next host build)
+
+- [ ] With the host running in the tray, request the computer from the workspace: a Windows notification says who is
+      asking and whether it is to see or to control; the consent window is also in front. With trusted access it
+      says the connection needs no approval. Nothing happens if Focus Assist is on (the consent window still shows).
+
 ## 7. Android phone as a host (view only)
 
 Build `apps/android-host` (`gradlew :app:assembleDebug`) and install the debug APK; it is not published yet.
