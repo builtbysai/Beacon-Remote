@@ -24,6 +24,9 @@ enum Control {
         id: u32,
         name: String,
         size: u64,
+        // The viewer could not use a kept partial copy and wants the file started again.
+        #[serde(default)]
+        fresh: bool,
     },
     End {
         id: u32,
@@ -69,6 +72,8 @@ pub(crate) struct Receiver {
 #[derive(Debug)]
 pub(crate) enum Reply {
     Accept(u32),
+    /// Accepted, carrying on from `offset` bytes whose SHA-256 is given, for the viewer to check.
+    Resume(u32, u64, String),
     Reject(u32, &'static str),
     Done(u32, String),
     Failed(u32, &'static str),
@@ -86,7 +91,15 @@ impl Receiver {
     pub(crate) fn active(&self) -> bool {
         self.current.is_some()
     }
-    /// Drops any partial file (pause, cancel, disconnect).
+    /// The connection to the viewer was lost while the session goes on: keep the partial file for a reconnecting
+    /// viewer to carry on from. Pause, cancel and the end of the session delete it instead (`abort`).
+    pub(crate) fn interrupted(&mut self) {
+        if let Some((_, incoming)) = self.current.take() {
+            files::set_status("File transfer interrupted");
+            incoming.park();
+        }
+    }
+    /// Drops any partial file (pause, cancel, the end of the session).
     pub(crate) fn abort(&mut self) {
         if self.current.take().is_some() {
             files::set_status("File transfer stopped");
@@ -98,7 +111,12 @@ impl Receiver {
     }
     fn handle(&mut self, control: Control, paused: bool) -> Result<Reply, ()> {
         match control {
-            Control::Offer { id, name, size } => {
+            Control::Offer {
+                id,
+                name,
+                size,
+                fresh,
+            } => {
                 if paused {
                     return Ok(Reply::Reject(id, "paused"));
                 }
@@ -110,6 +128,14 @@ impl Receiver {
                 }
                 if self.total + size > MAX_SESSION {
                     return Ok(Reply::Reject(id, Refusal::SessionFull.code()));
+                }
+                if fresh {
+                    files::discard_matching(&self.folder, &name, size);
+                } else if let Some(incoming) = Incoming::resume(&self.folder, &name, size) {
+                    let (offset, sha256) = incoming.resume_point();
+                    files::set_status(&format!("Resuming {}", incoming.final_name()));
+                    self.current = Some((id, incoming));
+                    return Ok(Reply::Resume(id, offset, sha256));
                 }
                 match Incoming::begin(&self.folder, &name, size) {
                     Ok(incoming) => {
@@ -385,6 +411,8 @@ async fn run(
     permissions: Permissions,
 ) -> Result<(), ()> {
     let folder = files::received_folder().ok_or(())?;
+    // Left over from a session that ended abnormally.
+    files::sweep_stale(&folder);
     let mut receiver = Receiver::new(folder);
     let mut outbound = Outbound::new();
     // The browser's buffer fills when the network is slower than the disk; wait for it to drain.
@@ -401,7 +429,15 @@ async fn run(
                     || authority.deadline.is_some_and(|end| Instant::now() >= end)
                     || (opened && !authority.live())
                 {
-                    receiver.abort();
+                    // A viewer that is only reconnecting leaves the session alive: keep what has arrived for it.
+                    if authority.session_active.load(Ordering::Acquire)
+                        && !authority.peer_active.load(Ordering::Acquire)
+                        && !authority.deadline.is_some_and(|end| Instant::now() >= end)
+                    {
+                        receiver.interrupted();
+                    } else {
+                        receiver.abort();
+                    }
                     if let Some(frame) = outbound.abort() { let _ = send_frame(&channel, frame).await; }
                     return Ok(());
                 }
@@ -485,6 +521,7 @@ async fn run(
                     };
                     match reply {
                         Reply::Accept(id) => send(&channel, serde_json::json!({"t":"accept","id":id})).await?,
+                        Reply::Resume(id, offset, sha256) => send(&channel, serde_json::json!({"t":"accept","id":id,"resume":{"offset":offset,"sha256":sha256}})).await?,
                         Reply::Reject(id, reason) => send(&channel, serde_json::json!({"t":"reject","id":id,"reason":reason})).await?,
                         Reply::Done(id, name) => send(&channel, serde_json::json!({"t":"done","id":id,"name":name})).await?,
                         Reply::Failed(id, reason) => send(&channel, serde_json::json!({"t":"failed","id":id,"reason":reason})).await?,
@@ -492,7 +529,12 @@ async fn run(
                     }
                 }
                 Some(DataChannelEvent::OnClose | DataChannelEvent::OnError) | None => {
-                    receiver.abort();
+                    // The connection went; the session may not have. Keep the part for a reconnecting viewer.
+                    if authority.session_active.load(Ordering::Acquire) {
+                        receiver.interrupted();
+                    } else {
+                        receiver.abort();
+                    }
                     let _ = outbound.abort();
                     return Ok(());
                 }
@@ -529,6 +571,63 @@ mod tests {
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect()
+    }
+
+    #[test]
+    fn an_interrupted_upload_carries_on_from_a_verified_start_and_only_for_the_same_file() {
+        let dir = folder();
+        let data = b"0123456789abcdef".to_vec();
+        let offer = br#"{"t":"offer","id":1,"name":"big.bin","size":16}"#;
+        // Half arrives, then the connection is lost while the session goes on.
+        let mut first = Receiver::new(dir.clone());
+        assert!(matches!(first.control(offer, false), Ok(Reply::Accept(1))));
+        first.chunk(&chunk(1, &data[..8])).unwrap();
+        first.interrupted();
+        // A reconnecting viewer offers the same file: it is told how much is here and the hash of exactly that.
+        let mut second = Receiver::new(dir.clone());
+        let again = br#"{"t":"offer","id":3,"name":"big.bin","size":16}"#;
+        match second.control(again, false) {
+            Ok(Reply::Resume(3, 8, sha)) => assert_eq!(sha, hex(&data[..8])),
+            other => panic!("expected a resume, got {other:?}"),
+        }
+        second.chunk(&chunk(3, &data[8..])).unwrap();
+        let end = format!(r#"{{"t":"end","id":3,"sha256":"{}"}}"#, hex(&data));
+        assert!(matches!(
+            second.control(end.as_bytes(), false),
+            Ok(Reply::Done(3, _))
+        ));
+        assert_eq!(std::fs::read(dir.join("big.bin")).unwrap(), data);
+
+        // A different size is a different file: nothing is resumed.
+        let mut third = Receiver::new(dir.clone());
+        assert!(matches!(third.control(offer, false), Ok(Reply::Accept(1))));
+        third.chunk(&chunk(1, &data[..4])).unwrap();
+        third.interrupted();
+        let other = br#"{"t":"offer","id":5,"name":"big.bin","size":20}"#;
+        let mut fourth = Receiver::new(dir.clone());
+        assert!(matches!(fourth.control(other, false), Ok(Reply::Accept(5))));
+        fourth.abort();
+        // Starting again on request throws the kept part away.
+        let fresh = br#"{"t":"offer","id":7,"name":"big.bin","size":16,"fresh":true}"#;
+        let mut fifth = Receiver::new(dir.clone());
+        assert!(matches!(fifth.control(fresh, false), Ok(Reply::Accept(7))));
+        fifth.abort();
+        // Pause, cancel and the end of the session delete what was kept.
+        let mut sixth = Receiver::new(dir.clone());
+        assert!(matches!(sixth.control(offer, false), Ok(Reply::Accept(1))));
+        sixth.chunk(&chunk(1, &data[..4])).unwrap();
+        sixth.interrupted();
+        files::discard_parked();
+        let mut seventh = Receiver::new(dir.clone());
+        assert!(matches!(
+            seventh.control(offer, false),
+            Ok(Reply::Accept(1))
+        ));
+        seventh.abort();
+        assert!(std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .all(|entry| entry.path().extension().is_none_or(|e| e != "beaconpart")));
     }
 
     #[test]

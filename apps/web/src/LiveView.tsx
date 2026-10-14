@@ -146,7 +146,12 @@ export function LiveView({
     if (!current || sending.current) return;
     sending.current = true;
     try {
-      for (const file of Array.from(list)) await current.send(file);
+      for (const file of Array.from(list)) {
+        const status = await current.send(file);
+        // Lost with the connection: send it again, from where it stopped, once the channel is back.
+        interrupted.current =
+          status === "failed" && !current.ready ? file : null;
+      }
     } finally {
       sending.current = false;
     }
@@ -169,6 +174,7 @@ export function LiveView({
   const [pictureHeight, setPictureHeight] = useState<number | null>(null);
   // File transfer exists only when the person at the computer allowed it for this session.
   const sender = useRef<FileSender | null>(null);
+  const interrupted = useRef<File | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [fileReady, setFileReady] = useState(false);
   const [transfer, setTransfer] = useState<Transfer | null>(null);
@@ -274,6 +280,10 @@ export function LiveView({
     setFrames(0);
     setNeedsPlay(false);
     setTimings({});
+    // A reconnect brings a new files channel; the sender belongs to the channel that was lost.
+    sender.current = null;
+    setFileReady(false);
+    setOffer(null);
     if (transportAttempt > 0) setStatus("Reconnecting video…");
     const pc = new RTCPeerConnection({
       iceServers: ice.current.servers,
@@ -436,7 +446,14 @@ export function LiveView({
         sender.current = new FileSender(
           event.channel,
           setTransfer,
-          setFileReady,
+          (ready) => {
+            setFileReady(ready);
+            const file = interrupted.current;
+            if (ready && file) {
+              interrupted.current = null;
+              void sendFiles([file]);
+            }
+          },
           setOffer,
           {
             permissions: (allowed) => setRecordingAllowed(allowed.recording),

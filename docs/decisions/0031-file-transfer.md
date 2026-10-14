@@ -50,3 +50,16 @@ computer streams straight to that file as it arrives instead of being held in me
 temporary swap file until the SHA-256 and length match: a mismatch, a cancel, a pause or a closed channel aborts it and
 nothing is saved. Browsers without that API still refuse files over 512 MB with a clear message. Resume of an interrupted
 transfer is still not built; it needs the computer to accept an offset and a verified partial, which is a protocol change.
+
+## Update 2026-10-14: resuming an interrupted upload
+
+When the connection to the viewer drops while the session goes on (a reconnect, not Stop, pause, cancel or expiry), the
+computer keeps the partial `.beaconpart` file in memory-held bookkeeping for this session only. If the same viewer offers the same
+file again (same folder, safe name and size), the computer answers `accept` with `resume: { offset, sha256 }`: how many bytes it has
+and the SHA-256 of exactly those. The viewer hashes the first `offset` bytes of its own copy; only if they match does it send the
+rest (and the final checksum still covers the whole file). If they do not match, it cancels and offers again with `fresh: true`,
+which makes the computer discard the part and start over. Kept parts are deleted when the session ends, sharing is paused, a
+transfer is cancelled, or the helper exits, and any older than a day are swept at the next start; a new session has no memory of
+them, so nothing is resumed under authority that ended. A kept part reserves its file name, so a different offer never lands on it.
+The viewer re-sends an interrupted file automatically when the files channel returns after a reconnect. Downloads to the viewer
+(computer to helper) do not resume.
