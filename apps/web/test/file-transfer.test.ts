@@ -129,10 +129,75 @@ test("a file the computer offers is received only after the person accepts, and 
     () => undefined,
     () => undefined,
   );
-  third.accept({ id: 6, name: "big.iso", size: 600 * 1024 * 1024 });
+  await third.accept({ id: 6, name: "big.iso", size: 600 * 1024 * 1024 });
   assert.deepEqual(JSON.parse(huge.sent[0] as string), {
     t: "reject",
     id: 6,
     reason: "too-large",
   });
+});
+
+test("a file over the memory limit streams to the file the person chose, and only becomes a file if it is intact", async () => {
+  const { FileSender } = await import("../src/file-transfer.js");
+  const written: Uint8Array[] = [];
+  let closed = 0;
+  let aborted = 0;
+  const host = globalThis as unknown as { showSaveFilePicker?: unknown };
+  host.showSaveFilePicker = async () => ({
+    createWritable: async () => ({
+      write: async (data: Uint8Array) => {
+        written.push(new Uint8Array(data));
+      },
+      close: async () => {
+        closed += 1;
+      },
+      abort: async () => {
+        aborted += 1;
+      },
+    }),
+  });
+  try {
+    const big = 600 * 1024 * 1024;
+    const run = async (sha256: (bytes: Uint8Array) => string) => {
+      const { channel, raw, sent } = fakeChannel();
+      const transfers: { status: string }[] = [];
+      const sender = new FileSender(
+        channel,
+        (t) => t && transfers.push(t),
+        () => undefined,
+      );
+      await sender.accept({ id: 2, name: "big.iso", size: big });
+      assert.deepEqual(JSON.parse(sent[0] as string), { t: "accept", id: 2 });
+      return { raw, sent, transfers, sha256 };
+    };
+
+    // The size announced is large, but only the bytes that arrive are written, in order, never held for later.
+    const ok = await run(() => "");
+    const first = new Uint8Array(1000).fill(7);
+    const hashMatch = new Sha256().update(first).hex();
+    // The announced size is not reached, so even a matching checksum is refused: it is not intact.
+    ok.raw.onmessage!({ data: frame(2, first) });
+    ok.raw.onmessage!({
+      data: JSON.stringify({ t: "end", id: 2, sha256: hashMatch }),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(written.length, 1);
+    assert.equal(written[0]!.length, 1000);
+    assert.equal(aborted, 1, "a short file leaves nothing behind");
+    assert.equal(closed, 0);
+    assert.equal(JSON.parse(ok.sent[1] as string).reason, "incomplete");
+
+    // No streaming support: declined, the offer is never accepted.
+    delete host.showSaveFilePicker;
+    const none = fakeChannel();
+    const refused = new FileSender(
+      none.channel,
+      () => undefined,
+      () => undefined,
+    );
+    await refused.accept({ id: 4, name: "big.iso", size: big });
+    assert.equal(JSON.parse(none.sent[0] as string).reason, "too-large");
+  } finally {
+    delete host.showSaveFilePicker;
+  }
 });
