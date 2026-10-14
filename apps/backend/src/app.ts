@@ -466,8 +466,10 @@ export async function createApp(
     if (!query.success)
       return reply.code(400).send({ error: "Invalid activity filter" });
     const result = await pool.query(
-      `SELECT a.id::text, a.action, a.occurred_at AS "occurredAt", m.name AS "machineName"
+      `SELECT a.id::text, a.action, a.occurred_at AS "occurredAt", m.name AS "machineName",
+              CASE WHEN ac.guest_expires_at IS NOT NULL THEN 'Guest helper (no account)' ELSE ac.email END AS "actor"
        FROM audit_events a LEFT JOIN machines m ON m.id=a.machine_id AND m.account_id=a.account_id
+       LEFT JOIN accounts ac ON ac.id=a.actor_account_id
        WHERE a.account_id=$1 AND ($2::uuid IS NULL OR a.machine_id=$2)
        ORDER BY a.occurred_at DESC,a.id DESC LIMIT 100`,
       [account, query.data.machineId ?? null],

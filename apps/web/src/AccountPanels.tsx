@@ -10,6 +10,8 @@ export type Activity = {
   action: string;
   occurredAt: string;
   machineName: string | null;
+  // Who did it, when it was a helper or team member rather than this account.
+  actor?: string | null;
 };
 
 export function activityLabel(action: string) {
@@ -66,6 +68,12 @@ export function activityLabel(action: string) {
       return "Support access given (control)";
     case "support.relationship.revoked":
       return "Support access removed";
+    case "team.member.added":
+      return "Team member added";
+    case "team.member.changed":
+      return "Team member changed";
+    case "team.member.removed":
+      return "Team member removed";
     default:
       return action;
   }
@@ -155,11 +163,12 @@ export function AccountPanels({ activity }: { activity: boolean }) {
       return `"${safe.replace(/"/g, '""')}"`;
     };
     const rows = [
-      ["Event", "Action", "Computer", "Time"],
+      ["Event", "Action", "Computer", "By", "Time"],
       ...visibleEvents.map((event) => [
         activityLabel(event.action),
         event.action,
         event.machineName ?? "Computer",
+        event.actor ?? "",
         event.occurredAt,
       ]),
     ];
@@ -242,7 +251,10 @@ export function AccountPanels({ activity }: { activity: boolean }) {
               {visibleEvents.map((event) => (
                 <li key={event.id}>
                   <strong>{activityLabel(event.action)}</strong>
-                  <span>{event.machineName ?? "Computer"}</span>
+                  <span>
+                    {event.machineName ?? "Computer"}
+                    {event.actor ? ` · by ${event.actor}` : ""}
+                  </span>
                   <time dateTime={event.occurredAt}>
                     {new Date(event.occurredAt).toLocaleString()}
                   </time>
