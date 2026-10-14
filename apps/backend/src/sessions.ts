@@ -464,12 +464,20 @@ export async function registerSessions(
       try {
         await client.query("BEGIN");
         const machine = await client.query(
-          "SELECT id,displays FROM machines WHERE id=$1 AND account_id=$2 AND revoked_at IS NULL AND last_seen_at>now()-interval '45 seconds' FOR UPDATE",
+          "SELECT id,displays,(SELECT capability FROM support_links WHERE id=support_link_id) AS link_capability FROM machines WHERE id=$1 AND account_id=$2 AND revoked_at IS NULL AND last_seen_at>now()-interval '45 seconds' FOR UPDATE",
           [parsed.data.id, account],
         );
         if (!machine.rowCount) {
           await client.query("ROLLBACK");
           return reply.code(404).send({ error: "Computer unavailable" });
+        }
+        // A temporary support computer never goes beyond what its link offered.
+        if (
+          body.data.capability === "desktop:control" &&
+          machine.rows[0].link_capability === "desktop:view"
+        ) {
+          await client.query("ROLLBACK");
+          return reply.code(403).send({ error: "Control unavailable" });
         }
         // Only a display the computer itself reported can be chosen.
         const known = machine.rows[0].displays as { id: string }[];
@@ -1366,5 +1374,19 @@ export async function registerSessions(
     );
     for (const row of live.rows) await finish(row.id);
   }
-  return { pending, wake, enabled, endRelationshipSessions };
+  // Ends every live session on one computer, for a computer that was just revoked or finished.
+  async function endMachineSessions(machineId: string) {
+    const live = await pool.query<{ id: string }>(
+      "SELECT id FROM view_sessions WHERE machine_id=$1 AND status IN ('requested','connecting','active')",
+      [machineId],
+    );
+    for (const row of live.rows) await finish(row.id);
+  }
+  return {
+    pending,
+    wake,
+    enabled,
+    endRelationshipSessions,
+    endMachineSessions,
+  };
 }

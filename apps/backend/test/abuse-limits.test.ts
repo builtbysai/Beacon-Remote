@@ -28,11 +28,14 @@ test(
     const account = randomUUID();
     const token = randomBytes(32).toString("base64url");
     const headers = { origin, cookie: `remote_session=${token}` };
-    const account$ = (id: string) =>
-      pool.query(
+    const made: string[] = [];
+    const account$ = (id: string) => {
+      made.push(id);
+      return pool.query(
         "INSERT INTO accounts(id,email,password_hash) VALUES ($1,$2,'fixture')",
         [id, `${id}@example.test`],
       );
+    };
     try {
       await account$(account);
       await pool.query(
@@ -106,7 +109,7 @@ test(
         assert.equal((await share(helper)).statusCode, 200);
       assert.equal((await share(helpers[20]!)).statusCode, 409);
     } finally {
-      await pool.query("DELETE FROM accounts WHERE id=$1", [account]);
+      await pool.query("DELETE FROM accounts WHERE id=ANY($1::uuid[])", [made]);
       await app.close();
       await pool.end();
     }

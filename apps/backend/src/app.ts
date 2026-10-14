@@ -29,6 +29,8 @@ import type { Config } from "./config.js";
 import { registerSessions } from "./sessions.js";
 import { registerAccountData } from "./account-data.js";
 import { registerTeam, syncTeam } from "./team.js";
+import { registerSupportLinks } from "./support-links.js";
+import { purgeStale } from "./retention.js";
 import { registerMfa } from "./mfa.js";
 import { createMailer, type Mailer } from "./mail.js";
 import { registerSignup } from "./signup.js";
@@ -137,6 +139,7 @@ export async function createApp(
   const purgeGuests = () =>
     void pool
       .query("DELETE FROM accounts WHERE guest_expires_at<now()")
+      .then(() => purgeStale(pool))
       .catch(() => undefined);
   purgeGuests();
   const purgeTimer = setInterval(purgeGuests, 10 * 60 * 1000);
@@ -224,6 +227,17 @@ export async function createApp(
     owner,
     sameOrigin,
     sessionRequests.endRelationshipSessions,
+  );
+
+  registerSupportLinks(
+    app,
+    pool,
+    config,
+    owner,
+    sameOrigin,
+    signedByMachine,
+    sessionRequests.wake,
+    sessionRequests.endMachineSessions,
   );
 
   app.get("/health", async () => ({ status: "ok", service: "beacon-remote" }));
@@ -385,7 +399,7 @@ export async function createApp(
     const result = await pool.query(
       `SELECT m.id,m.name,m.group_name AS "group",m.last_seen_at AS "lastSeenAt",m.revoked_at AS "revokedAt",
        COALESCE((m.revoked_at IS NULL AND m.last_seen_at>now()-interval '45 seconds'),false) AS online,
-       COALESCE(a.mode,'attended') AS "accessMode",COALESCE(a.allow_control,false) AS "allowControl",COALESCE(a.helpers_unattended,'off') AS "helpersUnattended",m.displays
+       COALESCE(a.mode,'attended') AS "accessMode",COALESCE(a.allow_control,false) AS "allowControl",COALESCE(a.helpers_unattended,'off') AS "helpersUnattended",m.displays,(m.support_link_id IS NOT NULL) AS temporary
        FROM machines m LEFT JOIN machine_access a ON a.machine_id=m.id
        WHERE m.account_id=$1 ORDER BY m.created_at`,
       [account],
@@ -521,7 +535,7 @@ export async function createApp(
           return reply.code(403).send({ error: "Enrollment unavailable" });
         }
         const owned = await client.query(
-          "SELECT count(*)::int AS n FROM machines WHERE account_id=$1 AND revoked_at IS NULL",
+          "SELECT count(*)::int AS n FROM machines WHERE account_id=$1 AND revoked_at IS NULL AND support_link_id IS NULL",
           [account],
         );
         if (owned.rows[0].n >= MAX_MACHINES) {
@@ -582,7 +596,7 @@ export async function createApp(
     try {
       await client.query("BEGIN");
       const active = await client.query(
-        "SELECT id FROM machines WHERE id=$1 AND revoked_at IS NULL FOR UPDATE",
+        "SELECT id FROM machines WHERE id=$1 AND revoked_at IS NULL AND (temporary_until IS NULL OR temporary_until>now()) FOR UPDATE",
         [body.machineId],
       );
       if (!active.rowCount) {
@@ -682,7 +696,7 @@ export async function createApp(
       try {
         await client.query("BEGIN");
         const machine = await client.query<{ account_id: string }>(
-          "SELECT account_id FROM machines WHERE id=$1 AND revoked_at IS NULL FOR UPDATE",
+          "SELECT account_id FROM machines WHERE id=$1 AND revoked_at IS NULL AND support_link_id IS NULL FOR UPDATE",
           [body.machineId],
         );
         if (!machine.rowCount) {
@@ -851,7 +865,7 @@ export async function createApp(
       try {
         await client.query("BEGIN");
         const machine = await client.query<{ account_id: string }>(
-          "SELECT account_id FROM machines WHERE id=$1 AND revoked_at IS NULL FOR UPDATE",
+          "SELECT account_id FROM machines WHERE id=$1 AND revoked_at IS NULL AND support_link_id IS NULL FOR UPDATE",
           [body.machineId],
         );
         if (!machine.rowCount) {

@@ -3,6 +3,8 @@ mod credentials;
 mod helper_lifetime;
 pub mod incoming;
 mod sessions;
+pub mod support;
+pub mod support_supervisor;
 mod update;
 
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -444,6 +446,16 @@ pub fn pair(server: &str, name: &str, code: String) -> Result<(), HostError> {
         .ok_or("Enrollment response missing identity")?
         .to_owned();
     uuid::Uuid::parse_str(&machine_id)?;
+    store_identity(&server, machine_id, &key)
+}
+
+/// Saves this computer's identity, readable only by this Windows account. It never replaces an existing one.
+fn store_identity(
+    server: &reqwest::Url,
+    machine_id: String,
+    key: &SigningKey,
+) -> Result<(), HostError> {
+    let path = state_path()?;
     let identity = Identity {
         machine_id,
         server: server.to_string(),

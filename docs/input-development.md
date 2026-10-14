@@ -88,3 +88,11 @@ DEV_TURN_URLS="turn:<LAN address>:3480?transport=udp" DEV_TURN_SECRET=<same secr
 
 Build with `JAVA_HOME` set to Android Studio's `jbr` and run `gradlew.bat :app:assembleDebug` from
 `apps/android-host`. Pairing codes come from `POST /api/enrollments` as the signed-in test account.
+
+## Trying temporary support (ADR 0038)
+
+`pnpm exec tsx scripts/support-development.ts` in `apps/backend` starts a throwaway backend (3011) and web app (5175),
+signs a technician in (`.remote-dev/support-development/login.json`) and prints a support link. To act as the other
+computer, build the support program with a payload folder (the three release programs and a `manifest.json`), copy the
+setup executable to `BeaconSupport-<token>.exe` and run it with `BEACON_SERVER=http://127.0.0.1:3011`. It uses the
+local server only because of that variable; a normal build talks to the production server.

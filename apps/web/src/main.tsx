@@ -9,6 +9,7 @@ import { AccountPanels } from "./AccountPanels.js";
 import { SessionHistory } from "./SessionHistory.js";
 import { ComputerInspector } from "./ComputerInspector.js";
 import { AssistPanel } from "./AssistPanel.js";
+import { SupportInvite } from "./SupportInvite.js";
 import { ThemePicker, readTheme, saveTheme } from "./ThemePicker.js";
 import { WorkspaceIcon, workspaceItems } from "./WorkspaceIcon.js";
 import { resolveViewRequest } from "./view-request.js";
@@ -33,6 +34,14 @@ const verification = new URLSearchParams(window.location.hash.slice(1)).get(
 if (invitation || recovery || verification)
   window.history.replaceState(null, "", window.location.pathname);
 
+// A technician's support link: the token stays in the address so a reload keeps the page working.
+function supportFromHash(): string | null {
+  const token = new URLSearchParams(window.location.hash.slice(1)).get(
+    "support",
+  );
+  return token && /^[A-Za-z0-9_-]{32}$/.test(token) ? token : null;
+}
+
 function lastSeen(iso: string): string {
   const minutes = Math.max(
     0,
@@ -50,6 +59,7 @@ function App() {
   const viewContext = useRef({ active: false });
   const recoveryAttempted = useRef(false);
   const [page, setPage] = useState(pageFromHash);
+  const [supportToken, setSupportToken] = useState(supportFromHash);
   const [theme, setTheme] = useState(readTheme);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
@@ -66,6 +76,8 @@ function App() {
       setEntry(
         hash === "#signup" ? "signup" : hash === "#forgot" ? "forgot" : null,
       );
+      setSupportToken(supportFromHash());
+      setSupportToken(supportFromHash());
       setPage(pageFromHash());
       setMobileMore(false);
       setPublicMenuOpen(false);
@@ -401,6 +413,8 @@ function App() {
 
   const visibleMachines = (machines ?? []).filter(
     (machine) =>
+      // Temporary support computers live in Assist, not in the everyday list.
+      !machine.temporary &&
       (machine.name + " " + (machine.group ?? ""))
         .toLowerCase()
         .includes(search.trim().toLowerCase()) &&
@@ -552,16 +566,18 @@ function App() {
           </div>
         </header>
       )}
-      {!invite &&
-      !recoverToken &&
-      !verifyToken &&
-      page !== "signin" &&
-      !(
-        ["computers", "sessions", "assist", "activity", "settings"].includes(
-          page,
-        ) && !signedIn
-      ) &&
-      page !== "computers" ? (
+      {supportToken ? (
+        <SupportInvite token={supportToken} />
+      ) : !invite &&
+        !recoverToken &&
+        !verifyToken &&
+        page !== "signin" &&
+        !(
+          ["computers", "sessions", "assist", "activity", "settings"].includes(
+            page,
+          ) && !signedIn
+        ) &&
+        page !== "computers" ? (
         page === "sessions" ? (
           <SessionHistory />
         ) : page === "assist" ? (

@@ -824,5 +824,74 @@
     "screen": "settings",
     "purpose": "Team panel at phone width (375 wide, local fixture)",
     "source": "team-375.png"
+  },
+  {
+    "file": "windows-host/temporary-support/2026-10-14-1343-support-window-clipped-before.png",
+    "when": "2026-10-14 13:43 UTC",
+    "size": "516x369",
+    "platform": "windows-host",
+    "screen": "temporary-support",
+    "purpose": "Temporary support window: the helper's name is clipped",
+    "pair": "support-window",
+    "role": "before",
+    "source": "native-support-window-1.png"
+  },
+  {
+    "file": "windows-host/temporary-support/2026-10-14-1343-support-window-fixed-after.png",
+    "when": "2026-10-14 13:43 UTC",
+    "size": "516x369",
+    "platform": "windows-host",
+    "screen": "temporary-support",
+    "purpose": "Temporary support window after the name and status wrap correctly",
+    "pair": "support-window",
+    "role": "after",
+    "source": "native-support-window-2.png"
+  },
+  {
+    "file": "web/support-invite/2026-10-14-1355-temporary-support-link-desktop.png",
+    "when": "2026-10-14 13:55 UTC",
+    "size": "1280x760",
+    "platform": "web",
+    "screen": "support-invite",
+    "purpose": "A used, cancelled or expired support link says so plainly (desktop)",
+    "source": "support-invite-desktop.png",
+    "slug": ""
+  },
+  {
+    "file": "web/support-invite/2026-10-14-1355-temporary-support-link-mobile.png",
+    "when": "2026-10-14 13:55 UTC",
+    "size": "390x800",
+    "platform": "web",
+    "screen": "support-invite",
+    "purpose": "A used, cancelled or expired support link says so plainly (phone width)",
+    "source": "support-invite-mobile.png",
+    "slug": ""
+  },
+  {
+    "file": "web/assist/2026-10-14-1355-support-sessions-queue.png",
+    "when": "2026-10-14 13:55 UTC",
+    "size": "1280x834",
+    "platform": "web",
+    "screen": "assist",
+    "purpose": "Assist with the new Support sessions queue",
+    "source": "assist-desktop.png"
+  },
+  {
+    "file": "web/support-invite/2026-10-14-1355-temporary-support-download-desktop.png",
+    "when": "2026-10-14 13:55 UTC",
+    "size": "1280x1087",
+    "platform": "web",
+    "screen": "support-invite",
+    "purpose": "What someone sees after opening a technician's support link: who is asking, and the program to run",
+    "source": "invite-ok-desktop.png"
+  },
+  {
+    "file": "web/support-invite/2026-10-14-1355-temporary-support-download-mobile.png",
+    "when": "2026-10-14 13:55 UTC",
+    "size": "390x1217",
+    "platform": "web",
+    "screen": "support-invite",
+    "purpose": "The same page at phone width",
+    "source": "invite-ok-mobile.png"
   }
 ]
