@@ -2,6 +2,11 @@ package com.beaconremote.host
 
 import android.content.Context
 import android.content.Intent
+import android.hardware.display.DisplayManager
+import android.os.Handler
+import android.os.Looper
+import android.util.DisplayMetrics
+import android.view.Display
 import android.media.projection.MediaProjection
 import android.os.SystemClock
 import android.util.Log
@@ -47,6 +52,8 @@ class ShareSession(
     private val projectionData: Intent?,
     /** The person chose to let the helper touch and type (and the accessibility service is on). */
     private val controlAllowed: Boolean = false,
+    /** The person also allowed the helper to send files to this phone. */
+    private val filesAllowed: Boolean = false,
     private val onControl: (Boolean) -> Unit = {},
     private val onEnded: (String) -> Unit,
 ) {
@@ -71,8 +78,37 @@ class ShareSession(
     private var helper: SurfaceTextureHelper? = null
     private var peer: PeerConnection? = null
     private var control: RemoteControl? = null
+    private var files: FileReceiver? = null
     private var screenWidth = 0
     private var screenHeight = 0
+    private var displayListener: DisplayManager.DisplayListener? = null
+
+    /** The screen's real size now, in pixels: it changes when the phone is turned. */
+    private fun currentSize(): Pair<Int, Int> {
+        val manager = context.getSystemService(DisplayManager::class.java)
+        val metrics = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        manager.getDisplay(Display.DEFAULT_DISPLAY).getRealMetrics(metrics)
+        return metrics.widthPixels to metrics.heightPixels
+    }
+
+    /** What is sent to the helper: at most 1280 on the long side, even numbers (the encoder needs them). */
+    private fun captureSize(width: Int, height: Int): Pair<Int, Int> {
+        val scale = minOf(1.0, 1280.0 / maxOf(width, height))
+        return ((width * scale).toInt() / 2 * 2) to ((height * scale).toInt() / 2 * 2)
+    }
+
+    /** The phone was turned (or its resolution changed): resize the capture and the control mapping, and tell the viewer. */
+    private fun screenChanged() {
+        if (ended) return
+        val (width, height) = currentSize()
+        if (width == screenWidth && height == screenHeight) return
+        screenWidth = width
+        screenHeight = height
+        val (captureWidth, captureHeight) = captureSize(width, height)
+        runCatching { capturer?.changeCaptureFormat(captureWidth, captureHeight, 30) }
+        control?.resize(width, height)
+    }
 
     /** Callbacks from OkHttp and WebRTC can arrive after the session has shut its thread down; they are dropped. */
     private fun post(block: () -> Unit) {
@@ -229,13 +265,23 @@ class ShareSession(
             )
         capturer = projection
         projection.initialize(surfaces, context, videoSource.capturerObserver)
-        val metrics = context.resources.displayMetrics
-        screenWidth = metrics.widthPixels
-        screenHeight = metrics.heightPixels
-        val scale = minOf(1.0, 1280.0 / maxOf(metrics.widthPixels, metrics.heightPixels))
-        val width = ((metrics.widthPixels * scale).toInt() / 2) * 2
-        val height = ((metrics.heightPixels * scale).toInt() / 2) * 2
+        val (realWidth, realHeight) = currentSize()
+        screenWidth = realWidth
+        screenHeight = realHeight
+        val (width, height) = captureSize(realWidth, realHeight)
         projection.startCapture(width, height, 30)
+        val listener =
+            object : DisplayManager.DisplayListener {
+                override fun onDisplayAdded(displayId: Int) {}
+
+                override fun onDisplayRemoved(displayId: Int) {}
+
+                override fun onDisplayChanged(displayId: Int) {
+                    if (displayId == Display.DEFAULT_DISPLAY) post { screenChanged() }
+                }
+            }
+        displayListener = listener
+        context.getSystemService(DisplayManager::class.java).registerDisplayListener(listener, Handler(Looper.getMainLooper()))
         openPeer()
     }
 
@@ -311,6 +357,11 @@ class ShareSession(
                         .also { it.start() }
             }
         }
+        if (filesAllowed && FileReceiver.supported) {
+            connection.createDataChannel("beacon-files-v1", DataChannel.Init().apply { ordered = true })?.let { channel ->
+                files = FileReceiver(context, channel) { !paused && !ended }.also { it.start() }
+            }
+        }
         connection.createOffer(
             object : SimpleSdpObserver() {
                 override fun onCreateSuccess(description: SessionDescription) {
@@ -340,6 +391,8 @@ class ShareSession(
     private fun closePeer() {
         control?.stop()
         control = null
+        files?.stop()
+        files = null
         peer?.let {
             runCatching { it.close() }
             runCatching { it.dispose() }
@@ -351,6 +404,7 @@ class ShareSession(
         if (ended) return
         Log.i(TAG, "Session ended: $reason")
         ended = true
+        displayListener?.let { runCatching { context.getSystemService(DisplayManager::class.java).unregisterDisplayListener(it) } }
         ticker?.cancel(false)
         runCatching { socket?.close(1000, null) }
         closePeer()

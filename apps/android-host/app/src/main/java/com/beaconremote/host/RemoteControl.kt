@@ -14,11 +14,14 @@ import org.webrtc.DataChannel
 class RemoteControl(
     private val channel: DataChannel,
     private val sessionId: String,
-    private val width: Int,
-    private val height: Int,
+    width: Int,
+    height: Int,
     private val allowed: () -> Boolean,
     private val onState: (Boolean) -> Unit,
 ) : DataChannel.Observer {
+    // The screen's size in pixels; changes when the phone is turned (see [resize]).
+    private var width = width
+    private var height = height
     private var lastSequence = -1L
     private var windowStart = SystemClock.elapsedRealtime()
     private var count = 0
@@ -43,13 +46,28 @@ class RemoteControl(
             DataChannel.State.OPEN -> {
                 open = true
                 lastMessage = SystemClock.elapsedRealtime()
-                val geometry = JSONObject().put("type", "display").put("id", "0").put("width", width).put("height", height).put("platform", "android")
-                channel.send(DataChannel.Buffer(ByteBuffer.wrap(geometry.toString().toByteArray()), false))
+                sendGeometry()
                 onState(true)
             }
             DataChannel.State.CLOSED, DataChannel.State.CLOSING -> stop()
             else -> {}
         }
+    }
+
+    private fun sendGeometry() {
+        val geometry = JSONObject().put("type", "display").put("id", "0").put("width", width).put("height", height).put("platform", "android")
+        channel.send(DataChannel.Buffer(ByteBuffer.wrap(geometry.toString().toByteArray()), false))
+    }
+
+    /** The screen changed size (the phone was turned): later input is mapped to the new size, and the viewer is told. */
+    fun resize(newWidth: Int, newHeight: Int) {
+        if (newWidth == width && newHeight == height) return
+        width = newWidth
+        height = newHeight
+        pointerX = pointerX.coerceIn(0, width - 1)
+        pointerY = pointerY.coerceIn(0, height - 1)
+        release()
+        if (open) sendGeometry()
     }
 
     override fun onMessage(buffer: DataChannel.Buffer) {
