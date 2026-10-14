@@ -1,0 +1,22 @@
+# The website and the only public entrance. Caddy gets and renews the HTTPS certificate for $DOMAIN by itself, so
+# ports 80 and 443 must reach this server and $DOMAIN must point at it.
+{$DOMAIN} {
+	encode gzip
+	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Strict-Transport-Security "max-age=31536000"
+	}
+	@api path /api/* /health /ready
+	handle @api {
+		reverse_proxy backend:3010
+	}
+	handle {
+		root * /srv
+		header Cache-Control no-cache
+		try_files {path} /index.html
+		file_server
+	}
+}

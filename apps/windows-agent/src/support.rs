@@ -6,7 +6,11 @@
 use super::*;
 use std::path::Path;
 
-pub const DEFAULT_SERVER: &str = "https://remote.builtbysai.com";
+/// The server this build talks to unless told otherwise. A self-hosted server builds with `BEACON_DEFAULT_SERVER` set.
+pub const DEFAULT_SERVER: &str = match option_env!("BEACON_DEFAULT_SERVER") {
+    Some(server) => server,
+    None => "https://remote.builtbysai.com",
+};
 const RUN_ONCE: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce";
 const RUN_ONCE_VALUE: &str = crate::support_supervisor::RUN_ONCE_VALUE;
 

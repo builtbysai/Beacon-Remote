@@ -58,7 +58,7 @@ const TRAY_SHOW: usize = 201;
 const TRAY_STOP: usize = 202;
 const TRAY_QUIT: usize = 203;
 const TRAY_MESSAGE: u32 = WM_APP + 1;
-const DEFAULT_SERVER: &str = "https://remote.builtbysai.com";
+use beacon_remote_agent::support::DEFAULT_SERVER;
 // Static text controls, identified so each can take its colour from the design.
 const H_HEADING: i32 = 301;
 const H_SECTION: i32 = 302;
