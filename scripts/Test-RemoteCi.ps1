@@ -43,6 +43,11 @@ try {
     foreach ($line in $lines) {
         if ($line -match '^([^=]+)=(.*)$') { [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process') }
     }
+    # The Opus codec (sound sharing, ADR 0044) is built from source and needs CMake; use Visual Studio's own copy if none is on PATH.
+    if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
+        $vsCmake = Join-Path $installation 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin'
+        if (Test-Path -LiteralPath $vsCmake) { [Environment]::SetEnvironmentVariable('PATH', "$vsCmake;$env:PATH", 'Process') }
+    }
     foreach ($arguments in @(
         @('clippy', '--workspace', '--all-targets', '--locked', '--', '-D', 'warnings'),
         @('test', '--workspace', '--locked'),

@@ -12,6 +12,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { openViewer } from "./viewer.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const args = Object.fromEntries(
@@ -170,6 +171,44 @@ const expectClean = async (label) => {
   return state;
 };
 
+// Opens a view session in a real browser and says what arrived: whether the picture played and whether a sound
+// track came with it. `sound` is whether the person ticks "share this computer's sound" when they allow it.
+async function watch(sound) {
+  const { link } = await start("desktop:view");
+  const viewer = await openViewer({
+    origin,
+    cookie: cookie.replace(/^remote_session=/, ""),
+  });
+  try {
+    await viewer.goto(`${origin}/#assist`);
+    await waitFor("the View button", () => viewer.clickText("View"), 25);
+    const consent = device("Consent", [
+      "-Seconds",
+      "30",
+      ...(sound ? ["-Sound"] : []),
+    ]);
+    if (!consent.allowed)
+      throw new Error(consent.reason ?? "the request was not allowed");
+    await waitFor(
+      "the picture",
+      async () =>
+        (await viewer.evaluate(
+          "document.querySelector('video')?.videoWidth || 0",
+        )) > 0,
+      60,
+    );
+    const tracks = await viewer.evaluate(
+      "document.querySelector('video').srcObject.getAudioTracks().length",
+    );
+    const button = await viewer.evaluate(
+      "[...document.querySelectorAll('button')].some(b => /^Sound (on|off)$/.test(b.textContent.trim()))",
+    );
+    return { link, tracks, button };
+  } finally {
+    await viewer.close();
+  }
+}
+
 // --- scenarios ---------------------------------------------------------------------------------------------------
 const scenarios = {
   async "person ends support"() {
@@ -266,6 +305,24 @@ const scenarios = {
     );
     await api("POST", `support-links/${link.id}/end`, {});
     await expectClean("chat");
+  },
+  async "no sound is shared unless the person ticks it"() {
+    const seen = await watch(false);
+    if (seen.tracks !== 0 || seen.button)
+      throw new Error(
+        `sound arrived without being agreed (${seen.tracks} tracks)`,
+      );
+    await api("POST", `support-links/${seen.link.id}/end`, {});
+    await expectClean("no sound");
+  },
+  async "sound is shared when the person ticks it"() {
+    const seen = await watch(true);
+    if (seen.tracks !== 1 || !seen.button)
+      throw new Error(
+        `expected one sound track and a Sound button, got ${seen.tracks} and ${seen.button}`,
+      );
+    await api("POST", `support-links/${seen.link.id}/end`, {});
+    await expectClean("sound");
   },
   async "a connection request asks the person and a view link refuses control"() {
     const { link, ready } = await start("desktop:view");

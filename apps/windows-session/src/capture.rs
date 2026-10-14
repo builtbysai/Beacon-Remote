@@ -539,6 +539,7 @@ mod tests {
                     false,
                     false,
                     false,
+                    false,
                     "S-0000".into(),
                 )
                 .is_err());

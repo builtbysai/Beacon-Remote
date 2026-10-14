@@ -8,7 +8,7 @@ use rtc::{
     media_stream::MediaStreamTrack,
     peer_connection::configuration::{
         interceptor_registry::register_default_interceptors,
-        media_engine::{MediaEngine, MIME_TYPE_H264},
+        media_engine::{MediaEngine, MIME_TYPE_H264, MIME_TYPE_OPUS},
     },
     rtp_transceiver::rtp_sender::{
         RTCRtpCodec, RTCRtpCodecParameters, RTCRtpCodingParameters, RTCRtpEncodingParameters,
@@ -444,6 +444,8 @@ async fn stream(
     let mut files_allowed = false;
     // Recording by the helper: only what the person ticked, or this computer's own account in trusted mode.
     let mut recording_allowed = false;
+    // Sound is only ever what the person ticked in the consent window; trusted sessions never carry it.
+    let mut audio_allowed = false;
     let by_policy = desktop && grant.approval.as_deref() == Some("policy") && grant.local_trusted;
     if by_policy {
         files_allowed = grant.local_files;
@@ -470,6 +472,8 @@ async fn stream(
         let reported_files = chosen_files.clone();
         let chosen_recording = Arc::new(AtomicBool::new(false));
         let reported_recording = chosen_recording.clone();
+        let chosen_audio = Arc::new(AtomicBool::new(false));
+        let reported_audio = chosen_audio.clone();
         let mut dialog = tokio::task::spawn_blocking(move || {
             let decision = crate::consent::request_access(
                 &controller,
@@ -486,6 +490,7 @@ async fn stream(
             );
             reported_files.store(decision.files, Ordering::Release);
             reported_recording.store(decision.recording, Ordering::Release);
+            reported_audio.store(decision.audio, Ordering::Release);
             Ok::<_, Error>(decision.decision != crate::consent::Decision::Declined)
         });
         let accepted = tokio::select! {
@@ -525,6 +530,7 @@ async fn stream(
         control_allowed = chosen_control.load(Ordering::Acquire);
         files_allowed = chosen_files.load(Ordering::Acquire);
         recording_allowed = chosen_recording.load(Ordering::Acquire);
+        audio_allowed = chosen_audio.load(Ordering::Acquire);
     }
     let deadline = (grant.expires_at_millis != 0).then_some(deadline);
     let active = parent_active;
@@ -540,6 +546,7 @@ async fn stream(
         control_allowed,
         files_allowed,
         recording_allowed,
+        audio_allowed && desktop,
         format!(
             "S-{}",
             grant.id.chars().take(4).collect::<String>().to_uppercase()
@@ -562,6 +569,7 @@ async fn stream(
         control_allowed,
         files_allowed,
         recording_allowed,
+        audio_allowed: audio_allowed && desktop,
         epoch: Instant::now(),
         lease: Arc::new(AtomicU64::new(0)),
         ice: Arc::new(std::sync::Mutex::new(grant.ice_servers.clone())),
@@ -628,6 +636,8 @@ struct MediaAuthorization {
     files_allowed: bool,
     // Whether they also allowed the helper to record the session.
     recording_allowed: bool,
+    // Whether they also allowed the helper to hear what this computer plays.
+    audio_allowed: bool,
 }
 
 // Renewal must not wait behind peer setup, encoder creation or peer cleanup.
@@ -826,6 +836,7 @@ async fn media_cycle(
     let control_allowed = authorization.control_allowed;
     let files_allowed = authorization.files_allowed;
     let recording_allowed = authorization.recording_allowed;
+    let audio_allowed = authorization.audio_allowed;
     let setup_started = Instant::now();
     indicator_connected.store(false, Ordering::Release);
     let connected = Arc::new(AtomicBool::new(false));
@@ -849,6 +860,20 @@ async fn media_cycle(
         payload_type: 102,
     };
     engine.register_codec(codec.clone(), RtpCodecKind::Video)?;
+    // Sound is negotiated only when the person agreed to share it (ADR 0044).
+    let audio_codec = RTCRtpCodecParameters {
+        rtp_codec: RTCRtpCodec {
+            mime_type: MIME_TYPE_OPUS.into(),
+            clock_rate: 48000,
+            channels: 2,
+            sdp_fmtp_line: "minptime=10;useinbandfec=1".into(),
+            rtcp_feedback: vec![],
+        },
+        payload_type: 111,
+    };
+    if audio_allowed && desktop {
+        engine.register_codec(audio_codec.clone(), RtpCodecKind::Audio)?;
+    }
     let registry = register_default_interceptors(Registry::new(), &mut engine)?;
     let config = RTCConfigurationBuilder::new()
         .with_ice_transport_policy(if grant.ice_transport_policy == "relay" {
@@ -910,6 +935,29 @@ async fn media_cycle(
         ),
     )?);
     let sender = pc.add_track(track.clone() as Arc<dyn TrackLocal>).await?;
+    let audio_track = if audio_allowed && desktop {
+        let audio = Arc::new(TrackLocalStaticSample::new(
+            Instant::now(),
+            MediaStreamTrack::new(
+                "beacon-test-stream".into(),
+                "beacon-desktop-audio".into(),
+                "Desktop sound".into(),
+                RtpCodecKind::Audio,
+                vec![RTCRtpEncodingParameters {
+                    rtp_coding_parameters: RTCRtpCodingParameters {
+                        ssrc: Some(7_230_002),
+                        ..Default::default()
+                    },
+                    codec: audio_codec.rtp_codec.clone(),
+                    ..Default::default()
+                }],
+            ),
+        )?);
+        let audio_sender = pc.add_track(audio.clone() as Arc<dyn TrackLocal>).await?;
+        Some((audio, audio_sender))
+    } else {
+        None
+    };
     let input_worker = if grant.capability == "desktop:control" && control_allowed {
         let channel = pc
             .create_data_channel(
@@ -1103,6 +1151,47 @@ async fn media_cycle(
         worker_active.store(false, Ordering::Release);
         Ok(())
     });
+    // Sound: captured and encoded only while the viewer is connected, the session is active and sharing is not
+    // paused, and stopped the moment any of that stops. It shares the video's authority checks.
+    let (audio_packets, mut audio_receiver) = mpsc::channel::<Vec<u8>>(8);
+    let audio_worker = audio_track.is_some().then(|| {
+        let (active, connected, session_active, lease) = (
+            active.clone(),
+            connected.clone(),
+            session_active.clone(),
+            lease.clone(),
+        );
+        let viewer_generation = viewer_generation.clone();
+        tokio::task::spawn_blocking(move || {
+            let live = || {
+                active.load(Ordering::Acquire)
+                    && session_active.load(Ordering::Acquire)
+                    && deadline.is_none_or(|end| Instant::now() < end)
+            };
+            let flowing = || {
+                let last = lease.load(Ordering::Acquire);
+                connected.load(Ordering::Acquire)
+                    && last != 0
+                    && remaining(last, epoch.elapsed().as_millis() as u64).is_some()
+                    && !crate::pause::is_paused()
+                    && viewer_generation.load(Ordering::Acquire) == generation
+            };
+            while live() {
+                if flowing() {
+                    // Ends when the viewer leaves or sharing pauses; starts again when it returns.
+                    if let Err(error) =
+                        crate::audio::run(|| live() && flowing(), audio_packets.clone())
+                    {
+                        println!("Sound sharing stopped: {error}");
+                        break;
+                    }
+                } else {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            }
+        })
+    });
+    let mut audio_on = audio_track.is_some();
     let mut detached = false;
     let result:Result<(),Error> = async {
         let mut tick=tokio::time::interval(Duration::from_millis(100));
@@ -1162,6 +1251,17 @@ async fn media_cycle(
                     }
 
                 }
+                packet=audio_receiver.recv(), if audio_on =>{
+                    let Some(packet)=packet else {audio_on=false; continue;};
+                    if !active.load(Ordering::Acquire) || !session_active.load(Ordering::Acquire) || deadline.is_some_and(|end| Instant::now() >= end) {break;}
+                    if !connected.load(Ordering::Acquire) || viewer_generation.load(Ordering::Acquire) != generation || !answered || crate::pause::is_paused() {continue;}
+                    let Some(lease_remaining)=remaining(lease.load(Ordering::Acquire),epoch.elapsed().as_millis() as u64) else {break;};
+                    if let Some((audio,audio_sender))=&audio_track {
+                        let parameters=timeout(Duration::from_millis(500),audio_sender.get_parameters()).await??;
+                        let payload=parameters.rtp_parameters.codecs.first().ok_or("No negotiated audio codec")?.payload_type;
+                        timeout(lease_remaining.min(Duration::from_millis(500)),audio.sample_writer(7_230_002,payload).write_sample(&Sample{data:bytes::Bytes::from(packet),duration:Duration::from_millis(20),..Sample::new(Instant::now())})).await??;
+                    }
+                }
                 packet=receiver.recv()=>{
                     let Some(packet)=packet else {break;};
                     if !active.load(Ordering::Acquire) || !session_active.load(Ordering::Acquire) || deadline.is_some_and(|end| Instant::now() >= end) {break;}
@@ -1215,6 +1315,10 @@ async fn media_cycle(
     }
     if let Some(files_worker) = files_worker {
         let _ = timeout(Duration::from_secs(1), files_worker).await;
+    }
+    // Sound capture ends with the session; wait for the speakers' capture to be released.
+    if let Some(audio_worker) = audio_worker {
+        let _ = timeout(Duration::from_secs(2), audio_worker).await;
     }
     indicator_connected.store(false, Ordering::Release);
     let cleanup_started = Instant::now();
@@ -1550,6 +1654,7 @@ mod tests {
                 control_allowed: false,
                 files_allowed: false,
                 recording_allowed: false,
+                audio_allowed: false,
                 epoch: Instant::now()
                     - Duration::from_millis(if mode == "lease" { MAX_AGE_MS + 1 } else { 10 }),
                 lease: Arc::new(AtomicU64::new(1)),
