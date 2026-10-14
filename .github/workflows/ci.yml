@@ -75,7 +75,7 @@ jobs:
         with: { distribution: temurin, java-version: "21", cache: gradle }
       - name: Unit tests, lint and a debug build of the Android host
         working-directory: apps/android-host
-        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+        run: sh ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
   native:
     runs-on: windows-latest
     timeout-minutes: 45
