@@ -29,12 +29,14 @@ use windows::{
     },
 };
 
-type Error = Box<dyn std::error::Error>;
+pub(crate) type Error = Box<dyn std::error::Error>;
 
-const AGENT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/beacon-remote-agent.exe"));
-const HOST: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/beacon-remote-host.exe"));
-const SESSION: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/beacon-remote-session.exe"));
-const MANIFEST: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/manifest.json"));
+pub(crate) const AGENT: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/beacon-remote-agent.exe"));
+pub(crate) const HOST: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/beacon-remote-host.exe"));
+pub(crate) const SESSION: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/beacon-remote-session.exe"));
+pub(crate) const MANIFEST: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/manifest.json"));
 const UNINSTALLER: &str = "Uninstall Beacon Remote.exe";
 const RUN_VALUE: &str = "BeaconRemoteHost";
 const NO_WINDOW: u32 = 0x0800_0000;
@@ -123,6 +125,22 @@ pub fn run() {
         .any(|argument| argument == trust::REMOVE_FLAG)
     {
         worker(trust::withdraw_now());
+    }
+    // Started from a technician's link (the file is named for it): temporary support, not an install.
+    let support = arguments
+        .windows(2)
+        .find(|pair| pair[0] == "--support")
+        .map(|pair| pair[1].clone())
+        .or_else(|| {
+            env::current_exe()
+                .ok()
+                .and_then(|exe| crate::support::token_from_name(&exe))
+        });
+    if let Some(token) = support {
+        if let Err(error) = crate::support::run(&token) {
+            fail(false, &error);
+        }
+        return;
     }
     let silent = arguments.iter().any(|argument| argument == "--silent");
     let uninstall = arguments.iter().any(|argument| argument == "--uninstall");

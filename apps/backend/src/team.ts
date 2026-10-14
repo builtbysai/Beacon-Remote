@@ -44,7 +44,7 @@ export async function syncTeam(
      SELECT gen_random_uuid(), m.id, t.member_account_id,
             CASE t.role WHEN 'technician' THEN 'desktop:control' ELSE 'desktop:view' END, $2::timestamptz, t.id
      FROM team_members t
-     JOIN machines m ON m.account_id=t.owner_account_id AND m.revoked_at IS NULL
+     JOIN machines m ON m.account_id=t.owner_account_id AND m.revoked_at IS NULL AND m.support_link_id IS NULL
           AND (t.group_name IS NULL OR m.group_name=t.group_name)
      WHERE t.owner_account_id=$1 AND t.removed_at IS NULL
      ON CONFLICT (machine_id, helper_account_id) WHERE revoked_at IS NULL DO NOTHING`,

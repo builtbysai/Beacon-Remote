@@ -1,6 +1,6 @@
 //! Interactive host enrollment and presence. Closing waits for the worker to release sharing.
 #[path = "../../windows-session/src/native_ui.rs"]
-mod native_ui;
+pub mod native_ui;
 use native_ui as ui;
 
 use beacon_remote_agent::{HostError, HostStatus, LocalAccess, SupportCode, UpdateOffer};

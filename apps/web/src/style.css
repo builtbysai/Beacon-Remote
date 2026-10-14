@@ -2312,3 +2312,35 @@ button.danger {
   color: var(--muted);
   font-weight: 400;
 }
+
+.support-who {
+  overflow-wrap: anywhere;
+}
+.support-platform {
+  display: grid;
+  gap: 4px;
+  max-width: 320px;
+  margin: 16px 0;
+}
+.support-fresh {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+.support-fresh input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+.support-history {
+  margin-top: 12px;
+}
+
+.support-form label.check {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.support-form label.check input {
+  width: auto;
+}

@@ -15,6 +15,8 @@
 #[cfg(windows)]
 mod install;
 #[cfg(windows)]
+mod support;
+#[cfg(windows)]
 mod trust;
 
 #[cfg(windows)]

@@ -110,6 +110,24 @@ Build `apps/android-host` (`gradlew :app:assembleDebug`) and install the debug A
 - [ ] Give another computer that group in its settings: it appears for the technician without any further step.
 - [ ] Remove them: the shared computers disappear and a live session they had ends.
 
+## 10. One-click temporary support (next published build)
+
+Use a second Windows PC (or a spare account) that does not have Beacon Remote installed.
+
+1. In Assist choose **New support session**, copy the link and open it on the other PC. The page names your account and
+   what you asked for.
+2. Download and open the support program. Windows may warn about the publisher. Check the question names you, choose Yes.
+3. The computer appears in your Support sessions as ready. Choose View. The other PC shows the usual connection
+   request; Allow it. You see the screen.
+4. End it three ways on three runs: **End support** on the other PC; **End support** on your side; close the program's
+   window. Each time: sharing stops, the entry shows Finished, and
+   `%LOCALAPPDATA%\BeaconSupport` and the downloaded file are gone, and Beacon Remote is not in Apps and features.
+5. Run it again and, while support is active, end the support window from Task Manager, then (another run) restart the
+   other PC. Support comes back (a visible window saying it is resuming) and the entry returns to ready. Then End support:
+   everything is removed.
+6. Untick "Remove Beacon Remote when support ends" once: the sign-in goes, the programs stay.
+7. Open a used or cancelled link: the page says it cannot be used.
+
 ## What to send back
 
 For anything that felt off: the time, what you did, and the session's row from Sessions (the Connection column).

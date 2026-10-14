@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, ApiError } from "./api.js";
 import type { ViewGrant } from "./LiveView.js";
+import { SupportSessions } from "./SupportSessions.js";
 
 export function AssistPanel({
   onClaimed,
@@ -90,6 +91,7 @@ export function AssistPanel({
         </div>
       </div>
       <div className="assist-layout">
+        <SupportSessions onClaimed={onClaimed} sessionActive={sessionActive} />
         <section className="workspace-panel">
           <div className="workspace-panel-heading">
             <h2>Connect using a code</h2>

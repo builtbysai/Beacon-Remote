@@ -314,7 +314,7 @@ export function Monitor() {
   );
 }
 
-type Release = {
+export type Release = {
   version: string;
   commit: string;
   file: string;
@@ -339,7 +339,7 @@ function groupedFingerprint(hex: string): string {
 
 // The published build is described by /downloads/manifest.json, written when a build is published.
 // A missing or malformed manifest means nothing is published.
-function useRelease(): Release | null | undefined {
+export function useRelease(): Release | null | undefined {
   const [release, setRelease] = useState<Release | null | undefined>(undefined);
   useEffect(() => {
     let live = true;

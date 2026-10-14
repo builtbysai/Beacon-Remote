@@ -215,6 +215,7 @@ Originals are kept as captured (no re-encoding). **Do not delete these in cleanu
 | --- | --- | --- | --- |
 | [2026-10-13-0057-support-code-error.jpg](web/assist/2026-10-13-0057-support-code-error.jpg) | 2026-10-13 00:57 UTC | 480x360 | Assist page after a wrong support code (error shown). |
 | [2026-10-13-0057-support-code-form.jpg](web/assist/2026-10-13-0057-support-code-form.jpg) | 2026-10-13 00:57 UTC | 800x600 | Assist page: connect with a support code, share this computer. |
+| [2026-10-14-1355-support-sessions-queue.png](web/assist/2026-10-14-1355-support-sessions-queue.png) | 2026-10-14 13:55 UTC | 1280x834 | Assist with the new Support sessions queue |
 
 ## web / computers
 
@@ -255,6 +256,15 @@ Originals are kept as captured (no re-encoding). **Do not delete these in cleanu
 | [2026-10-13-0057-sign-in-form.jpg](web/sign-in/2026-10-13-0057-sign-in-form.jpg) | 2026-10-13 00:57 UTC | 373x284 | Sign-in form (narrow capture). |
 | [2026-10-13-0227-two-step-code-step-bug.jpg](web/sign-in/2026-10-13-0227-two-step-code-step-bug.jpg) | 2026-10-13 02:27 UTC | 480x360 | Two-step code step showing the email text left in the code field (bug, fixed afterwards). |
 | [2026-10-13-0227-two-step-password-step.jpg](web/sign-in/2026-10-13-0227-two-step-password-step.jpg) | 2026-10-13 02:27 UTC | 480x360 | Sign-in password step on an account with two-step sign-in. |
+
+## web / support-invite
+
+| File | When | Size | What it shows |
+| --- | --- | --- | --- |
+| [2026-10-14-1355-temporary-support-download-desktop.png](web/support-invite/2026-10-14-1355-temporary-support-download-desktop.png) | 2026-10-14 13:55 UTC | 1280x1087 | What someone sees after opening a technician's support link: who is asking, and the program to run |
+| [2026-10-14-1355-temporary-support-download-mobile.png](web/support-invite/2026-10-14-1355-temporary-support-download-mobile.png) | 2026-10-14 13:55 UTC | 390x1217 | The same page at phone width |
+| [2026-10-14-1355-temporary-support-link-desktop.png](web/support-invite/2026-10-14-1355-temporary-support-link-desktop.png) | 2026-10-14 13:55 UTC | 1280x760 | A used, cancelled or expired support link says so plainly (desktop) |
+| [2026-10-14-1355-temporary-support-link-mobile.png](web/support-invite/2026-10-14-1355-temporary-support-link-mobile.png) | 2026-10-14 13:55 UTC | 390x800 | A used, cancelled or expired support link says so plainly (phone width) |
 
 ## web / viewer
 
@@ -305,3 +315,10 @@ Originals are kept as captured (no re-encoding). **Do not delete these in cleanu
 | [2026-10-13-1533-sharing-file-received.png](windows-host/sharing/2026-10-13-1533-sharing-file-received.png) | 2026-10-13 15:33 UTC | 802x710 | Sharing window while file transfer is allowed: the row announces the last received file (CON.txt was saved as _CON.txt) |
 | [2026-10-13-1629-sharing-send-a-file.png](windows-host/sharing/2026-10-13-1629-sharing-send-a-file.png) | 2026-10-13 16:29 UTC | 802x710 | Sharing window with the new 'Send a file…' button (shown when file transfer is allowed) after a file was offered to the helper |
 | [2026-10-13-1748-sharing-recording.png](windows-host/sharing/2026-10-13-1748-sharing-recording.png) | 2026-10-13 17:48 UTC | 802x710 | Sharing window while the helper records: the permissions row says so plainly |
+
+## windows-host / temporary-support
+
+| File | When | Size | What it shows |
+| --- | --- | --- | --- |
+| [2026-10-14-1343-support-window-clipped-before.png](windows-host/temporary-support/2026-10-14-1343-support-window-clipped-before.png) | 2026-10-14 13:43 UTC | 516x369 | Temporary support window: the helper's name is clipped (before · support-window) |
+| [2026-10-14-1343-support-window-fixed-after.png](windows-host/temporary-support/2026-10-14-1343-support-window-fixed-after.png) | 2026-10-14 13:43 UTC | 516x369 | Temporary support window after the name and status wrap correctly (after · support-window) |

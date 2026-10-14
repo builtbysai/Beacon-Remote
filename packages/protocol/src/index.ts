@@ -131,6 +131,8 @@ export interface Machine {
   allowControl: boolean;
   helpersUnattended: "off" | "view" | "control";
   displays: DisplayInfo[];
+  // A computer made by a one-use support link (ADR 0038); it lives in the support queue, not the everyday list.
+  temporary?: boolean;
 }
 
 // Later WebRTC: reliable ordered state/keys/buttons; unreliable unordered pointer
@@ -200,3 +202,34 @@ export const inputEnvelope = z
     ]),
   })
   .strict();
+
+// Temporary support (ADR 0038). The technician's link carries a short-lived, single-use token; the support client
+// redeems it once and becomes a temporary computer in the technician's waiting list.
+export const SUPPORT_LINK_TOKEN = /^[A-Za-z0-9_-]{32}$/;
+export const supportClaim = z
+  .object({
+    version: z.literal(PROTOCOL_VERSION),
+    token: z.string().regex(SUPPORT_LINK_TOKEN),
+    name: z.string().trim().min(1).max(80),
+    publicKey: z.string().regex(/^[A-Za-z0-9+/]{43}=$/),
+  })
+  .strict();
+
+// The support client tells the server the person ended support, signed with its temporary identity key.
+export const supportEndRequest = z
+  .object({
+    version: z.literal(PROTOCOL_VERSION),
+    machineId: z.string().uuid(),
+    timestamp: z.number().int().positive(),
+    nonce: z.string().uuid(),
+    signature: z.string().regex(/^[A-Za-z0-9+/]{86}==$/),
+  })
+  .strict();
+
+export function supportEndMessage(
+  machineId: string,
+  timestamp: number,
+  nonce: string,
+): string {
+  return `beacon-remote:support-end:v1\n${machineId}\n${timestamp}\n${nonce}`;
+}
