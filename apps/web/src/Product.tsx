@@ -323,7 +323,19 @@ type Release = {
   publishedAt: string;
   // The double-click installer, when one was published with this build.
   installer?: { file: string; bytes: number; sha256: string };
+  // Beacon Remote's own signing certificate and the script that trusts it on another computer (ADR 0035).
+  signing?: {
+    certificate: string;
+    sha256: string;
+    script: string;
+    scriptSha256: string;
+    notAfter: string;
+  };
 };
+
+function groupedFingerprint(hex: string): string {
+  return (hex.toUpperCase().match(/.{1,4}/g) ?? []).join(" ");
+}
 
 // The published build is described by /downloads/manifest.json, written when a build is published.
 // A missing or malformed manifest means nothing is published.
@@ -350,12 +362,23 @@ function useRelease(): Release | null | undefined {
           typeof installer.sha256 === "string" &&
           /^[a-f0-9]{64}$/.test(installer.sha256) &&
           typeof installer.bytes === "number";
+        const signing = body?.signing;
+        const signingOk =
+          signing &&
+          signing.certificate === "beacon-remote-signing.cer" &&
+          signing.script === "Trust-BeaconRemote.ps1" &&
+          typeof signing.sha256 === "string" &&
+          /^[a-f0-9]{64}$/.test(signing.sha256) &&
+          typeof signing.scriptSha256 === "string" &&
+          /^[a-f0-9]{64}$/.test(signing.scriptSha256) &&
+          typeof signing.notAfter === "string";
         if (live)
           setRelease(
             ok
               ? ({
                   ...body,
                   installer: installerOk ? installer : undefined,
+                  signing: signingOk ? signing : undefined,
                 } as Release)
               : null,
           );
@@ -389,9 +412,10 @@ function DownloadsPage({ workspace }: { workspace: string }) {
               </p>
               <p>
                 Installs for your Windows account only, with no administrator
-                rights, and updates itself. This build is not signed yet, so
-                Windows may warn before it opens; choose More info, then Run
-                anyway, and check the SHA-256 below matches.
+                rights, and updates itself.{" "}
+                {release.signing
+                  ? "It is signed with Beacon Remote's own free certificate, not one from a public authority, so Windows warns about an unknown publisher until a computer has been told to trust it. The installer offers that once; the steps below do it on other computers."
+                  : "This build is not signed, so Windows may warn before it opens; choose More info, then Run anyway, and check the SHA-256 below matches."}
               </p>
               <a
                 className="button"
@@ -417,6 +441,47 @@ function DownloadsPage({ workspace }: { workspace: string }) {
           )}
         </div>
       </div>
+      {release?.signing && (
+        <>
+          <h2>Trust the certificate on another computer</h2>
+          <p>
+            Check that the fingerprint matches before you trust it. The
+            installer shows the same one, and the script refuses anything else.
+          </p>
+          <p className="note">
+            Certificate SHA-256{" "}
+            <code>{groupedFingerprint(release.signing.sha256)}</code>
+            <br />
+            Valid until {release.signing.notAfter.slice(0, 10)}
+          </p>
+          <ol>
+            <li>
+              Download{" "}
+              <a href={`/downloads/${release.signing.script}`} download>
+                Trust-BeaconRemote.ps1
+              </a>{" "}
+              (SHA-256 <code>{release.signing.scriptSha256}</code>).
+            </li>
+            <li>
+              In PowerShell run{" "}
+              <code>
+                .\Trust-BeaconRemote.ps1 -Fingerprint{" "}
+                {release.signing.sha256.toUpperCase()}
+              </code>{" "}
+              and approve the administrator prompt. Computers that already trust
+              it are skipped.
+            </li>
+            <li>
+              To undo it run <code>.\Trust-BeaconRemote.ps1 -Remove</code>. For
+              many computers, import{" "}
+              <a href={`/downloads/${release.signing.certificate}`} download>
+                the certificate
+              </a>{" "}
+              with Group Policy.
+            </li>
+          </ol>
+        </>
+      )}
       <h2>Set up a computer</h2>
       <ol>
         <li>

@@ -79,6 +79,18 @@ Build `apps/android-host` (`gradlew :app:assembleDebug`) and install the debug A
       leaves it unavailable.
 - [ ] Remove this phone in the app and in the workspace; it can no longer be reached.
 
+## 8. Signed installer and trusting the certificate
+
+- [ ] Run `BeaconRemoteSetup-<commit>.exe` on a computer that does not trust the certificate. It offers once to
+      trust it and shows a fingerprint; compare it with the Downloads page. Choose Yes, approve the Windows
+      administrator prompt: Beacon Remote installs, and `Get-AuthenticodeSignature` on the installed programs says
+      Valid.
+- [ ] Run the installer again: it does not ask again.
+- [ ] On another computer run `Trust-BeaconRemote.ps1 -Fingerprint <the Downloads page value>`; run it a second time
+      and it says "Already trusted". `-Status` reports it; `-Remove` takes it away.
+- [ ] Publish a newer build and let an installed host update itself: the new programs are still signed.
+- [ ] Uninstall: it offers to stop trusting the certificate.
+
 ## What to send back
 
 For anything that felt off: the time, what you did, and the session's row from Sessions (the Connection column).

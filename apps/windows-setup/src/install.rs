@@ -1,4 +1,4 @@
-use crate::{display_version, OWNED};
+use crate::{display_version, trust, OWNED};
 use std::{
     env, fs, io,
     os::windows::process::CommandExt,
@@ -99,8 +99,31 @@ impl Context {
     }
 }
 
+/// The hidden, elevated side of the trust step: no dialogs, just an exit code.
+fn worker(result: Result<(), Error>) -> ! {
+    match result {
+        Ok(()) => std::process::exit(0),
+        Err(error) => {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+    }
+}
+
 pub fn run() {
     let arguments: Vec<String> = env::args().skip(1).collect();
+    if arguments
+        .iter()
+        .any(|argument| argument == trust::TRUST_FLAG)
+    {
+        worker(trust::trust_now());
+    }
+    if arguments
+        .iter()
+        .any(|argument| argument == trust::REMOVE_FLAG)
+    {
+        worker(trust::withdraw_now());
+    }
     let silent = arguments.iter().any(|argument| argument == "--silent");
     let uninstall = arguments.iter().any(|argument| argument == "--uninstall");
     let context = match Context::new(silent) {
@@ -144,6 +167,7 @@ fn add(context: &Context) -> Result<(), Error> {
     ) {
         return Ok(());
     }
+    offer_trust(context);
     let fresh = !context.install.exists();
     if !fresh {
         stop_running(&context.install);
@@ -207,8 +231,53 @@ fn remove(context: &Context) -> Result<(), Error> {
     }
     stop_running(&context.install);
     clean(context, true);
+    offer_untrust(context);
     context.say("Beacon Remote was removed.", MB_OK | MB_ICONINFORMATION);
     Ok(())
+}
+
+/// Offers, once, to trust Beacon Remote's own signing certificate. Skipped on computers already set up, for
+/// `--silent`, in tests, and when this build carries no certificate. Declining never stops the install.
+fn offer_trust(context: &Context) {
+    if context.silent || context.sandbox || trust::settled() {
+        return;
+    }
+    let fingerprint = trust::grouped(&trust::certificate_fingerprint());
+    if !context.ask(&format!(
+        "Let Windows trust Beacon Remote?
+
+         Beacon Remote is signed with its own free certificate, not one bought from a certificate authority.          Trusting it once lets Windows recognise Beacon Remote's programs as coming from Beacon Remote and          stops \"unknown publisher\" warnings on this computer.
+
+         This needs administrator approval. It adds only this certificate to Windows' Trusted Root and          Trusted Publishers lists, and uninstalling Beacon Remote offers to remove it again.
+
+         Certificate fingerprint (SHA-256):
+{fingerprint}
+
+         It should match the fingerprint on the Beacon Remote Downloads page. Choose Yes to approve, or No to          install without it."
+    )) {
+        return;
+    }
+    match trust::elevated(trust::TRUST_FLAG) {
+        Ok(0) => {}
+        _ => context.say(
+            "The certificate was not trusted (the approval was declined or did not finish). Beacon Remote              is installing anyway; Windows may warn that its publisher is unknown. Running the installer              again offers it once more.",
+            MB_OK | MB_ICONINFORMATION,
+        ),
+    }
+}
+
+/// On uninstall, offers to stop trusting the certificate (administrator approval again).
+fn offer_untrust(context: &Context) {
+    if context.silent || context.sandbox || !trust::trusted() {
+        return;
+    }
+    if context.ask(
+        "Also stop trusting the Beacon Remote certificate on this computer?
+
+         This needs administrator approval. Choose No if you may reinstall Beacon Remote or run other          programs signed with it.",
+    ) {
+        let _ = trust::elevated(trust::REMOVE_FLAG);
+    }
 }
 
 /// Removes what this program added. `credentials` also deletes the saved sign-in (uninstall only).
