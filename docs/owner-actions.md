@@ -54,6 +54,8 @@ Android phone, one time:
 1. Settings, About phone, tap Build number seven times. Then Settings, System, Developer options, turn on USB debugging.
 2. Plug the phone into this PC and tap Allow on the phone's prompt.
 3. Tell me. I build and install the app, pair it, and walk you through the on-phone taps, then you follow section 7.
+   To try control, turn on "Beacon Remote control" once in Settings, Accessibility; each request then asks you to tick
+   "Also let them touch and type on this phone".
 
 Send back, for anything that felt off: the time, what you did, and the session's row from Sessions (the Connection
 column). I fix what you find.
