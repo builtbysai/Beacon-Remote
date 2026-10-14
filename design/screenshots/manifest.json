@@ -788,5 +788,23 @@
     "screen": "paired",
     "purpose": "Android host after pairing: name, server, Available status, and the controls to stop or remove",
     "source": "s19.png"
+  },
+  {
+    "file": "web/downloads/2026-10-14-0456-trust-section-desktop.png",
+    "when": "2026-10-14 04:56 UTC",
+    "size": "1440x1391",
+    "platform": "web",
+    "screen": "downloads",
+    "purpose": "Downloads page with the signed installer, certificate fingerprint and trust steps (1440 wide, production)",
+    "source": "prod-1440.png"
+  },
+  {
+    "file": "web/downloads/2026-10-14-0456-trust-section-phone.png",
+    "when": "2026-10-14 04:56 UTC",
+    "size": "375x1910",
+    "platform": "web",
+    "screen": "downloads",
+    "purpose": "Downloads page trust section at phone width (375 wide, production): fingerprints wrap, nothing overflows",
+    "source": "prod-375.png"
   }
 ]

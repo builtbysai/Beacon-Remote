@@ -231,6 +231,8 @@ Originals are kept as captured (no re-encoding). **Do not delete these in cleanu
 | --- | --- | --- | --- |
 | [2026-10-13-0222-before-publish.jpg](web/downloads/2026-10-13-0222-before-publish.jpg) | 2026-10-13 02:22 UTC | 373x280 | Downloads page before a build was published ("Installer unavailable"). |
 | [2026-10-13-0222-published-signed-build.jpg](web/downloads/2026-10-13-0222-published-signed-build.jpg) | 2026-10-13 02:22 UTC | 640x487 | Downloads page with the published build, size and SHA-256. |
+| [2026-10-14-0456-trust-section-desktop.png](web/downloads/2026-10-14-0456-trust-section-desktop.png) | 2026-10-14 04:56 UTC | 1440x1391 | Downloads page with the signed installer, certificate fingerprint and trust steps (1440 wide, production) |
+| [2026-10-14-0456-trust-section-phone.png](web/downloads/2026-10-14-0456-trust-section-phone.png) | 2026-10-14 04:56 UTC | 375x1910 | Downloads page trust section at phone width (375 wide, production): fingerprints wrap, nothing overflows |
 
 ## web / inspector
 
