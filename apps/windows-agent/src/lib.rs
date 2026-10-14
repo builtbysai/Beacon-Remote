@@ -536,6 +536,14 @@ pub fn run(cancel: Arc<AtomicBool>, status: SyncSender<HostStatus>) -> Result<()
                     pause(&cancel, Duration::from_secs(15));
                     continue;
                 }
+                // A restart the owner asked for (ADR 0043): only where this computer itself trusts the owner with
+                // control, and with a countdown on screen that its user can cancel.
+                if body["restart"]["id"].is_string() {
+                    let local = local_access();
+                    if local.trusted && local.allow_control {
+                        restart_this_computer();
+                    }
+                }
                 // Asked by the server to wake a neighbour of this account on this network (ADR 0042).
                 for request in body["wake"].as_array().into_iter().flatten() {
                     if let Some(mac) = request["mac"].as_str() {
@@ -659,6 +667,25 @@ fn remove_this_computer() {
                 let _ = fs::remove_file(path);
             }
         }
+    }
+}
+
+/// Restarts Windows after 30 seconds. Windows shows the countdown, and `shutdown /a` cancels it.
+fn restart_this_computer() {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let system = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
+        let _ = std::process::Command::new(PathBuf::from(system).join("System32").join("shutdown.exe"))
+            .args([
+                "/r",
+                "/t",
+                "30",
+                "/c",
+                "Beacon Remote: your account owner asked this computer to restart. To cancel, run: shutdown /a",
+            ])
+            .creation_flags(0x0800_0000)
+            .spawn();
     }
 }
 

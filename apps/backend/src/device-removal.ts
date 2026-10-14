@@ -126,6 +126,56 @@ export function registerDeviceRemoval(
     }
   });
 
+  // Restarts a computer the owner trusts with control (ADR 0043). Only the owner's own trusted-with-control policy
+  // permits it: a restart ends everything on the computer, so it needs at least the authority of control.
+  app.post("/api/machines/:id/restart", limit, async (request, reply) => {
+    if (!sameOrigin(request))
+      return reply.code(403).send({ error: "Origin rejected" });
+    const account = await owner(request);
+    if (!account) return reply.code(401).send({ error: "Sign in required" });
+    const path = idParams.safeParse(request.params);
+    if (!path.success)
+      return reply.code(400).send({ error: "Invalid machine" });
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const found = await client.query(
+        `SELECT 1 FROM machines m JOIN machine_access a ON a.machine_id=m.id
+         WHERE m.id=$1 AND m.account_id=$2 AND m.revoked_at IS NULL AND m.support_link_id IS NULL
+           AND m.last_seen_at>now()-interval '45 seconds' AND a.mode='trusted' AND a.allow_control FOR UPDATE OF m`,
+        [path.data.id, account],
+      );
+      if (!found.rowCount) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "Restart unavailable" });
+      }
+      const recent = await client.query(
+        "SELECT 1 FROM machine_restarts WHERE machine_id=$1 AND created_at>now()-interval '2 minutes'",
+        [path.data.id],
+      );
+      if (recent.rowCount) {
+        await client.query("ROLLBACK");
+        return reply.code(429).send({ error: "Restart already requested" });
+      }
+      await client.query(
+        "INSERT INTO machine_restarts(id,machine_id) VALUES (gen_random_uuid(),$1)",
+        [path.data.id],
+      );
+      await client.query(
+        "INSERT INTO audit_events(account_id,machine_id,action) VALUES ($1,$2,'machine.restart.requested')",
+        [account, path.data.id],
+      );
+      await client.query("COMMIT");
+      wake(path.data.id);
+      return { ok: true };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  });
+
   // Revokes the computer now (it can no longer start or join anything) and leaves one bounded instruction for its own
   // agent to remove itself if it ever reconnects. Nothing can reach into an unreachable computer.
   app.post("/api/machines/:id/uninstall", limit, async (request, reply) => {
