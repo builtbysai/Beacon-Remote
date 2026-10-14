@@ -122,9 +122,12 @@ function App() {
   const [clock, setClock] = useState(Date.now());
   const [mediaEnabled, setMediaEnabled] = useState(false);
   const [controlEnabled, setControlEnabled] = useState(false);
-  const [view, setView] = useState<{ grant: ViewGrant; name: string } | null>(
-    null,
-  );
+  const [view, setView] = useState<{
+    grant: ViewGrant;
+    name: string;
+    machineId?: string;
+    displayId?: string;
+  } | null>(null);
   useEffect(() => {
     setView(null);
     setError("");
@@ -194,6 +197,22 @@ function App() {
     };
   }, [signedIn]);
 
+  // Moves the viewer to another display. Each display is approved on its own, so this ends the current session and
+  // asks for a new one on that display; the person at the computer is asked again unless their own policy allows it.
+  async function switchDisplay(displayId: string) {
+    if (!view?.machineId || displayId === view.displayId) return;
+    const machine = machines?.find((entry) => entry.id === view.machineId);
+    if (!machine) return;
+    const capability = view.grant.capability ?? "desktop:view";
+    try {
+      await api(`sessions/${view.grant.id}/stop`, {});
+    } catch {
+      // Already ended; a new one can still be requested.
+    }
+    setView(null);
+    await testVideo(machine, capability, displayId);
+  }
+
   async function testVideo(
     machine: Machine,
     capability: "desktop:view" | "desktop:control" = "desktop:view",
@@ -211,7 +230,13 @@ function App() {
           ...(displayId ? { displayId } : {}),
         }),
         () => context.active,
-        (grant) => setView({ grant, name: machine.name }),
+        (grant) =>
+          setView({
+            grant,
+            name: machine.name,
+            machineId: machine.id,
+            displayId,
+          }),
         (unused) => api(`sessions/${unused.id}/stop`, {}),
       );
     } catch {
@@ -1008,6 +1033,12 @@ function App() {
               grant={view.grant}
               name={view.name}
               onClose={() => setView(null)}
+              displays={
+                machines?.find((entry) => entry.id === view.machineId)
+                  ?.displays ?? []
+              }
+              displayId={view.displayId}
+              onSwitchDisplay={(id) => void switchDisplay(id)}
             />
           )}
         </section>

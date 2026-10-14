@@ -8,6 +8,7 @@ import { recoverTransport } from "./recover-transport.js";
 import { reconnectUntil } from "./reconnect.js";
 import { attachRemoteInput } from "./remote-input.js";
 import type { TouchMode } from "./touch-input.js";
+import type { DisplayInfo } from "@beacon-remote/protocol";
 import { api } from "./api.js";
 
 export type ViewGrant = {
@@ -47,14 +48,28 @@ function transferLine(transfer: Transfer): string {
   return `Could not send ${transfer.name}. ${transfer.note ?? ""}`;
 }
 
+// A short name for a display the computer reported: "Display 2 · 2560×1440", with "main" for the primary one.
+export function displayName(display: DisplayInfo): string {
+  const number = display.id.replace(/^\\\\\.\\DISPLAY/, "");
+  return `Display ${number} · ${display.width}×${display.height}${display.primary ? " · main" : ""}`;
+}
+
 export function LiveView({
   grant,
   name,
   onClose,
+  displays = [],
+  displayId,
+  onSwitchDisplay,
 }: {
   grant: ViewGrant;
   name: string;
   onClose: () => void;
+  // The computer's displays and the one being viewed. Switching asks the computer's person again, because each display
+  // is approved on its own; it never widens what was already approved.
+  displays?: DisplayInfo[];
+  displayId?: string;
+  onSwitchDisplay?: (id: string) => void;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const shell = useRef<HTMLElement>(null);
@@ -766,6 +781,26 @@ export function LiveView({
               <option value="actual">100%</option>
             </select>
           </label>
+          {displays.length > 1 && onSwitchDisplay && (
+            <label className="viewer-scale">
+              Display
+              <select
+                aria-label="Display"
+                value={
+                  displayId ??
+                  displays.find((entry) => entry.primary)?.id ??
+                  displays[0]!.id
+                }
+                onChange={(event) => onSwitchDisplay(event.target.value)}
+              >
+                {displays.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {displayName(entry)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {controlReady && (
             <button
               className="viewer-control"
