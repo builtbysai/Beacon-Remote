@@ -17,13 +17,19 @@ use std::{
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::{
-        BeginPaint, EndPaint, FillRect, SetBkMode, SetTextColor, HFONT, PAINTSTRUCT, TRANSPARENT,
+        BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateSolidBrush, DeleteDC,
+        DeleteObject, EndPaint, FillRect, InvalidateRect, ScreenToClient, SelectObject, SetBkMode,
+        SetTextColor, HFONT, PAINTSTRUCT, SRCCOPY, TRANSPARENT,
     },
     System::LibraryLoader::GetModuleHandleW,
-    UI::{HiDpi::GetDpiForSystem, Input::KeyboardAndMouse::SetFocus, WindowsAndMessaging::*},
+    UI::{
+        Controls::{DRAWITEMSTRUCT, ODS_DISABLED, ODS_FOCUS, ODS_SELECTED},
+        HiDpi::GetDpiForSystem,
+        Input::KeyboardAndMouse::SetFocus,
+        WindowsAndMessaging::*,
+    },
 };
 
-const BST_CHECKED: u32 = 1;
 // Edit control messages.
 const EM_SETSEL: u32 = 0x00B1;
 const EM_SCROLLCARET: u32 = 0x00B7;
@@ -71,6 +77,10 @@ struct State {
     remove: HWND,
     end: HWND,
     palette: ui::Palette,
+    scale: f32,
+    // The control the pointer is over (for button hover), and whether Beacon Remote is removed afterwards.
+    hot: i32,
+    remove_on: bool,
     fonts: Vec<HFONT>,
     cancel: Arc<AtomicBool>,
     updates: Receiver<HostStatus>,
@@ -94,9 +104,7 @@ impl State {
         // On purpose: a supervisor must now clean up rather than bring support back.
         support::mark_ended();
         EnableWindowControls(self);
-        support::set_remove_wanted(
-            SendMessageW(self.remove, BM_GETCHECK, 0, 0) == BST_CHECKED as isize,
-        );
+        support::set_remove_wanted(self.remove_on);
         self.cancel.store(true, Ordering::SeqCst);
         let worker = self.worker.take();
         let started = self.started;
@@ -137,13 +145,31 @@ impl State {
         // Scroll to the newest line.
         SendMessageW(self.log, EM_SETSEL, usize::MAX, -1);
         SendMessageW(self.log, EM_SCROLLCARET, 0, 0);
-        SetWindowTextW(
-            self.helper,
-            wide(&format!("{} is helping you", support::technician())).as_ptr(),
-        );
+        SetWindowTextW(self.helper, wide(&support::technician()).as_ptr());
         // A new message from them draws attention if this window is not the one in front.
         if from_them && !first && GetForegroundWindow() != self.window {
             FlashWindow(self.window, 1);
+        }
+    }
+    /// Repaints the button the pointer moved onto or off of.
+    unsafe fn track_hover(&mut self) {
+        let mut point = POINT { x: 0, y: 0 };
+        GetCursorPos(&mut point);
+        ScreenToClient(self.window, &mut point);
+        let over = ChildWindowFromPoint(self.window, point);
+        let id = if over.is_null() || over == self.window {
+            0
+        } else {
+            GetDlgCtrlID(over)
+        };
+        if id != self.hot {
+            for old_or_new in [self.hot, id] {
+                let control = GetDlgItem(self.window, old_or_new);
+                if !control.is_null() {
+                    InvalidateRect(control, null(), 0);
+                }
+            }
+            self.hot = id;
         }
     }
     unsafe fn poll(&mut self) {
@@ -160,6 +186,7 @@ impl State {
             });
         }
         self.show_chat();
+        self.track_hover();
         if self.ending.is_none() {
             if support::expired() {
                 self.finish(
@@ -177,6 +204,90 @@ impl State {
         if self.ending.as_ref().is_some_and(|job| job.is_finished()) {
             DestroyWindow(self.window);
         }
+    }
+}
+
+const HELPER_ID: i32 = 304;
+
+unsafe fn paint(window: HWND, state: &State) {
+    let mut ps: PAINTSTRUCT = std::mem::zeroed();
+    let hdc = BeginPaint(window, &mut ps);
+    let mut client = RECT::default();
+    GetClientRect(window, &mut client);
+    let (w, h) = (client.right, client.bottom);
+    let buffer = CreateCompatibleDC(hdc);
+    let bitmap = CreateCompatibleBitmap(hdc, w, h);
+    let old = SelectObject(buffer, bitmap);
+    let brush = CreateSolidBrush(ui::colorref(state.palette.window));
+    FillRect(buffer, &client, brush);
+    DeleteObject(brush);
+    if let Some(canvas) = ui::Canvas::new(buffer, state.scale) {
+        let p = &state.palette;
+        // "Temporary" beside the heading: this is not an installation.
+        ui::pill(
+            &canvas,
+            (366.0, 29.0, 106.0, 24.0),
+            "Temporary",
+            p.warn_soft,
+            p.warn_line,
+            p.warn,
+        );
+        // The technician card.
+        canvas.fill(28.0, 66.0, 444.0, 72.0, 10.0, p.surface);
+        canvas.stroke(28.0, 66.0, 444.0, 72.0, 10.0, p.line, 1.0);
+        ui::avatar(
+            &canvas,
+            p,
+            62.0,
+            102.0,
+            20.0,
+            &ui::initials(&support::technician()),
+        );
+        canvas.text(
+            "TECHNICIAN",
+            (96.0, 74.0, 200.0, 14.0),
+            10.5,
+            600,
+            p.faint,
+            ui::Align::Left,
+            false,
+        );
+    }
+    BitBlt(hdc, 0, 0, w, h, buffer, 0, 0, SRCCOPY);
+    SelectObject(buffer, old);
+    DeleteObject(bitmap);
+    DeleteDC(buffer);
+    EndPaint(window, &ps);
+}
+
+unsafe fn draw_item(state: &State, item: &DRAWITEMSTRUCT) {
+    let w = (item.rcItem.right - item.rcItem.left) as f32 / state.scale;
+    let h = (item.rcItem.bottom - item.rcItem.top) as f32 / state.scale;
+    let id = item.CtlID as i32;
+    let brush = CreateSolidBrush(ui::colorref(state.palette.window));
+    FillRect(item.hDC, &item.rcItem, brush);
+    DeleteObject(brush);
+    let Some(canvas) = ui::Canvas::new(item.hDC, state.scale) else {
+        return;
+    };
+    let flags = ui::State {
+        hot: state.hot == id,
+        pressed: item.itemState & ODS_SELECTED != 0,
+        focused: item.itemState & ODS_FOCUS != 0,
+        disabled: item.itemState & ODS_DISABLED != 0,
+    };
+    let p = &state.palette;
+    match id as usize {
+        END => ui::button(&canvas, p, (w, h), "End support", ui::Role::Danger, flags),
+        SEND => ui::button(&canvas, p, (w, h), "Send", ui::Role::Primary, flags),
+        _ => ui::checkbox(
+            &canvas,
+            p,
+            (w, h),
+            "Remove Beacon Remote when support ends",
+            state.remove_on,
+            flags,
+        ),
     }
 }
 
@@ -207,10 +318,12 @@ unsafe extern "system" fn procedure(
             return 1;
         }
         WM_PAINT if !state.is_null() => {
-            let mut paint = PAINTSTRUCT::default();
-            BeginPaint(window, &mut paint);
-            EndPaint(window, &paint);
+            paint(window, &*state);
             return 0;
+        }
+        WM_DRAWITEM if !state.is_null() => {
+            draw_item(&*state, &*(lparam as *const DRAWITEMSTRUCT));
+            return 1;
         }
         WM_CTLCOLORSTATIC if !state.is_null() => {
             let p = &(*state).palette;
@@ -221,7 +334,13 @@ unsafe extern "system" fn procedure(
             };
             SetTextColor(wparam as _, ui::colorref(color));
             SetBkMode(wparam as _, TRANSPARENT as i32);
-            return ui::surface_brush(p.window) as isize;
+            // The technician's name sits on the card, everything else on the window.
+            let backdrop = if GetDlgCtrlID(lparam as HWND) == HELPER_ID {
+                p.surface
+            } else {
+                p.window
+            };
+            return ui::surface_brush(backdrop) as isize;
         }
         WM_COMMAND if !state.is_null() && (wparam & 0xffff) == SEND => {
             let mut buffer = [0u16; 1100];
@@ -240,6 +359,11 @@ unsafe extern "system" fn procedure(
             SetTextColor(wparam as _, ui::colorref(p.text));
             SetBkMode(wparam as _, TRANSPARENT as i32);
             return ui::surface_brush(p.surface) as isize;
+        }
+        WM_COMMAND if !state.is_null() && (wparam & 0xffff) == REMOVE => {
+            (*state).remove_on = !(*state).remove_on;
+            InvalidateRect((*state).remove, null(), 0);
+            return 0;
         }
         WM_COMMAND if !state.is_null() && (wparam & 0xffff) == END => {
             if (*state).ending.is_none() {
@@ -337,6 +461,9 @@ pub fn show(token: Option<&str>) -> Result<(), io::Error> {
             remove: null_mut(),
             end: null_mut(),
             palette: ui::palette(),
+            scale: factor,
+            hot: 0,
+            remove_on: true,
             fonts: Vec::new(),
             cancel: cancel.clone(),
             updates,
@@ -351,7 +478,7 @@ pub fn show(token: Option<&str>) -> Result<(), io::Error> {
             left: 0,
             top: 0,
             right: px(500),
-            bottom: px(520),
+            bottom: px(528),
         };
         AdjustWindowRectEx(&mut bounds, style, 0, 0);
         let window = CreateWindowExW(
@@ -413,8 +540,17 @@ pub fn show(token: Option<&str>) -> Result<(), io::Error> {
                 null(),
             )
         };
-        let heading = child("STATIC", "Temporary support", 24, 34, 0, H_HEADING as usize);
-        let helper = child("STATIC", &format!("{who} is helping you"), 62, 40, 0, 304);
+        let heading = child_at(
+            "STATIC",
+            "Temporary support",
+            28,
+            24,
+            330,
+            34,
+            0,
+            H_HEADING as usize,
+        );
+        let helper = child_at("STATIC", &who, 96, 90, 366, 40, 0, HELPER_ID as usize);
         state.helper = helper;
         state.status = child(
             "STATIC",
@@ -423,7 +559,7 @@ pub fn show(token: Option<&str>) -> Result<(), io::Error> {
             } else {
                 "Connecting to your technician…"
             },
-            104,
+            150,
             44,
             0,
             H_STATUS as usize,
@@ -431,7 +567,7 @@ pub fn show(token: Option<&str>) -> Result<(), io::Error> {
         let info = child(
             "STATIC",
             "Temporary: this does not start with Windows or give anyone lasting access. When support ends, access is revoked and the files and sign-in Beacon Remote created here are removed.",
-            150,
+            196,
             60,
             0,
             H_INFO as usize,
@@ -439,18 +575,17 @@ pub fn show(token: Option<&str>) -> Result<(), io::Error> {
         state.remove = child(
             "BUTTON",
             "Remove Beacon Remote when support ends",
-            412,
+            436,
             26,
-            (BS_AUTOCHECKBOX as u32) | WS_TABSTOP,
+            (BS_OWNERDRAW as u32) | WS_TABSTOP,
             REMOVE,
         );
-        SendMessageW(state.remove, BM_SETCHECK, BST_CHECKED as usize, 0);
         state.end = child(
             "BUTTON",
             "End support",
-            448,
-            36,
-            (BS_PUSHBUTTON as u32) | WS_TABSTOP,
+            472,
+            40,
+            (BS_OWNERDRAW as u32) | WS_TABSTOP,
             END,
         );
         // The conversation with the technician. Enter sends, so End support is never the default button.
@@ -458,9 +593,9 @@ pub fn show(token: Option<&str>) -> Result<(), io::Error> {
             "EDIT",
             "",
             28,
-            218,
+            262,
             444,
-            140,
+            120,
             (ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL) as u32 | WS_VSCROLL | WS_BORDER,
             LOG,
         );
@@ -468,7 +603,7 @@ pub fn show(token: Option<&str>) -> Result<(), io::Error> {
             "EDIT",
             "",
             28,
-            366,
+            392,
             350,
             28,
             (ES_AUTOHSCROLL as u32) | WS_TABSTOP | WS_BORDER,
@@ -479,10 +614,10 @@ pub fn show(token: Option<&str>) -> Result<(), io::Error> {
             "BUTTON",
             "Send",
             388,
-            364,
+            388,
             84,
-            32,
-            (BS_DEFPUSHBUTTON as u32) | WS_TABSTOP,
+            36,
+            (BS_OWNERDRAW as u32) | WS_TABSTOP,
             SEND,
         );
         let big = ui::gdi_font(px(23), 600);
