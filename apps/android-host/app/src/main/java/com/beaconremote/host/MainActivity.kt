@@ -35,7 +35,7 @@ class MainActivity : Activity() {
         root.setPadding(pad, pad * 2, pad, pad)
         setContentView(root)
         render()
-        if (identity.paired) AvailabilityService.start(this)
+        if (identity.paired && identity.wantsAvailable) AvailabilityService.start(this)
     }
 
     override fun onResume() {

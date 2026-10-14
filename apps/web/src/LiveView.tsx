@@ -812,7 +812,7 @@ export function LiveView({
           {recordingAllowed && (
             <button
               className="viewer-control"
-              title="Record this session in your browser. The person at the computer is told while it records."
+              title="Record this session in your browser. The person using the device is told while it records."
               onClick={() =>
                 recordingSince === null ? startRecording() : stopRecording()
               }
@@ -944,7 +944,7 @@ export function LiveView({
         )}
         {peerPaused && !ended && (
           <p className="viewer-paused" role="status">
-            Sharing is paused by the person at the computer. Screen and input
+            Sharing is paused by the person using this device. Screen and input
             resume when they choose.
           </p>
         )}
