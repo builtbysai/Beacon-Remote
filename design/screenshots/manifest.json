@@ -806,5 +806,23 @@
     "screen": "downloads",
     "purpose": "Downloads page trust section at phone width (375 wide, production): fingerprints wrap, nothing overflows",
     "source": "prod-375.png"
+  },
+  {
+    "file": "web/settings/2026-10-14-0748-team-panel-desktop.png",
+    "when": "2026-10-14 07:48 UTC",
+    "size": "1440x1473",
+    "platform": "web",
+    "screen": "settings",
+    "purpose": "Settings with the new Team panel: role, scope and add form (1440 wide, local fixture)",
+    "source": "team-1440.png"
+  },
+  {
+    "file": "web/settings/2026-10-14-0748-team-panel-phone.png",
+    "when": "2026-10-14 07:48 UTC",
+    "size": "375x1919",
+    "platform": "web",
+    "screen": "settings",
+    "purpose": "Team panel at phone width (375 wide, local fixture)",
+    "source": "team-375.png"
   }
 ]

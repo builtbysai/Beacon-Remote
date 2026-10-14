@@ -102,6 +102,14 @@ Build `apps/android-host` (`gradlew :app:assembleDebug`) and install the debug A
 - [ ] Publish a newer build and let an installed host update itself: the new programs are still signed.
 - [ ] Uninstall: it offers to stop trusting the certificate.
 
+## 9. Team
+
+- [ ] With two accounts: in Settings, Team add the second as a viewer for all computers. On the second account, Assist
+      lists your computers under "Shared with you" with your email and "team access"; View works and asks on the computer.
+- [ ] Change them to a technician for one group: only that group's computers remain and Control is offered.
+- [ ] Give another computer that group in its settings: it appears for the technician without any further step.
+- [ ] Remove them: the shared computers disappear and a live session they had ends.
+
 ## What to send back
 
 For anything that felt off: the time, what you did, and the session's row from Sessions (the Connection column).

@@ -241,6 +241,13 @@ Originals are kept as captured (no re-encoding). **Do not delete these in cleanu
 | [2026-10-12-1621-inspector-development-fixture.png](web/inspector/2026-10-12-1621-inspector-development-fixture.png) | 2026-10-12 | original | Computer inspector with the first control buttons (development fixture). |
 | [2026-10-13-0050-display-picker-access-rows.jpg](web/inspector/2026-10-13-0050-display-picker-access-rows.jpg) | 2026-10-13 00:50 UTC | 800x600 | Computer inspector with the display picker and access rows. |
 
+## web / settings
+
+| File | When | Size | What it shows |
+| --- | --- | --- | --- |
+| [2026-10-14-0748-team-panel-desktop.png](web/settings/2026-10-14-0748-team-panel-desktop.png) | 2026-10-14 07:48 UTC | 1440x1473 | Settings with the new Team panel: role, scope and add form (1440 wide, local fixture) |
+| [2026-10-14-0748-team-panel-phone.png](web/settings/2026-10-14-0748-team-panel-phone.png) | 2026-10-14 07:48 UTC | 375x1919 | Team panel at phone width (375 wide, local fixture) |
+
 ## web / sign-in
 
 | File | When | Size | What it shows |
