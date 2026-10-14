@@ -52,6 +52,8 @@ struct WindowState {
     // The helper may send files (chosen in the consent window); received files are announced here.
     files: bool,
     recording: bool,
+    // The helper hears what this computer plays; said plainly in the permissions row.
+    audio: bool,
     deadline: Option<Instant>,
     controller: String,
     session: String,
@@ -77,6 +79,7 @@ impl WindowState {
             control,
             files: false,
             recording: false,
+            audio: false,
             deadline,
             controller: String::new(),
             session: String::new(),
@@ -179,7 +182,7 @@ unsafe fn paint(window: HWND, state: &WindowState) {
             Icon::Lock,
             44.0,
             270.0,
-            if state.files || state.recording {
+            if state.files || state.recording || state.audio {
                 p.accent
             } else {
                 p.faint
@@ -250,7 +253,17 @@ unsafe fn draw_item(state: &WindowState, item: &DRAWITEMSTRUCT) {
 /// nothing is sent until the helper accepts it.
 /// The permissions row: what the helper may do beyond looking, and what is happening right now. While the
 /// helper records, that is said plainly.
-fn extras_line(files: bool, recording: bool, note: &str) -> String {
+fn extras_line(files: bool, recording: bool, audio: bool, note: &str) -> String {
+    let line = permissions_line(files, recording, note);
+    match (audio, line) {
+        (false, line) => line,
+        (true, line) if line.starts_with('●') => format!("{line} · sound shared"),
+        (true, line) if line.ends_with("not allowed") => "Sound shared with the helper".to_string(),
+        (true, line) => format!("{line} · sound shared"),
+    }
+}
+
+fn permissions_line(files: bool, recording: bool, note: &str) -> String {
     if recording && crate::files::recording() {
         return "● Recording · the helper is recording this session".to_string();
     }
@@ -337,7 +350,9 @@ unsafe extern "system" fn procedure(
                 let color = match GetDlgCtrlID(lparam as HWND) {
                     HEADING_ID | NAME_ID | PANEL_ID => p.strong,
                     STATUS_ID | SESSION_ID | FOOTER_ID => p.muted,
-                    ROW_LIMITS_ID if (*state).files || (*state).recording => p.text,
+                    ROW_LIMITS_ID if (*state).files || (*state).recording || (*state).audio => {
+                        p.text
+                    }
                     TAG_ID | ROW_LIMITS_ID => p.faint,
                     _ => p.text,
                 };
@@ -428,10 +443,11 @@ unsafe extern "system" fn procedure(
             SetWindowTextW(control, text.as_ptr());
             InvalidateRect(window, std::ptr::null(), 0);
         }
-        if (*state).files || (*state).recording {
+        if (*state).files || (*state).recording || (*state).audio {
             let line = wide(&extras_line(
                 (*state).files,
                 (*state).recording,
+                (*state).audio,
                 &crate::files::status(),
             ));
             let row = GetDlgItem(window, ROW_LIMITS_ID);
@@ -492,12 +508,14 @@ impl Indicator {
         control: bool,
         files: bool,
         recording: bool,
+        audio: bool,
         session: String,
     ) -> Result<Self, Error> {
         let (ready, received) = mpsc::channel();
         let mut state = WindowState::new(active.clone(), connected, desktop, control, deadline);
         state.files = files && desktop;
         state.recording = recording && desktop;
+        state.audio = audio && desktop;
         state.controller = controller
             .chars()
             .filter(|character| !character.is_control())
@@ -658,7 +676,7 @@ impl Indicator {
                     );
                     let row_limits = make_text(
                         ROW_LIMITS_ID,
-                        &extras_line(state.files, state.recording, ""),
+                        &extras_line(state.files, state.recording, state.audio, ""),
                         70,
                         268,
                         410,

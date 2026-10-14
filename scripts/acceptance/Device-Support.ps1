@@ -1,11 +1,12 @@
 param(
-    [Parameter(Mandatory)][ValidateSet('Start', 'Press', 'WaitWindow', 'Crash', 'Resume', 'ExpireLocal', 'State', 'Reset', 'ChatText', 'Say')][string]$Action,
+    [Parameter(Mandatory)][ValidateSet('Start', 'Press', 'WaitWindow', 'Crash', 'Resume', 'ExpireLocal', 'State', 'Reset', 'ChatText', 'Say', 'Consent')][string]$Action,
     [string]$Link,          # Start: the support link (https://.../#support=<token>)
     [string]$Installer,     # Start: the setup executable to run as the download (path or URL)
     [string]$Server,        # Start: a non-default server (local testing only)
     [string]$Title,         # Press / WaitWindow: part of a window title
     [string]$Button,        # Press: the button's text
     [string]$Text,          # Say: what the person types into the chat box
+    [switch]$Sound,         # Consent: also tick "share this computer's sound"
     [string]$Mode = 'window', # Crash: window | all
     [int]$Seconds = 20
 )
@@ -35,6 +36,19 @@ public static class Dlg {
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
   static string Class(IntPtr h) { var s = new StringBuilder(64); GetClassName(h, s, 64); return s.ToString(); }
   [DllImport("user32.dll")] static extern int GetDlgCtrlID(IntPtr h);
+  // Presses the control with this id (a check box in the consent window has no text to find it by).
+  public static bool ClickId(string title, int id) {
+    bool done = false;
+    EnumWindows((w, _) => {
+      if (!IsWindowVisible(w) || !Text(w).Contains(title)) return true;
+      EnumChildWindows(w, (c, __) => {
+        if (GetDlgCtrlID(c) == id) { SendMessage(c, 0x00F5, IntPtr.Zero, IntPtr.Zero); done = true; return false; }
+        return true;
+      }, IntPtr.Zero);
+      return !done;
+    }, IntPtr.Zero);
+    return done;
+  }
   // An Edit control by its id (105 = the conversation, 104 = the box the person types in) in the window with this title.
   public static string Edit(string title, int id, string set, bool write) {
     string result = null;
@@ -104,6 +118,13 @@ switch ($Action) {
     'Say' {
         [void][Dlg]::Edit('Temporary support', 104, $Text, $true)
         Out-Json @{ sent = (Wait-Until { [Dlg]::Click('Temporary support', 'Send') } 5) }
+    }
+    'Consent' {
+        # The person reads the request and allows it, optionally sharing sound too (control id 205 in the window).
+        $found = Wait-Until { [Dlg]::Exists('incoming connection request') } $Seconds
+        if (-not $found) { Out-Json @{ allowed = $false; reason = 'no request appeared' }; return }
+        if ($Sound) { [void][Dlg]::ClickId('incoming connection request', 205) }
+        Out-Json @{ allowed = (Wait-Until { [Dlg]::Click('incoming connection request', 'Allow once') } 5); sound = [bool]$Sound }
     }
     'WaitWindow' { Out-Json @{ found = (Wait-Until { [Dlg]::Exists($Title) } $Seconds) } }
     'Crash' {

@@ -81,6 +81,9 @@ export function LiveView({
   // The person at the computer paused sharing; screen and input are off until they resume.
   const [peerPaused, setPeerPaused] = useState(false);
   const [displayError, setDisplayError] = useState("");
+  // The computer is sharing its sound (the person ticked it), and whether this viewer is listening.
+  const [hasSound, setHasSound] = useState(false);
+  const [soundOn, setSoundOn] = useState(false);
   const [status, setStatus] = useState(
     grant.source === "desktop"
       ? grant.approval === "policy"
@@ -319,6 +322,7 @@ export function LiveView({
         element.pause();
         element.srcObject = null;
       }
+      setHasSound(false);
     }
     function stopRequest() {
       return api(`sessions/${grant.id}/stop`, {}).catch(() => {});
@@ -512,8 +516,26 @@ export function LiveView({
       }
     };
     pc.ontrack = (event) => {
-      if (!element || closed || event.track.kind !== "video") return;
-      element.srcObject = new MediaStream([event.track]);
+      if (!element || closed) return;
+      if (event.track.kind === "audio") {
+        // Sound the person at the computer agreed to share. It joins the picture's stream and stays muted until
+        // the viewer turns it on, because browsers do not allow sound to start by itself.
+        const stream =
+          element.srcObject instanceof MediaStream
+            ? element.srcObject
+            : new MediaStream();
+        stream.addTrack(event.track);
+        element.srcObject = stream;
+        setHasSound(true);
+        return;
+      }
+      if (event.track.kind !== "video") return;
+      const stream =
+        element.srcObject instanceof MediaStream
+          ? element.srcObject
+          : new MediaStream();
+      stream.addTrack(event.track);
+      element.srcObject = stream;
       void play.current();
       if (element.requestVideoFrameCallback) {
         const count: VideoFrameRequestCallback = (time, metadata) => {
@@ -800,6 +822,20 @@ export function LiveView({
                 ))}
               </select>
             </label>
+          )}
+          {hasSound && (
+            <button
+              className="secondary viewer-sound"
+              aria-pressed={soundOn}
+              title="Hear what is playing on the remote computer"
+              onClick={() => {
+                const next = !soundOn;
+                if (video.current) video.current.muted = !next;
+                setSoundOn(next);
+              }}
+            >
+              {soundOn ? "Sound on" : "Sound off"}
+            </button>
           )}
           {controlReady && (
             <button

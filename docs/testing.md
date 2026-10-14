@@ -24,7 +24,7 @@ and for the second device a second computer.
 
 Scenarios (each starts clean and ends clean even if it fails): the person ends support; the technician ends support; the
 window crashes and support comes back; everything is killed and the restart entry brings it back; the local time limit
-passes; a connection request asks the person and a view link refuses control; chat reaches both sides.
+passes; a connection request asks the person and a view link refuses control; chat reaches both sides; sound is shared only when the person ticks it (this one opens a real browser: set `CHROME_PATH` or use Playwright's Chromium).
 
 ### On one computer (a local fixture)
 
