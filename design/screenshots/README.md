@@ -324,3 +324,4 @@ Originals are kept as captured (no re-encoding). **Do not delete these in cleanu
 | --- | --- | --- | --- |
 | [2026-10-14-1343-support-window-clipped-before.png](windows-host/temporary-support/2026-10-14-1343-support-window-clipped-before.png) | 2026-10-14 13:43 UTC | 516x369 | Temporary support window: the helper's name is clipped (before · support-window) |
 | [2026-10-14-1343-support-window-fixed-after.png](windows-host/temporary-support/2026-10-14-1343-support-window-fixed-after.png) | 2026-10-14 13:43 UTC | 516x369 | Temporary support window after the name and status wrap correctly (after · support-window) |
+| [2026-10-14-1913-support-window-designed.png](windows-host/temporary-support/2026-10-14-1913-support-window-designed.png) | 2026-10-14 19:13 UTC | 516x567 | Temporary support window in the approved native style: pill, technician card, chat, owner-drawn buttons |
