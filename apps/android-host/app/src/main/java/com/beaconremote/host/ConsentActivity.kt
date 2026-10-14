@@ -27,6 +27,7 @@ class ConsentActivity : Activity() {
     private var control: CheckBox? = null
     private var controlNote: TextView? = null
     private var controlSettings: Button? = null
+    private var files: CheckBox? = null
     private val handler = Handler(Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -88,6 +89,15 @@ class ConsentActivity : Activity() {
             layout.addView(control)
             layout.addView(controlNote)
             layout.addView(controlSettings)
+        }
+        if (FileReceiver.supported) {
+            files =
+                CheckBox(this).apply {
+                    text = "Also allow receiving files (saved in Downloads/Beacon Remote)"
+                    textSize = 16f
+                    isChecked = false
+                }
+            layout.addView(files)
         }
         layout.addView(
             TextView(this).apply {
@@ -154,7 +164,8 @@ class ConsentActivity : Activity() {
                 Intent(this, CaptureService::class.java)
                     .putExtra("grant", intent.getStringExtra("grant"))
                     .putExtra("data", data)
-                    .putExtra("control", control?.isChecked == true),
+                    .putExtra("control", control?.isChecked == true)
+                    .putExtra("files", files?.isChecked == true),
             )
             finish()
         } else {

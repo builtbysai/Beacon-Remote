@@ -59,6 +59,13 @@ try {
     SESSION_SECRET: randomBytes(32).toString("hex"),
     CONTROL_ENABLED: "true",
     STUN_URL: "stun:stun.l.google.com:19302",
+    // Optional relay for a phone or emulator that cannot reach the browser directly.
+    ...(process.env.DEV_TURN_URLS && process.env.DEV_TURN_SECRET
+      ? {
+          TURN_URLS: process.env.DEV_TURN_URLS.split(","),
+          TURN_SECRET: process.env.DEV_TURN_SECRET,
+        }
+      : {}),
   });
   await app.listen({ host: "127.0.0.1", port: 3011 });
   process.env.REMOTE_API_ORIGIN = "http://127.0.0.1:3011";

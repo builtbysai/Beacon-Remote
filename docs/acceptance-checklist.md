@@ -146,6 +146,9 @@ journey. These need a person:
 - [ ] **Large file.** In Chrome or Edge, accept a 1 GB file from the computer: it streams to the place you choose, and cancelling leaves nothing.
 - [ ] **Resume.** Send a 200 MB file to the computer, turn Wi-Fi off for ten seconds mid-way, turn it back on: the transfer says
       "Resuming" and finishes with the right checksum (compare the file's SHA-256).
+- [ ] **Android phone.** Pair a real phone; view it; turn it sideways and back (the picture follows); tick "allow receiving files" and send a
+      file from the viewer (it appears in Downloads/Beacon Remote with the same SHA-256); untick it and confirm no Send file button appears.
+      Try control after turning on the accessibility service, and check Android's own sharing chip is visible.
 - [ ] **Self-hosting.** On a small VPS with a real domain, follow docs/self-hosting.md end to end, including a backup and restore.
 
 ## What to send back
