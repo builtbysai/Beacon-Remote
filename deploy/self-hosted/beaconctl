@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# Beacon Remote on your own server: set it up, start it, back it up, update it, roll it back.
+#   ./beaconctl setup <domain> <public-ip>   write .env and the relay's config (new secrets, kept private)
+#   ./beaconctl up                           build and start everything
+#   ./beaconctl first-admin                  print a one-use link (30 minutes) that creates the first account
+#   ./beaconctl status                       what is running and whether it is healthy
+#   ./beaconctl backup                       a database backup in ./backups (the 14 newest are kept)
+#   ./beaconctl restore <file>               put a backup back (stops the app while it does)
+#   ./beaconctl update                       back up, pull the latest code, rebuild, check health
+#   ./beaconctl rollback                     go back to the previous build (see docs/self-hosting.md for the database)
+#   ./beaconctl logs [service]
+set -euo pipefail
+cd "$(dirname "$0")"
+compose() { docker compose "$@"; }
+need_env() { [ -f .env ] || { echo "No .env yet. Run: ./beaconctl setup <domain> <public-ip>" >&2; exit 1; }; }
+secret() { openssl rand -hex 32; }
+
+case "${1:-help}" in
+  setup)
+    domain="${2:-}"; ip="${3:-}"
+    [[ "$domain" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ && ("$domain" == *.* || "$domain" == localhost) ]] || { echo "Give the domain name, e.g. ./beaconctl setup remote.example.com 203.0.113.10" >&2; exit 2; }
+    [[ "$ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || { echo "Give this server's public IPv4 address as the second argument" >&2; exit 2; }
+    [ ! -f .env ] || { echo ".env already exists; it holds this server's secrets and is not overwritten. Delete it yourself to start over." >&2; exit 1; }
+    umask 077
+    turn_secret="$(secret)"
+    cat > .env <<EOF
+DOMAIN=$domain
+PUBLIC_IP=$ip
+REMOTE_ADMIN_PASSWORD=$(secret)
+REMOTE_DB_PASSWORD=$(secret)
+SESSION_SECRET=$(secret)
+TURN_SECRET=$turn_secret
+STUN_URL=
+RESEND_API_KEY=
+MAIL_FROM=
+PUBLIC_SIGNUP=
+EOF
+    mkdir -p secrets downloads backups
+    cat > secrets/turnserver.conf <<EOF
+listening-port=3478
+min-port=49160
+max-port=49200
+realm=$domain
+external-ip=$ip
+use-auth-secret
+static-auth-secret=$turn_secret
+fingerprint
+no-tls
+no-dtls
+no-cli
+no-multicast-peers
+stale-nonce=600
+total-quota=20
+user-quota=4
+bps-capacity=16000000
+max-bps=4000000
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=100.64.0.0-100.127.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+EOF
+    chmod 700 secrets; chmod 644 secrets/turnserver.conf
+    echo "Wrote .env and secrets/turnserver.conf (both private to this folder). Next:"
+    echo "  1. Point $domain at $ip, and open TCP 80 and 443 and UDP 443, 3478 and 49160-49200."
+    echo "  2. ./beaconctl up"
+    echo "  3. ./beaconctl first-admin"
+    ;;
+  up)
+    need_env
+    compose up -d --build
+    echo "Started. https://$(grep ^DOMAIN= .env | cut -d= -f2) once the certificate is issued (usually a minute)."
+    ;;
+  first-admin)
+    need_env
+    compose run --rm -T invite
+    ;;
+  status)
+    need_env
+    compose ps
+    compose --profile tools run --rm -T verify | tail -1
+    ;;
+  backup)
+    need_env
+    mkdir -p backups
+    file="backups/beacon-$(date -u +%Y%m%dT%H%M%SZ).dump"
+    compose exec -T postgres pg_dump -U remote_admin -Fc beacon_remote > "$file"
+    [ -s "$file" ] || { rm -f "$file"; echo "Backup failed" >&2; exit 1; }
+    chmod 600 "$file"
+    ls -1t backups/beacon-*.dump | tail -n +15 | xargs -r rm -f
+    echo "Saved $file"
+    ;;
+  restore)
+    need_env
+    file="${2:-}"; [ -f "$file" ] || { echo "Usage: ./beaconctl restore <backup file>" >&2; exit 2; }
+    read -r -p "This replaces the current data with $file. Type yes to continue: " answer
+    [ "$answer" = "yes" ] || exit 1
+    compose stop web backend
+    compose exec -T postgres pg_restore -U remote_admin -d beacon_remote --clean --if-exists --no-owner --role=remote_app < "$file"
+    compose up -d
+    echo "Restored."
+    ;;
+  update)
+    need_env
+    "$0" backup
+    for image in beacon-remote-selfhosted-backend; do
+      docker image inspect "$image" >/dev/null 2>&1 && docker tag "$image" "$image:previous"
+    done
+    git -C ../.. pull --ff-only
+    compose up -d --build
+    for _ in $(seq 1 30); do
+      if compose exec -T backend node -e "fetch('http://127.0.0.1:3010/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" 2>/dev/null; then
+        echo "Updated and healthy."; exit 0
+      fi
+      sleep 2
+    done
+    echo "The new version did not become healthy. Run ./beaconctl rollback, and see docs/self-hosting.md." >&2
+    exit 1
+    ;;
+  rollback)
+    need_env
+    docker image inspect beacon-remote-selfhosted-backend:previous >/dev/null 2>&1 || { echo "No previous build is kept yet." >&2; exit 1; }
+    docker tag beacon-remote-selfhosted-backend:previous beacon-remote-selfhosted-backend
+    compose up -d --no-build backend
+    echo "Backend rolled back. If the update changed the database, restore the backup it made first: ./beaconctl restore backups/<file>"
+    ;;
+  logs)
+    need_env
+    compose logs --tail=200 -f "${2:-}"
+    ;;
+  *)
+    sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+    ;;
+esac

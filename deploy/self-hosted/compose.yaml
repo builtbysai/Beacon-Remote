@@ -1,0 +1,143 @@
+# Beacon Remote on one server you own: PostgreSQL, the backend, the website with automatic HTTPS, and a TURN relay.
+# Run it through ./beaconctl (see docs/self-hosting.md). Nothing here refers to anyone's domain or secrets: every
+# value comes from .env, which ./beaconctl setup writes for you.
+name: beacon-remote-selfhosted
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_USER: remote_admin
+      POSTGRES_PASSWORD: ${REMOTE_ADMIN_PASSWORD:?run ./beaconctl setup}
+      POSTGRES_DB: postgres
+      REMOTE_DB_PASSWORD: ${REMOTE_DB_PASSWORD:?run ./beaconctl setup}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../../infrastructure/oracle/init-database.sql:/docker-entrypoint-initdb.d/001.sql:ro
+    networks: [private]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U remote_admin -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+    logging: &logs
+      driver: local
+      options: { max-size: 10m, max-file: "3" }
+
+  # Applies the database schema, then exits. The backend waits for it.
+  migrate:
+    build:
+      context: ../..
+      dockerfile: infrastructure/oracle/Dockerfile.backend
+    image: beacon-remote-selfhosted-backend
+    command: [node, apps/backend/dist/apps/backend/scripts/migrate.js]
+    environment: &backend-env
+      DATABASE_URL: postgresql://remote_app:${REMOTE_DB_PASSWORD:?run ./beaconctl setup}@postgres:5432/beacon_remote
+      WEB_ORIGIN: https://${DOMAIN:?run ./beaconctl setup}
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3010"
+      TRUST_PROXY_CIDR: 172.29.77.0/24
+      SESSION_SECRET: ${SESSION_SECRET:?run ./beaconctl setup}
+      CONTROL_ENABLED: "true"
+      TURN_URLS: turn:${DOMAIN}:3478?transport=udp
+      TURN_SECRET: ${TURN_SECRET:?run ./beaconctl setup}
+      STUN_URL: ${STUN_URL:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      PUBLIC_SIGNUP: ${PUBLIC_SIGNUP:-}
+      NODE_OPTIONS: --max-old-space-size=256
+    networks: [private]
+    depends_on: { postgres: { condition: service_healthy } }
+    restart: "no"
+    logging: *logs
+
+  backend:
+    image: beacon-remote-selfhosted-backend
+    environment: *backend-env
+    # `mail` is the one way out, for sign-up and recovery email when it is configured.
+    networks: [private, mail]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    logging: *logs
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3010/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # The website, and the only public entrance: it gets and renews its own HTTPS certificate.
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/self-hosted/Dockerfile.web
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy-data:/data
+      # Builds you publish for download (the installer and its manifest); read-only here.
+      - ./downloads:/srv/downloads:ro
+    networks: [private, public]
+    depends_on: { backend: { condition: service_healthy } }
+    restart: unless-stopped
+    logging: *logs
+
+  # Relays video when two computers cannot reach each other directly. Needs UDP 3478 and the relay range open.
+  turn:
+    image: coturn/coturn:4.7.0-alpine
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+    volumes:
+      - ./secrets/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    ports:
+      - "3478:3478/udp"
+      - "49160-49200:49160-49200/udp"
+    networks: [public]
+    restart: unless-stopped
+    logging: *logs
+
+  # One-off tools, started by ./beaconctl.
+  verify:
+    profiles: [tools]
+    image: beacon-remote-selfhosted-backend
+    command: [node, apps/backend/dist/apps/backend/scripts/verify-schema.js]
+    environment: *backend-env
+    networks: [private]
+    depends_on: { postgres: { condition: service_healthy } }
+    restart: "no"
+  invite:
+    profiles: [tools]
+    image: beacon-remote-selfhosted-backend
+    command: [node, apps/backend/dist/apps/backend/scripts/create-invitation.js]
+    environment: *backend-env
+    networks: [private]
+    depends_on: { postgres: { condition: service_healthy } }
+    restart: "no"
+
+networks:
+  # The database and the backend talk here and nowhere else.
+  private:
+    internal: true
+    ipam:
+      config: [{ subnet: 172.29.77.0/24 }]
+  public: {}
+  mail: {}
+
+volumes:
+  postgres-data: {}
+  caddy-data: {}
