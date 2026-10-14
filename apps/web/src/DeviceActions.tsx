@@ -80,8 +80,34 @@ export function DeviceActions({
       go: "Uninstall and remove",
     },
   };
+  async function wakeUp() {
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      const result = await api<{ via?: string }>(
+        `machines/${machine.id}/wake`,
+        {},
+      );
+      setNote(
+        `Asked ${result.via ?? "another computer on its network"} to send a wake signal. It can take up to a minute, and only works if this computer allows waking over the network.`,
+      );
+    } catch {
+      setError("Could not send the wake signal. Try again in a moment.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="inspector-revoke">
+      {machine.canWake && !machine.online && (
+        <div className="actions">
+          <button disabled={busy} onClick={() => void wakeUp()}>
+            Wake this computer
+          </button>
+        </div>
+      )}
       {asking ? (
         <>
           <p>{copy[asking].text}</p>

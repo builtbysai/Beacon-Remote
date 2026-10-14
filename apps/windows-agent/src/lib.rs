@@ -2,6 +2,7 @@ mod credentials;
 #[cfg(windows)]
 mod helper_lifetime;
 pub mod incoming;
+pub mod network;
 mod sessions;
 pub mod support;
 pub mod support_supervisor;
@@ -519,6 +520,7 @@ pub fn run(cancel: Arc<AtomicBool>, status: SyncSender<HostStatus>) -> Result<()
             "version": 1, "machineId": identity.machine_id, "timestamp": timestamp,
             "nonce": nonce, "signature": STANDARD.encode(key.sign(message.as_bytes()).to_bytes()),
             "displays": local_displays(),
+            "network": network_report(),
         })).send();
         match response {
             Ok(response) if response.status().is_success() => {
@@ -533,6 +535,12 @@ pub fn run(cancel: Arc<AtomicBool>, status: SyncSender<HostStatus>) -> Result<()
                     }
                     pause(&cancel, Duration::from_secs(15));
                     continue;
+                }
+                // Asked by the server to wake a neighbour of this account on this network (ADR 0042).
+                for request in body["wake"].as_array().into_iter().flatten() {
+                    if let Some(mac) = request["mac"].as_str() {
+                        let _ = network::send_magic(mac);
+                    }
                 }
                 let mut poll_after = body["pollAfterMillis"]
                     .as_u64()
@@ -654,6 +662,14 @@ fn remove_this_computer() {
     }
 }
 
+/// The hardware addresses and local network name this computer reports, or null when it cannot tell.
+fn network_report() -> serde_json::Value {
+    match network::info() {
+        Some((macs, lan)) => serde_json::json!({ "macs": macs, "lan": lan }),
+        None => serde_json::Value::Null,
+    }
+}
+
 fn client() -> Result<reqwest::blocking::Client, HostError> {
     Ok(reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(10))
@@ -763,6 +779,17 @@ pub fn cli() -> Result<(), HostError> {
                     ),
                     None => println!("Already up to date."),
                 },
+            }
+            Ok(())
+        }
+        "network" => {
+            match network::info() {
+                Some((macs, lan)) => println!(
+                    "Hardware addresses: {}
+Network: {lan}",
+                    macs.join(", ")
+                ),
+                None => println!("No connected network card with a gateway was found."),
             }
             Ok(())
         }

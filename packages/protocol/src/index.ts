@@ -30,6 +30,17 @@ export const heartbeat = z
     nonce: z.string().uuid(),
     signature: z.string().regex(/^[A-Za-z0-9+/]{86}==$/),
     displays: z.array(displayInfo).max(8).optional(),
+    // For Wake-on-LAN (ADR 0042): hardware addresses, and a name for the local network the computer is on.
+    network: z
+      .object({
+        macs: z
+          .array(z.string().regex(/^[0-9A-F]{2}(:[0-9A-F]{2}){5}$/))
+          .max(4),
+        lan: z.string().regex(/^[0-9a-f]{16}$/),
+      })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict();
 
@@ -134,6 +145,8 @@ export interface Machine {
   // A computer made by a one-use support link (ADR 0038); it lives in the support queue, not the everyday list.
   temporary?: boolean;
   // The owner asked to uninstall this computer (ADR 0039): pending until it confirms, then uninstalledAt is set.
+  // Offline, but another of the owner's computers on the same network can send it a wake signal (ADR 0042).
+  canWake?: boolean;
   uninstallPending?: boolean;
   uninstalledAt?: string | null;
 }
