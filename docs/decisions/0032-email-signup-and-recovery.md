@@ -31,3 +31,10 @@ Resend for Beacon View's monitor, so a provider exists; Remote uses its own key 
 
 A CAPTCHA or proof-of-work (add if the daily cap is ever reached by abuse), disposable-address blocking, and
 changing the account email address.
+
+## Mail egress (added 2026-10-14)
+
+The production backend sits on an internal-only network, so it could not reach Resend. It now also joins a
+`mail-egress` network, the same pattern the backup job uses for object storage. This is the backend's only route to
+the internet; it stays read-only with all capabilities dropped, and the only place it connects out is the mail
+provider's API. Sending uses the shared `auth.builtbysai.com` domain with a Remote-only, sending-only API key.
