@@ -424,6 +424,12 @@ export async function registerSessions(
       "INSERT INTO audit_events(account_id,machine_id,action) VALUES ($1,$2,$3)",
       [input.account, session.machine_id, action],
     );
+    // The computer's owner sees a helper's or team member's request in their own activity, with who made it.
+    await client.query(
+      `INSERT INTO audit_events(account_id,machine_id,action,actor_account_id)
+       SELECT m.account_id,m.id,$2,$3 FROM machines m WHERE m.id=$1 AND m.account_id<>$3`,
+      [session.machine_id, action, input.account],
+    );
     return session;
   }
   app.post(
@@ -1212,9 +1218,18 @@ export async function registerSessions(
                   WHERE id=$1 AND status='connecting' AND ${liveDuration("s")}
                   AND EXISTS (SELECT 1 FROM machines m WHERE m.id=s.machine_id AND m.revoked_at IS NULL)
                   RETURNING account_id,machine_id
+                ),
+                mine AS (
+                  INSERT INTO audit_events(account_id,machine_id,action)
+                  SELECT account_id,machine_id,$3 FROM transitioned RETURNING id
+                ),
+                owners AS (
+                  INSERT INTO audit_events(account_id,machine_id,action,actor_account_id)
+                  SELECT m.account_id,t.machine_id,$3,t.account_id
+                  FROM transitioned t JOIN machines m ON m.id=t.machine_id WHERE m.account_id<>t.account_id
+                  RETURNING id
                 )
-                INSERT INTO audit_events(account_id,machine_id,action)
-                SELECT account_id,machine_id,$3 FROM transitioned RETURNING id`,
+                SELECT id FROM mine`,
                 [
                   session.id,
                   body.accepted ? "active" : "denied",
