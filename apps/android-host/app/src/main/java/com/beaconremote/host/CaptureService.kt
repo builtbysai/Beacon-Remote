@@ -52,6 +52,8 @@ class CaptureService : Service() {
         HostState.status = "Sharing your screen"
         // Control happens only if the person chose it on the request screen and the accessibility service is on.
         val control = intent.getBooleanExtra("control", false) && ControlService.instance != null
+        // Receiving files is only ever what the person ticked on the request screen.
+        val files = intent.getBooleanExtra("files", false) && FileReceiver.supported
         session =
             ShareSession(
                 applicationContext,
@@ -59,6 +61,7 @@ class CaptureService : Service() {
                 Identity(this).server,
                 data,
                 control,
+                files,
                 { active ->
                     controlling = active
                     HostState.controlling = active

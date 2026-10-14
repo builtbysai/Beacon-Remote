@@ -78,6 +78,32 @@ const extended: Record<string, number> = {
   },
 );
 
+/** Validates the computer's description of what is being controlled; null if it is not one. */
+export function parseDisplay(raw: string): {
+  id: string;
+  width: number;
+  height: number;
+  platform?: string;
+} | null {
+  try {
+    const data = JSON.parse(raw);
+    if (
+      data.type !== "display" ||
+      typeof data.id !== "string" ||
+      !data.id.length ||
+      data.id.length > 80 ||
+      !Number.isInteger(data.width) ||
+      !Number.isInteger(data.height) ||
+      Math.min(data.width, data.height) < 1 ||
+      Math.max(data.width, data.height) > 32768
+    )
+      return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 export function physicalPoint(
   clientX: number,
   clientY: number,
@@ -502,42 +528,30 @@ export function attachRemoteInput(
       }
       return;
     }
-    if (
-      disposed ||
-      typeof event.data !== "string" ||
-      event.data.length > 512 ||
-      display
-    ) {
+    if (disposed || typeof event.data !== "string" || event.data.length > 512) {
       onFailure();
       return;
     }
-    try {
-      const data = JSON.parse(event.data);
-      if (
-        data.type !== "display" ||
-        typeof data.id !== "string" ||
-        !data.id.length ||
-        data.id.length > 80 ||
-        !Number.isInteger(data.width) ||
-        !Number.isInteger(data.height) ||
-        Math.min(data.width, data.height) < 1 ||
-        Math.max(data.width, data.height) > 32768
-      )
-        throw new Error();
-      display = data;
-      onPlatform(data.platform === "android" ? "android" : "desktop");
-      // Ask the browser to deliver Alt+Tab, Win and similar keys to the remote computer while it
-      // is full screen. Unsupported browsers keep their own shortcuts; Ctrl+Alt+Del cannot be sent.
-      void (
-        navigator as Navigator & { keyboard?: { lock?: () => Promise<void> } }
-      ).keyboard
-        ?.lock?.()
-        .catch(() => undefined);
-      onState(true);
-      send({ type: "keep_alive" });
-    } catch {
+    const next = parseDisplay(event.data);
+    if (!next) {
       onFailure();
+      return;
     }
+    // The first message says what is being controlled. A later one (a phone turned sideways, a monitor that changed
+    // resolution) replaces its size, so pointer positions keep landing where they should.
+    const first = !display;
+    display = next;
+    if (!first) return;
+    onPlatform(next.platform === "android" ? "android" : "desktop");
+    // Ask the browser to deliver Alt+Tab, Win and similar keys to the remote computer while it
+    // is full screen. Unsupported browsers keep their own shortcuts; Ctrl+Alt+Del cannot be sent.
+    void (
+      navigator as Navigator & { keyboard?: { lock?: () => Promise<void> } }
+    ).keyboard
+      ?.lock?.()
+      .catch(() => undefined);
+    onState(true);
+    send({ type: "keep_alive" });
   };
   channel.onclose = () => {
     onState(false);

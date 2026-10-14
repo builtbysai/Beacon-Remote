@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Android TV home screen tile (320 x 180). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+    <path android:fillColor="#1F4FB8" android:pathData="M0,0h320v180h-320z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M112,62h96a8,8 0 0 1 8,8v44a8,8 0 0 1 -8,8h-96a8,8 0 0 1 -8,-8v-44a8,8 0 0 1 8,-8z" />
+    <path android:fillColor="#1F4FB8" android:pathData="M118,72h84v32h-84z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M148,126h24v6h-24z" />
+</vector>

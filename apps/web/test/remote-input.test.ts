@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { physicalPoint } from "../src/remote-input.js";
+import { parseDisplay, physicalPoint } from "../src/remote-input.js";
 
 test("input coordinates exclude letterboxing and map encoded video to physical monitor pixels", () => {
   // A 2560x1440 display encoded as 1280x720, fitted inside a square CSS element.
@@ -29,4 +29,32 @@ test("input coordinates exclude letterboxing and map encoded video to physical m
     x: 540,
     y: 960,
   });
+});
+
+test("the computer's description of what is controlled is checked, and a later one is accepted the same way", () => {
+  const good = JSON.stringify({
+    type: "display",
+    id: "0",
+    width: 1080,
+    height: 2400,
+    platform: "android",
+  });
+  assert.deepEqual(parseDisplay(good)?.width, 1080);
+  // Turned sideways: the same kind of message with the sizes swapped.
+  assert.deepEqual(
+    parseDisplay(
+      JSON.stringify({ type: "display", id: "0", width: 2400, height: 1080 }),
+    )?.height,
+    1080,
+  );
+  for (const bad of [
+    "not json",
+    "{}",
+    JSON.stringify({ type: "display", id: "", width: 10, height: 10 }),
+    JSON.stringify({ type: "display", id: "0", width: 0, height: 10 }),
+    JSON.stringify({ type: "display", id: "0", width: 40000, height: 10 }),
+    JSON.stringify({ type: "display", id: "0", width: 1.5, height: 10 }),
+    JSON.stringify({ type: "other", id: "0", width: 10, height: 10 }),
+  ])
+    assert.equal(parseDisplay(bad), null, bad);
 });
