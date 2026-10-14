@@ -17,7 +17,9 @@ export function AssistPanel({
         id: string;
         machineName: string;
         capability: "desktop:view" | "desktop:control";
-        expiresAtMillis: number;
+        expiresAtMillis: number | null;
+        ownerEmail: string;
+        team: boolean;
         online: boolean;
       }[]
     | null
@@ -139,8 +141,11 @@ export function AssistPanel({
                     <span>
                       {entry.machineName}
                       <small>
-                        {entry.online ? "Online" : "Offline"} · until{" "}
-                        {new Date(entry.expiresAtMillis).toLocaleDateString()}
+                        {entry.ownerEmail} ·{" "}
+                        {entry.online ? "Online" : "Offline"} ·{" "}
+                        {entry.expiresAtMillis === null
+                          ? "team access"
+                          : `until ${new Date(entry.expiresAtMillis).toLocaleDateString()}`}
                       </small>
                     </span>
                     <span className="support-actions">

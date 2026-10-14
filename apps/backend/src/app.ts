@@ -28,6 +28,7 @@ import {
 import type { Config } from "./config.js";
 import { registerSessions } from "./sessions.js";
 import { registerAccountData } from "./account-data.js";
+import { registerTeam, syncTeam } from "./team.js";
 import { registerMfa } from "./mfa.js";
 import { createMailer, type Mailer } from "./mail.js";
 import { registerSignup } from "./signup.js";
@@ -215,6 +216,14 @@ export async function createApp(
     config,
     accountOrGuest,
     guests,
+  );
+
+  registerTeam(
+    app,
+    pool,
+    owner,
+    sameOrigin,
+    sessionRequests.endRelationshipSessions,
   );
 
   app.get("/health", async () => ({ status: "ok", service: "beacon-remote" }));
@@ -427,6 +436,11 @@ export async function createApp(
     );
     if (result.rowCount !== 1)
       return reply.code(404).send({ error: "Computer unavailable" });
+    // A group change can move the computer in or out of a team's scope.
+    if (setGroup)
+      await sessionRequests.endRelationshipSessions(
+        await syncTeam(pool, account),
+      );
     return { ok: true };
   });
 
@@ -526,6 +540,8 @@ export async function createApp(
           "INSERT INTO audit_events(account_id,machine_id,action) VALUES ($1,$2,$3)",
           [account, id, "machine.enrolled"],
         );
+        // A new computer joins the teams whose scope covers it.
+        await syncTeam(client, account);
         await client.query("COMMIT");
         return { version: 1, machineId: id, heartbeatIntervalSeconds: 15 };
       } catch {
@@ -939,6 +955,9 @@ export async function createApp(
     if (!result.rowCount)
       return reply.code(404).send({ error: "Machine unavailable" });
     sessionRequests.wake(id.data.id);
+    await sessionRequests.endRelationshipSessions(
+      await syncTeam(pool, account),
+    );
     return { ok: true };
   });
   return app;

@@ -696,8 +696,8 @@ export async function registerSessions(
     if (!path.success)
       return reply.code(400).send({ error: "Invalid computer" });
     const result = await pool.query(
-      `SELECT r.id,a.email AS "helperEmail",r.capability,
-              (extract(epoch FROM r.expires_at)*1000)::bigint AS "expiresAtMillis"
+      `SELECT r.id,a.email AS "helperEmail",r.capability,(r.team_member_id IS NOT NULL) AS team,
+              CASE WHEN r.team_member_id IS NULL THEN (extract(epoch FROM r.expires_at)*1000)::bigint END AS "expiresAtMillis"
        FROM support_relationships r JOIN accounts a ON a.id=r.helper_account_id
        JOIN machines m ON m.id=r.machine_id
        WHERE r.machine_id=$1 AND m.account_id=$2 AND r.revoked_at IS NULL AND r.expires_at>now()
@@ -707,7 +707,9 @@ export async function registerSessions(
     return {
       relationships: result.rows.map((row) => ({
         ...row,
-        expiresAtMillis: Number(row.expiresAtMillis),
+        // Team shares have no expiry of their own.
+        expiresAtMillis:
+          row.expiresAtMillis === null ? null : Number(row.expiresAtMillis),
       })),
     };
   });
@@ -719,6 +721,14 @@ export async function registerSessions(
     const path = relationshipParams.safeParse(request.params);
     if (!path.success)
       return reply.code(400).send({ error: "Invalid support access" });
+    // A share that comes from the team is changed in the team settings, or it would simply return.
+    const managed = await pool.query(
+      `SELECT 1 FROM support_relationships r JOIN machines m ON m.id=r.machine_id
+       WHERE r.id=$1 AND m.account_id=$2 AND r.revoked_at IS NULL AND r.team_member_id IS NOT NULL`,
+      [path.data.id, account],
+    );
+    if (managed.rowCount)
+      return reply.code(409).send({ error: "Managed by your team" });
     const revoked = await pool.query<{ machine_id: string }>(
       `UPDATE support_relationships r SET revoked_at=now()
        FROM machines m WHERE r.id=$1 AND m.id=r.machine_id AND m.account_id=$2 AND r.revoked_at IS NULL
@@ -744,10 +754,10 @@ export async function registerSessions(
     const account = await owner(request);
     if (!account) return reply.code(401).send({ error: "Sign in required" });
     const result = await pool.query(
-      `SELECT r.id,m.name AS "machineName",r.capability,
-              (extract(epoch FROM r.expires_at)*1000)::bigint AS "expiresAtMillis",
+      `SELECT r.id,m.name AS "machineName",r.capability,oa.email AS "ownerEmail",(r.team_member_id IS NOT NULL) AS team,
+              CASE WHEN r.team_member_id IS NULL THEN (extract(epoch FROM r.expires_at)*1000)::bigint END AS "expiresAtMillis",
               (m.last_seen_at>now()-interval '45 seconds') AS online
-       FROM support_relationships r JOIN machines m ON m.id=r.machine_id
+       FROM support_relationships r JOIN machines m ON m.id=r.machine_id JOIN accounts oa ON oa.id=m.account_id
        WHERE r.helper_account_id=$1 AND r.revoked_at IS NULL AND r.expires_at>now() AND m.revoked_at IS NULL
        ORDER BY r.created_at`,
       [account],
@@ -755,7 +765,8 @@ export async function registerSessions(
     return {
       shared: result.rows.map((row) => ({
         ...row,
-        expiresAtMillis: Number(row.expiresAtMillis),
+        expiresAtMillis:
+          row.expiresAtMillis === null ? null : Number(row.expiresAtMillis),
       })),
     };
   });
@@ -1331,5 +1342,14 @@ export async function registerSessions(
       waiting?.finish();
     }
   }
-  return { pending, wake, enabled };
+  // Ends sessions that relied on shares that were just revoked.
+  async function endRelationshipSessions(relationships: string[]) {
+    if (!relationships.length) return;
+    const live = await pool.query<{ id: string }>(
+      "SELECT id FROM view_sessions WHERE relationship_id=ANY($1::uuid[]) AND status IN ('requested','connecting','active')",
+      [relationships],
+    );
+    for (const row of live.rows) await finish(row.id);
+  }
+  return { pending, wake, enabled, endRelationshipSessions };
 }

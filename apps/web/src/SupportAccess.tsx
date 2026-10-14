@@ -5,7 +5,9 @@ type Relationship = {
   id: string;
   helperEmail: string;
   capability: "desktop:view" | "desktop:control";
-  expiresAtMillis: number;
+  // Null for a share that comes from the team: it has no expiry of its own.
+  expiresAtMillis: number | null;
+  team?: boolean;
 };
 
 const dayLabel = (millis: number) =>
@@ -101,16 +103,23 @@ export function SupportAccess({
                   {entry.capability === "desktop:control"
                     ? "View and control"
                     : "View only"}{" "}
-                  · until {dayLabel(entry.expiresAtMillis)}
+                  ·{" "}
+                  {entry.expiresAtMillis === null
+                    ? "from your team"
+                    : `until ${dayLabel(entry.expiresAtMillis)}`}
                 </small>
               </span>
-              <button
-                className="secondary"
-                disabled={busy}
-                onClick={() => void remove(entry.id)}
-              >
-                Remove
-              </button>
+              {entry.team ? (
+                <small>Change in Settings, Team</small>
+              ) : (
+                <button
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => void remove(entry.id)}
+                >
+                  Remove
+                </button>
+              )}
             </li>
           ))}
         </ul>

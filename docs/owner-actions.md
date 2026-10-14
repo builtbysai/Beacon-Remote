@@ -65,8 +65,6 @@ column). I fix what you find.
 - **Install the Android app without a cable:** free. I create a release key and offer the app on the Downloads page.
   Google Play instead has a one-time fee of about $25 and a testing requirement for new accounts; check Play Console
   for the current rule. Tell me which you prefer once the real-phone test passes.
-- **A macOS host:** needs a Mac to build and test on, and Apple's developer programme ($99 a year) to sign it. Linux
-  hosts need neither and are free; say when you want them.
 
 ## What I am doing meanwhile
 
