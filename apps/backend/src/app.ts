@@ -32,6 +32,7 @@ import { registerTeam, syncTeam } from "./team.js";
 import { registerSupportLinks } from "./support-links.js";
 import { purgeStale } from "./retention.js";
 import { registerDeviceRemoval } from "./device-removal.js";
+import { registerSupportWorkflow } from "./support-workflow.js";
 import { registerMfa } from "./mfa.js";
 import { createMailer, type Mailer } from "./mail.js";
 import { registerSignup } from "./signup.js";
@@ -246,6 +247,15 @@ export async function createApp(
     sessionRequests.endMachineSessions,
   );
 
+  registerSupportWorkflow(
+    app,
+    pool,
+    owner,
+    sameOrigin,
+    signedByMachine,
+    sessionRequests.wake,
+    sessionRequests.endMachineSessions,
+  );
   registerDeviceRemoval(
     app,
     pool,

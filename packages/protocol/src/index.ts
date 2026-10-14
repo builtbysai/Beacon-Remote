@@ -245,3 +245,26 @@ export function uninstallMessage(
 ): string {
   return `beacon-remote:uninstall:v1\n${machineId}\n${timestamp}\n${nonce}`;
 }
+
+// Chat from the person being helped (ADR 0040): one signed request sends an optional message and fetches new ones.
+export const chatRequest = z
+  .object({
+    version: z.literal(PROTOCOL_VERSION),
+    machineId: z.string().uuid(),
+    timestamp: z.number().int().positive(),
+    nonce: z.string().uuid(),
+    since: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+    text: z.string().trim().min(1).max(1000).optional(),
+    signature: z.string().regex(/^[A-Za-z0-9+/]{86}==$/),
+  })
+  .strict();
+
+export function chatMessage(
+  machineId: string,
+  timestamp: number,
+  nonce: string,
+  since: number,
+  textSha256: string,
+): string {
+  return `beacon-remote:chat:v1\n${machineId}\n${timestamp}\n${nonce}\n${since}\n${textSha256}`;
+}

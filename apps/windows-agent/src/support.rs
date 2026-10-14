@@ -141,6 +141,74 @@ pub fn technician() -> String {
     read_record().map(|r| r.technician).unwrap_or_default()
 }
 
+/// One line of the conversation with the technician.
+#[derive(Clone, Debug)]
+pub struct ChatMessage {
+    pub id: u64,
+    /// "technician", "person" (this computer's own user) or "system".
+    pub sender: String,
+    pub body: String,
+}
+
+/// Sends an optional message and fetches what is new after `since`, in one signed request. The reply also says who
+/// the technician is now, which is remembered for the window (a handoff changes it).
+pub fn chat_exchange(since: u64, text: Option<&str>) -> Result<Vec<ChatMessage>, HostError> {
+    use sha2::{Digest, Sha256};
+    let identity = load_identity()?;
+    let server = validate_server(&identity.server)?;
+    let key = SigningKey::from_bytes(&identity.secret_key);
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
+    let nonce = uuid::Uuid::new_v4().to_string();
+    let digest: String = Sha256::digest(text.unwrap_or("").as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    let digest = if text.is_some() {
+        digest
+    } else {
+        String::new()
+    };
+    let message = format!(
+        "beacon-remote:chat:v1\n{}\n{}\n{}\n{}\n{}",
+        identity.machine_id, timestamp, nonce, since, digest
+    );
+    let mut body = serde_json::json!({
+        "version": 1, "machineId": identity.machine_id, "timestamp": timestamp, "nonce": nonce,
+        "since": since, "signature": STANDARD.encode(key.sign(message.as_bytes()).to_bytes()),
+    });
+    if let Some(text) = text {
+        body["text"] = text.into();
+    }
+    let response = client()?
+        .post(server.join("/api/agent/chat")?)
+        .json(&body)
+        .send()?;
+    if !response.status().is_success() {
+        return Err("The chat could not be reached".into());
+    }
+    let reply: serde_json::Value = response.json()?;
+    if let (Some(technician), Some(mut record)) = (reply["technician"].as_str(), read_record()) {
+        if record.technician != technician {
+            record.technician = technician.to_owned();
+            let _ = write_record(&record);
+        }
+    }
+    Ok(reply["messages"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter_map(|item| {
+                    Some(ChatMessage {
+                        id: item["id"].as_u64()?,
+                        sender: item["sender"].as_str()?.to_owned(),
+                        body: item["body"].as_str()?.to_owned(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
 /// The time this temporary access ends by itself, in milliseconds since 1970. None until a link is redeemed.
 pub fn deadline() -> Option<u64> {
     read_record()
