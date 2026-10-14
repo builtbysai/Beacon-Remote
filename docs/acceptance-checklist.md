@@ -75,6 +75,8 @@ Build `apps/android-host` (`gradlew :app:assembleDebug`) and install the debug A
       chip, and the notification offers Pause and Stop (also on the lock screen).
 - [ ] Pause shows the pause banner in the viewer; Resume clears it; Stop ends the session and the notification.
 - [ ] Switch the phone from Wi-Fi to mobile data during a session; lock the screen; check what happens.
+- [ ] Restart the phone: it is available again without opening the app. After Stop being available, a restart
+      leaves it unavailable.
 - [ ] Remove this phone in the app and in the workspace; it can no longer be reached.
 
 ## What to send back

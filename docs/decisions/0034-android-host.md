@@ -20,6 +20,8 @@ visible and approved by the person holding the device.
   screen intent.
 - **Consent is the phone's.** Nothing is captured until the person taps Allow once in the app and then accepts
   Android's own screen-capture prompt. Declining, closing, or two minutes passing tells the server no.
+- **After a restart** the phone becomes available again only if it was left available: "Stop being available"
+  clears that choice, and so does removing the phone from the account.
 - **Sharing** runs in a second foreground service (`mediaProjection`) with a public notification that always offers
   Pause and Stop, plus Android's own sharing chip. Pause turns the video off and tells the viewer; Stop ends the
   session. The lease is the same as Windows: numbered challenges every second, sharing ends unless a reply to one
@@ -33,6 +35,5 @@ visible and approved by the person holding the device.
 - Verified on the Android 16 emulator, relayed through a local TURN server; not yet on a real phone, a locked
   screen, or mobile data. The emulator cannot reach the browser directly because the browser hides its addresses
   behind mDNS names, so a relay is needed there; real phones on a home network resolve them.
-- Audio, control, and a launcher icon are not done. The app is unsigned debug-only until a release key is chosen.
-- Pause tells the viewer the person "at the computer" paused; the wording should say "phone" for Android.
+- Audio and control are not done. The app is unsigned debug-only until a release key is chosen.
 - Not published for download yet.

@@ -68,7 +68,7 @@ class CaptureService : Service() {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
         return NotificationCompat.Builder(this, AvailabilityService.SHARING)
-            .setSmallIcon(android.R.drawable.presence_video_online)
+            .setSmallIcon(R.drawable.ic_stat_beacon)
             .setContentTitle(if (paused) "Sharing is paused" else "Sharing your screen")
             .setContentText(controller)
             .setOngoing(true)

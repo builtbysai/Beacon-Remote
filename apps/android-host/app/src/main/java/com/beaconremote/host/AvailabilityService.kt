@@ -33,6 +33,7 @@ class AvailabilityService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            Identity(this).wantsAvailable = false
             running = false
             HostState.status = "Not available"
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -45,12 +46,13 @@ class AvailabilityService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        identity.wantsAvailable = true
         channels()
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val stop = PendingIntent.getService(this, 1, Intent(this, AvailabilityService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
         val notification: Notification =
             NotificationCompat.Builder(this, AVAILABLE)
-                .setSmallIcon(android.R.drawable.presence_online)
+                .setSmallIcon(R.drawable.ic_stat_beacon)
                 .setContentTitle("Beacon Remote is available")
                 .setContentText("Someone you allow can ask to see this screen. You approve each request.")
                 .setContentIntent(open)
@@ -83,6 +85,7 @@ class AvailabilityService : Service() {
                 if (pause > 0) Thread.sleep(pause)
             } catch (rejected: Api.Rejected) {
                 HostState.status = "This phone was removed from your account"
+                identity.wantsAvailable = false
                 running = false
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
@@ -106,7 +109,7 @@ class AvailabilityService : Service() {
         manager.notify(
             2,
             NotificationCompat.Builder(this, REQUEST)
-                .setSmallIcon(android.R.drawable.ic_menu_view)
+                .setSmallIcon(R.drawable.ic_stat_beacon)
                 .setContentTitle("Request to see your screen")
                 .setContentText("${grant.optString("controller", "Someone")} is asking. Tap to review.")
                 .setPriority(NotificationCompat.PRIORITY_MAX)

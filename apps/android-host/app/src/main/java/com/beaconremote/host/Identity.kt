@@ -30,6 +30,11 @@ class Identity(private val context: Context) {
         get() = prefs.getString("name", "") ?: ""
         private set(value) = prefs.edit().putString("name", value).apply()
 
+    /** Whether the person wants this phone reachable; kept across restarts, cleared by Stop being available. */
+    var wantsAvailable: Boolean
+        get() = prefs.getBoolean("available", false)
+        set(value) = prefs.edit().putBoolean("available", value).apply()
+
     val paired: Boolean get() = machineId.isNotEmpty() && prefs.contains("seed")
 
     /** A new key pair for pairing. The seed is stored only once the server accepts the enrollment. */
