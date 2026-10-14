@@ -100,6 +100,70 @@ pub struct Incoming {
     written: u64,
     hasher: Sha256,
     done: bool,
+    // Kept for a reconnecting viewer instead of being deleted (see `park`).
+    parked: bool,
+    // What identifies it for a later offer of the same file: where, the safe name, the announced size.
+    key: (PathBuf, String, u64),
+}
+
+/// An interrupted incoming file that stays on disk, for this session only, so the same viewer can carry on from
+/// where it stopped. Only held in this process's memory: a new session never sees it, and it is deleted when the
+/// session ends, sharing is paused, or the person at this computer stops sharing.
+struct Parked {
+    key: (PathBuf, String, u64),
+    part: PathBuf,
+    target: PathBuf,
+    written: u64,
+}
+static PARKED: std::sync::Mutex<Vec<Parked>> = std::sync::Mutex::new(Vec::new());
+const MAX_PARKED: usize = 4;
+
+/// Deletes every interrupted file kept for resuming.
+pub fn discard_parked() {
+    if let Ok(mut parked) = PARKED.lock() {
+        for entry in parked.drain(..) {
+            let _ = fs::remove_file(entry.part);
+        }
+    }
+}
+
+/// Deletes the interrupted copy of one file, when the viewer would rather start it again.
+pub fn discard_matching(folder: &Path, proposed: &str, size: u64) {
+    let Some(name) = safe_name(proposed) else {
+        return;
+    };
+    if let Ok(mut parked) = PARKED.lock() {
+        parked.retain(|entry| {
+            let same = entry.key == (folder.to_path_buf(), name.clone(), size);
+            if same {
+                let _ = fs::remove_file(&entry.part);
+            }
+            !same
+        });
+    }
+}
+
+/// Removes `.beaconpart` files older than a day, left behind if a session ended abnormally.
+pub fn sweep_stale(folder: &Path) {
+    let Ok(entries) = fs::read_dir(folder) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let old = entry
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .ok()
+            .and_then(|modified| modified.elapsed().ok())
+            .is_some_and(|age| age > std::time::Duration::from_secs(24 * 3600));
+        if old
+            && path
+                .extension()
+                .is_some_and(|extension| extension == "beaconpart")
+        {
+            let _ = fs::remove_file(path);
+        }
+    }
 }
 
 impl Incoming {
@@ -131,7 +195,85 @@ impl Incoming {
             written: 0,
             hasher: Sha256::new(),
             done: false,
+            parked: false,
+            key: (folder.to_path_buf(), name, size),
         })
+    }
+
+    /// Picks up an interrupted copy of this same file (same folder, name and size) from this session, if there is
+    /// one and it is exactly as long as it was when it was set aside. Its hash is rebuilt from what is on disk.
+    pub fn resume(folder: &Path, proposed: &str, size: u64) -> Option<Self> {
+        let name = safe_name(proposed)?;
+        let key = (folder.to_path_buf(), name, size);
+        let entry = {
+            let mut parked = PARKED.lock().ok()?;
+            let at = parked.iter().position(|entry| entry.key == key)?;
+            parked.remove(at)
+        };
+        let reopen = || -> io::Result<Self> {
+            let mut read = File::open(&entry.part)?;
+            if read.metadata()?.len() != entry.written {
+                return Err(io::Error::other("the kept part changed"));
+            }
+            let mut hasher = Sha256::new();
+            let mut buffer = vec![0u8; 64 * 1024];
+            loop {
+                let count = io::Read::read(&mut read, &mut buffer)?;
+                if count == 0 {
+                    break;
+                }
+                hasher.update(&buffer[..count]);
+            }
+            let file = OpenOptions::new().append(true).open(&entry.part)?;
+            Ok(Self {
+                part: entry.part.clone(),
+                target: entry.target.clone(),
+                file: Some(file),
+                expected: size,
+                written: entry.written,
+                hasher,
+                done: false,
+                parked: false,
+                key: key.clone(),
+            })
+        };
+        match reopen() {
+            Ok(incoming) => Some(incoming),
+            Err(_) => {
+                let _ = fs::remove_file(&entry.part);
+                None
+            }
+        }
+    }
+
+    /// How much is already here and the SHA-256 of exactly those bytes, for the viewer to check against its own copy.
+    pub fn resume_point(&self) -> (u64, String) {
+        (self.written, hex(&self.hasher.clone().finalize()))
+    }
+
+    /// Sets an interrupted file aside for a reconnecting viewer instead of deleting it. Nothing is kept if nothing
+    /// arrived yet.
+    pub fn park(mut self) {
+        if self.done || self.written == 0 {
+            return;
+        }
+        if let Some(mut file) = self.file.take() {
+            let _ = file.flush();
+            let _ = file.sync_all();
+        }
+        if let Ok(mut parked) = PARKED.lock() {
+            if parked.len() >= MAX_PARKED {
+                let oldest = parked.remove(0);
+                let _ = fs::remove_file(oldest.part);
+            }
+            parked.push(Parked {
+                key: self.key.clone(),
+                part: self.part.clone(),
+                target: self.target.clone(),
+                written: self.written,
+            });
+            self.parked = true;
+        }
     }
 
     pub fn final_name(&self) -> String {
@@ -185,7 +327,7 @@ impl Incoming {
 
 impl Drop for Incoming {
     fn drop(&mut self) {
-        if !self.done {
+        if !self.done && !self.parked {
             self.file.take();
             let _ = fs::remove_file(&self.part);
         }
