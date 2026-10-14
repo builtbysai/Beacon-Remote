@@ -1,6 +1,7 @@
 mod credentials;
 #[cfg(windows)]
 mod helper_lifetime;
+pub mod incoming;
 mod sessions;
 mod update;
 

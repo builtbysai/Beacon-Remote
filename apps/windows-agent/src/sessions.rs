@@ -198,6 +198,13 @@ impl Helpers {
                     let _ = pipe.write_all(b"stop\n");
                 }
             }
+            // The host window turns this into one Windows notification; the consent window (or trusted access)
+            // still decides what happens.
+            crate::incoming::announce(crate::incoming::Incoming {
+                controller: grant["controller"].as_str().unwrap_or_default().into(),
+                needs_approval: !trusted_here,
+                control: controlling,
+            });
             self.children
                 .insert(id.into(), ((expiry != 0).then_some(expiry), child, pipe));
         }
