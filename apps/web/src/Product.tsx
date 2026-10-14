@@ -187,6 +187,11 @@ export function ProductPage({
         <div className="support-columns">
           <div>
             <h2>Getting help</h2>
+            <p>
+              If a technician sent you a link, just open it: it explains what to
+              download and run, and everything is removed when support ends.
+              Otherwise:
+            </p>
             <ol className="help-steps">
               <li>
                 Open Beacon Remote on your Windows computer and choose Support

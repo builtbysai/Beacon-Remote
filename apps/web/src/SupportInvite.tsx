@@ -87,70 +87,80 @@ export function SupportInvite({ token }: { token: string }) {
               ))}
             </select>
           </label>
-          {platform === "windows" ? (
-            <div className="download-panel">
-              <div>
-                <h2>Temporary support for Windows</h2>
-                {installer ? (
-                  <>
+          <div className="support-columns">
+            {platform === "windows" ? (
+              <div className="download-panel">
+                <div>
+                  <h2>Temporary support for Windows</h2>
+                  {installer ? (
+                    <>
+                      <p>
+                        A small program that runs only for this session. It
+                        doesn't install anything permanent or start with
+                        Windows, and removes itself when support ends.
+                      </p>
+                      <a
+                        className="button"
+                        href={`/downloads/${installer.file}`}
+                        download={`BeaconSupport-${token}.exe`}
+                      >
+                        Download support program
+                      </a>
+
+                      <p className="note">
+                        Windows x64 · {(installer.bytes / 1_048_576).toFixed(1)}{" "}
+                        MB · SHA-256{" "}
+                        <code className="hash">{installer.sha256}</code>
+                        <br />
+                        The file name carries your link, so keep it as it is.
+                        This link works once and expires if unused.
+                      </p>
+                    </>
+                  ) : (
                     <p>
-                      A small program that runs only for this session. It
-                      doesn't install anything permanent or start with Windows,
-                      and removes itself when support ends.
+                      {release === undefined
+                        ? "Checking for the current build…"
+                        : "The support program isn't available right now. Ask your technician to try again later."}
                     </p>
-                    <a
-                      className="button"
-                      href={`/downloads/${installer.file}`}
-                      download={`BeaconSupport-${token}.exe`}
-                    >
-                      Download support program
-                    </a>
-                    <ol>
-                      <li>Open the downloaded file.</li>
-                      <li>
-                        If Windows asks whether to run it, choose Run (More
-                        info, then Run anyway, if it says the publisher is
-                        unknown).
-                      </li>
-                      <li>Check who is asking, then choose Yes.</li>
-                      <li>
-                        When {invite.technician} connects, choose Allow to let
-                        them in.
-                      </li>
-                    </ol>
-                    <p className="note">
-                      Windows x64 · {(installer.bytes / 1_048_576).toFixed(1)}{" "}
-                      MB · SHA-256{" "}
-                      <code className="hash">{installer.sha256}</code>
-                      <br />
-                      The file name carries your link, so keep it as it is. This
-                      link works once and expires if unused.
-                    </p>
-                  </>
-                ) : (
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="download-panel">
+                <div>
+                  <h2>
+                    One-click support isn't available for{" "}
+                    {PLATFORMS.find((entry) => entry.id === platform)?.label}{" "}
+                    yet
+                  </h2>
                   <p>
-                    {release === undefined
-                      ? "Checking for the current build…"
-                      : "The support program isn't available right now. Ask your technician to try again later."}
+                    Temporary support currently works on Windows. If this is the
+                    wrong system, choose Windows above. Otherwise ask{" "}
+                    {invite.technician} for another way to help.
                   </p>
-                )}
+                </div>
               </div>
+            )}
+            <div>
+              <h2>What happens next</h2>
+              <ol className="help-steps">
+                <li>
+                  Open the downloaded file. If Windows asks whether to run it,
+                  choose Run (More info, then Run anyway, if it says the
+                  publisher is unknown).
+                </li>
+                <li>Check who is asking, then choose Yes.</li>
+                <li>
+                  When {invite.technician} connects, choose Allow to let them
+                  in. You can pause or stop at any time.
+                </li>
+                <li>
+                  When support ends, the program and everything it created are
+                  removed.
+                </li>
+              </ol>
             </div>
-          ) : (
-            <div className="download-panel">
-              <div>
-                <h2>
-                  One-click support isn't available for{" "}
-                  {PLATFORMS.find((entry) => entry.id === platform)?.label} yet
-                </h2>
-                <p>
-                  Temporary support currently works on Windows. If this is the
-                  wrong system, choose Windows above. Otherwise ask{" "}
-                  {invite.technician} for another way to help.
-                </p>
-              </div>
-            </div>
-          )}
+          </div>
         </>
       )}
     </section>
