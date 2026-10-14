@@ -360,8 +360,12 @@ function App() {
         expiresAt: issuedAt + result.expiresInSeconds * 1000,
       });
       setCodeCopied(false);
-    } catch {
-      setError("Could not start pairing.");
+    } catch (caught) {
+      setError(
+        caught instanceof ApiError && caught.status === 429
+          ? "Too many pairing codes are waiting. Use one, or wait five minutes."
+          : "Could not start pairing.",
+      );
     } finally {
       setBusy(false);
     }

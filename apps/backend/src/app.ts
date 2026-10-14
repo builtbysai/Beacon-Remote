@@ -34,6 +34,9 @@ import { registerSignup } from "./signup.js";
 
 // A support code is typed by hand, so it is short-lived and single-use.
 const SUPPORT_CODE_MINUTES = 15;
+// Bounds on what one account can pile up, beyond the per-route rate limits.
+const MAX_PENDING_ENROLLMENTS = 10;
+const MAX_MACHINES = 50;
 const digest = (value: string) =>
   createHash("sha256").update(value).digest("hex");
 const login = z
@@ -466,6 +469,12 @@ export async function createApp(
         return reply.code(403).send({ error: "Origin rejected" });
       const account = await owner(request);
       if (!account) return reply.code(401).send({ error: "Sign in required" });
+      const pending = await pool.query(
+        "SELECT count(*)::int AS n FROM enrollments WHERE account_id=$1 AND claimed_at IS NULL AND expires_at>now()",
+        [account],
+      );
+      if (pending.rows[0].n >= MAX_PENDING_ENROLLMENTS)
+        return reply.code(429).send({ error: "Too many pending codes" });
       const code = randomBytes(24).toString("base64url");
       await pool.query(
         "INSERT INTO enrollments VALUES ($1,$2,now()+interval '5 minutes',NULL)",
@@ -492,6 +501,14 @@ export async function createApp(
         );
         const account = result.rows[0]?.account_id;
         if (!account) {
+          await client.query("ROLLBACK");
+          return reply.code(403).send({ error: "Enrollment unavailable" });
+        }
+        const owned = await client.query(
+          "SELECT count(*)::int AS n FROM machines WHERE account_id=$1 AND revoked_at IS NULL",
+          [account],
+        );
+        if (owned.rows[0].n >= MAX_MACHINES) {
           await client.query("ROLLBACK");
           return reply.code(403).send({ error: "Enrollment unavailable" });
         }
