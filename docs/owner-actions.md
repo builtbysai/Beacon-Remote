@@ -1,78 +1,81 @@
-# Waiting on the owner
+# What only you can do
 
-Everything here needs an account, a device, or a decision that only the owner can make. Items are ordered by value
-for the least money. Prices are what the vendors listed on 2026-10-13; check the vendor page before paying.
-Nothing here is needed to keep using the product as it runs today.
+Everything not on this page, I do. Each part below says what you do, what I do after, and what it costs.
+Do them in any order; none blocks the others. Prices are what vendors listed on 2026-10-13, so confirm on the
+vendor page before paying.
 
-| #   | Item                                        | Cost                                     | Your time                | What it unlocks                                 |
-| --- | ------------------------------------------- | ---------------------------------------- | ------------------------ | ----------------------------------------------- |
-| 1   | Real-device acceptance                      | Free                                     | 1 to 2 hours             | The "Validated" column for most features        |
-| 2   | Email sign-up, recovery and alerts (Resend) | Free (3,000 mails a month, 100 a day)    | 20 minutes               | Public sign-up, password recovery by email      |
-| 3   | Windows code signing                        | Free to about $10 a month                | 30 minutes to a few days | No "unknown publisher" warning on the installer |
-| 4   | Android host on a real phone                | Free                                     | 30 minutes               | Validates the Android host beyond the emulator  |
-| 5   | Android host distribution                   | Free (direct APK) or a one-time Play fee | 30 minutes               | Installing the phone host without a cable       |
-| 6   | macOS host                                  | $0 to build, $99 a year to sign          | Needs a Mac              | A macOS host people can open without warnings   |
+Secrets: never paste a key into chat. Where a key is needed, save it to the file named in the step; I read it
+from there, use it once, and it is never committed.
 
-## 1. Real-device acceptance (free)
+## 1. Turn on email (free, about 10 minutes)
 
-Follow `docs/acceptance-checklist.md` on the computers and phone you have. Send back, for anything that felt off:
-the time, what you did, and the session's row from Sessions (the Connection column). The checklist's last section
-covers the Android phone once you have installed the debug build (item 4).
+This enables sign-up by email, password recovery by email, and later server alerts. It reuses the Resend account
+and the verified `auth.builtbysai.com` domain that Beacon View already uses, so there is no new domain, no DNS work
+and no new bill. The free plan allows 3,000 mails a month and 100 a day, shared with Beacon View.
 
-## 2. Email: sign-up, recovery, alerts (free)
+You:
 
-Resend's free plan allows 3,000 emails a month and at most 100 in a day, with one sending domain. That is plenty
-for a private alpha; the daily cap is the number to watch, and a paid plan ($20 a month for 50,000) is only needed
-if sign-up becomes public and busy. Remote must use its own account and key, not Beacon View's.
+1. Sign in at resend.com with the account that owns `auth.builtbysai.com`.
+2. API Keys, Create API Key. Name it `beacon-remote`, permission Sending access, domain `auth.builtbysai.com`.
+3. Copy the key and save it as the only line of `C:\Users\Saiha\.beacon\secrets\remote-resend-key.txt`.
+4. Tell me it is saved, and say whether sign-up should be open to anyone or stay by invitation.
 
-1. Create a Resend account with an address you control and add a sending domain (for example
-   `remote.builtbysai.com`, or a subdomain such as `mail.remote.builtbysai.com`).
-2. Add the DNS records Resend shows (SPF and DKIM, free). Wait for the domain to show Verified.
-3. Create an API key limited to sending. Do not paste it anywhere except step 4.
-4. On the Oracle server, add to `/etc/beacon-remote/production-media.env`:
-   `RESEND_API_KEY=<the key>`, `MAIL_FROM="Beacon Remote <no-reply@your-domain>"`, `PUBLIC_SIGNUP=true`.
-5. Tell me; I restart the stack, send a test message to your address, and confirm sign-up and recovery.
+I then: put the key and `MAIL_FROM="Beacon Remote <remote@auth.builtbysai.com>"` on the server, restart, send a
+test mail to you, check sign-up and recovery, and turn on server health alerts by mail.
 
-Leave `PUBLIC_SIGNUP` unset if you would rather keep accounts invitation-only; recovery by email still works for
-existing accounts.
+## 2. Remove the "unknown publisher" warning on Windows (free, 15 minutes plus waiting)
 
-## 3. Windows code signing (free to about $10 a month)
+Updates are already protected by their own signature; this only removes the warning on first run.
 
-Today the installer and programs are unsigned, so Windows SmartScreen warns on first run. Updates are already
-protected by the host update feed's own Ed25519 signature, so this is about first-run trust, not update security.
+The free route is SignPath Foundation. It needs the source under an open-source licence, because its free
+certificates are for open-source projects (check signpath.org/apply for the current rules before applying).
 
-| Option                     | Cost                      | Catch                                                                                                                                                                                                                                                                      |
-| -------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| SignPath Foundation        | Free                      | The repository needs an OSI-approved open-source licence (it is public but has none today), a free download, and a CI-built binary. The publisher shown is "SignPath Foundation". I would move the host build into GitHub Actions. Approval reportedly takes a day or two. |
-| Azure Artifact Signing     | About $9.99 a month       | Individuals only in the US and Canada (organisations also EU and UK); identity validation takes a few business days. Publisher shown is you.                                                                                                                               |
-| Traditional OV certificate | About $150 to $300 a year | Hardware-token or cloud-HSM rules add friction; SmartScreen reputation still builds slowly.                                                                                                                                                                                |
-| Stay unsigned              | Free                      | The warning stays.                                                                                                                                                                                                                                                         |
+You:
 
-Recommendation: if you are comfortable publishing the source under a licence (MIT or Apache-2.0 are the usual
-choices), take SignPath: free, and the warning goes away. If not, Azure Artifact Signing is the cheapest paid path
-if you are in the US or Canada. Decide the licence question first; tell me which and I do the build and CI work.
+1. Decide: are you willing to publish Beacon Remote's source under a licence? If yes, pick **MIT** (simplest) or
+   **Apache-2.0** (adds a patent grant). Tell me which. If no, skip to "If not" below.
+2. After I add the licence file and a signing-ready build workflow (I will tell you when), apply at
+   signpath.org/apply with the repository link `github.com/builtbysai/Beacon-Remote`. This has to be you, as the
+   project owner, and takes a few minutes. Approval reportedly takes a day or two.
+3. When approved, create the API token SignPath gives you and save it as the only line of
+   `C:\Users\Saiha\.beacon\secrets\signpath-token.txt`. Tell me.
 
-## 4. Android host on a real phone (free)
+I then: add the licence, move the Windows build into GitHub Actions so SignPath can sign it, wire in the token as a
+repository secret, publish a signed installer, and check that Windows shows your publisher.
 
-1. On the phone: Settings, About, tap Build number seven times, then turn on USB debugging.
-2. Connect it by cable. I build `apps/android-host` and install the debug build with `adb`.
-3. Pair it against production with a code from Add a computer, then run section 7 of the acceptance checklist,
-   including Wi-Fi to mobile data and a locked screen.
+If not (you do not want the source open): the cheapest alternative is Azure Artifact Signing at about $10 a month,
+available to individuals only in the US and Canada, with an identity check that takes a few days. You would sign up
+in the Azure portal, complete the identity check, and tell me; I do the rest. Staying unsigned is free and the
+warning stays.
 
-## 5. Android host distribution
+## 3. Test on real hardware (free, 1 to 2 hours)
 
-The free route is a signed APK offered on the Downloads page; Android asks the person to allow installs from the
-browser once. That needs an Android release key, which I can create and keep beside the Windows key. Google Play
-needs a one-time developer registration fee (about $25) and, for new personal accounts, a closed test with a
-minimum number of testers before production; check Play Console for the current rule before paying. Not needed
-until the real-phone test passes.
+Nothing replaces this, and it is what moves features from "works on my fixture" to "validated".
 
-## 6. macOS host
+Windows computers: install the latest build on each Windows PC you have (Downloads page), then follow sections 1
+to 6 of `docs/acceptance-checklist.md`. Include one session over mobile data and one after the PC sleeps.
 
-A macOS host needs a Mac to build and test on, and Apple's developer programme ($99 a year) to sign and notarise it
-so macOS will open it. Linux hosts need neither and are free; they can be started whenever you want them.
+Android phone, one time:
 
-## Not blocked on you
+1. Settings, About phone, tap Build number seven times. Then Settings, System, Developer options, turn on
+   USB debugging.
+2. Plug the phone into this PC and tap Allow on the phone's prompt.
+3. Tell me. I build and install the app, pair it, and walk you through the on-phone taps, then you follow
+   section 7 of the checklist.
 
-Relay quota alerting, file-transfer resume, roles and technician accounts, and the remaining design rollout are
-mine to build; see `docs/roadmap.md`.
+Send back, for anything that felt off: the time, what you did, and the session's row from Sessions (the
+Connection column). I fix what you find.
+
+## 4. Later, only if you want it
+
+- **Install the Android app without a cable:** free. I create a release key and offer the app on the Downloads page.
+  Google Play instead has a one-time fee of about $25 and a testing requirement for new accounts; check Play Console
+  for the current rule. Tell me which you prefer once the real-phone test passes.
+- **A macOS host:** needs a Mac to build and test on, and Apple's developer programme ($99 a year) to sign it.
+  Linux hosts need neither and are free; say when you want them.
+
+## What I am doing meanwhile
+
+Relay and server health alerts (waiting only on step 1 for the mail part), roles and technician accounts, the
+remaining design rollout, file-transfer resume, and the Windows tray notification for incoming requests. See
+`docs/roadmap.md`.
