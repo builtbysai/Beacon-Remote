@@ -3,6 +3,8 @@
 //   node scripts/publish-download.mjs dist/BeaconRemoteDevelopment-<commit>.zip <out-dir> [key.pem] [dist/BeaconRemoteSetup-<commit>.exe] [dist/BeaconRemoteDevelopment-<commit>-trust]
 // The last argument is the folder `scripts/Beacon-Signing.ps1 -Action Package` wrote (ADR 0035): its public certificate
 // and Trust-BeaconRemote.ps1 are published beside the installer and described in the manifest.
+// An optional seventh argument is the signed Android host APK (BeaconRemoteHost-<8 hex>.apk from scripts/Beacon-Android.ps1) and an
+// eighth its signing certificate's SHA-256, published beside the Windows build and described in the manifest.
 // Copy the zip (and the installer), then manifest.json and manifest.sig, to the server's /opt/beacon-remote/downloads
 // (manifest.json and manifest.sig last, in that order, so a signature never refers to a missing zip).
 import {
@@ -20,7 +22,8 @@ import {
 } from "node:fs";
 import { basename, join } from "node:path";
 
-const [zip, out, keyPath, installerPath, trustDir] = process.argv.slice(2);
+const [zip, out, keyPath, installerPath, trustDir, androidApk, androidSigner] =
+  process.argv.slice(2);
 if (!zip || !out)
   throw new Error("usage: publish-download.mjs <zip> <out-dir>");
 const file = basename(zip);
@@ -69,6 +72,22 @@ if (trustDir) {
     notAfter: new Date(new X509Certificate(cer).validTo).toISOString(),
   };
 }
+let android;
+if (androidApk) {
+  const name = basename(androidApk);
+  if (!/^BeaconRemoteHost-[a-f0-9]{8}\.apk$/.test(name))
+    throw new Error("Android host must be BeaconRemoteHost-<8 hex>.apk");
+  const apk = readFileSync(androidApk);
+  copyFileSync(androidApk, join(out, name));
+  android = {
+    file: name,
+    bytes: apk.length,
+    sha256: createHash("sha256").update(apk).digest("hex"),
+    ...(androidSigner && /^[a-f0-9]{64}$/.test(androidSigner)
+      ? { signer: androidSigner }
+      : {}),
+  };
+}
 const manifest =
   JSON.stringify(
     {
@@ -79,6 +98,7 @@ const manifest =
       sha256: createHash("sha256").update(bytes).digest("hex"),
       ...(installer ? { installer } : {}),
       ...(signing ? { signing } : {}),
+      ...(android ? { android } : {}),
       // Hosts only accept a feed newer than the last one they installed, so an old signed manifest
       // cannot be replayed to roll them back.
       sequence: Math.floor(Date.now() / 1000),

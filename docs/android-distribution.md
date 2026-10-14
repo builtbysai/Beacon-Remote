@@ -9,12 +9,15 @@ Android permits.
 | **Sideloaded release (this project)** | A release APK signed with your own key, downloaded from your own server and installed by the person | Viewing, file receiving, and control once the person turns on the accessibility service  | Android shows "install unknown apps" prompts and, from Android 13, restricts turning on accessibility for sideloaded apps until the person allows restricted settings in the app's info screen. The person does that once; the app cannot do it for them. |
 | **Google Play**                       | A store listing                                                                                     | Viewing and file receiving                                                               | Play's policy limits accessibility services to accessibility use, and remote control of another person's phone does not qualify; screen-sharing apps need a declaration and review. Plan on view only, or a separate listing without control.             |
 
-## Release key
+## Release key and building
 
-Create a keystore once (`keytool -genkeypair -v -keystore beacon-android-release.jks -alias beacon -keyalg RSA -keysize 3072 -validity 9125`), keep
-it and its password out of the repository (the secrets folder, like the Windows signing key), and sign with `apksigner`. Updates only install over
-an app signed with the same key, so losing it means every phone must uninstall and pair again. Publish the APK's SHA-256 beside the download.
-Nothing is built or signed for release yet.
+`scripts\Beacon-Android.ps1 -Action New` creates the release key once (RSA 3072, valid 25 years) under `%USERPROFILE%\.beacon\secrets
+emote-android`, with a
+random password beside it, both readable only by you, and never replaces an existing key. Back that folder up: Android only installs an update over an app signed
+with the same key, so losing it means every phone must uninstall and pair again. `-Action Info` prints its SHA-256. `-Action Build` runs the unit test and a
+release build signed from that key (the gradle build reads it from the environment; nothing secret is in the repository), verifies the signature and writes
+`dist\BeaconRemoteHost-<commit>.apk`. The Downloads page offers it when `scripts/publish-download.mjs` is given the APK and the key's SHA-256 as its
+last two arguments, and shows that fingerprint so a person can check it.
 
 ## Battery and background
 
