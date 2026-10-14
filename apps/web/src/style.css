@@ -2344,3 +2344,37 @@ button.danger {
 .support-form label.check input {
   width: auto;
 }
+
+.support-list li:has(.support-panel) {
+  flex-wrap: wrap;
+}
+.support-panel {
+  flex-basis: 100%;
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+.support-chat {
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--line, #d6dbe4);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.support-chat p {
+  margin: 4px 0;
+}
+.support-chat .chat-system {
+  color: var(--muted, #5b6677);
+  font-style: italic;
+}
+.support-chat-send,
+.support-handoff {
+  display: flex;
+  gap: 8px;
+}
+.support-chat-send input,
+.support-handoff select {
+  flex: 1;
+}

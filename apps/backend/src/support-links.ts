@@ -153,7 +153,7 @@ export function registerSupportLinks(
     const account = await owner(request);
     if (!account) return reply.code(401).send({ error: "Sign in required" });
     const result = await pool.query(
-      `SELECT l.id,l.label,l.capability,
+      `SELECT l.id,l.label,l.capability,l.notes,
               (extract(epoch FROM l.created_at)*1000)::bigint AS "createdAtMillis",
               (extract(epoch FROM l.expires_at)*1000)::bigint AS "expiresAtMillis",
               CASE WHEN l.ended_at IS NOT NULL THEN 'ended'

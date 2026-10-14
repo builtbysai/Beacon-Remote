@@ -9,9 +9,10 @@ use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver},
-        Arc,
+        Arc, Mutex,
     },
     thread::{self, JoinHandle},
+    time::Duration,
 };
 use windows_sys::Win32::{
     Foundation::*,
@@ -23,7 +24,14 @@ use windows_sys::Win32::{
 };
 
 const BST_CHECKED: u32 = 1;
+// Edit control messages.
+const EM_SETSEL: u32 = 0x00B1;
+const EM_SCROLLCARET: u32 = 0x00B7;
+const EM_LIMITTEXT: u32 = 0x00C5;
 const END: usize = 101;
+const SEND: usize = 103;
+const INPUT: usize = 104;
+const LOG: usize = 105;
 const REMOVE: usize = 102;
 const H_HEADING: i32 = 301;
 const H_STATUS: i32 = 302;
@@ -43,8 +51,22 @@ fn say(text: &str, flags: u32) -> i32 {
     }
 }
 
+/// The conversation, shared between the window and the thread that talks to the server.
+#[derive(Default)]
+struct Chat {
+    messages: Vec<support::ChatMessage>,
+    outbox: Vec<String>,
+    /// Bumped when `messages` changes, so the window redraws only then.
+    version: u64,
+}
+
 struct State {
     window: HWND,
+    helper: HWND,
+    log: HWND,
+    input: HWND,
+    chat: Arc<Mutex<Chat>>,
+    shown: u64,
     status: HWND,
     remove: HWND,
     end: HWND,
@@ -89,6 +111,41 @@ impl State {
             let _ = support::cleanup(&root, download.as_deref());
         }));
     }
+    /// Shows new chat lines, and names the technician again if the session was handed over.
+    unsafe fn show_chat(&mut self) {
+        let (version, text, from_them) = {
+            let chat = self.chat.lock().unwrap();
+            if chat.version == self.shown {
+                return;
+            }
+            let text = chat
+                .messages
+                .iter()
+                .map(|line| match line.sender.as_str() {
+                    "person" => format!("You: {}", line.body),
+                    "technician" => format!("Technician: {}", line.body),
+                    _ => line.body.clone(),
+                })
+                .collect::<Vec<_>>()
+                .join("\r\n");
+            let newest = chat.messages.last().map(|line| line.sender != "person");
+            (chat.version, text, newest.unwrap_or(false))
+        };
+        let first = self.shown == 0;
+        self.shown = version;
+        SetWindowTextW(self.log, wide(&text).as_ptr());
+        // Scroll to the newest line.
+        SendMessageW(self.log, EM_SETSEL, usize::MAX, -1);
+        SendMessageW(self.log, EM_SCROLLCARET, 0, 0);
+        SetWindowTextW(
+            self.helper,
+            wide(&format!("{} is helping you", support::technician())).as_ptr(),
+        );
+        // A new message from them draws attention if this window is not the one in front.
+        if from_them && !first && GetForegroundWindow() != self.window {
+            FlashWindow(self.window, 1);
+        }
+    }
     unsafe fn poll(&mut self) {
         while let Ok(status) = self.updates.try_recv() {
             if self.ending.is_some() {
@@ -102,6 +159,7 @@ impl State {
                 HostStatus::Stopped | HostStatus::Rejected | HostStatus::Removed => "Support has ended.",
             });
         }
+        self.show_chat();
         if self.ending.is_none() {
             if support::expired() {
                 self.finish(
@@ -164,6 +222,24 @@ unsafe extern "system" fn procedure(
             SetTextColor(wparam as _, ui::colorref(color));
             SetBkMode(wparam as _, TRANSPARENT as i32);
             return ui::surface_brush(p.window) as isize;
+        }
+        WM_COMMAND if !state.is_null() && (wparam & 0xffff) == SEND => {
+            let mut buffer = [0u16; 1100];
+            let length = GetWindowTextW((*state).input, buffer.as_mut_ptr(), 1100) as usize;
+            let text = String::from_utf16_lossy(&buffer[..length])
+                .trim()
+                .to_owned();
+            if !text.is_empty() {
+                (*state).chat.lock().unwrap().outbox.push(text);
+                SetWindowTextW((*state).input, wide("").as_ptr());
+            }
+            return 0;
+        }
+        WM_CTLCOLOREDIT if !state.is_null() => {
+            let p = &(*state).palette;
+            SetTextColor(wparam as _, ui::colorref(p.text));
+            SetBkMode(wparam as _, TRANSPARENT as i32);
+            return ui::surface_brush(p.surface) as isize;
         }
         WM_COMMAND if !state.is_null() && (wparam & 0xffff) == END => {
             if (*state).ending.is_none() {
@@ -252,6 +328,11 @@ pub fn show(token: Option<&str>) -> Result<(), io::Error> {
         let cancel = Arc::new(AtomicBool::new(false));
         let mut state = State {
             window: null_mut(),
+            helper: null_mut(),
+            log: null_mut(),
+            input: null_mut(),
+            chat: Arc::new(Mutex::new(Chat::default())),
+            shown: 0,
             status: null_mut(),
             remove: null_mut(),
             end: null_mut(),
@@ -270,7 +351,7 @@ pub fn show(token: Option<&str>) -> Result<(), io::Error> {
             left: 0,
             top: 0,
             right: px(500),
-            bottom: px(330),
+            bottom: px(520),
         };
         AdjustWindowRectEx(&mut bounds, style, 0, 0);
         let window = CreateWindowExW(
@@ -309,8 +390,32 @@ pub fn show(token: Option<&str>) -> Result<(), io::Error> {
                 null(),
             )
         };
+        let child_at = |class: &str,
+                        label: &str,
+                        x: i32,
+                        y: i32,
+                        width: i32,
+                        height: i32,
+                        extra: u32,
+                        id: usize| {
+            CreateWindowExW(
+                0,
+                wide(class).as_ptr(),
+                wide(label).as_ptr(),
+                WS_CHILD | WS_VISIBLE | extra,
+                px(x),
+                px(y),
+                px(width),
+                px(height),
+                window,
+                id as _,
+                instance,
+                null(),
+            )
+        };
         let heading = child("STATIC", "Temporary support", 24, 34, 0, H_HEADING as usize);
         let helper = child("STATIC", &format!("{who} is helping you"), 62, 40, 0, 304);
+        state.helper = helper;
         state.status = child(
             "STATIC",
             if resuming {
@@ -318,23 +423,23 @@ pub fn show(token: Option<&str>) -> Result<(), io::Error> {
             } else {
                 "Connecting to your technician…"
             },
-            108,
-            54,
+            104,
+            44,
             0,
             H_STATUS as usize,
         );
         let info = child(
             "STATIC",
             "Temporary: this does not start with Windows or give anyone lasting access. When support ends, access is revoked and the files and sign-in Beacon Remote created here are removed.",
-            166,
-            66,
+            150,
+            60,
             0,
             H_INFO as usize,
         );
         state.remove = child(
             "BUTTON",
             "Remove Beacon Remote when support ends",
-            244,
+            412,
             26,
             (BS_AUTOCHECKBOX as u32) | WS_TABSTOP,
             REMOVE,
@@ -343,10 +448,42 @@ pub fn show(token: Option<&str>) -> Result<(), io::Error> {
         state.end = child(
             "BUTTON",
             "End support",
-            278,
+            448,
             36,
-            (BS_DEFPUSHBUTTON as u32) | WS_TABSTOP,
+            (BS_PUSHBUTTON as u32) | WS_TABSTOP,
             END,
+        );
+        // The conversation with the technician. Enter sends, so End support is never the default button.
+        state.log = child_at(
+            "EDIT",
+            "",
+            28,
+            218,
+            444,
+            140,
+            (ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL) as u32 | WS_VSCROLL | WS_BORDER,
+            LOG,
+        );
+        state.input = child_at(
+            "EDIT",
+            "",
+            28,
+            366,
+            350,
+            28,
+            (ES_AUTOHSCROLL as u32) | WS_TABSTOP | WS_BORDER,
+            INPUT,
+        );
+        SendMessageW(state.input, EM_LIMITTEXT, 1000, 0);
+        let send = child_at(
+            "BUTTON",
+            "Send",
+            388,
+            364,
+            84,
+            32,
+            (BS_DEFPUSHBUTTON as u32) | WS_TABSTOP,
+            SEND,
         );
         let big = ui::gdi_font(px(23), 600);
         let strong = ui::gdi_font(px(14), 600);
@@ -359,8 +496,41 @@ pub fn show(token: Option<&str>) -> Result<(), io::Error> {
             (info, body),
             (state.remove, body),
             (state.end, body),
+            (state.log, body),
+            (state.input, body),
+            (send, body),
         ] {
             SendMessageW(handle, WM_SETFONT, font as usize, 1);
+        }
+        {
+            // Talks to the server for the conversation; a missing identity (before the link is claimed) just retries.
+            let chat = state.chat.clone();
+            let stop = state.cancel.clone();
+            thread::spawn(move || {
+                let mut since = 0u64;
+                while !stop.load(Ordering::Acquire) {
+                    let outgoing = chat.lock().unwrap().outbox.first().cloned();
+                    let got = support::chat_exchange(since, outgoing.as_deref());
+                    if let Ok(new) = got {
+                        let mut chat = chat.lock().unwrap();
+                        if outgoing.is_some() && !chat.outbox.is_empty() {
+                            chat.outbox.remove(0);
+                        }
+                        if let Some(last) = new.last() {
+                            since = since.max(last.id);
+                            chat.messages.extend(new);
+                            chat.version += 1;
+                        }
+                    }
+                    let wait = if outgoing.is_some() { 5 } else { 30 };
+                    for _ in 0..wait {
+                        if stop.load(Ordering::Acquire) || !chat.lock().unwrap().outbox.is_empty() {
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(100));
+                    }
+                }
+            });
         }
         let token_owned = token.map(str::to_owned);
         let name = std::env::var("COMPUTERNAME")

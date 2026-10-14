@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, ApiError } from "./api.js";
 import type { ViewGrant } from "./LiveView.js";
+import { SupportSessionPanel } from "./SupportSessionPanel.js";
 
 type Capability = "desktop:view" | "desktop:control";
 type Link = {
@@ -13,6 +14,7 @@ type Link = {
   name: string | null;
   expiresAtMillis: number;
   untilMillis: number | null;
+  notes: string | null;
 };
 
 const STATE_TEXT: Record<Link["state"], string> = {
@@ -39,6 +41,7 @@ export function SupportSessions({
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [opened, setOpened] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -214,6 +217,16 @@ export function SupportSessions({
                       )}
                     </>
                   )}
+                  {link.machineId && (
+                    <button
+                      className="secondary"
+                      onClick={() =>
+                        setOpened(opened === link.id ? null : link.id)
+                      }
+                    >
+                      {opened === link.id ? "Hide" : "Chat and notes"}
+                    </button>
+                  )}
                   <button
                     className="secondary"
                     disabled={busy}
@@ -222,6 +235,17 @@ export function SupportSessions({
                     {link.state === "waiting" ? "Cancel" : "End support"}
                   </button>
                 </span>
+                {opened === link.id && link.machineId && (
+                  <SupportSessionPanel
+                    machineId={link.machineId}
+                    linkId={link.id}
+                    notes={link.notes ?? ""}
+                    onHandedOver={() => {
+                      setOpened(null);
+                      void load();
+                    }}
+                  />
+                )}
               </li>
             ))}
           </ul>
@@ -235,6 +259,7 @@ export function SupportSessions({
                   <span>
                     {link.name ?? link.label ?? "Support link"}
                     <small>
+                      {link.notes ? `${link.notes.slice(0, 80)} · ` : ""}
                       {link.state === "expired"
                         ? STATE_TEXT.expired
                         : `Ended by ${
