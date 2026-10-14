@@ -52,6 +52,80 @@ export function registerDeviceRemoval(
     return { ok: true };
   });
 
+  // Wake-on-LAN (ADR 0042): another of the owner's online computers on the same network sends the magic packet. The
+  // server cannot reach into a home network, so with no such neighbour there is nothing it can honestly do.
+  app.post("/api/machines/:id/wake", limit, async (request, reply) => {
+    if (!sameOrigin(request))
+      return reply.code(403).send({ error: "Origin rejected" });
+    const account = await owner(request);
+    if (!account) return reply.code(401).send({ error: "Sign in required" });
+    const path = idParams.safeParse(request.params);
+    if (!path.success)
+      return reply.code(400).send({ error: "Invalid machine" });
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const target = await client.query<{
+        macs: string[] | null;
+        lan_key: string | null;
+        public_ip_hash: string | null;
+        online: boolean;
+      }>(
+        `SELECT macs,lan_key,public_ip_hash,COALESCE(last_seen_at>now()-interval '45 seconds',false) AS online
+         FROM machines WHERE id=$1 AND account_id=$2 AND revoked_at IS NULL AND support_link_id IS NULL FOR UPDATE`,
+        [path.data.id, account],
+      );
+      const row = target.rows[0];
+      if (!row) {
+        await client.query("ROLLBACK");
+        return reply.code(404).send({ error: "Machine unavailable" });
+      }
+      if (row.online) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "Already online" });
+      }
+      const recent = await client.query(
+        "SELECT 1 FROM wake_requests WHERE target_machine_id=$1 AND created_at>now()-interval '20 seconds'",
+        [path.data.id],
+      );
+      if (recent.rowCount) {
+        await client.query("ROLLBACK");
+        return reply.code(429).send({ error: "Wake already requested" });
+      }
+      const neighbour = row.macs?.length
+        ? await client.query<{ id: string; name: string }>(
+            `SELECT id,name FROM machines
+             WHERE account_id=$1 AND id<>$2 AND revoked_at IS NULL AND support_link_id IS NULL
+               AND lan_key=$3 AND public_ip_hash=$4 AND last_seen_at>now()-interval '45 seconds'
+             ORDER BY last_seen_at DESC LIMIT 1`,
+            [account, path.data.id, row.lan_key, row.public_ip_hash],
+          )
+        : null;
+      const via = neighbour?.rows[0];
+      if (!via) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "No computer on its network" });
+      }
+      for (const mac of row.macs!)
+        await client.query(
+          "INSERT INTO wake_requests(id,target_machine_id,via_machine_id,mac) VALUES (gen_random_uuid(),$1,$2,$3)",
+          [path.data.id, via.id, mac],
+        );
+      await client.query(
+        "INSERT INTO audit_events(account_id,machine_id,action) VALUES ($1,$2,'machine.wake.requested')",
+        [account, path.data.id],
+      );
+      await client.query("COMMIT");
+      wake(via.id);
+      return { ok: true, via: via.name };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  });
+
   // Revokes the computer now (it can no longer start or join anything) and leaves one bounded instruction for its own
   // agent to remove itself if it ever reconnects. Nothing can reach into an unreachable computer.
   app.post("/api/machines/:id/uninstall", limit, async (request, reply) => {

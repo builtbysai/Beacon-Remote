@@ -428,6 +428,10 @@ export async function createApp(
       `SELECT m.id,m.name,m.group_name AS "group",m.last_seen_at AS "lastSeenAt",m.revoked_at AS "revokedAt",
        COALESCE((m.revoked_at IS NULL AND m.last_seen_at>now()-interval '45 seconds'),false) AS online,
        COALESCE(a.mode,'attended') AS "accessMode",COALESCE(a.allow_control,false) AS "allowControl",COALESCE(a.helpers_unattended,'off') AS "helpersUnattended",m.displays,(m.support_link_id IS NOT NULL) AS temporary,
+       (m.revoked_at IS NULL AND NOT COALESCE(m.last_seen_at>now()-interval '45 seconds',false) AND m.macs IS NOT NULL
+         AND EXISTS (SELECT 1 FROM machines v WHERE v.account_id=m.account_id AND v.id<>m.id AND v.revoked_at IS NULL
+           AND v.support_link_id IS NULL AND v.lan_key=m.lan_key AND v.public_ip_hash=m.public_ip_hash
+           AND v.last_seen_at>now()-interval '45 seconds')) AS "canWake",
        (m.uninstall_requested_at IS NOT NULL AND m.uninstalled_at IS NULL AND m.uninstall_requested_at>now()-interval '30 days') AS "uninstallPending",
        m.uninstalled_at AS "uninstalledAt"
        FROM machines m LEFT JOIN machine_access a ON a.machine_id=m.id
@@ -664,8 +668,16 @@ export async function createApp(
         return reply.code(409).send({ error: "Heartbeat rejected" });
       }
       await client.query(
-        "UPDATE machines SET last_seen_at=now(),displays=COALESCE($2::jsonb,displays) WHERE id=$1",
-        [body.machineId, body.displays ? JSON.stringify(body.displays) : null],
+        `UPDATE machines SET last_seen_at=now(),displays=COALESCE($2::jsonb,displays),
+           macs=COALESCE($3::text[],macs),lan_key=COALESCE($4,lan_key),public_ip_hash=COALESCE($5,public_ip_hash)
+         WHERE id=$1`,
+        [
+          body.machineId,
+          body.displays ? JSON.stringify(body.displays) : null,
+          body.network?.macs ?? null,
+          body.network?.lan ?? null,
+          body.network ? digest(request.ip) : null,
+        ],
       );
       // Keep nonces longer than the signed timestamp acceptance window.
       await client.query(
@@ -700,9 +712,17 @@ export async function createApp(
         "SELECT mode,allow_control,version,helpers_unattended FROM machine_access WHERE machine_id=$1",
         [body.machineId],
       );
+      // Wake-on-LAN requests this computer was asked to send for a neighbour (ADR 0042), each delivered once.
+      const wake = await pool.query<{ id: string; mac: string }>(
+        `UPDATE wake_requests SET delivered_at=now()
+         WHERE via_machine_id=$1 AND delivered_at IS NULL AND created_at>now()-interval '2 minutes'
+         RETURNING id,mac`,
+        [body.machineId],
+      );
       return {
         ok: true,
         version: 1,
+        wake: wake.rows,
         // The computer follows a lowering done from the web; it never raises itself from this.
         access: {
           mode: policy.rows[0]?.mode ?? "attended",
