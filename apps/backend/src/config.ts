@@ -60,7 +60,11 @@ const schema = z.object({
 });
 export type Config = z.infer<typeof schema>;
 export function parseConfig(env: NodeJS.ProcessEnv): Config {
-  const config = schema.parse(env);
+  // An empty value means "not set": Compose passes optional settings through as empty strings.
+  const set = Object.fromEntries(
+    Object.entries(env).filter(([, value]) => value !== ""),
+  );
+  const config = schema.parse(set);
   if (config.CONTROL_ENABLED && !config.SESSION_SECRET) {
     throw new Error("Remote control requires enabled view sessions");
   }
