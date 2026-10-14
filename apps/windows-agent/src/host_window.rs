@@ -326,7 +326,7 @@ impl State {
             (None, _) => 1,
             (Some(_), Some(HostStatus::Online)) => 3,
             (Some(_), Some(HostStatus::Retrying | HostStatus::Rejected)) => 4,
-            (Some(_), Some(HostStatus::Stopped)) => 1,
+            (Some(_), Some(HostStatus::Stopped | HostStatus::Removed)) => 1,
             (Some(_), _) => 2,
         }
     }
@@ -615,6 +615,7 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
                         HostStatus::Retrying => "Connection interrupted · Retrying. Check your network.",
                         HostStatus::Stopped => "Stopped · This host is no longer sharing.",
                         HostStatus::Rejected => "Host authorization rejected. Check this computer in your workspace.",
+                        HostStatus::Removed => "Removed · Your account owner removed this computer. Beacon Remote is uninstalling.",
                     });
                 }
             }

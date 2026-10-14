@@ -5,6 +5,7 @@ import { activityLabel, type Activity } from "./AccountPanels.js";
 import { sessionState, type SessionRecord } from "./SessionHistory.js";
 import { WorkspaceIcon } from "./WorkspaceIcon.js";
 import { SupportAccess } from "./SupportAccess.js";
+import { DeviceActions } from "./DeviceActions.js";
 import "./computer-inspector.css";
 
 export function ComputerInspector({
@@ -43,7 +44,6 @@ export function ComputerInspector({
   const [group, setGroup] = useState(machine.group ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyRefresh, setHistoryRefresh] = useState(0);
   const [history, setHistory] = useState<{
@@ -425,50 +425,11 @@ export function ComputerInspector({
             ? "Each connection requires local approval. The person at the computer can stop sharing at any time."
             : "Desktop viewing requires local approval. Keyboard and mouse control are unavailable."}
       </p>
-      {!machine.revokedAt && (
-        <div className="inspector-revoke">
-          {confirmRevoke ? (
-            <>
-              <p>
-                Revoke this computer’s access? It must be paired again before
-                another session.
-              </p>
-              <div className="actions">
-                <button
-                  disabled={busy}
-                  onClick={async () => {
-                    setBusy(true);
-                    try {
-                      await onRevoke();
-                      setConfirmRevoke(false);
-                    } catch {
-                      setError("Could not revoke this computer.");
-                    } finally {
-                      setBusy(false);
-                    }
-                  }}
-                >
-                  Revoke access
-                </button>
-                <button
-                  className="secondary"
-                  disabled={busy}
-                  onClick={() => setConfirmRevoke(false)}
-                >
-                  Cancel
-                </button>
-              </div>
-            </>
-          ) : (
-            <button
-              className="secondary"
-              onClick={() => setConfirmRevoke(true)}
-            >
-              Revoke access…
-            </button>
-          )}
-        </div>
-      )}
+      <DeviceActions
+        machine={machine}
+        onRevoke={onRevoke}
+        onChanged={onUpdated}
+      />
     </aside>
   );
 }

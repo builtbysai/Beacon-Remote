@@ -99,7 +99,7 @@ impl State {
                 HostStatus::Connecting => "Connecting to your technician…",
                 HostStatus::Online => "Ready. You will be asked to allow each connection, and you can stop at any time.",
                 HostStatus::Retrying => "Connection interrupted · Trying again. Check your network.",
-                HostStatus::Stopped | HostStatus::Rejected => "Support has ended.",
+                HostStatus::Stopped | HostStatus::Rejected | HostStatus::Removed => "Support has ended.",
             });
         }
         if self.ending.is_none() {

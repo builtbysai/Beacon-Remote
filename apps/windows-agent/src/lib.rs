@@ -363,6 +363,8 @@ pub enum HostStatus {
     Retrying,
     Stopped,
     Rejected,
+    /// The owner asked to uninstall this computer; it confirmed to the server and is removing itself (ADR 0039).
+    Removed,
 }
 /// The displays attached to this computer, in physical pixels, for the viewer to choose from.
 /// The session helper re-reads the display it is asked for, so this is only a selector.
@@ -521,6 +523,17 @@ pub fn run(cancel: Arc<AtomicBool>, status: SyncSender<HostStatus>) -> Result<()
         match response {
             Ok(response) if response.status().is_success() => {
                 let body: serde_json::Value = response.json()?;
+                // The owner asked to uninstall: confirm to the server with this computer's own key, then remove it.
+                if body["uninstall"] == true {
+                    if confirm_removal(&client, &identity, &server, &key) {
+                        let _ = status.try_send(HostStatus::Removed);
+                        drop(helpers);
+                        remove_this_computer();
+                        return Ok(());
+                    }
+                    pause(&cancel, Duration::from_secs(15));
+                    continue;
+                }
                 let mut poll_after = body["pollAfterMillis"]
                     .as_u64()
                     .filter(|delay| matches!(delay, 0 | 15000))
@@ -583,6 +596,62 @@ pub fn run(cancel: Arc<AtomicBool>, status: SyncSender<HostStatus>) -> Result<()
     drop(helpers);
     let _ = status.try_send(HostStatus::Stopped);
     Ok(())
+}
+
+/// Tells the server this computer is removing itself, signed with its own key. Only then is anything deleted.
+fn confirm_removal(
+    client: &reqwest::blocking::Client,
+    identity: &Identity,
+    server: &reqwest::Url,
+    key: &SigningKey,
+) -> bool {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let nonce = uuid::Uuid::new_v4().to_string();
+    let message = format!(
+        "beacon-remote:uninstall:v1\n{}\n{}\n{}",
+        identity.machine_id, timestamp, nonce
+    );
+    server
+        .join("/api/agent/uninstall-done")
+        .ok()
+        .and_then(|url| {
+            client
+                .post(url)
+                .json(&serde_json::json!({
+                    "version": 1, "machineId": identity.machine_id, "timestamp": timestamp,
+                    "nonce": nonce, "signature": STANDARD.encode(key.sign(message.as_bytes()).to_bytes()),
+                }))
+                .send()
+                .ok()
+        })
+        .is_some_and(|response| response.status().is_success())
+}
+
+/// Removes Beacon Remote from this computer: the installed copy through its own uninstaller (which says so on screen),
+/// otherwise just this computer's saved sign-in. Only Beacon-owned files are touched.
+fn remove_this_computer() {
+    let uninstaller = std::env::current_exe()
+        .ok()
+        .and_then(|exe| {
+            exe.parent()
+                .map(|dir| dir.join("Uninstall Beacon Remote.exe"))
+        })
+        .filter(|path| path.is_file());
+    match uninstaller {
+        Some(path) => {
+            let _ = std::process::Command::new(path)
+                .args(["--uninstall", "--removed-by-owner"])
+                .spawn();
+        }
+        None => {
+            for path in [state_path(), access_path()].into_iter().flatten() {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
 }
 
 fn client() -> Result<reqwest::blocking::Client, HostError> {
