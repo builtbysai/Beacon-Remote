@@ -141,8 +141,36 @@ export type Transfer = {
 /** A file the person at the computer wants to send to this viewer. */
 export type Offer = { id: number; name: string; size: number };
 
-// Received files are held in memory until their checksum is verified, so the size is bounded.
+// Without somewhere to stream to, a received file is held in memory until its checksum is verified, so the size is
+// bounded. Browsers that can write to a file the person chooses (Chrome, Edge) have no such limit: bytes go to disk as
+// they arrive, bounded memory, and the file only appears once the checksum matched.
 const MAX_RECEIVE = 512 * 1024 * 1024;
+// If the disk falls this far behind the network, the transfer is stopped rather than growing memory without bound.
+const MAX_PENDING_WRITE = 128 * 1024 * 1024;
+
+type DiskSink = {
+  write(data: BufferSource): Promise<void>;
+  close(): Promise<void>;
+  abort(): Promise<void>;
+};
+type SaveWindow = Window & {
+  showSaveFilePicker?: (options?: {
+    suggestedName?: string;
+  }) => Promise<{ createWritable(): Promise<DiskSink> }>;
+};
+
+/** Asks where to save, and opens a stream to it. Null if this browser cannot, or the person declined. */
+async function openDiskSink(name: string): Promise<DiskSink | null> {
+  const host = globalThis as unknown as SaveWindow;
+  const picker = host.showSaveFilePicker;
+  if (!picker) return null;
+  try {
+    const handle = await picker.call(host, { suggestedName: name });
+    return await handle.createWritable();
+  } catch {
+    return null;
+  }
+}
 
 const REASONS: Record<string, string> = {
   "too-large": "The file is too large.",
@@ -166,6 +194,11 @@ export class FileSender {
     chunks: Uint8Array[];
     got: number;
     hash: Sha256;
+    // Set when the file streams to disk instead of memory.
+    sink?: DiskSink;
+    writes: Promise<void>;
+    pending: number;
+    writeFailed: boolean;
   } | null = null;
 
   constructor(
@@ -230,6 +263,7 @@ export class FileSender {
     channel.onclose = () => {
       this.ready = false;
       this.cancelled = true;
+      void this.receiving?.sink?.abort().catch(() => undefined);
       this.receiving = null;
       this.waiter?.({ t: "failed", reason: "closed" });
       this.readyChanged(false);
@@ -253,26 +287,48 @@ export class FileSender {
       this.channel.send(JSON.stringify({ t: "recording", on }));
   }
 
-  /** Takes a file the computer offered. It is held in memory, checked, then saved through the browser. */
-  accept(offer: Offer) {
+  /**
+   * Takes a file the computer offered. Large files stream to a file the person chooses (where the browser allows it);
+   * others are held in memory, checked, then saved through the browser. Either way nothing is kept unless it is intact.
+   */
+  async accept(offer: Offer) {
     this.offered(null);
     if (this.receiving || this.channel.readyState !== "open") {
       this.decline(offer, "busy");
       return;
     }
+    let sink: DiskSink | undefined;
     if (offer.size > MAX_RECEIVE) {
-      this.decline(offer, "too-large");
-      this.changed({
-        incoming: true,
-        name: offer.name,
-        size: offer.size,
-        sent: 0,
-        status: "failed",
-        note: "That file is too large for the browser to receive safely.",
-      });
-      return;
+      // Must be asked for while the click that chose Save is still fresh.
+      sink = (await openDiskSink(offer.name)) ?? undefined;
+      if (!sink) {
+        this.decline(offer, "too-large");
+        this.changed({
+          incoming: true,
+          name: offer.name,
+          size: offer.size,
+          sent: 0,
+          status: "failed",
+          note: "Files over 512 MB need Chrome or Edge, and a place to save them.",
+        });
+        return;
+      }
+      if (this.receiving || this.channel.readyState !== "open") {
+        await sink.abort().catch(() => undefined);
+        this.decline(offer, "busy");
+        return;
+      }
     }
-    this.receiving = { offer, chunks: [], got: 0, hash: new Sha256() };
+    this.receiving = {
+      offer,
+      chunks: [],
+      got: 0,
+      hash: new Sha256(),
+      sink,
+      writes: Promise.resolve(),
+      pending: 0,
+      writeFailed: false,
+    };
     this.channel.send(JSON.stringify({ t: "accept", id: offer.id }));
     this.changed({
       incoming: true,
@@ -303,7 +359,33 @@ export class FileSender {
       this.stopReceive("failed", "More arrived than was announced.");
       return;
     }
-    receiving.chunks.push(bytes);
+    if (receiving.sink) {
+      const sink = receiving.sink;
+      receiving.pending += bytes.length;
+      if (receiving.pending > MAX_PENDING_WRITE) {
+        this.channel.send(
+          JSON.stringify({
+            t: "failed",
+            id: receiving.offer.id,
+            reason: "write",
+          }),
+        );
+        void sink.abort().catch(() => undefined);
+        this.stopReceive(
+          "failed",
+          "The disk could not keep up and nothing was saved.",
+        );
+        return;
+      }
+      receiving.writes = receiving.writes
+        .then(() => sink.write(bytes))
+        .then(() => {
+          receiving.pending -= bytes.length;
+        })
+        .catch(() => {
+          receiving.writeFailed = true;
+        });
+    } else receiving.chunks.push(bytes);
     receiving.hash.update(bytes);
     receiving.got += bytes.length;
     this.changed({
@@ -322,23 +404,41 @@ export class FileSender {
       receiving.got === receiving.offer.size &&
       typeof message.sha256 === "string" &&
       receiving.hash.hex() === message.sha256.toLowerCase();
-    if (!intact) {
+    if (receiving.sink) await receiving.writes;
+    if (!intact || receiving.writeFailed) {
+      // A streamed file is only a temporary swap file until it is closed; stopping aborts it and leaves nothing behind.
       this.channel.send(
         JSON.stringify({
           t: "failed",
           id: receiving.offer.id,
-          reason: "incomplete",
+          reason: intact ? "write" : "incomplete",
         }),
       );
       this.stopReceive("failed", "It did not arrive intact and was discarded.");
       return;
     }
-    const url = URL.createObjectURL(new Blob(receiving.chunks as BlobPart[]));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = receiving.offer.name;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    if (receiving.sink) {
+      try {
+        await receiving.sink.close();
+      } catch {
+        this.channel.send(
+          JSON.stringify({
+            t: "failed",
+            id: receiving.offer.id,
+            reason: "write",
+          }),
+        );
+        this.stopReceive("failed", "The file could not be saved.");
+        return;
+      }
+    } else {
+      const url = URL.createObjectURL(new Blob(receiving.chunks as BlobPart[]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = receiving.offer.name;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    }
     this.channel.send(JSON.stringify({ t: "done", id: receiving.offer.id }));
     this.changed({
       incoming: true,
@@ -354,6 +454,8 @@ export class FileSender {
   private stopReceive(status: "failed" | "cancelled", note?: string) {
     const receiving = this.receiving;
     this.receiving = null;
+    // A half-written streamed file is thrown away; the swap file never becomes the real one.
+    void receiving?.sink?.abort().catch(() => undefined);
     if (receiving)
       this.changed({
         incoming: true,

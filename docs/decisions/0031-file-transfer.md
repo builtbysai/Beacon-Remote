@@ -41,3 +41,12 @@ what the person at the computer chooses, visibly, and revocable at once.
 
 Resume of an interrupted transfer, files larger than 512 MB towards the browser (needs streaming to disk), and revoking the trusted-session setting from the web (it is local only). The web side only offers
 Send file when the computer opened the channel.
+
+## Update 2026-10-14: files over 512 MB to the browser
+
+Where the browser can write to a file the person chooses (`showSaveFilePicker`, in Chrome and Edge), a file offered by the
+computer streams straight to that file as it arrives instead of being held in memory, up to the computer's own limit of
+2 GiB. Memory stays bounded (a writer that falls 128 MB behind the network stops the transfer). The file is only a
+temporary swap file until the SHA-256 and length match: a mismatch, a cancel, a pause or a closed channel aborts it and
+nothing is saved. Browsers without that API still refuse files over 512 MB with a clear message. Resume of an interrupted
+transfer is still not built; it needs the computer to accept an offset and a verified partial, which is a protocol change.
