@@ -5,12 +5,17 @@
 //! sign-in, then opens the host. The same executable, copied into the install folder, uninstalls: it stops the
 //! host, removes everything it added and this computer's local credentials.
 //!
+//! On a fresh computer it offers, once, to trust Beacon Remote's own signing certificate (one administrator
+//! approval; ADR 0035). `--silent` never asks for or performs that.
+//!
 //! `--silent` skips the dialogs (for automation). `BEACON_SETUP_SANDBOX=1` keeps every registry write under a
 //! private test key so tests never touch a real install; paths still follow `LOCALAPPDATA` and `APPDATA`.
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 #[cfg(windows)]
 mod install;
+#[cfg(windows)]
+mod trust;
 
 #[cfg(windows)]
 fn main() {

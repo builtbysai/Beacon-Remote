@@ -29,6 +29,6 @@ package manifest.
 
 ## Not done
 
-Authenticode signing (needs a certificate; `scripts/Build-DevelopmentHost.ps1` marks the output unsigned), a
+Public Authenticode signing (ADR 0035 signs with a free self-signed certificate that devices trust on purpose), a
 branded graphical wizard, and a machine-wide install. The first needs the owner's certificate; the others are not
 needed until there is a reason for administrator-level installs.
