@@ -425,7 +425,10 @@ function DownloadsPage({ workspace }: { workspace: string }) {
                 {installer ? "Download installer" : "Download for Windows"}
               </a>
               <p className="note">
-                SHA-256 <code>{installer?.sha256 ?? release.sha256}</code>
+                SHA-256{" "}
+                <code className="hash">
+                  {installer?.sha256 ?? release.sha256}
+                </code>
               </p>
             </>
           ) : (
@@ -450,7 +453,9 @@ function DownloadsPage({ workspace }: { workspace: string }) {
           </p>
           <p className="note">
             Certificate SHA-256{" "}
-            <code>{groupedFingerprint(release.signing.sha256)}</code>
+            <code className="hash">
+              {groupedFingerprint(release.signing.sha256)}
+            </code>
             <br />
             Valid until {release.signing.notAfter.slice(0, 10)}
           </p>

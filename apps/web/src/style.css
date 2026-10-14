@@ -1465,6 +1465,22 @@ code {
   font-size: 18px;
   margin: 20px 0;
 }
+/* On the public pages code sits inside sentences; only fingerprints stand alone. */
+.public-section code {
+  display: inline;
+  margin: 0;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  font-size: 0.9em;
+}
+.public-section code.hash {
+  display: block;
+  margin: 6px 0 14px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
 footer {
   padding: 26px 24px;
   border-top: 1px solid var(--line);
