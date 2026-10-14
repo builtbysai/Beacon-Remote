@@ -328,6 +328,8 @@ export type Release = {
   publishedAt: string;
   // The double-click installer, when one was published with this build.
   installer?: { file: string; bytes: number; sha256: string };
+  // The signed Android host (ADR 0045; docs/android-distribution.md), when one was published with this build.
+  android?: { file: string; bytes: number; sha256: string; signer?: string };
   // Beacon Remote's own signing certificate and the script that trusts it on another computer (ADR 0035).
   signing?: {
     certificate: string;
@@ -367,6 +369,14 @@ export function useRelease(): Release | null | undefined {
           typeof installer.sha256 === "string" &&
           /^[a-f0-9]{64}$/.test(installer.sha256) &&
           typeof installer.bytes === "number";
+        const android = body?.android;
+        const androidOk =
+          android &&
+          typeof android.file === "string" &&
+          /^BeaconRemoteHost-[a-f0-9]{8}\.apk$/.test(android.file) &&
+          typeof android.sha256 === "string" &&
+          /^[a-f0-9]{64}$/.test(android.sha256) &&
+          typeof android.bytes === "number";
         const signing = body?.signing;
         const signingOk =
           signing &&
@@ -383,6 +393,7 @@ export function useRelease(): Release | null | undefined {
               ? ({
                   ...body,
                   installer: installerOk ? installer : undefined,
+                  android: androidOk ? android : undefined,
                   signing: signingOk ? signing : undefined,
                 } as Release)
               : null,
@@ -449,6 +460,44 @@ function DownloadsPage({ workspace }: { workspace: string }) {
           )}
         </div>
       </div>
+      {release?.android && (
+        <div className="download-panel">
+          <div>
+            <h2>Android host</h2>
+            <p>
+              Version {release.version} · Android 8 or newer ·{" "}
+              {(release.android.bytes / 1_048_576).toFixed(1)} MB
+            </p>
+            <p>
+              Lets a helper see this phone, and with your separate approval
+              touch and type on it, after you allow each request. It is not on
+              Google Play: Android asks you to allow installing from this
+              browser, and to turn on control you also allow the accessibility
+              service in Settings (on newer Android, first under the app's info,
+              Allow restricted settings).
+            </p>
+            <a
+              className="button"
+              href={`/downloads/${release.android.file}`}
+              download
+            >
+              Download for Android
+            </a>
+            <p className="note">
+              SHA-256 <code className="hash">{release.android.sha256}</code>
+              {release.android.signer && (
+                <>
+                  <br />
+                  Signed with a key whose SHA-256 is{" "}
+                  <code className="hash">
+                    {groupedFingerprint(release.android.signer)}
+                  </code>
+                </>
+              )}
+            </p>
+          </div>
+        </div>
+      )}
       {release?.signing && (
         <>
           <h2>Trust the certificate on another computer</h2>
