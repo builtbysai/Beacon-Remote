@@ -719,10 +719,18 @@ export async function createApp(
          RETURNING id,mac`,
         [body.machineId],
       );
+      // A restart the owner asked for (ADR 0043), delivered once and only while it is fresh.
+      const restart = await pool.query<{ id: string }>(
+        `UPDATE machine_restarts SET delivered_at=now()
+         WHERE machine_id=$1 AND delivered_at IS NULL AND created_at>now()-interval '2 minutes'
+         RETURNING id`,
+        [body.machineId],
+      );
       return {
         ok: true,
         version: 1,
         wake: wake.rows,
+        restart: restart.rows[0] ?? null,
         // The computer follows a lowering done from the web; it never raises itself from this.
         access: {
           mode: policy.rows[0]?.mode ?? "attended",
