@@ -164,6 +164,13 @@ export const inputEnvelope = z
           vertical: z.number().int().min(-32767).max(32767),
         })
         .strict(),
+      // A phone's system keys. Only a viewer of an Android phone sends this.
+      z
+        .object({
+          type: z.literal("nav"),
+          action: z.enum(["back", "home", "recents", "notifications"]),
+        })
+        .strict(),
       z.object({ type: z.literal("release_all") }).strict(),
       z.object({ type: z.literal("keep_alive") }).strict(),
       z.object({ type: z.literal("clipboard_read") }).strict(),

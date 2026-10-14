@@ -18,6 +18,7 @@ import org.json.JSONObject
 object HostState {
     @Volatile var status: String = "Not available"
     @Volatile var sharing: Boolean = false
+    @Volatile var controlling: Boolean = false
 }
 
 /**

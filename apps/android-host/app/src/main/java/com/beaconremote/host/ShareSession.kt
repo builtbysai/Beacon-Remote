@@ -15,6 +15,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
+import org.webrtc.DataChannel
 import org.webrtc.DefaultVideoDecoderFactory
 import org.webrtc.DefaultVideoEncoderFactory
 import org.webrtc.EglBase
@@ -44,6 +45,9 @@ class ShareSession(
     private val grant: Grant,
     private val server: String,
     private val projectionData: Intent?,
+    /** The person chose to let the helper touch and type (and the accessibility service is on). */
+    private val controlAllowed: Boolean = false,
+    private val onControl: (Boolean) -> Unit = {},
     private val onEnded: (String) -> Unit,
 ) {
     private val worker = Executors.newSingleThreadScheduledExecutor()
@@ -66,6 +70,9 @@ class ShareSession(
     private var capturer: ScreenCapturerAndroid? = null
     private var helper: SurfaceTextureHelper? = null
     private var peer: PeerConnection? = null
+    private var control: RemoteControl? = null
+    private var screenWidth = 0
+    private var screenHeight = 0
 
     /** Callbacks from OkHttp and WebRTC can arrive after the session has shut its thread down; they are dropped. */
     private fun post(block: () -> Unit) {
@@ -96,6 +103,7 @@ class ShareSession(
     fun setPaused(value: Boolean) {
         post {
             paused = value
+            if (value) control?.release()
             track?.setEnabled(!value)
             socket?.send(JSONObject().put("type", "paused").put("paused", value).toString())
         }
@@ -115,9 +123,10 @@ class ShareSession(
                                 end("Declined")
                                 return@post
                             }
-                            webSocket.send(
-                                JSONObject().put("type", "consent").put("accepted", true).put("resumable", true).toString(),
-                            )
+                            val consent = JSONObject().put("type", "consent").put("accepted", true).put("resumable", true)
+                            // Control was asked for but not allowed: the viewer is told it is view only.
+                            if (grant.capability == "desktop:control" && !controlAllowed) consent.put("control", false)
+                            webSocket.send(consent.toString())
                             ticker = worker.scheduleAtFixedRate({ tick() }, 0, 1000, TimeUnit.MILLISECONDS)
                             runCatching { beginMedia() }.onFailure {
                                 Log.w(TAG, "Screen capture could not start", it)
@@ -150,6 +159,7 @@ class ShareSession(
             end("Authorization lapsed")
             return
         }
+        control?.quietCheck()
         sequence += 1
         challenges.addLast(sequence.toString() to now)
         while (challenges.size > 4) challenges.removeFirst()
@@ -220,6 +230,8 @@ class ShareSession(
         capturer = projection
         projection.initialize(surfaces, context, videoSource.capturerObserver)
         val metrics = context.resources.displayMetrics
+        screenWidth = metrics.widthPixels
+        screenHeight = metrics.heightPixels
         val scale = minOf(1.0, 1280.0 / maxOf(metrics.widthPixels, metrics.heightPixels))
         val width = ((metrics.widthPixels * scale).toInt() / 2) * 2
         val height = ((metrics.heightPixels * scale).toInt() / 2) * 2
@@ -291,6 +303,14 @@ class ShareSession(
             val ordered = codecs.filter { it.name == "H264" } + codecs.filter { it.name != "H264" }
             connection.transceivers.firstOrNull { it.sender == sender }?.setCodecPreferences(ordered)
         }
+        if (grant.capability == "desktop:control" && controlAllowed && ControlService.instance != null) {
+            // The input channel is made here, before the offer, as the Windows host does.
+            connection.createDataChannel("beacon-input-v1", DataChannel.Init().apply { ordered = true })?.let { channel ->
+                control =
+                    RemoteControl(channel, grant.id, screenWidth, screenHeight, { !paused && !ended }) { active -> onControl(active) }
+                        .also { it.start() }
+            }
+        }
         connection.createOffer(
             object : SimpleSdpObserver() {
                 override fun onCreateSuccess(description: SessionDescription) {
@@ -318,6 +338,8 @@ class ShareSession(
     }
 
     private fun closePeer() {
+        control?.stop()
+        control = null
         peer?.let {
             runCatching { it.close() }
             runCatching { it.dispose() }

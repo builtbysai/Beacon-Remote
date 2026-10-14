@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="control_description">Lets a helper you approve touch and type on this phone, only during a session where you chose to allow control. It does nothing at any other time and never reads your screen or what you type.</string>
+</resources>

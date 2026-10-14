@@ -75,6 +75,11 @@ Build `apps/android-host` (`gradlew :app:assembleDebug`) and install the debug A
       chip, and the notification offers Pause and Stop (also on the lock screen).
 - [ ] Pause shows the pause banner in the viewer; Resume clears it; Stop ends the session and the notification.
 - [ ] Switch the phone from Wi-Fi to mobile data during a session; lock the screen; check what happens.
+- [ ] Control: in Settings, Accessibility, turn on Beacon Remote control. In the workspace choose Remote for the phone.
+      The request screen shows an unticked "Also let them touch and type on this phone". Leave it unticked: the viewer
+      says view only and shows no phone buttons. Request again and tick it: the viewer shows Back, Home and Recents;
+      tapping, dragging, scrolling and typing in a text field work; the notification says "Sharing and being
+      controlled"; Pause stops all input and Resume restores it.
 - [ ] Restart the phone: it is available again without opening the app. After Stop being available, a restart
       leaves it unavailable.
 - [ ] Remove this phone in the app and in the workspace; it can no longer be reached.
