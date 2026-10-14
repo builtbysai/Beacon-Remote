@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { Machine } from "@beacon-remote/protocol";
 import { api } from "./api.js";
 
-type Action = "disconnect" | "revoke" | "uninstall";
+type Action = "disconnect" | "revoke" | "uninstall" | "restart";
 
 // The three ways to take access away from a computer, kept distinct (ADR 0039): end what is happening now, remove its
 // authority, or remove Beacon Remote from it as well.
@@ -47,11 +47,13 @@ export function DeviceActions({
           {},
         );
         setNote(
-          action === "disconnect"
-            ? "Any active session was ended. The computer stays available."
-            : result.online
-              ? "Removal started. Beacon Remote is uninstalling itself."
-              : "Access revoked now. Beacon Remote removes itself if this computer comes online within 30 days.",
+          action === "restart"
+            ? "Restart requested. The computer shows a 30-second countdown its user can cancel. Everything open on it is closed; it comes back once Windows has started and someone is signed in."
+            : action === "disconnect"
+              ? "Any active session was ended. The computer stays available."
+              : result.online
+                ? "Removal started. Beacon Remote is uninstalling itself."
+                : "Access revoked now. Beacon Remote removes itself if this computer comes online within 30 days.",
         );
         await onChanged();
       }
@@ -73,6 +75,11 @@ export function DeviceActions({
       label: "Revoke access…",
       text: "Revoke this computer’s access? It must be paired again before another session. Beacon Remote stays installed on it.",
       go: "Revoke access",
+    },
+    restart: {
+      label: "Restart computer…",
+      text: "Restart this computer in 30 seconds? Any session ends and unsaved work on it can be lost. Windows shows a countdown the person there can cancel. It reconnects after the restart once Windows is signed in, because Beacon Remote runs in a signed-in session.",
+      go: "Restart",
     },
     uninstall: {
       label: "Uninstall and remove…",
@@ -126,7 +133,18 @@ export function DeviceActions({
         </>
       ) : (
         <div className="actions">
-          {(["disconnect", "revoke", "uninstall"] as Action[]).map((action) => (
+          {(
+            [
+              "disconnect",
+              ...(machine.online &&
+              machine.accessMode === "trusted" &&
+              machine.allowControl
+                ? ["restart"]
+                : []),
+              "revoke",
+              "uninstall",
+            ] as Action[]
+          ).map((action) => (
             <button
               key={action}
               className="secondary"
