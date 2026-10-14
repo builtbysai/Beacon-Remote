@@ -15,9 +15,23 @@ android {
         versionName = "0.1.0"
     }
 
+    // A release build is signed only when the key is supplied through the environment (scripts/Beacon-Android.ps1);
+    // the key and its password never live in the repository.
+    val releaseKey = System.getenv("BEACON_ANDROID_KEYSTORE")
+    signingConfigs {
+        if (releaseKey != null) {
+            create("release") {
+                storeFile = file(releaseKey)
+                storePassword = System.getenv("BEACON_ANDROID_STORE_PASSWORD")
+                keyAlias = "beacon"
+                keyPassword = System.getenv("BEACON_ANDROID_STORE_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (releaseKey != null) signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
