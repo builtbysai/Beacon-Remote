@@ -128,6 +128,26 @@ Use a second Windows PC (or a spare account) that does not have Beacon Remote in
 6. Untick "Remove Beacon Remote when support ends" once: the sign-in goes, the programs stay.
 7. Open a used or cancelled link: the page says it cannot be used.
 
+## 11. Newer features on the second computer
+
+Run `node scripts/acceptance/support.mjs --login <file> --device ssh:user@host` first (docs/testing.md); it covers the temporary-support
+journey. These need a person:
+
+- [ ] **Sound.** Allow a view session and tick "Also share this computer's sound". Play a video on that computer; choose Sound on in
+      the viewer and hear it. The sharing window says "Sound shared". Allow another session without the box: no Sound button.
+- [ ] **Two displays.** With a second monitor, the viewer shows a Display menu. Choose the other display: the computer is asked again
+      and names that display; the picture changes. Unplug the monitor: the menu loses it.
+- [ ] **Wake.** Put a computer to sleep (wired, wake-on-LAN enabled in its firmware and network card settings). With another of your
+      computers awake on the same network, its panel offers "Wake this computer"; it wakes within a minute.
+- [ ] **Restart.** For a computer that trusts your account with control, "Restart computer…" shows Windows' 30-second countdown on it;
+      `shutdown /a` there cancels it; otherwise it restarts and comes back after sign-in.
+- [ ] **Remove.** "Uninstall and remove…" on an online computer: it says on screen that you removed it and Beacon Remote is gone from
+      Apps and features. On a computer that is off: it stays revoked, and removes itself when switched on within 30 days.
+- [ ] **Large file.** In Chrome or Edge, accept a 1 GB file from the computer: it streams to the place you choose, and cancelling leaves nothing.
+- [ ] **Resume.** Send a 200 MB file to the computer, turn Wi-Fi off for ten seconds mid-way, turn it back on: the transfer says
+      "Resuming" and finishes with the right checksum (compare the file's SHA-256).
+- [ ] **Self-hosting.** On a small VPS with a real domain, follow docs/self-hosting.md end to end, including a backup and restore.
+
 ## What to send back
 
 For anything that felt off: the time, what you did, and the session's row from Sessions (the Connection column).
