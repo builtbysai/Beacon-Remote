@@ -761,5 +761,32 @@
     "screen": "sharing",
     "purpose": "Sharing window while the helper records: the permissions row says so plainly",
     "source": "sharing-recording.png"
+  },
+  {
+    "file": "android-host/consent/2026-10-13-2245-android-consent.png",
+    "when": "2026-10-13 22:45 UTC",
+    "size": "1080x2400",
+    "platform": "android-host",
+    "screen": "consent",
+    "purpose": "Android host: the request screen the person must approve before Android's own screen-capture prompt",
+    "source": "android-consent.png"
+  },
+  {
+    "file": "android-host/sharing/2026-10-14-0018-sharing-notification.png",
+    "when": "2026-10-14 00:18 UTC",
+    "size": "1080x2400",
+    "platform": "android-host",
+    "screen": "sharing",
+    "purpose": "Android host while sharing: the public notification (expands to Pause and Stop) under Android's own sharing chip",
+    "source": "s17.png"
+  },
+  {
+    "file": "android-host/paired/2026-10-14-0018-paired-available.png",
+    "when": "2026-10-14 00:18 UTC",
+    "size": "1080x2400",
+    "platform": "android-host",
+    "screen": "paired",
+    "purpose": "Android host after pairing: name, server, Available status, and the controls to stop or remove",
+    "source": "s19.png"
   }
 ]

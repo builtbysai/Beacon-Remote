@@ -70,3 +70,21 @@ block or forceful process death can still prevent release; the helper reports
 that failure and never revives control. This remains an unverified release gate
 requiring an elevated-window/lock held-input acceptance test and a durable cleanup
 owner in the installation track.
+
+## Android host against this fixture
+
+`apps/android-host` pairs to the fixture at `http://10.0.2.2:5175` from the emulator (cleartext to that address is
+allowed in debug builds only). The emulator cannot reach the browser directly, so run a local relay and tell the
+fixture about it:
+
+```bash
+docker run -d --name remote-dev-turn -p 3480:3480/udp -p 49300-49310:49300-49310/udp --entrypoint sh coturn/coturn -c \
+  'ip=$(hostname -i); exec turnserver -n --listening-port=3480 --min-port=49300 --max-port=49310 --realm=dev.local \
+   --use-auth-secret --static-auth-secret=<32+ character development secret> --relay-ip=$ip \
+   --external-ip=<this computer'"'"'s LAN address>/$ip --no-tcp-relay --no-tls --fingerprint --no-cli'
+DEV_TURN_URLS="turn:<LAN address>:3480?transport=udp" DEV_TURN_SECRET=<same secret> \
+  pnpm --filter @beacon-remote/backend exec tsx scripts/input-development.ts
+```
+
+Build with `JAVA_HOME` set to Android Studio's `jbr` and run `gradlew.bat :app:assembleDebug` from
+`apps/android-host`. Pairing codes come from `POST /api/enrollments` as the signed-in test account.
