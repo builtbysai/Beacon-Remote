@@ -1316,6 +1316,10 @@ async fn media_cycle(
     if let Some(files_worker) = files_worker {
         let _ = timeout(Duration::from_secs(1), files_worker).await;
     }
+    // The session itself is over (not just this viewer's connection): nothing kept for resuming outlives it.
+    if !session_active.load(Ordering::Acquire) {
+        crate::files::discard_parked();
+    }
     // Sound capture ends with the session; wait for the speakers' capture to be released.
     if let Some(audio_worker) = audio_worker {
         let _ = timeout(Duration::from_secs(2), audio_worker).await;

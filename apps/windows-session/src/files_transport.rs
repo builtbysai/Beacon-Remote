@@ -411,6 +411,8 @@ async fn run(
     permissions: Permissions,
 ) -> Result<(), ()> {
     let folder = files::received_folder().ok_or(())?;
+    // Left over from a session that ended abnormally.
+    files::sweep_stale(&folder);
     let mut receiver = Receiver::new(folder);
     let mut outbound = Outbound::new();
     // The browser's buffer fills when the network is slower than the disk; wait for it to drain.
@@ -569,6 +571,63 @@ mod tests {
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect()
+    }
+
+    #[test]
+    fn an_interrupted_upload_carries_on_from_a_verified_start_and_only_for_the_same_file() {
+        let dir = folder();
+        let data = b"0123456789abcdef".to_vec();
+        let offer = br#"{"t":"offer","id":1,"name":"big.bin","size":16}"#;
+        // Half arrives, then the connection is lost while the session goes on.
+        let mut first = Receiver::new(dir.clone());
+        assert!(matches!(first.control(offer, false), Ok(Reply::Accept(1))));
+        first.chunk(&chunk(1, &data[..8])).unwrap();
+        first.interrupted();
+        // A reconnecting viewer offers the same file: it is told how much is here and the hash of exactly that.
+        let mut second = Receiver::new(dir.clone());
+        let again = br#"{"t":"offer","id":3,"name":"big.bin","size":16}"#;
+        match second.control(again, false) {
+            Ok(Reply::Resume(3, 8, sha)) => assert_eq!(sha, hex(&data[..8])),
+            other => panic!("expected a resume, got {other:?}"),
+        }
+        second.chunk(&chunk(3, &data[8..])).unwrap();
+        let end = format!(r#"{{"t":"end","id":3,"sha256":"{}"}}"#, hex(&data));
+        assert!(matches!(
+            second.control(end.as_bytes(), false),
+            Ok(Reply::Done(3, _))
+        ));
+        assert_eq!(std::fs::read(dir.join("big.bin")).unwrap(), data);
+
+        // A different size is a different file: nothing is resumed.
+        let mut third = Receiver::new(dir.clone());
+        assert!(matches!(third.control(offer, false), Ok(Reply::Accept(1))));
+        third.chunk(&chunk(1, &data[..4])).unwrap();
+        third.interrupted();
+        let other = br#"{"t":"offer","id":5,"name":"big.bin","size":20}"#;
+        let mut fourth = Receiver::new(dir.clone());
+        assert!(matches!(fourth.control(other, false), Ok(Reply::Accept(5))));
+        fourth.abort();
+        // Starting again on request throws the kept part away.
+        let fresh = br#"{"t":"offer","id":7,"name":"big.bin","size":16,"fresh":true}"#;
+        let mut fifth = Receiver::new(dir.clone());
+        assert!(matches!(fifth.control(fresh, false), Ok(Reply::Accept(7))));
+        fifth.abort();
+        // Pause, cancel and the end of the session delete what was kept.
+        let mut sixth = Receiver::new(dir.clone());
+        assert!(matches!(sixth.control(offer, false), Ok(Reply::Accept(1))));
+        sixth.chunk(&chunk(1, &data[..4])).unwrap();
+        sixth.interrupted();
+        files::discard_parked();
+        let mut seventh = Receiver::new(dir.clone());
+        assert!(matches!(
+            seventh.control(offer, false),
+            Ok(Reply::Accept(1))
+        ));
+        seventh.abort();
+        assert!(std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .all(|entry| entry.path().extension().is_none_or(|e| e != "beaconpart")));
     }
 
     #[test]

@@ -201,3 +201,69 @@ test("a file over the memory limit streams to the file the person chose, and onl
     delete host.showSaveFilePicker;
   }
 });
+
+test("an upload carries on from the part the computer kept only if that part is exactly this file's start", async () => {
+  const { FileSender } = await import("../src/file-transfer.js");
+  const bytes = randomBytes(50_000);
+  const file = new File([bytes], "tool.bin");
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+  const start = () => {
+    const { channel, raw, sent } = fakeChannel();
+    const sender = new FileSender(
+      channel,
+      () => undefined,
+      () => undefined,
+    );
+    sender.ready = true;
+    return { sender, raw, sent };
+  };
+  const frames = (sent: (string | Uint8Array)[]) =>
+    sent.filter((item): item is Uint8Array => typeof item !== "string");
+
+  // The computer kept the first 20,000 bytes and proves it with their hash: only the rest is sent.
+  const good = start();
+  const done = good.sender.send(file);
+  await settle();
+  assert.equal(JSON.parse(good.sent[0] as string).fresh, undefined);
+  good.raw.onmessage!({
+    data: JSON.stringify({
+      t: "accept",
+      id: 1,
+      resume: {
+        offset: 20_000,
+        sha256: createHash("sha256")
+          .update(bytes.subarray(0, 20_000))
+          .digest("hex"),
+      },
+    }),
+  });
+  await settle();
+  const payload = Buffer.concat(frames(good.sent).map((f) => f.subarray(4)));
+  assert.deepEqual(payload, bytes.subarray(20_000));
+  const end = JSON.parse(good.sent.at(-1) as string);
+  assert.equal(end.t, "end");
+  assert.equal(end.sha256, createHash("sha256").update(bytes).digest("hex"));
+  good.raw.onmessage!({
+    data: JSON.stringify({ t: "done", id: 1, name: "tool.bin" }),
+  });
+  assert.equal(await done, "done");
+
+  // A kept part that is not this file's start is thrown away and the file starts again from nothing.
+  const bad = start();
+  void bad.sender.send(file);
+  await settle();
+  bad.raw.onmessage!({
+    data: JSON.stringify({
+      t: "accept",
+      id: 1,
+      resume: { offset: 20_000, sha256: "0".repeat(64) },
+    }),
+  });
+  await settle();
+  const messages = bad.sent
+    .filter((item) => typeof item === "string")
+    .map((item) => JSON.parse(item as string));
+  assert.equal(messages[1].t, "cancel");
+  assert.equal(messages[2].t, "offer");
+  assert.equal(messages[2].fresh, true);
+});

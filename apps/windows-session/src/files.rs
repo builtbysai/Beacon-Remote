@@ -74,10 +74,23 @@ pub fn safe_name(proposed: &str) -> Option<String> {
     })
 }
 
-/// `name`, or `name (1)`, `name (2)`… the first that does not exist in `folder`.
+/// The partial file that goes with a final name.
+fn part_of(target: &Path) -> PathBuf {
+    target.with_file_name(format!(
+        "{}.beaconpart",
+        target
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("file")
+    ))
+}
+
+/// `name`, or `name (1)`, `name (2)`… the first that neither exists in `folder` nor is being received there
+/// (a part kept for a reconnecting viewer reserves its name).
 pub fn unique_path(folder: &Path, name: &str) -> PathBuf {
+    let taken = |path: &Path| path.exists() || part_of(path).exists();
     let candidate = folder.join(name);
-    if !candidate.exists() {
+    if !taken(&candidate) {
         return candidate;
     }
     let (stem, extension) = match name.rfind('.') {
@@ -86,7 +99,7 @@ pub fn unique_path(folder: &Path, name: &str) -> PathBuf {
     };
     (1..10_000)
         .map(|n| folder.join(format!("{stem} ({n}){extension}")))
-        .find(|path| !path.exists())
+        .find(|path| !taken(path))
         .unwrap_or_else(|| folder.join(format!("{stem} ({}){extension}", std::process::id())))
 }
 
