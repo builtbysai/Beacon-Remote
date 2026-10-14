@@ -33,7 +33,8 @@ services:
       PORT: "3010"
       TRUST_PROXY_CIDR: 172.30.88.0/28
       NODE_OPTIONS: --max-old-space-size=256
-    networks: [private]
+    # The backend sends sign-up, recovery and alert mail through Resend, so it needs one way out.
+    networks: [private, mail-egress]
     depends_on: { postgres: { condition: service_healthy } }
     read_only: true
     tmpfs: [/tmp]
@@ -136,6 +137,7 @@ services:
     logging: *logs
 networks:
   backup-egress: {}
+  mail-egress: {}
   private:
     internal: true
     ipam:
