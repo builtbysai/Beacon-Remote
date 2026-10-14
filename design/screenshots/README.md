@@ -265,6 +265,8 @@ Originals are kept as captured (no re-encoding). **Do not delete these in cleanu
 | [2026-10-14-1355-temporary-support-download-mobile.png](web/support-invite/2026-10-14-1355-temporary-support-download-mobile.png) | 2026-10-14 13:55 UTC | 390x1217 | The same page at phone width |
 | [2026-10-14-1355-temporary-support-link-desktop.png](web/support-invite/2026-10-14-1355-temporary-support-link-desktop.png) | 2026-10-14 13:55 UTC | 1280x760 | A used, cancelled or expired support link says so plainly (desktop) |
 | [2026-10-14-1355-temporary-support-link-mobile.png](web/support-invite/2026-10-14-1355-temporary-support-link-mobile.png) | 2026-10-14 13:55 UTC | 390x800 | A used, cancelled or expired support link says so plainly (phone width) |
+| [2026-10-14-1655-temporary-support-two-column-mobile.png](web/support-invite/2026-10-14-1655-temporary-support-two-column-mobile.png) | 2026-10-14 16:55 UTC | 390x1344 | The same page at phone width, columns stacked |
+| [2026-10-14-1655-temporary-support-two-column.png](web/support-invite/2026-10-14-1655-temporary-support-two-column.png) | 2026-10-14 16:55 UTC | 1280x952 | Support link page in the approved two-column layout, with a what-happens-next list |
 
 ## web / viewer
 

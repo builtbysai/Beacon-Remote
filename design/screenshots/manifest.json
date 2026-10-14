@@ -893,5 +893,23 @@
     "screen": "support-invite",
     "purpose": "The same page at phone width",
     "source": "invite-ok-mobile.png"
+  },
+  {
+    "file": "web/support-invite/2026-10-14-1655-temporary-support-two-column.png",
+    "when": "2026-10-14 16:55 UTC",
+    "size": "1280x952",
+    "platform": "web",
+    "screen": "support-invite",
+    "purpose": "Support link page in the approved two-column layout, with a what-happens-next list",
+    "source": "invite-new-desktop.png"
+  },
+  {
+    "file": "web/support-invite/2026-10-14-1655-temporary-support-two-column-mobile.png",
+    "when": "2026-10-14 16:55 UTC",
+    "size": "390x1344",
+    "platform": "web",
+    "screen": "support-invite",
+    "purpose": "The same page at phone width, columns stacked",
+    "source": "invite-new-mobile.png"
   }
 ]
