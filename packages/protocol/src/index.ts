@@ -133,6 +133,9 @@ export interface Machine {
   displays: DisplayInfo[];
   // A computer made by a one-use support link (ADR 0038); it lives in the support queue, not the everyday list.
   temporary?: boolean;
+  // The owner asked to uninstall this computer (ADR 0039): pending until it confirms, then uninstalledAt is set.
+  uninstallPending?: boolean;
+  uninstalledAt?: string | null;
 }
 
 // Later WebRTC: reliable ordered state/keys/buttons; unreliable unordered pointer
@@ -232,4 +235,13 @@ export function supportEndMessage(
   nonce: string,
 ): string {
   return `beacon-remote:support-end:v1\n${machineId}\n${timestamp}\n${nonce}`;
+}
+
+// The computer confirms it removed itself after the owner asked (ADR 0039); same shape as the support-end request.
+export function uninstallMessage(
+  machineId: string,
+  timestamp: number,
+  nonce: string,
+): string {
+  return `beacon-remote:uninstall:v1\n${machineId}\n${timestamp}\n${nonce}`;
 }

@@ -144,12 +144,16 @@ pub fn run() {
     }
     let silent = arguments.iter().any(|argument| argument == "--silent");
     let uninstall = arguments.iter().any(|argument| argument == "--uninstall");
+    // The owner asked for this in their account (ADR 0039): no question, but it says so on screen.
+    let by_owner = arguments
+        .iter()
+        .any(|argument| argument == "--removed-by-owner");
     let context = match Context::new(silent) {
         Ok(context) => context,
         Err(error) => return fail(silent, &error),
     };
     let result = if uninstall {
-        remove(&context)
+        remove(&context, by_owner)
     } else {
         add(&context)
     };
@@ -239,8 +243,9 @@ fn lay_down(context: &Context, autostart: bool) -> Result<(), Error> {
     Ok(())
 }
 
-fn remove(context: &Context) -> Result<(), Error> {
-    if !context.ask(
+fn remove(context: &Context, by_owner: bool) -> Result<(), Error> {
+    if !by_owner
+        && !context.ask(
         "Remove Beacon Remote from this computer?\n\n\
          This stops Beacon Remote and deletes the sign-in it saved here. The computer stays in your \
          account until you remove it on the Beacon Remote website.",
@@ -249,6 +254,15 @@ fn remove(context: &Context) -> Result<(), Error> {
     }
     stop_running(&context.install);
     clean(context, true);
+    if by_owner {
+        context.say(
+            "Beacon Remote was removed from this computer because its owner removed it in their account.
+
+Nothing else on this computer was changed.",
+            MB_OK | MB_ICONINFORMATION,
+        );
+        return Ok(());
+    }
     offer_untrust(context);
     context.say("Beacon Remote was removed.", MB_OK | MB_ICONINFORMATION);
     Ok(())

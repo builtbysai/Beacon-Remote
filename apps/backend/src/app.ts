@@ -31,6 +31,7 @@ import { registerAccountData } from "./account-data.js";
 import { registerTeam, syncTeam } from "./team.js";
 import { registerSupportLinks } from "./support-links.js";
 import { purgeStale } from "./retention.js";
+import { registerDeviceRemoval } from "./device-removal.js";
 import { registerMfa } from "./mfa.js";
 import { createMailer, type Mailer } from "./mail.js";
 import { registerSignup } from "./signup.js";
@@ -153,9 +154,14 @@ export async function createApp(
     machineId: string,
     message: string,
     signature: string,
+    // A computer the owner asked to uninstall is revoked, but may still prove who it is while the instruction is live.
+    pendingUninstall = false,
   ): Promise<boolean> {
     const result = await pool.query<{ public_key: Buffer }>(
-      "SELECT public_key FROM machines WHERE id=$1 AND revoked_at IS NULL",
+      pendingUninstall
+        ? `SELECT public_key FROM machines WHERE id=$1 AND uninstalled_at IS NULL
+           AND uninstall_requested_at>now()-interval '30 days'`
+        : "SELECT public_key FROM machines WHERE id=$1 AND revoked_at IS NULL",
       [machineId],
     );
     const rawKey = result.rows[0]?.public_key;
@@ -238,6 +244,18 @@ export async function createApp(
     signedByMachine,
     sessionRequests.wake,
     sessionRequests.endMachineSessions,
+  );
+
+  registerDeviceRemoval(
+    app,
+    pool,
+    owner,
+    sameOrigin,
+    signedByMachine,
+    sessionRequests.wake,
+    sessionRequests.endMachineSessions,
+    sessionRequests.endRelationshipSessions,
+    syncTeam,
   );
 
   app.get("/health", async () => ({ status: "ok", service: "beacon-remote" }));
@@ -399,7 +417,9 @@ export async function createApp(
     const result = await pool.query(
       `SELECT m.id,m.name,m.group_name AS "group",m.last_seen_at AS "lastSeenAt",m.revoked_at AS "revokedAt",
        COALESCE((m.revoked_at IS NULL AND m.last_seen_at>now()-interval '45 seconds'),false) AS online,
-       COALESCE(a.mode,'attended') AS "accessMode",COALESCE(a.allow_control,false) AS "allowControl",COALESCE(a.helpers_unattended,'off') AS "helpersUnattended",m.displays,(m.support_link_id IS NOT NULL) AS temporary
+       COALESCE(a.mode,'attended') AS "accessMode",COALESCE(a.allow_control,false) AS "allowControl",COALESCE(a.helpers_unattended,'off') AS "helpersUnattended",m.displays,(m.support_link_id IS NOT NULL) AS temporary,
+       (m.uninstall_requested_at IS NOT NULL AND m.uninstalled_at IS NULL AND m.uninstall_requested_at>now()-interval '30 days') AS "uninstallPending",
+       m.uninstalled_at AS "uninstalledAt"
        FROM machines m LEFT JOIN machine_access a ON a.machine_id=m.id
        WHERE m.account_id=$1 ORDER BY m.created_at`,
       [account],
@@ -589,6 +609,28 @@ export async function createApp(
         body.signature,
       ))
     ) {
+      // A revoked computer the owner asked to uninstall gets only that instruction, signed for by its own key.
+      if (
+        await signedByMachine(
+          body.machineId,
+          heartbeatMessage(body.machineId, body.timestamp, body.nonce),
+          body.signature,
+          true,
+        )
+      )
+        return {
+          ok: true,
+          version: 1,
+          uninstall: true,
+          access: {
+            mode: "attended",
+            allowControl: false,
+            helpers: "off",
+            version: 0,
+          },
+          pollAfterMillis: 15000,
+          sessions: [],
+        };
       return reply.code(401).send({ error: "Heartbeat rejected" });
     }
     // Row lock serializes heartbeat and revocation. A replay cannot refresh presence.
@@ -971,6 +1013,7 @@ export async function createApp(
     if (!result.rowCount)
       return reply.code(404).send({ error: "Machine unavailable" });
     sessionRequests.wake(id.data.id);
+    await sessionRequests.endMachineSessions(id.data.id);
     await sessionRequests.endRelationshipSessions(
       await syncTeam(pool, account),
     );
