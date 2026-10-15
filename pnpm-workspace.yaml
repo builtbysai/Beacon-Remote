@@ -2,5 +2,6 @@ packages:
   - apps/backend
   - apps/web
   - packages/protocol
+  - tools/mcp
 allowBuilds:
   esbuild: true
