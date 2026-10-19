@@ -9,7 +9,7 @@ beacon-remote-core = { path = "../../crates/remote-core" }
 
 [target.'cfg(windows)'.dependencies]
 webrtc = "=0.21.0"
-rtc = "=0.21.0"
+rtc = "=0.21.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
 async-trait = "0.1"
