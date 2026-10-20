@@ -83,6 +83,54 @@ A shared protocol and backend, built up progressively. Beacon View's credentials
 | Self-hosted deployment: Compose bundle (PostgreSQL, backend, website with automatic HTTPS, TURN), first-admin link, secrets, backup/restore, update/rollback (docs/self-hosting.md) | ✓    | ✓     | brought up from nothing locally with a localhost domain: health, first-admin, backup and restore | –   | Not yet on a real VPS with a real domain and open UDP ports; installers carry a build-time default server |
 | MCP and computer-use integration over the existing view and input core                                                                                                              | –    | –     | –                                                                                                | –   | Explicit authorization, bounded capability, visible state, immediate revocation                           |
 | Further performance work from measured bottlenecks                                                                                                                                  | –    | –     | –                                                                                                | –   |                                                                                                           |
+| Full unattended access: Windows host (persistent enrollment, boot start, wake, pre-logon presence, standing owner authorization) | – | – | – | – | Builds on the trusted access modes in Phase 1; needs service-mode agent, secure-desktop policy and lock behaviour decided below |
+| Full unattended access: Android host (persistent enrollment, boot start, standing owner authorization, capture consent solved for enrolled devices) | – | – | – | – | Android 14+ requires a capture consent per session; unattended needs a device-owner/enrolled route or an accepted re-consent design |
+| Automation operation of sessions (MCP / computer-use client driving view, input and the UI tree; beacon motive is the first consumer) | – | – | – | – | Extends the MCP row above: scoped machine tokens, action audit, agent test pass on a real phone and a real PC still to run |
+
+### Unattended access and full control (owner direction, 2026-10-20)
+
+Goal: any enrolled device, Windows or Android, can be viewed and controlled
+with nobody at the device, by the owner or by an authorized automation client.
+Attended and trusted modes stay as they are; unattended is a separate,
+explicit per-device opt-in. Capabilities needed:
+
+- **Presence without hands**: agent starts at boot (Windows service mode;
+  Android foreground service plus boot start), persistent machine identity
+  and enrollment survive reboots and updates, heartbeat and inventory show
+  sleep/offline honestly, wake where the platform allows it (Wake-on-LAN on
+  Windows networks; Android wake only on enrolled devices kept reachable).
+- **Session start**: standing owner authorization per device replaces the
+  per-session local approval; one-use codes and revocation keep working;
+  every unattended session is visibly indicated on the host while live and
+  written to the audit history with who or what connected.
+- **Lock and secure screens**: a locked device is a stated state, not a
+  surprise. Windows: pre-logon presence, control only after unlock, secure
+  desktop (UAC) handled by the service or reported as a boundary. Android:
+  no PIN bypass; unattended control requires the device unlocked or an
+  enrolled unlock policy the owner sets. Secure (FLAG_SECURE) content stays
+  black and is reported as black, never captured around.
+- **Media and input completeness**: production media over the relay for
+  both platforms; Windows multi-monitor and Android rotation handled
+  mid-session; full input parity: pointer, drag, scroll, keyboard with
+  modifiers and text injection, Android gestures and global actions (back,
+  home, recents, notifications), clipboard both ways, file transfer both
+  ways.
+- **Operability by automation**: the session exposes the UI tree beside the
+  video (Windows UIA, Android accessibility nodes) plus semantic actions
+  (activate by label or id), a screenshot path and session state events, so
+  an automation client (MCP / computer-use; beacon motive is the intended
+  first consumer) works from structure, not pixels alone. Scoped per-machine
+  tokens, bounded capability grants, immediate revocation, full action log.
+- **Safety rails**: unattended is off by default per device, grant and
+  revoke in one action, idle session timeout, host-side kill switch that
+  works while a session is live, no silent enrollment changes.
+
+Acceptance for this direction: an operator who is not at the devices starts
+an unattended session to a real Windows PC and a real Android phone from a
+separate network, completes a multi-step task on each (open an app, change a
+setting, transfer a file), and the audit history shows both sessions end to
+end. Agent-operated acceptance (an automation client driving, a human
+reviewing the log) is the follow-on gate.
 
 ---
 
