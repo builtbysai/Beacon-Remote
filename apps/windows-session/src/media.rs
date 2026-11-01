@@ -566,6 +566,7 @@ async fn stream(
     )
     .await??;
     let mut authorization = MediaAuthorization {
+        last_activity: Arc::new(AtomicU64::new(0)),
         control_allowed,
         files_allowed,
         recording_allowed,
@@ -626,6 +627,7 @@ async fn stream(
 type RawSignalSocket =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 struct MediaAuthorization {
+    last_activity: Arc<AtomicU64>,
     epoch: Instant,
     lease: Arc<AtomicU64>,
     // Current ICE servers. The server re-issues short relay credentials inside lease replies.
@@ -971,6 +973,7 @@ async fn media_cycle(
         Some(crate::input_transport::start(
             channel,
             crate::input_transport::Authority {
+                last_activity: authorization.last_activity.clone(),
                 session: grant.id.clone(),
                 display_id: grant.display_id.clone(),
                 deadline,
@@ -997,6 +1000,7 @@ async fn media_cycle(
         Some(crate::files_transport::start(
             channel,
             crate::input_transport::Authority {
+                last_activity: authorization.last_activity.clone(),
                 session: grant.id.clone(),
                 display_id: grant.display_id.clone(),
                 deadline,
@@ -1204,6 +1208,11 @@ async fn media_cycle(
 
         let mut disconnected_at=None::<Instant>;
         loop {
+            if grant.approval.as_deref()==Some("policy") && grant.local_trusted &&
+                epoch.elapsed().as_millis().saturating_sub(u128::from(authorization.last_activity.load(Ordering::Acquire))) >= 30*60*1000 {
+                println!("Unattended session ended after 30 minutes without input or file activity.");
+                break;
+            }
             let last=lease.load(Ordering::Acquire);
             if last!=0 && remaining(last,epoch.elapsed().as_millis() as u64).is_none() {
                 println!("Signaling stopped: authorization renewal expired.");
@@ -1655,6 +1664,7 @@ mod tests {
                 .unwrap();
             let active = Arc::new(AtomicBool::new(mode != "stop"));
             let mut authorization = MediaAuthorization {
+                last_activity: Arc::new(AtomicU64::new(0)),
                 control_allowed: false,
                 files_allowed: false,
                 recording_allowed: false,

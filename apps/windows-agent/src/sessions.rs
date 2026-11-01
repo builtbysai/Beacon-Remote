@@ -29,14 +29,39 @@ impl Helpers {
         let writers = stops.clone();
         let stopping = cancel.clone();
         let watcher = thread::spawn(move || {
-            while !stopping.load(Ordering::Acquire) {
+            let fingerprint = || {
+                crate::access_path()
+                    .ok()
+                    .and_then(|p| std::fs::metadata(p).ok())
+                    .and_then(|m| m.modified().ok())
+            };
+            let mut policy = fingerprint();
+            let mut poll = 0;
+            loop {
                 thread::sleep(Duration::from_millis(50));
-            }
-            if let Ok(writers) = writers.lock() {
-                for writer in writers.iter().filter_map(Weak::upgrade) {
-                    if let Ok(mut pipe) = writer.lock() {
-                        let _ = pipe.write_all(b"stop\n");
+                poll += 1;
+                let changed = if poll >= 5 {
+                    poll = 0;
+                    let next = fingerprint();
+                    let changed = next != policy;
+                    policy = next;
+                    changed
+                } else {
+                    false
+                };
+                let cancelled = stopping.load(Ordering::Acquire);
+                if changed || cancelled {
+                    // A local setting change terminates old grants even when the policy POST cannot reach the server.
+                    if let Ok(writers) = writers.lock() {
+                        for writer in writers.iter().filter_map(Weak::upgrade) {
+                            if let Ok(mut pipe) = writer.lock() {
+                                let _ = pipe.write_all(b"stop\n");
+                            }
+                        }
                     }
+                }
+                if cancelled {
+                    break;
                 }
             }
         });

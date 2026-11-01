@@ -8,8 +8,8 @@ Use mature existing Beacon stack dependencies, with isolated app credentials and
 database ownership. Redis, a media server, and microservices have no demonstrated
 need. Do not copy Beacon View's large authentication implementation.
 
-The first working slice is identity and presence. Accounts are provisioned by
-the operator; password login is isolated and Argon2-hashed. Pairing codes are
+Account signup, email verification/recovery and operator provisioning share
+isolated, Argon2-hashed password login. Pairing codes are
 random, hashed server-side, five-minute, atomically consumed tokens. Machines
 generate Ed25519 private keys locally. The backend verifies signed heartbeat
 bytes with timestamps and unique nonces; revocation and updates serialize on the
@@ -23,17 +23,23 @@ Browser ── HTTPS/WSS authorization/signaling ── Control plane + PostgreS
    └──── WebRTC video + typed DataChannels ─── Windows session helper
                                                   │
                                       Rust capture/input capability core
-                                                  │ secure restricted IPC
-                                           Windows service (later)
+
+Boot-presence service ── HTTPS, separate presence-only key ── Control plane
 ```
 
-The service will coordinate machine identity, connection, recovery, and updates.
-An unprivileged interactive helper will own capture/input and local session
-indicators. [Microsoft documents Session 0 isolation](https://learn.microsoft.com/en-us/windows/win32/services/interactive-services);
-capture must not live in a service's isolated desktop. Restrict named-pipe IPC to
-the service SID and selected interactive user, verify peer identity/session, and
-use bounded versioned messages. This boundary is planned; no service/IPC is
-pretended to exist in this release.
+The optional boot-presence service reports availability using a separate key with
+no desktop authority. It exposes no IPC, launch or remote-command surface. The
+ordinary per-user host starts at sign-in and owns the interactive helper and
+visible sharing controls. Capture never runs in Session 0. See [ADR 0047](decisions/0047-unattended-owner-access.md).
+The service uses `windows-service` 0.8 for SCM lifecycle and the existing
+`windows-sys` bindings for ACLs, DPAPI and session-state queries. This avoids
+hand-written service dispatcher and control-handler ABI glue.
+
+The owner has now required initial Windows sign-in control and optional boot
+startup. The existing boot-presence service does not implement it. The required
+separate privileged endpoint, session scope, interactive worker and desktop
+handoff are described in [ADR 0048](decisions/0048-boot-login-and-restart.md).
+Ordinary capture/input guards remain in place until that endpoint exists.
 
 Start capture with Windows Graphics Capture and explicit monitor selection. Its
 [system picker and capture indicator](https://learn.microsoft.com/en-us/windows/apps/develop/media-authoring-processing/screen-capture)

@@ -1,5 +1,43 @@
 # Beacon Remote delivery roadmap
 
+## Active milestone — unattended owner access (updated October 30, 2026)
+
+The owner authorized continuing implementation and reducing repeated approval
+friction. The October 20 direction in PR 113 is the basis. The implementation on
+`codex/unattended-access` is **not deployed**; the hosted web/download release
+remains `eb1ea99a`, with backend `2721aae` (verified October 29).
+
+The owner's October 30 clarification requires optional boot startup, control of
+the initial Windows sign-in screen and reconnect after restart. Signed-in-only
+access does not complete this milestone. [ADR 0048](decisions/0048-boot-login-and-restart.md)
+records the required privileged endpoint and its remaining implementation and
+acceptance. The current optional boot service reports presence only.
+
+- Windows: one local unattended setup action, trusted owner control/files,
+  sign-in startup, a separate credential for boot presence, explicit locked and
+  signed-out states, local shutdown on policy changes, and service-aware uninstall.
+- Android 11+: one local standing permission plus Android accessibility and
+  notification setup; a low-frame-rate accessibility capture source without a
+  repeated MediaProjection prompt. Attended support retains its own approval.
+- Both: visible sharing, Pause/Stop, immediate revocation, a single controller,
+  a 30-minute idle limit, and no lock-screen, PIN, secure-content or UAC bypass.
+- October 30 follow-up: consistent boot readiness across owner/helper/support
+  session entry and inventory; forgetting a Windows pairing clears standing
+  permission and removes its boot service before identity deletion. See
+  [the follow-up validation](validation-2026-10-30.md).
+- Restart recovery now requests fresh authorization after a new signed host
+  process or an offline/online transition; boot presence is a separate optional
+  local checkbox. Full sign-in-screen capture/control is still unimplemented.
+- Still required before release: Windows service install/ACL/reboot/uninstall
+  acceptance and a real-phone/cross-network unattended workflow. Emulator evidence
+  is recorded separately. See [setup and acceptance](unattended-access.md) and
+  [ADR 0047](decisions/0047-unattended-owner-access.md).
+
+Full MCP/computer-use control, UI-tree semantics, scoped automation tokens and
+Beacon Motive integration follow this milestone. The separate view-only MCP PR
+105 remains unmerged. Broad repository/deployment cleanup follows unattended
+acceptance; do not erase evidence or required rollback material in advance.
+
 ## Where it stands (2026-10-13)
 
 The product described by ADRs 0021 to 0029 is built, merged to main and deployed at `remote.builtbysai.com` with

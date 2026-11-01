@@ -18,7 +18,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { resolve } from "node:path";
 import { Pool } from "pg";
 import { hash } from "@node-rs/argon2";
-import { createServer } from "../../web/node_modules/vite/dist/node/index.js";
+import { createServer } from "vite";
 import { createApp } from "../src/app.js";
 import { heartbeatMessage } from "../../../packages/protocol/src/index.js";
 import { applyMigrations } from "../src/migrations.js";
@@ -38,7 +38,11 @@ const pool = new Pool({
 const origin = "http://127.0.0.1:5175";
 const server = "http://127.0.0.1:3011";
 const account = randomUUID();
-const state = resolve(root, ".remote-dev/input-development");
+const state = resolve(
+  process.env.REMOTE_DEV_STATE_DIR ??
+    resolve(root, "../../Beacon-Private/remote/development"),
+  "input-development",
+);
 // Keep this local demo's credentials stable across an intentional restart.
 const priorLogin: unknown = await readFile(resolve(state, "login.json"), "utf8")
   .then((text) => JSON.parse(text) as unknown)

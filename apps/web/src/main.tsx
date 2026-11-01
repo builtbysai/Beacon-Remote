@@ -14,6 +14,7 @@ import { ThemePicker, readTheme, saveTheme } from "./ThemePicker.js";
 import { WorkspaceIcon, workspaceItems } from "./WorkspaceIcon.js";
 import { resolveViewRequest } from "./view-request.js";
 import { readView, forgetView } from "./resume-view.js";
+import { waitForRestart } from "./restart-reconnect.js";
 import {
   ForgotForm,
   SignupForm,
@@ -58,6 +59,12 @@ function lastSeen(iso: string): string {
 function App() {
   const viewContext = useRef({ active: false });
   const recoveryAttempted = useRef(false);
+  const manualViewEpoch = useRef(0);
+  const restartContext = useRef({
+    active: false,
+    abort: new AbortController(),
+  });
+  const [restarting, setRestarting] = useState<string | null>(null);
   const [page, setPage] = useState(pageFromHash);
   const [supportToken, setSupportToken] = useState(supportFromHash);
   const [theme, setTheme] = useState(readTheme);
@@ -71,6 +78,7 @@ function App() {
   const [publicMenuOpen, setPublicMenuOpen] = useState(false);
   useEffect(() => {
     const change = () => {
+      cancelRestart();
       viewContext.current.active = false;
       const hash = window.location.hash;
       setEntry(
@@ -133,6 +141,107 @@ function App() {
     setError("");
   }, [page]);
   const signedIn = machines !== null;
+  useEffect(
+    () => () => {
+      restartContext.current.active = false;
+      restartContext.current.abort.abort();
+    },
+    [page, signedIn],
+  );
+  function cancelRestart() {
+    manualViewEpoch.current++;
+    restartContext.current.active = false;
+    restartContext.current.abort.abort();
+    setRestarting(null);
+  }
+  async function reconnectAfterRestart(
+    machine: Machine,
+    previousInstance: string | null,
+  ) {
+    if (!viewContext.current.active) return;
+    cancelRestart();
+    const context = { active: true, abort: new AbortController() };
+    // Discard in-flight requests/resume replies from before the restart intent.
+    viewContext.current.active = false;
+    const pageContext = { active: true };
+    viewContext.current = pageContext;
+    restartContext.current = context;
+    const isCurrent = () => context.active && pageContext.active;
+    const capability =
+      view?.machineId === machine.id
+        ? (view.grant.capability ?? "desktop:view")
+        : "desktop:control";
+    const displayId =
+      view?.machineId === machine.id ? view.displayId : undefined;
+    setRestarting(machine.name);
+    setError("");
+    const previous = view;
+    setView(null);
+    forgetView();
+    if (previous)
+      void api(`sessions/${previous.grant.id}/stop`, {}).catch(() => {});
+    try {
+      const ready = await waitForRestart({
+        machineId: machine.id,
+        previousInstance,
+        capability,
+        isCurrent,
+        observe: async () =>
+          (
+            await api<{ machines: Machine[] }>(
+              "machines",
+              undefined,
+              AbortSignal.any([
+                context.abort.signal,
+                AbortSignal.timeout(15000),
+              ]),
+            )
+          ).machines,
+      });
+      if (!ready || !isCurrent()) return;
+      const grant = await api<ViewGrant>(`machines/${machine.id}/sessions`, {
+        source: "desktop",
+        capability,
+        requirePolicy: true,
+        ...(displayId ? { displayId } : {}),
+      });
+      await resolveViewRequest(
+        Promise.resolve(grant),
+        () => isCurrent() && grant.approval === "policy",
+        (accepted) =>
+          setView({
+            grant: accepted,
+            name: ready.name,
+            machineId: ready.id,
+            displayId,
+          }),
+        (unused) => api(`sessions/${unused.id}/stop`, {}),
+      );
+      if (isCurrent() && grant.approval !== "policy")
+        throw new Error(
+          "Reconnect stopped because unattended permission changed.",
+        );
+    } catch (failure) {
+      if (isCurrent())
+        setError(
+          failure instanceof Error
+            ? failure.message
+            : "Could not reconnect after restart.",
+        );
+    } finally {
+      if (restartContext.current === context) {
+        context.active = false;
+        setRestarting(null);
+      }
+    }
+  }
+  function restartCallback(machine: Machine) {
+    const epoch = manualViewEpoch.current;
+    return (previousInstance: string | null) => {
+      if (epoch === manualViewEpoch.current && viewContext.current.active)
+        void reconnectAfterRestart(machine, previousInstance);
+    };
+  }
   useEffect(() => {
     const context = { active: signedIn && page === "computers" };
     viewContext.current = context;
@@ -218,6 +327,7 @@ function App() {
     capability: "desktop:view" | "desktop:control" = "desktop:view",
     displayId?: string,
   ) {
+    cancelRestart();
     const context = viewContext.current;
     if (!context.active) return;
     setBusy(true);
@@ -424,6 +534,7 @@ function App() {
   }
 
   async function logout() {
+    cancelRestart();
     try {
       await api("logout", {});
       forgetView();
@@ -963,9 +1074,15 @@ function App() {
                         ? "—"
                         : live
                           ? "Now"
-                          : machine.lastSeenAt
-                            ? lastSeen(machine.lastSeenAt)
-                            : "Never"}
+                          : machine.bootState === "locked"
+                            ? "Locked"
+                            : machine.bootState === "signed-out"
+                              ? "Sign-in needed"
+                              : machine.bootState === "starting"
+                                ? "Starting host"
+                                : machine.lastSeenAt
+                                  ? lastSeen(machine.lastSeenAt)
+                                  : "Never"}
                     </span>
                     {live ? (
                       <button
@@ -1013,6 +1130,13 @@ function App() {
                     );
                   }}
                   machine={machines.find((machine) => machine.id === selected)!}
+                  onRestart={
+                    !view || view.machineId === selected
+                      ? restartCallback(
+                          machines.find((machine) => machine.id === selected)!,
+                        )
+                      : undefined
+                  }
                   onClose={() => {
                     setSelected(null);
                     document.getElementById(`device-${selected}`)?.focus();
@@ -1027,6 +1151,15 @@ function App() {
                 />
               )}
           </div>
+          {restarting && (
+            <div className="note" role="status">
+              Waiting for {restarting} to restart and its Windows host to
+              return. Current desktop access requires Windows sign-in.
+              <button className="secondary" onClick={cancelRestart}>
+                Cancel reconnect
+              </button>
+            </div>
+          )}
           {view && (
             <LiveView
               key={view.grant.id}

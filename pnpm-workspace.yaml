@@ -2,5 +2,15 @@ packages:
   - apps/backend
   - apps/web
   - packages/protocol
+# Keep dependency directories local and movable; never junction into another checkout.
+nodeLinker: hoisted
+packageImportMethod: copy
+injectWorkspacePackages: true
+dedupeInjectedDeps: false
+syncInjectedDepsAfterScripts:
+  - build
+  - typecheck
+  - test
+  - dev
 allowBuilds:
   esbuild: true

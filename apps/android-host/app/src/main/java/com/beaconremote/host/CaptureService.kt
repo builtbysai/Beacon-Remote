@@ -36,24 +36,29 @@ class CaptureService : Service() {
         val raw = intent?.getStringExtra("grant")
         @Suppress("DEPRECATION")
         val data = intent?.getParcelableExtra<Intent>("data")
-        if (raw == null || data == null || session != null) {
+        if (session != null) return START_NOT_STICKY
+        val unattended = intent?.getBooleanExtra("unattended", false) == true
+        val rawGrant = raw?.let { runCatching { JSONObject(it) }.getOrNull() }
+        if (!Identity(this).wantsAvailable || rawGrant == null || (!unattended && data == null) ||
+            (unattended && !UnattendedAccess.accepts(Identity(this).unattended,
+                rawGrant.optString("approval") == "policy", rawGrant.optBoolean("viaRelationship"), UnattendedAccess.ready(this)))) {
             stopSelf()
             return START_NOT_STICKY
         }
-        val grant = Grant.from(JSONObject(raw))
+        val grant = Grant.from(rawGrant)
         controller = grant.controller
         ServiceCompat.startForeground(
             this,
             3,
             build(),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION,
+            if (unattended) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION,
         )
         HostState.sharing = true
         HostState.status = "Sharing your screen"
         // Control happens only if the person chose it on the request screen and the accessibility service is on.
-        val control = intent.getBooleanExtra("control", false) && ControlService.instance != null
+        val control = (unattended || intent.getBooleanExtra("control", false)) && ControlService.instance != null
         // Receiving files is only ever what the person ticked on the request screen.
-        val files = intent.getBooleanExtra("files", false) && FileReceiver.supported
+        val files = (unattended || intent.getBooleanExtra("files", false)) && FileReceiver.supported
         session =
             ShareSession(
                 applicationContext,
@@ -62,6 +67,7 @@ class CaptureService : Service() {
                 data,
                 control,
                 files,
+                unattended,
                 { active ->
                     controlling = active
                     HostState.controlling = active

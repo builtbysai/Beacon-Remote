@@ -13,9 +13,20 @@ import WebSocket from "ws";
 if (process.platform !== "win32") throw new Error("Windows required");
 const root = resolve(import.meta.dirname, "../../..");
 const login = JSON.parse(
-  await readFile(resolve(root, ".remote-dev/prod-test-login.json"), "utf8"),
+  await readFile(
+    resolve(
+      process.env.REMOTE_DEV_STATE_DIR ??
+        resolve(root, "../../Beacon-Private/remote/development"),
+      "prod-test-login.json",
+    ),
+    "utf8",
+  ),
 ) as { origin: string; email: string; password: string };
-const profile = resolve(root, `.remote-dev/prod-check/profile-${randomUUID()}`);
+const profile = resolve(
+  process.env.REMOTE_DEV_STATE_DIR ??
+    resolve(root, "../../Beacon-Private/remote/development"),
+  `prod-check/profile-${randomUUID()}`,
+);
 const bin = (name: string) => resolve(root, `target/release/${name}.exe`);
 const env = { ...process.env, LOCALAPPDATA: profile };
 const pass = (message: string) => console.log(`PASS ${message}`);
@@ -157,8 +168,15 @@ try {
   agent?.kill();
   await sleep(1500);
   if (machineId) await call(`machines/${machineId}/revoke`, {});
-  await rm(resolve(root, ".remote-dev/prod-check"), {
-    recursive: true,
-    force: true,
-  });
+  await rm(
+    resolve(
+      process.env.REMOTE_DEV_STATE_DIR ??
+        resolve(root, "../../Beacon-Private/remote/development"),
+      "prod-check",
+    ),
+    {
+      recursive: true,
+      force: true,
+    },
+  );
 }

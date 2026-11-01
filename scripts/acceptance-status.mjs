@@ -1,8 +1,8 @@
 import { access } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   acceptanceOrigin,
   inspectAcceptance,
@@ -15,7 +15,14 @@ for (const { path, status, expected } of result.probes)
   console.log(`${path}: ${status ?? "unreachable"} (expected ${expected})`);
 const state =
   process.env.REMOTE_ACCEPTANCE_STATE_DIR ??
-  join(homedir(), ".beacon-remote-recovery", "android-acceptance-20261010");
+  join(
+    process.env.BEACON_PRIVATE_DIR ??
+      join(
+        dirname(dirname(fileURLToPath(import.meta.url))),
+        "../../Beacon-Private",
+      ),
+    "remote/recovery/android-acceptance-20261010",
+  );
 for (const [name, label] of [
   ["STOP", "Fixture STOP marker"],
   ["BeaconRemote/identity.dpapi", "Retained isolated identity"],

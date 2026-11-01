@@ -1,5 +1,15 @@
 #[cfg(windows)]
 pub fn protect(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
+    protect_with_scope(bytes, false)
+}
+
+#[cfg(windows)]
+pub fn protect_machine(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
+    protect_with_scope(bytes, true)
+}
+
+#[cfg(windows)]
+fn protect_with_scope(bytes: &[u8], machine: bool) -> std::io::Result<Vec<u8>> {
     use windows_sys::Win32::Security::Cryptography::{
         CryptProtectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
     };
@@ -22,7 +32,7 @@ pub fn protect(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
             std::ptr::null(),
             std::ptr::null(),
             std::ptr::null(),
-            CRYPTPROTECT_UI_FORBIDDEN,
+            CRYPTPROTECT_UI_FORBIDDEN | if machine { 4 } else { 0 },
             &mut output,
         )
     };

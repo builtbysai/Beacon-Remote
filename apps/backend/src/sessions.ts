@@ -10,6 +10,7 @@ import {
   supportCode,
 } from "../../../packages/protocol/src/index.js";
 import { relayCredentials, relayExpiry } from "./relay.js";
+import { interactiveReadySql } from "./machine-readiness.js";
 
 type Session = {
   id: string;
@@ -450,6 +451,8 @@ export async function registerSessions(
             .enum(["desktop:view", "desktop:control"])
             .default("desktop:view"),
           displayId: displayInfo.shape.id.optional(),
+          // Automatic restart recovery must never fall back to a local Allow prompt.
+          requirePolicy: z.boolean().default(false),
         })
         .strict()
         .safeParse(request.body);
@@ -464,7 +467,8 @@ export async function registerSessions(
       try {
         await client.query("BEGIN");
         const machine = await client.query(
-          "SELECT id,displays,(SELECT capability FROM support_links WHERE id=support_link_id) AS link_capability FROM machines WHERE id=$1 AND account_id=$2 AND revoked_at IS NULL AND last_seen_at>now()-interval '45 seconds' FOR UPDATE",
+          `SELECT m.id,m.displays,(SELECT capability FROM support_links WHERE id=m.support_link_id) AS link_capability
+           FROM machines m WHERE m.id=$1 AND m.account_id=$2 AND ${interactiveReadySql} FOR UPDATE OF m`,
           [parsed.data.id, account],
         );
         if (!machine.rowCount) {
@@ -504,6 +508,12 @@ export async function registerSessions(
             .send({ error: "A view session is already active" });
         }
         const session = opened;
+        if (body.data.requirePolicy && session.approval !== "policy") {
+          await client.query("ROLLBACK");
+          return reply
+            .code(403)
+            .send({ error: "Unattended permission changed" });
+        }
         await client.query("COMMIT");
         wake(session.machine_id);
         return {
@@ -558,7 +568,7 @@ export async function registerSessions(
         const found = invitation.rows[0];
         const machine = found
           ? await client.query<{ account_id: string; name: string }>(
-              "SELECT account_id,name FROM machines WHERE id=$1 AND revoked_at IS NULL AND last_seen_at>now()-interval '45 seconds' FOR UPDATE",
+              `SELECT m.account_id,m.name FROM machines m WHERE m.id=$1 AND ${interactiveReadySql} FOR UPDATE OF m`,
               [found.machine_id],
             )
           : null;
@@ -770,7 +780,7 @@ export async function registerSessions(
     const result = await pool.query(
       `SELECT r.id,m.name AS "machineName",r.capability,oa.email AS "ownerEmail",(r.team_member_id IS NOT NULL) AS team,
               CASE WHEN r.team_member_id IS NULL THEN (extract(epoch FROM r.expires_at)*1000)::bigint END AS "expiresAtMillis",
-              (m.last_seen_at>now()-interval '45 seconds') AS online
+              ${interactiveReadySql} AS online
        FROM support_relationships r JOIN machines m ON m.id=r.machine_id JOIN accounts oa ON oa.id=m.account_id
        WHERE r.helper_account_id=$1 AND r.revoked_at IS NULL AND r.expires_at>now() AND m.revoked_at IS NULL
        ORDER BY r.created_at`,
@@ -816,7 +826,7 @@ export async function registerSessions(
           `SELECT r.machine_id,r.capability,m.name AS machine_name FROM support_relationships r
            JOIN machines m ON m.id=r.machine_id
            WHERE r.id=$1 AND r.helper_account_id=$2 AND r.revoked_at IS NULL AND r.expires_at>now()
-             AND m.revoked_at IS NULL AND m.last_seen_at>now()-interval '45 seconds'
+             AND ${interactiveReadySql}
            FOR UPDATE OF m`,
           [path.data.id, account],
         );

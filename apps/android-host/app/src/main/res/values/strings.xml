@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="control_description">Lets a helper you approve touch and type on this phone, only during a session where you chose to allow control. It does nothing at any other time and never reads your screen or what you type.</string>
+    <string name="control_description">Lets an approved helper touch and type during a remote session. If you separately enable unattended access in Beacon, your own account may see this unlocked screen and control it without another prompt. Sharing has a persistent notification with Pause and Stop. Secure content and lock screens cannot be shared. Disable unattended access in Beacon or turn off this service to revoke permission.</string>
 </resources>

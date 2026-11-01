@@ -18,8 +18,9 @@ import { applyMigrations } from "../src/migrations.js";
 if (process.platform !== "win32") throw new Error("Windows required");
 const root = resolve(import.meta.dirname, "../../..");
 const profile = resolve(
-  root,
-  `.remote-dev/trusted-e2e/profile-${randomUUID()}`,
+  process.env.REMOTE_DEV_STATE_DIR ??
+    resolve(root, "../../Beacon-Private/remote/development"),
+  `trusted-e2e/profile-${randomUUID()}`,
 );
 const database =
   "postgresql://remote_dev:development-only@127.0.0.1:5433/beacon_remote_test";
@@ -59,6 +60,7 @@ const pool = new Pool({
 });
 let app: Awaited<ReturnType<typeof createApp>> | undefined;
 let agent: ChildProcess | undefined;
+let rejectPolicy = false;
 const sockets: WebSocket[] = [];
 try {
   await applyMigrations(pool);
@@ -77,6 +79,12 @@ try {
     PORT: port,
     SESSION_SECRET: randomBytes(32).toString("hex"),
     CONTROL_ENABLED: "true",
+  });
+  app.addHook("onRequest", async (request, reply) => {
+    if (rejectPolicy && request.url === "/api/agent/access")
+      return reply
+        .code(503)
+        .send({ error: "Fixture: policy route unavailable" });
   });
   await app.listen({ host: "127.0.0.1", port });
   const login = await app.inject({
@@ -103,6 +111,10 @@ try {
     await pool.query("SELECT id FROM machines WHERE account_id=$1", [account])
   ).rows[0].id as string;
   pass("the computer paired with its own identity");
+  check(
+    (await run("beacon-remote-agent", ["boot-status"])).trim() === "disabled",
+    "a new pairing does not silently install boot startup",
+  );
 
   check(
     (await run("beacon-remote-agent", ["access", "status"])).trim() ===
@@ -126,18 +138,20 @@ try {
     "the server recorded the signed policy",
   );
 
-  agent = spawn(bin("beacon-remote-agent"), ["run"], {
-    env,
-    windowsHide: true,
-    // E2E_AGENT_LOG=<file> keeps the agent's and helper's output for debugging a failure.
-    stdio: process.env.E2E_AGENT_LOG
-      ? [
-          "ignore",
-          openSync(process.env.E2E_AGENT_LOG, "w"),
-          openSync(process.env.E2E_AGENT_LOG, "a"),
-        ]
-      : "ignore",
-  });
+  const startAgent = () =>
+    spawn(bin("beacon-remote-agent"), ["run"], {
+      env,
+      windowsHide: true,
+      // E2E_AGENT_LOG=<file> keeps the agent's and helper's output for debugging a failure.
+      stdio: process.env.E2E_AGENT_LOG
+        ? [
+            "ignore",
+            openSync(process.env.E2E_AGENT_LOG, "w"),
+            openSync(process.env.E2E_AGENT_LOG, "a"),
+          ]
+        : "ignore",
+    });
+  agent = startAgent();
   for (let waited = 0; waited < 15_000; waited += 250) {
     const seen = await pool.query(
       "SELECT 1 FROM machines WHERE id=$1 AND last_seen_at>now()-interval '20 seconds'",
@@ -153,6 +167,38 @@ try {
   check(
     reported.some((display) => display.primary),
     `the agent reports its displays (${reported.map((display) => display.id).join(", ")})`,
+  );
+  const firstInstance = (
+    await pool.query("SELECT host_instance_id FROM machines WHERE id=$1", [
+      machineId,
+    ])
+  ).rows[0].host_instance_id;
+  check(
+    typeof firstInstance === "string",
+    "the actual agent reports a signed process lifetime",
+  );
+  agent.kill();
+  await new Promise<void>((done) => {
+    if (agent!.exitCode !== null || agent!.signalCode !== null) done();
+    else agent!.once("exit", () => done());
+  });
+  agent = startAgent();
+  let newInstance = firstInstance;
+  for (
+    let waited = 0;
+    waited < 15_000 && newInstance === firstInstance;
+    waited += 250
+  ) {
+    await sleep(250);
+    newInstance = (
+      await pool.query("SELECT host_instance_id FROM machines WHERE id=$1", [
+        machineId,
+      ])
+    ).rows[0].host_instance_id;
+  }
+  check(
+    typeof newInstance === "string" && newInstance !== firstInstance,
+    "restarting the real agent preserves pairing and changes its signed process lifetime",
   );
 
   const created = await app.inject({
@@ -253,6 +299,33 @@ try {
     "a fresh media session was offered after the drop",
   );
   check((await status()) === "active", "the session survived the outage");
+
+  if (process.env.E2E_LOCAL_REVOKE === "1") {
+    // Keep signaling/renewals alive but make the policy POST fail. The real endpoint must
+    // still stop its helper from the local DPAPI policy change, including from a separate CLI process.
+    rejectPolicy = true;
+    await run("beacon-remote-agent", ["access", "attended"]);
+    for (
+      let elapsed = 0;
+      elapsed < 5000 && (await status()) === "active";
+      elapsed += 100
+    )
+      await sleep(100);
+    check(
+      (await status()) !== "active",
+      "local policy removal stops the real helper while the policy endpoint is unavailable",
+    );
+    check(
+      (
+        await pool.query(
+          "SELECT mode FROM machine_access WHERE machine_id=$1",
+          [machineId],
+        )
+      ).rows[0].mode === "trusted",
+      "shutdown did not depend on a successful server policy change",
+    );
+    rejectPolicy = false;
+  }
 
   const lowered = await app.inject({
     method: "POST",
@@ -395,6 +468,62 @@ try {
   check(
     helperEnded,
     "lowering remembered helpers ends the helper's session within seconds",
+  );
+
+  // Re-enrollment in the same Windows profile must not inherit a former pairing's
+  // standing owner/helper permission. This fixture never installs a system service.
+  await run("beacon-remote-agent", ["access", "trusted", "--control"]);
+  await run("beacon-remote-agent", ["helpers", "control"]);
+  check(
+    (await run("beacon-remote-agent", ["access", "status"])).trim() ===
+      "trusted, viewing and control" &&
+      (await run("beacon-remote-agent", ["helpers"])).trim() === "control",
+    "the old pairing has standing owner and helper control before forgetting",
+  );
+  const revoked = await app.inject({
+    method: "POST",
+    url: `/api/machines/${machineId}/revoke`,
+    headers,
+  });
+  check(
+    revoked.statusCode === 200,
+    "the owner revokes the old computer before forgetting",
+  );
+  // Stop only the process created by this fixture before replacing its identity.
+  agent.kill();
+  await new Promise<void>((done) => {
+    if (agent!.exitCode !== null || agent!.signalCode !== null) done();
+    else agent!.once("exit", () => done());
+  });
+  agent = undefined;
+  await run("beacon-remote-agent", ["forget"]);
+  check(
+    (await run("beacon-remote-agent", ["access", "status"])).trim() ===
+      "attended" &&
+      (await run("beacon-remote-agent", ["helpers"])).trim() === "off",
+    "forget clears standing permission in the real DPAPI profile",
+  );
+  const nextEnrollment = await app.inject({
+    method: "POST",
+    url: "/api/enrollments",
+    headers,
+    payload: {},
+  });
+  check(nextEnrollment.statusCode === 200, "the owner creates a new pairing");
+  await run(
+    "beacon-remote-agent",
+    ["pair"],
+    `${origin}\nRe-paired e2e computer\n${nextEnrollment.json().code}\n`,
+  );
+  check(
+    (await run("beacon-remote-agent", ["access", "status"])).trim() ===
+      "attended" &&
+      (await run("beacon-remote-agent", ["helpers"])).trim() === "off",
+    "re-pairing starts attended with remembered helpers off",
+  );
+  check(
+    (await run("beacon-remote-agent", ["boot-status"])).trim() === "disabled",
+    "re-pairing leaves optional boot startup disabled",
   );
   console.log("Trusted access end to end: all checks passed.");
 } finally {

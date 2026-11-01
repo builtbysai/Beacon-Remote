@@ -4,6 +4,7 @@ if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL required");
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 try {
   const expected: Record<string, string[]> = {
+    boot_agents: ["machine_id", "public_key", "last_seen_at", "state"],
     view_sessions: [
       "id",
       "account_id",
@@ -70,6 +71,7 @@ try {
       "name",
       "public_key",
       "last_seen_at",
+      "host_instance_id",
       "revoked_at",
       "created_at",
       "displays",

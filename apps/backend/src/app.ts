@@ -36,6 +36,8 @@ import { registerSupportWorkflow } from "./support-workflow.js";
 import { registerMfa } from "./mfa.js";
 import { createMailer, type Mailer } from "./mail.js";
 import { registerSignup } from "./signup.js";
+import { registerBootAvailability } from "./boot-availability.js";
+import { interactiveReadySql } from "./machine-readiness.js";
 
 // A support code is typed by hand, so it is short-lived and single-use.
 const SUPPORT_CODE_MINUTES = 15;
@@ -228,6 +230,7 @@ export async function createApp(
     guests,
   );
 
+  registerBootAvailability(app, pool, signedByMachine);
   registerTeam(
     app,
     pool,
@@ -425,16 +428,19 @@ export async function createApp(
     const account = await owner(request);
     if (!account) return reply.code(401).send({ error: "Sign in required" });
     const result = await pool.query(
-      `SELECT m.id,m.name,m.group_name AS "group",m.last_seen_at AS "lastSeenAt",m.revoked_at AS "revokedAt",
-       COALESCE((m.revoked_at IS NULL AND m.last_seen_at>now()-interval '45 seconds'),false) AS online,
+      `SELECT m.id,m.name,m.group_name AS "group",m.last_seen_at AS "lastSeenAt",m.revoked_at AS "revokedAt",m.host_instance_id AS "hostInstanceId",
+       ${interactiveReadySql} AS online,
        COALESCE(a.mode,'attended') AS "accessMode",COALESCE(a.allow_control,false) AS "allowControl",COALESCE(a.helpers_unattended,'off') AS "helpersUnattended",m.displays,(m.support_link_id IS NOT NULL) AS temporary,
        (m.revoked_at IS NULL AND NOT COALESCE(m.last_seen_at>now()-interval '45 seconds',false) AND m.macs IS NOT NULL
          AND EXISTS (SELECT 1 FROM machines v WHERE v.account_id=m.account_id AND v.id<>m.id AND v.revoked_at IS NULL
            AND v.support_link_id IS NULL AND v.lan_key=m.lan_key AND v.public_ip_hash=m.public_ip_hash
            AND v.last_seen_at>now()-interval '45 seconds')) AS "canWake",
        (m.uninstall_requested_at IS NOT NULL AND m.uninstalled_at IS NULL AND m.uninstall_requested_at>now()-interval '30 days') AS "uninstallPending",
-       m.uninstalled_at AS "uninstalledAt"
+       m.uninstalled_at AS "uninstalledAt",
+       CASE WHEN m.revoked_at IS NULL AND b.last_seen_at>now()-interval '45 seconds'
+         THEN b.state ELSE NULL END AS "bootState"
        FROM machines m LEFT JOIN machine_access a ON a.machine_id=m.id
+       LEFT JOIN boot_agents b ON b.machine_id=m.id
        WHERE m.account_id=$1 ORDER BY m.created_at`,
       [account],
     );
@@ -619,7 +625,12 @@ export async function createApp(
     if (
       !(await signedByMachine(
         body.machineId,
-        heartbeatMessage(body.machineId, body.timestamp, body.nonce),
+        heartbeatMessage(
+          body.machineId,
+          body.timestamp,
+          body.nonce,
+          body.instanceId,
+        ),
         body.signature,
       ))
     ) {
@@ -627,7 +638,12 @@ export async function createApp(
       if (
         await signedByMachine(
           body.machineId,
-          heartbeatMessage(body.machineId, body.timestamp, body.nonce),
+          heartbeatMessage(
+            body.machineId,
+            body.timestamp,
+            body.nonce,
+            body.instanceId,
+          ),
           body.signature,
           true,
         )
@@ -669,7 +685,7 @@ export async function createApp(
       }
       await client.query(
         `UPDATE machines SET last_seen_at=now(),displays=COALESCE($2::jsonb,displays),
-           macs=COALESCE($3::text[],macs),lan_key=COALESCE($4,lan_key),public_ip_hash=COALESCE($5,public_ip_hash)
+           macs=COALESCE($3::text[],macs),lan_key=COALESCE($4,lan_key),public_ip_hash=COALESCE($5,public_ip_hash),host_instance_id=$6
          WHERE id=$1`,
         [
           body.machineId,
@@ -677,6 +693,7 @@ export async function createApp(
           body.network?.macs ?? null,
           body.network?.lan ?? null,
           body.network ? digest(request.ip) : null,
+          body.instanceId ?? null,
         ],
       );
       // Keep nonces longer than the signed timestamp acceptance window.

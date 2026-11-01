@@ -18,6 +18,10 @@ export function activityLabel(action: string) {
   switch (action) {
     case "machine.enrolled":
       return "Computer paired";
+    case "machine.boot.enabled":
+      return "Availability before Windows sign-in enabled";
+    case "machine.boot.disabled":
+      return "Availability before Windows sign-in disabled";
     case "machine.revoked":
       return "Access revoked";
     case "machine.renamed":

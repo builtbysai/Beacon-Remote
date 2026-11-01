@@ -1,3 +1,5 @@
+#[cfg(windows)]
+pub mod availability;
 mod credentials;
 #[cfg(windows)]
 mod helper_lifetime;
@@ -503,13 +505,14 @@ pub fn run(cancel: Arc<AtomicBool>, status: SyncSender<HostStatus>) -> Result<()
     let mut failures: u32 = 0;
     let mut helpers = sessions::Helpers::new(cancel.clone());
     let mut handled_request: Option<String> = None;
+    let instance = uuid::Uuid::new_v4().to_string();
     println!("Beacon Remote is reporting presence. No desktop capture or remote control is active. Ctrl+C stops this process.");
     while !cancel.load(Ordering::Acquire) {
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
         let nonce = uuid::Uuid::new_v4().to_string();
         let message = format!(
-            "beacon-remote:heartbeat:v1\n{}\n{}\n{}",
-            identity.machine_id, timestamp, nonce
+            "beacon-remote:heartbeat:v2\n{}\n{}\n{}\n{}",
+            identity.machine_id, timestamp, nonce, instance
         );
         let mut query = vec![("wait", "1")];
         if let Some(id) = handled_request.as_deref() {
@@ -518,7 +521,7 @@ pub fn run(cancel: Arc<AtomicBool>, status: SyncSender<HostStatus>) -> Result<()
         let response = client.post(server.join("/api/agent/heartbeat")?)
         .timeout(Duration::from_secs(25)).query(&query).json(&serde_json::json!({
             "version": 1, "machineId": identity.machine_id, "timestamp": timestamp,
-            "nonce": nonce, "signature": STANDARD.encode(key.sign(message.as_bytes()).to_bytes()),
+            "nonce": nonce, "instanceId": instance, "signature": STANDARD.encode(key.sign(message.as_bytes()).to_bytes()),
             "displays": local_displays(),
             "network": network_report(),
         })).send();
@@ -821,12 +824,17 @@ Network: {lan}",
             Ok(())
         }
         "forget" => {
+            // Clear standing permission even if administrator cleanup is cancelled or offline.
+            // Otherwise a later pairing in this Windows profile inherits the previous owner's access.
+            save_local_access(LocalAccess::default())?;
+            #[cfg(windows)]
+            availability::remove()?;
             fs::remove_file(state_path()?)?;
             println!("Local identity removed. Revoke the computer in Beacon Remote to disable its server identity.");
             Ok(())
         }
         "help" => {
-            println!("Beacon Remote development agent\n  pair: enroll using an interactive one-use code\n  run: signed presence\n  access [trusted [--control]|attended|status]: this computer's own access setting\n  forget: remove this user local identity after server-side revocation\nUse beacon-remote-host for the native attended host window. No Windows service or startup persistence is installed.");
+            println!("Beacon Remote development agent\n  pair: enroll using an interactive one-use code\n  run: signed presence\n  access [trusted [--control]|attended|status]: this computer's own access setting\n  forget: clear local permissions and boot availability, then remove this user's identity after server-side revocation\nUse beacon-remote-host for the native host window and optional unattended setup. Removing installed boot availability requires Windows administrator approval.");
             Ok(())
         }
         _ => Err("Unknown command; use help".into()),

@@ -77,6 +77,9 @@
         <service
             android:name=".CaptureService"
             android:exported="false"
-            android:foregroundServiceType="mediaProjection" />
+            android:foregroundServiceType="mediaProjection|specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Visible unattended screen administration explicitly enabled by this device owner, with local Pause and Stop" />
+        </service>
     </application>
 </manifest>

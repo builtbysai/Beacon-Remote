@@ -1,19 +1,31 @@
+> Windows workspace: start with [the current workspace handoff](docs/workspace-handoff.md) for private-secret paths, setup and validation.
+
 # Beacon Remote
 
 **For development handoff:** read [CLAUDE.md](CLAUDE.md),
 [the complete Claude handoff](docs/CLAUDE_HANDOFF.md), and
 [the active roadmap](docs/roadmap.md). Merging a feature branch does not
-release it; production media/control remain disabled until acceptance.
+release it. The hosted alpha has media and control enabled; new unattended
+changes on `codex/unattended-access` are not deployed or physically accepted.
 
 Windows computers, accessible from a browser. Part of Beacon, independently
 maintained from [Beacon View](https://github.com/builtbysai/Beacon-View).
 
-This development release implements private account login, one-use machine
-enrollment, cryptographic machine identity, signed presence, inventory, and
-revocation. The native Windows agent runs visibly in a terminal and stores its
-private key with user-scoped Windows DPAPI. It installs no service or autostart.
-Attended desktop viewing has local development acceptance. Production media is
-disabled pending relay/network validation; mouse and keyboard input are absent.
+The hosted alpha includes account signup and recovery, two-step sign-in, Windows
+view/control, trusted owner access, attended support, file transfer, opt-in
+recording and an Android host. See the [roadmap](docs/roadmap.md) for the difference
+between implemented, published and accepted features.
+
+Unattended development consolidates Windows setup and adds a separate optional
+boot-availability service. Android 11+ has an explicitly enabled accessibility
+capture path for low-frame-rate unattended administration. Both require local
+setup once and keep visible sharing, Pause, Stop and revocation. Windows desktop
+access requires the enrolled user signed in and unlocked; Android cannot cross
+lock screens or secure content. See [setup and acceptance](docs/unattended-access.md).
+The owner now requires Windows sign-in-screen control and optional full boot
+startup. That privileged endpoint is still unimplemented; the current boot
+service reports status only. Restart recovery requests a fresh owner session
+after the interactive host returns. See [the updated scope](docs/decisions/0048-boot-login-and-restart.md).
 
 ## Develop
 

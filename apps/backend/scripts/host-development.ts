@@ -10,7 +10,11 @@ import { applyMigrations } from "../src/migrations.js";
 
 if (process.platform !== "win32") throw new Error("Windows required");
 const root = resolve(import.meta.dirname, "../../..");
-const state = resolve(root, ".remote-dev/host-development");
+const state = resolve(
+  process.env.REMOTE_DEV_STATE_DIR ??
+    resolve(root, "../../Beacon-Private/remote/development"),
+  "host-development",
+);
 const profile = resolve(state, `profile-${randomUUID()}`);
 const database =
   "postgresql://remote_dev:development-only@127.0.0.1:5433/beacon_remote_test";

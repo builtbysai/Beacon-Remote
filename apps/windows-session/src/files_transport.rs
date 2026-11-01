@@ -466,6 +466,7 @@ async fn run(
                     let Some(frame) = outbound.pump() else { break };
                     let last = matches!(frame, Frame::Text(_));
                     send_frame(&channel, frame).await?;
+                    authority.last_activity.store(authority.epoch.elapsed().as_millis() as u64,Ordering::Release);
                     if last || blocked { break; }
                 }
             }
@@ -482,6 +483,7 @@ async fn run(
                 Some(DataChannelEvent::OnBufferedAmountLow) => blocked = false,
                 Some(DataChannelEvent::OnMessage(message)) => {
                     if !opened || !authority.live() { return Err(()); }
+                    if !message.is_string { authority.last_activity.store(authority.epoch.elapsed().as_millis() as u64,Ordering::Release); }
                     last_message = Instant::now();
                     let reply = if message.is_string {
                         if message.data.len() > 2048 { return Err(()); }

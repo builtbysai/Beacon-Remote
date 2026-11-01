@@ -6,7 +6,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Pool } from "pg";
 import { hash } from "@node-rs/argon2";
-import { createServer } from "../../web/node_modules/vite/dist/node/index.js";
+import { createServer } from "vite";
 import { createApp } from "../src/app.js";
 import { applyMigrations } from "../src/migrations.js";
 
@@ -21,7 +21,11 @@ const pool = new Pool({
   options: `-c search_path=${schema}`,
 });
 const origin = "http://127.0.0.1:5175";
-const state = resolve(root, ".remote-dev/support-development");
+const state = resolve(
+  process.env.REMOTE_DEV_STATE_DIR ??
+    resolve(root, "../../Beacon-Private/remote/development"),
+  "support-development",
+);
 const account = randomUUID();
 const email = `tech-${account}@example.test`;
 const password = randomBytes(32).toString("base64url");

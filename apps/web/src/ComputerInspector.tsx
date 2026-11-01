@@ -20,6 +20,7 @@ export function ComputerInspector({
   controlEnabled = false,
   requesting = false,
   sessionActive = false,
+  onRestart,
 }: {
   machine: Machine;
   onClose: () => void;
@@ -32,6 +33,7 @@ export function ComputerInspector({
   controlEnabled?: boolean;
   requesting?: boolean;
   sessionActive?: boolean;
+  onRestart?: (previousInstance: string | null) => void;
 }) {
   const [display, setDisplay] = useState("");
   const displays = machine.displays ?? [];
@@ -58,7 +60,13 @@ export function ComputerInspector({
     : stale
       ? "Status is unavailable. Refresh computers before requesting access."
       : !machine.online
-        ? "This computer is offline. Check its power, network and Windows agent."
+        ? machine.bootState === "signed-out"
+          ? "This computer is on. Sign in to Windows to make its desktop available."
+          : machine.bootState === "locked"
+            ? "This computer is locked. Its desktop becomes available after unlock."
+            : machine.bootState === "starting"
+              ? "Windows is on. Waiting for the desktop host to start."
+              : "This computer is offline. Check its power, network and Windows agent."
         : sessionActive
           ? "End the current session before requesting another connection."
           : !viewEnabled
@@ -179,7 +187,13 @@ export function ComputerInspector({
             ? "Status unavailable"
             : machine.online
               ? "Online"
-              : "Offline"}
+              : machine.bootState === "locked"
+                ? "Locked"
+                : machine.bootState === "signed-out"
+                  ? "Windows sign-in needed"
+                  : machine.bootState === "starting"
+                    ? "Starting desktop host"
+                    : "Offline"}
       </p>
       {displays.length > 1 && (
         <label className="inspector-display">
@@ -429,6 +443,7 @@ export function ComputerInspector({
         machine={machine}
         onRevoke={onRevoke}
         onChanged={onUpdated}
+        onRestart={onRestart}
       />
     </aside>
   );

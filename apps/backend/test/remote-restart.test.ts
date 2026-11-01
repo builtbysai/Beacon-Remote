@@ -51,6 +51,7 @@ test(
     const stranger = await person();
     const keys = generateKeyPairSync("ed25519");
     const machine = randomUUID();
+    let instanceId = randomUUID();
     const beat = async () => {
       const timestamp = Date.now();
       const nonce = randomUUID();
@@ -62,9 +63,12 @@ test(
           machineId: machine,
           timestamp,
           nonce,
+          instanceId,
           signature: sign(
             null,
-            Buffer.from(heartbeatMessage(machine, timestamp, nonce)),
+            Buffer.from(
+              heartbeatMessage(machine, timestamp, nonce, instanceId),
+            ),
             keys.privateKey,
           ).toString("base64"),
         },
@@ -103,12 +107,56 @@ test(
         [machine],
       );
       assert.equal((await restart(stranger)).statusCode, 409);
-      assert.equal((await restart(owner)).statusCode, 200);
+      const requested = await restart(owner);
+      assert.equal(requested.statusCode, 200);
+      assert.equal(requested.json().hostInstanceId, instanceId);
       assert.equal((await restart(owner)).statusCode, 429);
       // Delivered once, to the computer's own heartbeat.
       const told = await beat();
       assert.equal(typeof told.restart.id, "string");
       assert.equal((await beat()).restart, null);
+      const timestamp = Date.now(),
+        nonce = randomUUID();
+      const signature = sign(
+        null,
+        Buffer.from(heartbeatMessage(machine, timestamp, nonce, instanceId)),
+        keys.privateKey,
+      ).toString("base64");
+      for (const altered of [randomUUID(), undefined]) {
+        assert.equal(
+          (
+            await app.inject({
+              method: "POST",
+              url: "/api/agent/heartbeat",
+              payload: {
+                version: 1,
+                machineId: machine,
+                timestamp,
+                nonce,
+                instanceId: altered,
+                signature,
+              },
+            })
+          ).statusCode,
+          401,
+          "the host instance cannot be substituted or stripped",
+        );
+      }
+      instanceId = randomUUID();
+      await beat();
+      const inventory = (
+        await app.inject({
+          method: "GET",
+          url: "/api/machines",
+          headers: owner.headers,
+        })
+      ).json().machines;
+      assert.equal(inventory[0].online, true);
+      assert.equal(
+        inventory[0].hostInstanceId,
+        instanceId,
+        "a fast host restart is visible without waiting for presence expiry",
+      );
       // An offline computer cannot be asked.
       await pool.query(
         "UPDATE machines SET last_seen_at=now()-interval '5 minutes' WHERE id=$1",

@@ -140,7 +140,7 @@ export function registerDeviceRemoval(
     try {
       await client.query("BEGIN");
       const found = await client.query(
-        `SELECT 1 FROM machines m JOIN machine_access a ON a.machine_id=m.id
+        `SELECT m.host_instance_id FROM machines m JOIN machine_access a ON a.machine_id=m.id
          WHERE m.id=$1 AND m.account_id=$2 AND m.revoked_at IS NULL AND m.support_link_id IS NULL
            AND m.last_seen_at>now()-interval '45 seconds' AND a.mode='trusted' AND a.allow_control FOR UPDATE OF m`,
         [path.data.id, account],
@@ -167,7 +167,7 @@ export function registerDeviceRemoval(
       );
       await client.query("COMMIT");
       wake(path.data.id);
-      return { ok: true };
+      return { ok: true, hostInstanceId: found.rows[0].host_instance_id };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;

@@ -26,6 +26,8 @@ class RemoteControl(
     private var windowStart = SystemClock.elapsedRealtime()
     private var count = 0
     private var lastMessage = SystemClock.elapsedRealtime()
+    @Volatile var lastActivity: Long = 0L
+        private set
     private var pointerX = width / 2
     private var pointerY = height / 2
     private var down = false
@@ -98,6 +100,7 @@ class RemoteControl(
         }
         try {
             apply(input)
+            if (input.optString("type") != "keep_alive") lastActivity = now
         } catch (error: Exception) {
             Log.w(TAG, "Ignored input", error)
         }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Machine } from "@beacon-remote/protocol";
 import { api } from "./api.js";
 
@@ -10,15 +10,25 @@ export function DeviceActions({
   machine,
   onRevoke,
   onChanged,
+  onRestart,
 }: {
   machine: Machine;
   onRevoke: () => Promise<void>;
   onChanged: () => Promise<void>;
+  onRestart?: (previousInstance: string | null) => void;
 }) {
   const [asking, setAsking] = useState<Action | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  const [reconnect, setReconnect] = useState(true);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   if (machine.uninstalledAt)
     return (
@@ -42,13 +52,15 @@ export function DeviceActions({
     try {
       if (action === "revoke") await onRevoke();
       else {
-        const result = await api<{ online?: boolean }>(
-          `machines/${machine.id}/${action}`,
-          {},
-        );
+        const result = await api<{
+          online?: boolean;
+          hostInstanceId?: string | null;
+        }>(`machines/${machine.id}/${action}`, {});
+        if (action === "restart" && reconnect && mounted.current)
+          onRestart?.(result.hostInstanceId ?? null);
         setNote(
           action === "restart"
-            ? "Restart requested. The computer shows a 30-second countdown its user can cancel. Everything open on it is closed; it comes back once Windows has started and someone is signed in."
+            ? "Restart requested. Windows shows a 30-second countdown its user can cancel. Reconnection currently requires the Windows user to sign in."
             : action === "disconnect"
               ? "Any active session was ended. The computer stays available."
               : result.online
@@ -118,6 +130,17 @@ export function DeviceActions({
       {asking ? (
         <>
           <p>{copy[asking].text}</p>
+          {asking === "restart" && onRestart && (
+            <label>
+              <input
+                type="checkbox"
+                checked={reconnect}
+                disabled={busy}
+                onChange={(event) => setReconnect(event.target.checked)}
+              />
+              Reconnect automatically when this computer returns
+            </label>
+          )}
           <div className="actions">
             <button disabled={busy} onClick={() => void run(asking)}>
               {copy[asking].go}

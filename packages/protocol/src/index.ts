@@ -1,6 +1,46 @@
 import { z } from "zod";
 
 export const PROTOCOL_VERSION = 1;
+// Separate signing domain and credential: a boot agent never receives a session grant.
+export const bootBinding = z
+  .object({
+    version: z.literal(1),
+    machineId: z.uuid(),
+    timestamp: z.number().int().positive(),
+    nonce: z.uuid(),
+    publicKey: z
+      .string()
+      .regex(/^[A-Za-z0-9+/]{43}=$/)
+      .nullable(),
+    signature: z.string().regex(/^[A-Za-z0-9+/]{86}==$/),
+  })
+  .strict();
+export const bootHeartbeat = z
+  .object({
+    version: z.literal(1),
+    machineId: z.uuid(),
+    timestamp: z.number().int().positive(),
+    nonce: z.uuid(),
+    state: z.enum(["signed-out", "locked", "starting"]),
+    signature: z.string().regex(/^[A-Za-z0-9+/]{86}==$/),
+  })
+  .strict();
+export function bootBindingMessage(
+  machine: string,
+  timestamp: number,
+  nonce: string,
+  key: string | null,
+) {
+  return `beacon-remote:boot-binding:v1\n${machine}\n${timestamp}\n${nonce}\n${key ?? "off"}`;
+}
+export function bootHeartbeatMessage(
+  machine: string,
+  timestamp: number,
+  nonce: string,
+  state: string,
+) {
+  return `beacon-remote:boot-heartbeat:v1\n${machine}\n${timestamp}\n${nonce}\n${state}`;
+}
 export const capability = z.enum(["desktop:view", "desktop:control"]);
 export const enrollment = z
   .object({
@@ -28,6 +68,7 @@ export const heartbeat = z
     machineId: z.string().uuid(),
     timestamp: z.number().int().positive(),
     nonce: z.string().uuid(),
+    instanceId: z.uuid().optional(),
     signature: z.string().regex(/^[A-Za-z0-9+/]{86}==$/),
     displays: z.array(displayInfo).max(8).optional(),
     // For Wake-on-LAN (ADR 0042): hardware addresses, and a name for the local network the computer is on.
@@ -49,7 +90,10 @@ export function heartbeatMessage(
   machineId: string,
   timestamp: number,
   nonce: string,
+  instanceId?: string,
 ): string {
+  if (instanceId)
+    return `beacon-remote:heartbeat:v2\n${machineId}\n${timestamp}\n${nonce}\n${instanceId}`;
   return `beacon-remote:heartbeat:v1\n${machineId}\n${timestamp}\n${nonce}`;
 }
 
@@ -135,6 +179,8 @@ export interface Machine {
   // The owner's own label for organising many computers; null when unset.
   group: string | null;
   online: boolean;
+  bootState?: "signed-out" | "locked" | "starting" | null;
+  hostInstanceId?: string | null;
   lastSeenAt: string | null;
   revokedAt: string | null;
   // The computer's own access policy (ADR 0021). Only the computer can raise it.

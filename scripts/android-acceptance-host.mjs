@@ -2,13 +2,19 @@ import assert from "node:assert/strict";
 import { readFile, access, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { requireAcceptanceReady } from "./acceptance-readiness.mjs";
 const state =
   process.env.REMOTE_ACCEPTANCE_STATE_DIR ??
-  join(homedir(), ".beacon-remote-recovery", "android-acceptance-20261010");
+  join(
+    process.env.BEACON_PRIVATE_DIR ??
+      join(
+        dirname(dirname(fileURLToPath(import.meta.url))),
+        "../../Beacon-Private",
+      ),
+    "remote/recovery/android-acceptance-20261010",
+  );
 const origin = "https://remote-test.builtbysai.com";
 const executable =
   process.env.REMOTE_ACCEPTANCE_AGENT_PATH ??

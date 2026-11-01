@@ -19,7 +19,11 @@ const feed = process.env.UPDATE_E2E_FEED;
 if (!oldSource || !feed)
   throw new Error("Set UPDATE_E2E_OLD and UPDATE_E2E_FEED");
 const root = resolve(import.meta.dirname, "../../..");
-const work = resolve(root, `.remote-dev/update-e2e/${randomUUID()}`);
+const work = resolve(
+  process.env.REMOTE_DEV_STATE_DIR ??
+    resolve(root, "../../Beacon-Private/remote/development"),
+  `update-e2e/${randomUUID()}`,
+);
 const install = resolve(work, "install");
 const profile = resolve(work, "profile");
 const database =

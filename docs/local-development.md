@@ -1,16 +1,56 @@
+> Workspace migration: [workspace-handoff.md](workspace-handoff.md) gives the current D: paths and external secret/state configuration. Older C: path examples below are historical.
+
 # Beacon Remote on the shared Windows workstation
+
+## Unattended development (October 29)
+
+Read [unattended setup and acceptance](unattended-access.md) and
+[the validation record](validation-2026-10-29.md). Migration 023 is applied by the
+normal migration runner. Boot presence is separate from interactive presence and
+never enables media. Local test setup must not install a real system service
+without the tester approving Windows administrator setup.
+
+The actual native-policy shutdown regression uses its disposable profile/schema:
+
+```powershell
+$env:E2E_LOCAL_REVOKE='1'
+$env:E2E_HOLD_SECONDS='2'
+pnpm --filter @beacon-remote/backend exec tsx scripts/trusted-e2e.ts
+```
+
+Build matching optimized binaries first. This short run checks lifecycle and
+offers; it is not a performance/long-session or decoded-video acceptance test.
+The default hold remains longer for deliberate soak checks.
+The fixture also revokes, forgets and re-pairs its own disposable Windows profile
+to check that standing owner/helper permissions do not survive re-enrollment.
+It never installs a boot service or approves administrator setup.
+It now restarts only its own native process to verify that a signed host process
+marker changes while pairing survives. This is not an operating-system reboot.
+Migration 024 adds that marker; apply the compatible backend before running the
+new Windows agent. `beacon-remote-agent boot-status` reads the paired service's
+SCM boot-start configuration without installing or starting it.
+
+Android's `ScreenshotAcceptance` instrumentation runner is restricted to a new,
+unpaired emulator with no other accessibility services. Build with
+`gradlew :app:assembleDebug :app:assembleDebugAndroidTest`, install both APKs on
+that explicitly selected emulator, grant its notification permission, and run
+`adb -s <fixture-serial> shell am instrument -w com.beaconremote.host.test/com.beaconremote.host.ScreenshotAcceptance`.
+The runner enables only the fixture's service, initializes native WebRTC, enables
+a swipe lock, and exercises local screenshot-source lifecycle without network or
+stored pixels. It is not intended for the owner's phone. Stop only that emulator
+afterward. Real-phone and Windows service/reboot acceptance remain separate.
 
 Remote and View are independent repositories, databases and runtime owners.
 Keep the current Windows paths stable while both agents are working.
 
 | Resource                 | Beacon Remote                                       | Beacon View (owned by Claude)                                                 |
 | ------------------------ | --------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Checkout                 | `C:/Dev/Beacon-Remote`                              | `C:/Dev/Beacon-SecureView`                                                    |
+| Checkout                 | `D:/Dev/Beacon-Remote`                              | `D:/Dev/Beacon-SecureView`                                                    |
 | Registered worktree      | None added                                          | `C:/Dev/Beacon-Desktop` — preserve Git registration                           |
 | API / web                | 127.0.0.1:3010 / :5174                              | 127.0.0.1:3000 / :5173                                                        |
 | Local database           | 127.0.0.1:5433, `beacon-remote-dev` Compose project | :5432, `beacon-secureview-local` project                                      |
 | Test database            | `beacon_remote_test` in Remote PostgreSQL           | View-owned independent test DB/container; observed :5544 during Claude's work |
-| Runtime logs / ownership | `.remote-dev/`                                      | `.beacon-dev/`                                                                |
+| Runtime logs / ownership | `<BEACON_PRIVATE_DIR>/remote/development/`          | `.beacon-dev/`                                                                |
 | Native test artifacts    | `.agent-state/`                                     | View's own tooling; never repurpose                                           |
 | Production origin        | remote.builtbysai.com                               | beacon.builtbysai.com                                                         |
 
@@ -34,7 +74,7 @@ pnpm dev:stop
 
 Setup starts only Remote's Compose PostgreSQL, applies its local migrations and
 verifies its schema. Start launches the actual backend and Vite in hidden child
-processes; it waits for HTTP readiness and writes logs under `.remote-dev/`.
+processes; it waits for HTTP readiness and writes logs under `<BEACON_PRIVATE_DIR>/remote/development/`.
 Use normal private local account provisioning described in README for login.
 It does not provision account credentials automatically or start desktop capture.
 
@@ -54,7 +94,7 @@ After forcibly killing the supervisor, an owner file and its local children may
 remain. Status reports the supervisor PID for diagnosis only. Inspect named
 Remote commands/listeners before manually stopping them or archiving stale owner
 state; the launcher refuses ambiguous ownership and never kills a recycled PID.
-Do not delete a live owner's `.remote-dev/owner.json`. Watch log files without
+Do not delete a live owner's `<REMOTE_DEV_STATE_DIR>/owner.json`. Watch log files without
 publishing credentials or request bodies.
 
 ## Tests and native fixture

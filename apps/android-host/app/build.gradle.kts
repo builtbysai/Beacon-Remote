@@ -13,6 +13,7 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        testInstrumentationRunner = "com.beaconremote.host.ScreenshotAcceptance"
     }
 
     // A release build is signed only when the key is supplied through the environment (scripts/Beacon-Android.ps1);

@@ -26,7 +26,7 @@ try {
     # Sign with Beacon Remote's own certificate (ADR 0035) before anything is hashed, so the update feed's SHA-256
     # and the installer carry the signed files. The key comes from the secrets folder or BEACON_SIGNING_PFX.
     $signingScript = Join-Path $PSScriptRoot 'Beacon-Signing.ps1'
-    $signed = [bool]$env:BEACON_SIGNING_PFX -or (Test-Path -LiteralPath (Join-Path $env:USERPROFILE '.beacon\secrets\remote-codesign\beacon-remote-codesign.pfx'))
+    $signed = [bool]$env:BEACON_SIGNING_PFX -or (Test-Path -LiteralPath (Join-Path $(if ($env:BEACON_PRIVATE_DIR) { $env:BEACON_PRIVATE_DIR } else { [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..\Beacon-Private')) }) 'signing-and-deployment\remote-codesign\beacon-remote-codesign.pfx'))
     if (-not $signed -and $RequireSigning) { throw 'No signing certificate (run scripts\Beacon-Signing.ps1 -Action New)' }
     $trust = "$output-trust"
     if ($signed) {
