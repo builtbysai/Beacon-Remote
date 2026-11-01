@@ -15,7 +15,7 @@ import {
 } from "node:fs/promises";
 import { hostname } from "node:os";
 import { spawn, type ChildProcess } from "node:child_process";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { Pool } from "pg";
 import { hash } from "@node-rs/argon2";
 import { createServer } from "vite";
@@ -40,11 +40,16 @@ const server = "http://127.0.0.1:3011";
 const account = randomUUID();
 const state = resolve(
   process.env.REMOTE_DEV_STATE_DIR ??
-    resolve(root, "../../Beacon-Private/remote/development"),
+    resolve(root, "../../Beacon-Secrets/remote/local/state"),
   "input-development",
 );
+const loginPath = resolve(
+  process.env.REMOTE_LOCAL_ACCOUNTS_DIR ??
+    resolve(root, "../../Beacon-Secrets/remote/local/accounts"),
+  "development.json",
+);
 // Keep this local demo's credentials stable across an intentional restart.
-const priorLogin: unknown = await readFile(resolve(state, "login.json"), "utf8")
+const priorLogin: unknown = await readFile(loginPath, "utf8")
   .then((text) => JSON.parse(text) as unknown)
   .catch(() => undefined);
 const prior = priorLogin as
@@ -169,12 +174,10 @@ try {
   });
   await web.listen();
   await mkdir(state, { recursive: true });
-  await writeFile(
-    resolve(state, "login.json"),
-    JSON.stringify({ origin, email, password }),
-  );
+  await mkdir(dirname(loginPath), { recursive: true });
+  await writeFile(loginPath, JSON.stringify({ origin, email, password }));
   console.log(
-    "Isolated input development: http://127.0.0.1:5175 — login in .remote-dev/input-development/login.json. Local Windows approval remains mandatory. Runs until explicitly stopped; active sessions have no fixed duration.",
+    `Isolated input development: http://127.0.0.1:5175 — login in ${loginPath}. Local Windows approval remains mandatory. Runs until explicitly stopped; active sessions have no fixed duration.`,
   );
   const handled = new Set<string>();
   let polling = false;

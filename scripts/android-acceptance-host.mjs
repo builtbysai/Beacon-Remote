@@ -11,9 +11,9 @@ const state =
     process.env.BEACON_PRIVATE_DIR ??
       join(
         dirname(dirname(fileURLToPath(import.meta.url))),
-        "../../Beacon-Private",
+        "../../Beacon-Secrets",
       ),
-    "remote/recovery/android-acceptance-20261010",
+    "remote/acceptance/android",
   );
 const origin = "https://remote-test.builtbysai.com";
 const executable =

@@ -21,7 +21,7 @@ if (!oldSource || !feed)
 const root = resolve(import.meta.dirname, "../../..");
 const work = resolve(
   process.env.REMOTE_DEV_STATE_DIR ??
-    resolve(root, "../../Beacon-Private/remote/development"),
+    resolve(root, "../../Beacon-Secrets/remote/local/state"),
   `update-e2e/${randomUUID()}`,
 );
 const install = resolve(work, "install");

@@ -40,7 +40,7 @@ matching 0979cd1 artifacts and refuses startup while its fixture STOP marker is
 present. See local-development.md and the operations supplement before resumption.
 
 The local host runner is `C:/Dev/beacon-remote-android-host.mjs`; its isolated state
-is `C:/Users/Saiha/.beacon-remote-recovery/android-acceptance-20261010`.
+is `D:/Beacon-Secrets/remote/acceptance/android`.
 Its maximum runtime is 45 minutes. An empty `STOP` file inside that exact state
 directory stops only this fixture agent. Each media request still has the native
 two-minute deadline, consent where applicable and visible local Stop control.

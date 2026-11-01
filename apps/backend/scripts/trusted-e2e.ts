@@ -19,7 +19,7 @@ if (process.platform !== "win32") throw new Error("Windows required");
 const root = resolve(import.meta.dirname, "../../..");
 const profile = resolve(
   process.env.REMOTE_DEV_STATE_DIR ??
-    resolve(root, "../../Beacon-Private/remote/development"),
+    resolve(root, "../../Beacon-Secrets/remote/local/state"),
   `trusted-e2e/profile-${randomUUID()}`,
 );
 const database =

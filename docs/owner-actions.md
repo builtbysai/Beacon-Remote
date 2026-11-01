@@ -34,10 +34,10 @@ On computers where Beacon Remote is already installed, or that you only want to 
 
 Every three years (the tool warns 90 days ahead) I renew the certificate; you re-approve once per computer. If the key
 is ever lost or stolen, tell me: I revoke it, and computers drop it the next time they run a newer installer or the
-script. I keep the key in `C:\Users\Saiha\.beacon\secrets\remote-codesign`; please keep that folder backed up, because
+script. I keep the key in `<BEACON_PRIVATE_DIR>/remote/signing/windows`; please keep that folder backed up, because
 losing it means issuing a new certificate and re-approving everywhere.
 
-You can delete `signpath-token.txt` from the secrets folder: it is not used.
+The misleading `signpath-token.txt` was removed during credential organization: it was a duplicate of Remote's Resend email key, not a SignPath API token. The canonical email key is RESEND_API_KEY in the external secrets root's remote/production/media.env. No verified SignPath credential was found.
 
 Optional later: a paid public certificate (Azure Artifact Signing, about $10 a month, individuals in the US or Canada
 only) would also remove the warning for people who have not opted in. Not needed for your own devices.

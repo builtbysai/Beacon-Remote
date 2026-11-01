@@ -252,7 +252,7 @@ Local backend logs are terminal stdout; agent logs exclude grants/signatures/med
 Tracked runner: `scripts/android-acceptance-host.mjs`; the old external
 `C:/Dev/beacon-remote-android-host.mjs` wrapper is archived, not an active entry point.
 Isolated identity/
-private login at `C:/Users/Saiha/.beacon-remote-recovery/android-acceptance-20261010`.
+private login at `D:/Beacon-Secrets/remote/acceptance/android`.
 Its `native-status.log` is preserved; `STOP` marker intentionally present.
 The runner now points to downloaded validated 0979cd1 artifacts and skips the
 entire login/enrollment/pair block when its isolated `BeaconRemote/identity.dpapi`
@@ -325,7 +325,7 @@ then current symlink. Do not deploy merely because main merged.
 Backup uses isolated encrypted Restic OCI prefix in existing private
 `beacon-backups` bucket, 32 MiB dump budget; independent timer. Protected root
 env stores backup credentials. Owner-scoped DPAPI recovery material exists in
-`C:/Users/Saiha/.beacon-remote-recovery`; verify required files privately. Retention
+`D:/Beacon-Secrets/remote/acceptance`; verify required files privately. Retention
 and quota must be reviewed before growth. No new bucket/tier/billing permission.
 Shared Caddy/Coturn are not part of ordinary Remote app recreation.
 

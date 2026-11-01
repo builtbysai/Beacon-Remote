@@ -8,7 +8,7 @@
   this is for the owner's own devices, not a replacement for a public certificate authority (ADR 0035).
 
   The private key lives only in a password-protected .pfx under the secrets folder (default
-  <BEACON_PRIVATE_DIR>/signing-and-deployment/remote-codesign, with restricted local access). It is never stored
+  <BEACON_PRIVATE_DIR>/remote/signing/windows, with restricted local access). It is never stored
   in a certificate store after creation and is never committed. CI can supply it with BEACON_SIGNING_PFX
   (base64 of the .pfx) and BEACON_SIGNING_PFX_PASSWORD instead.
 
@@ -28,7 +28,7 @@ param(
     [Parameter(Mandatory)][ValidateSet('New', 'Renew', 'Revoke', 'Info', 'Sign', 'Verify', 'Package')][string]$Action,
     [string[]]$Path,
     [string]$Output,
-    [string]$Directory = (Join-Path $(if ($env:BEACON_PRIVATE_DIR) { $env:BEACON_PRIVATE_DIR } else { [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..\Beacon-Private')) }) 'signing-and-deployment\remote-codesign'),
+    [string]$Directory = (Join-Path $(if ($env:BEACON_PRIVATE_DIR) { $env:BEACON_PRIVATE_DIR } else { [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..\Beacon-Secrets')) }) 'remote\signing\windows'),
     [string[]]$TimestampServer = @('http://timestamp.digicert.com', 'http://timestamp.sectigo.com', 'http://timestamp.globalsign.com/tsa/r6advanced1'),
     [switch]$AllowNoTimestamp
 )

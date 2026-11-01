@@ -12,7 +12,7 @@ import { setTimeout as delay } from "node:timers/promises";
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const directory =
   process.env.REMOTE_DEV_STATE_DIR ??
-  join(root, "../../Beacon-Private/remote/development");
+  join(root, "../../Beacon-Secrets/remote/local/state");
 const lockPath = join(directory, "owner.json");
 const database =
   "postgresql://remote_dev:development-only@127.0.0.1:5433/beacon_remote_dev";

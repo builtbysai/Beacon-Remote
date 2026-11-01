@@ -3,7 +3,7 @@
 // Run the support program against it with BEACON_SERVER=http://127.0.0.1:3011 (see docs/input-development.md).
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { Pool } from "pg";
 import { hash } from "@node-rs/argon2";
 import { createServer } from "vite";
@@ -23,8 +23,13 @@ const pool = new Pool({
 const origin = "http://127.0.0.1:5175";
 const state = resolve(
   process.env.REMOTE_DEV_STATE_DIR ??
-    resolve(root, "../../Beacon-Private/remote/development"),
+    resolve(root, "../../Beacon-Secrets/remote/local/state"),
   "support-development",
+);
+const loginPath = resolve(
+  process.env.REMOTE_LOCAL_ACCOUNTS_DIR ??
+    resolve(root, "../../Beacon-Secrets/remote/local/accounts"),
+  "support.json",
 );
 const account = randomUUID();
 const email = `tech-${account}@example.test`;
@@ -91,18 +96,18 @@ try {
     },
   });
   await mkdir(state, { recursive: true });
+  await mkdir(dirname(loginPath), { recursive: true });
+  await writeFile(loginPath, JSON.stringify({ origin, email, password }));
   await writeFile(
-    resolve(state, "login.json"),
+    resolve(state, "session.json"),
     JSON.stringify({
       origin,
-      email,
-      password,
       cookie: token,
       link: made.json().url,
     }),
   );
   console.log(
-    `Support fixture: ${origin} (login in ${state}). Link: ${made.json().url}`,
+    `Support fixture: ${origin} (login in ${loginPath}). Link: ${made.json().url}`,
   );
 } catch (error) {
   await stop();

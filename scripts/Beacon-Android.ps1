@@ -9,7 +9,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$secrets = Join-Path $(if ($env:BEACON_PRIVATE_DIR) { $env:BEACON_PRIVATE_DIR } else { [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..\Beacon-Private')) }) 'signing-and-deployment\remote-android'
+$secrets = Join-Path $(if ($env:BEACON_PRIVATE_DIR) { $env:BEACON_PRIVATE_DIR } else { [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..\Beacon-Secrets')) }) 'remote\signing\android'
 $keystore = Join-Path $secrets 'beacon-remote-host.jks'
 $passwordFile = Join-Path $secrets 'store-password.txt'
 $javaHome = if ($env:JAVA_HOME) { $env:JAVA_HOME } else { 'C:\Program Files\Android\Android Studio\jbr' }
