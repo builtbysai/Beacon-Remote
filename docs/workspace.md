@@ -1,6 +1,6 @@
-# Remote workspace and development handoff
+# Beacon Remote development workspace
 
-Owner-authorized October 31, 2026 maintenance publishes the previously local unattended-access development and makes the Windows workspace portable. Continue on `codex/unattended-access`; do not treat publication as unattended release acceptance.
+Beacon Remote is the remote access product. This checkout is D:/Dev/Beacon-Remote. Continue the unattended-access work on its current feature branch; source publication does not establish release acceptance.
 
 ## Current development boundary
 
@@ -28,6 +28,10 @@ Development credentials, local deployment-config copies, signing material, SSH k
 
 No production deployment is part of workspace publication. Existing `beacon-oracle` SSH access remains strict-host-key-checked over Tailscale. Server configuration stays root-owned under `/etc/beacon*`; never render secret-bearing Compose/environment output into reports. Shared Oracle ingress and independent View/Remote relays require coordinated changes. Current committed source need not equal the running backend or downloaded native binaries.
 
-The private audit/maintenance directories record inventory, hashes, backup and cleanup evidence. Treat old handoffs and C-path examples as historical unless explicitly updated. Never recover occupied ports by stopping their owners. Back up before installs/moves/cleanup and test restoration; GitHub protects pushed source, not ignored secrets, databases or enrolled identities.
+The old audit, archive and migration directories have been removed. Use this guide, the roadmap and development-status.md for current work. Never recover occupied ports by stopping their owners. Back up before installs/moves/cleanup and test restoration; GitHub protects pushed source, not ignored secrets, databases or enrolled identities.
 
-Current maintenance evidence: [workspace-validation-2026-11-01.md](workspace-validation-2026-11-01.md). This records the actual checks and remaining acceptance gates.
+Last validated checkpoint: [development-status.md](development-status.md). This records the actual checks and remaining acceptance gates.
+
+## Approved design
+
+The interactive owner-approved visual target is checked in under `design/prototype/`. Its README distinguishes simulated reference behavior from implemented product features. Current screenshots remain under `design/screenshots/`.

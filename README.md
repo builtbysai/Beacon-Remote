@@ -1,10 +1,8 @@
-> Windows workspace: start with [the current workspace handoff](docs/workspace-handoff.md) for private-secret paths, setup and validation.
-
 # Beacon Remote
 
-**For development handoff:** read [CLAUDE.md](CLAUDE.md),
-[the complete Claude handoff](docs/CLAUDE_HANDOFF.md), and
-[the active roadmap](docs/roadmap.md). Merging a feature branch does not
+Start development with [docs/workspace.md](docs/workspace.md). See [docs/roadmap.md](docs/roadmap.md) for scope and [docs/development-status.md](docs/development-status.md) for validation and remaining gates.
+
+Merging a feature branch does not
 release it. The hosted alpha has media and control enabled; new unattended
 changes on `codex/unattended-access` are not deployed or physically accepted.
 
@@ -34,7 +32,7 @@ Tools/Windows SDK for native Windows builds. Use a feature branch.
 
 On the shared Windows workstation use `pnpm dev:setup`, `pnpm dev:start`,
 `pnpm dev:status` and `pnpm dev:stop`. Remote uses strict ports 3010/5174/5433
-and its own `.remote-dev/` ownership/logs; it never stops View's processes.
+and its own external private `remote/development/` ownership/logs; it never stops View's processes.
 See [local coexistence and recovery](docs/local-development.md).
 
 ```sh

@@ -129,7 +129,7 @@ A shared protocol and backend, built up progressively. Beacon View's credentials
 Updated 2026-10-12 after the public-source security review, restored hosted CI
 and attended-consent lifecycle work. Earlier PR #8/#9 media, interface, relay
 and owner mobile-data evidence remains recorded below. See
-[Claude handoff](CLAUDE_HANDOFF.md).
+[Claude handoff](workspace.md).
 
 Latest owner acceptance: the PR #25 native pair passed the guided real-device
 Decline/Escape, pending cancellation/re-request, manual desktop viewing and local
@@ -421,8 +421,8 @@ package copy/shortcuts/executable launch/removal, unknown-file preservation and
 tampered-payload rejection passed on this workstation. Owner-machine pairing/view
 acceptance remains open; see [development host package](development-host-package.md).
 
-The visual target is the owner-supplied `Beacon-Remote-Final-Package.zip` (external
-attachment, **not checked into the repo**). UI completeness and backend
+The visual target is the owner-approved static prototype in
+[design/prototype](../design/prototype/README.md). UI completeness and backend
 availability are different measures. A feature can match the target visually
 while remaining honestly disabled until its secure backend exists.
 

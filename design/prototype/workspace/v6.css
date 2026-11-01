@@ -1,0 +1,579 @@
+/* Beacon Remote V6: sidebar, usable page composition, responsive surfaces. */
+:root {
+  --v6-sidebar-width: 230px;
+  --v6-radius: 9px;
+  --v6-section: var(--surface);
+  --v6-tint: #f4f6fa;
+  --v6-muted-fill: #f8fafc;
+}
+:root[data-theme="dark"] {
+  --v6-section: var(--surface);
+  --v6-tint: #202936;
+  --v6-muted-fill: #1d2530;
+}
+/* The mark is one authored SVG used by favicon, mobile header, and sidebar. */
+.logo-mark,
+.logo-mark.mini {
+  position: static;
+  display: block;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  object-fit: contain;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+}
+.logo-mark.mini {
+  width: 23px;
+  height: 23px;
+  border-radius: 6px;
+}
+.logo-mark::before,
+.logo-mark::after,
+.logo-mark span {
+  display: none !important;
+}
+/* Sidebar follows the shadcn compositional structure: fixed header, scrollable menu, separate footer, icon-only collapse. */
+.app-shell {
+  grid-template-columns: var(--v6-sidebar-width) minmax(0, 1fr);
+}
+.sidebar {
+  background: var(--sidebar);
+  border-right: 1px solid var(--line);
+}
+.sidebar-head {
+  height: 62px;
+  min-height: 62px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+}
+.identity {
+  height: 48px;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  gap: 10px;
+  padding: 0 8px;
+  border-radius: 8px;
+}
+.identity:hover {
+  background: var(--v5-hover);
+}
+.identity-type {
+  gap: 2px;
+}
+.identity-type strong {
+  font-size: 17px;
+  font-weight: 725;
+  letter-spacing: -0.65px;
+}
+.identity-type small {
+  font-size: 9px;
+  letter-spacing: 1.95px;
+  font-weight: 730;
+}
+.nav-section-label {
+  color: var(--faint);
+  font-weight: 700;
+  letter-spacing: 0.105em;
+  font-size: 9.5px;
+  padding: 17px 20px 7px;
+  user-select: none;
+}
+.nav-secondary-label {
+  padding-top: 5px;
+}
+.primary-nav {
+  padding: 0 9px 10px;
+  gap: 3px;
+  flex: 1;
+}
+.nav-item {
+  height: 38px;
+  border-radius: 7px;
+  padding: 0 11px;
+  gap: 12px;
+  font-size: 12.75px;
+  font-weight: 525;
+}
+.nav-item svg {
+  height: 17px;
+  width: 17px;
+  stroke-width: 1.8;
+}
+.nav-item.selected {
+  font-weight: 670;
+  background: var(--v5-active);
+  color: var(--accent);
+}
+.nav-item.selected:before {
+  display: none;
+}
+.nav-item.selected:after {
+  content: "";
+  position: absolute;
+  left: -9px;
+  top: 9px;
+  bottom: 9px;
+  width: 2px;
+  background: var(--accent);
+  border-radius: 0 3px 3px 0;
+}
+.nav-item:active {
+  transform: scale(0.986);
+}
+.nav-separator {
+  height: 1px;
+  margin: 14px 11px 10px;
+  background: var(--line);
+}
+.sidebar-bottom {
+  padding: 9px 9px 11px;
+  border-color: var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sidebar-network {
+  padding: 7px 11px 8px;
+  font-size: 11px;
+  gap: 9px;
+}
+.network-indicator {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--faint);
+}
+.account {
+  min-height: 44px;
+  padding: 7px 9px;
+  border-radius: 8px;
+}
+.account-text strong {
+  font-size: 12px;
+}
+.account-text small {
+  font-size: 10px;
+}
+/* Stable trigger sits in the app header, not an entire navigation row. */
+.sidebar-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+  margin-left: -8px;
+  margin-right: 4px;
+  border-radius: 7px;
+}
+.sidebar-trigger svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.8;
+}
+.app-topbar {
+  padding: 0 25px;
+  justify-content: flex-start;
+  gap: 9px;
+}
+.topbar-right {
+  margin-left: auto;
+}
+.topbar-context {
+  font-size: 11px;
+}
+.topbar-context b {
+  font-size: 12px;
+}
+/* Rail uses icon alignment and tooltips; it must never show clipped text. */
+[data-sidebar="collapsed"] .app-shell {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+[data-sidebar="collapsed"] .sidebar-head {
+  padding: 0 8px;
+}
+[data-sidebar="collapsed"] .identity {
+  padding: 0;
+  justify-content: center;
+  flex: 1;
+}
+[data-sidebar="collapsed"] .nav-section-label {
+  height: 12px;
+  overflow: hidden;
+  color: transparent;
+  padding: 0;
+}
+[data-sidebar="collapsed"] .nav-secondary-label {
+  height: 2px;
+}
+[data-sidebar="collapsed"] .primary-nav {
+  padding-inline: 8px;
+}
+[data-sidebar="collapsed"] .nav-item {
+  height: 42px;
+  padding: 0;
+  justify-content: center;
+}
+[data-sidebar="collapsed"] .nav-item.selected:after {
+  left: -8px;
+}
+[data-sidebar="collapsed"] .nav-separator {
+  margin: 10px 10px;
+}
+[data-sidebar="collapsed"] .sidebar-bottom {
+  padding: 9px 8px 10px;
+}
+[data-sidebar="collapsed"] .account {
+  min-height: 42px;
+  padding: 5px 0;
+}
+[data-sidebar="collapsed"] .sidebar-network {
+  display: none;
+}
+/* Available horizontal space is functional, not decorative. */
+.page-heading {
+  padding: 25px clamp(20px, 2.1vw, 34px) 19px;
+}
+.content-narrow,
+.settings-content,
+.setup-content {
+  max-width: none;
+  margin: 0 clamp(20px, 2.1vw, 34px) 28px;
+}
+.settings-content {
+  max-width: 1240px;
+}
+.setup-content {
+  max-width: 1240px;
+}
+.activity-workspace {
+  width: auto;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+.activity-options {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 20px;
+  background: var(--surface);
+}
+.activity-table-head {
+  grid-template-columns: minmax(0, 2fr) minmax(130px, 0.9fr) minmax(
+      140px,
+      0.65fr
+    );
+  padding: 11px 20px;
+}
+.activity-line {
+  grid-template-columns: minmax(0, 2fr) minmax(130px, 0.9fr) minmax(
+      140px,
+      0.65fr
+    );
+  padding: 13px 20px;
+  min-height: 48px;
+}
+.activity-line:hover {
+  background: var(--v5-hover);
+}
+.activity-line strong {
+  font-weight: 595;
+}
+/* The sessions empty state and history are peer panels, so the screen never shows an enormous empty box. */
+.sessions-workspace {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) minmax(450px, 1.32fr);
+  gap: 16px;
+  align-items: start;
+  margin: 0 clamp(20px, 2.1vw, 34px) 28px;
+  min-width: 0;
+  max-width: 1600px;
+}
+.sessions-workspace .plain-panel {
+  min-width: 0;
+  min-height: 0;
+}
+.sessions-workspace .panel-top,
+.assist-bottom .panel-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 47px;
+  padding: 0 18px;
+}
+.sessions-workspace .panel-top h2,
+.assist-bottom .panel-top h2 {
+  font-size: 12.5px;
+  font-weight: 685;
+}
+.subtle-count {
+  font-size: 11px;
+  color: var(--muted);
+}
+.session-active-panel .blank-state {
+  padding: 45px 24px;
+  min-height: 188px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.session-active-panel .blank-state svg {
+  color: var(--faint);
+  width: 22px;
+  height: 22px;
+}
+.session-active-panel .session-list-item {
+  padding: 17px 20px;
+}
+.session-history-panel .history-line {
+  min-height: 62px;
+  padding: 12px 18px;
+  gap: 16px;
+  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.session-history-panel .history-line strong {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-history-panel .history-line > span {
+  font-size: 11px;
+  white-space: nowrap;
+}
+/* Assist is organized as connected work: join | share, then request history full-width. */
+.assist-layout,
+.assist-bottom {
+  max-width: 1600px;
+  margin-left: clamp(20px, 2.1vw, 34px);
+  margin-right: clamp(20px, 2.1vw, 34px);
+}
+.assist-layout {
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.assist-layout .plain-panel {
+  min-height: 220px;
+}
+.assist-layout .panel-top {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  padding: 0 19px;
+}
+.join-form {
+  padding: 21px 22px;
+}
+.share-state {
+  padding: 21px 22px;
+}
+.share-empty {
+  max-width: 420px;
+  line-height: 1.45;
+  margin: 0 0 19px;
+}
+.assist-bottom {
+  margin-top: 16px;
+  overflow: hidden;
+}
+.assist-bottom .audit-row {
+  border: 0;
+  border-top: 1px solid var(--line-light);
+  padding: 16px 19px;
+  margin: 0;
+  min-height: 62px;
+}
+.assist-bottom .audit-row:last-child {
+  border-bottom: none;
+}
+.assist-bottom .audit-row:hover {
+  background: var(--v5-hover);
+}
+/* Interface touches */
+.button:focus-visible,
+.nav-item:focus-visible,
+.sidebar-trigger:focus-visible {
+  outline-offset: -2px;
+}
+.mobile-brand .logo-mark {
+  box-shadow: none;
+}
+@media (max-width: 1250px) {
+  .sessions-workspace {
+    grid-template-columns: minmax(260px, 0.92fr) minmax(300px, 1.08fr);
+  }
+  .session-history-panel .history-line {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+}
+@media (max-width: 1000px) {
+  .sessions-workspace {
+    grid-template-columns: 1fr;
+    max-width: none;
+  }
+  .session-active-panel .blank-state {
+    min-height: 135px;
+    padding: 24px;
+  }
+  .session-history-panel .history-line {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+  }
+}
+/* When the sidebar becomes an icon rail at tablet widths, hide section labels as a rail does. */
+@media (max-width: 850px) and (min-width: 651px) {
+  .app-shell,
+  [data-sidebar="collapsed"] .app-shell {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+  .sidebar-head {
+    padding: 0 8px;
+  }
+  .identity {
+    padding: 0;
+    justify-content: center;
+  }
+  .nav-section-label,
+  .sidebar-network {
+    display: none;
+  }
+  .nav-item {
+    height: 43px;
+    justify-content: center;
+    padding: 0;
+  }
+  .primary-nav {
+    padding: 12px 8px;
+  }
+  .nav-item.selected:after {
+    left: -8px;
+  }
+  .sidebar-trigger {
+    display: none;
+  }
+  .sidebar-bottom {
+    padding-inline: 8px;
+  }
+  .assist-layout {
+    grid-template-columns: 1fr;
+  }
+  .assist-layout .plain-panel {
+    min-height: 0;
+  }
+}
+@media (max-width: 650px) {
+  .sidebar-trigger {
+    display: none;
+  }
+  .app-topbar {
+    justify-content: space-between;
+  }
+  .content-narrow,
+  .activity-workspace,
+  .settings-content,
+  .setup-content {
+    margin: 0 0 12px;
+    max-width: none;
+  }
+  .activity-options {
+    padding: 9px 16px;
+  }
+  .activity-table-head,
+  .activity-line {
+    grid-template-columns: minmax(0, 1fr) 108px;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .activity-table-head span:nth-child(2),
+  .activity-line span:nth-child(2) {
+    display: none;
+  }
+  .activity-line {
+    min-height: 52px;
+    gap: 12px;
+  }
+  .activity-line strong {
+    min-width: 0;
+    line-height: 1.35;
+  }
+  .sessions-workspace {
+    margin: 0 13px 16px;
+    gap: 12px;
+    grid-template-columns: 1fr;
+  }
+  .sessions-workspace .plain-panel {
+    border-radius: 8px;
+  }
+  .session-active-panel .blank-state {
+    min-height: 117px;
+    padding: 18px;
+  }
+  .session-history-panel .history-line {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    padding: 12px 16px;
+  }
+  .assist-layout {
+    margin: 0 13px;
+    gap: 12px;
+    grid-template-columns: 1fr;
+  }
+  .assist-layout .plain-panel {
+    min-height: 0;
+  }
+  .join-form,
+  .share-state {
+    padding: 16px;
+  }
+  .assist-bottom {
+    margin: 12px 13px 18px;
+    border-radius: 8px;
+  }
+  .assist-bottom .panel-top {
+    padding: 0 16px;
+  }
+  .assist-bottom .audit-row {
+    padding: 14px 16px;
+  }
+  .page-heading {
+    padding: 20px 16px 17px;
+  }
+  .settings-content {
+    padding: 0 16px 26px;
+  }
+  .setup-content {
+    margin: 0 13px;
+  }
+}
+@media (max-width: 350px) {
+  .session-history-panel .history-line strong {
+    white-space: normal;
+  }
+  .assist-bottom .audit-row {
+    gap: 8px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-shell,
+  .nav-item {
+    transition: none !important;
+  }
+}
+/* Checked switches must retain the accent in dark mode; don't let the old neutral state win. */
+[data-theme="dark"] .setting-row .switch input:checked + span {
+  background: #3774e3;
+}
+[data-theme="dark"] .setting-row .switch input:not(:checked) + span {
+  background: #536071;
+}

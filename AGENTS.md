@@ -5,7 +5,7 @@ Read docs/architecture.md and docs/security.md before substantial changes.
 Work on a feature branch. Never commit credentials or `.env` files.
 Keep Beacon View independent. Never infer desktop access from camera access.
 On the shared workstation, read docs/local-development.md. Remote owns ports
-3010/5174/5433 and its external private development state (docs/workspace-handoff.md);
+3010/5174/5433 and its external private development state (docs/workspace.md);
 View owns its separate checkout/processes.
 Do not modify or clean View's active checkout or registered worktrees for Remote
 development. Never reclaim occupied ports by killing their owners. Shared Oracle

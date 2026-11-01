@@ -1,4 +1,6 @@
-# Workspace publication validation — November 1, 2026
+# Development status
+
+Last verified: November 1, 2026. Re-run the relevant checks after future changes.
 
 Current-branch dependency audits found no high/critical npm advisories, and RustSec `cargo-audit audit --deny warnings` passed for Cargo.lock using an official-release-digest-verified tool. The npm audit retains a moderate [minimatch development-tool advisory](https://github.com/advisories/GHSA-g3hv-75wg-m249); its fix requires a major version change, which was not forced into transitive consumers. GitHub's warnings on the default branch describe its older dependency state; publication of this feature branch does not merge or deploy it.
 
@@ -10,6 +12,6 @@ The owner authorized publishing the existing unattended development, consolidati
 
 Fresh dependency installs succeeded. Hoisted copied dependencies have no active source/dependency reparse points. Backend manual fixture Vite imports now use a declared existing-workspace dependency. Changed PowerShell scripts parse, and existing signing-information commands read the relocated signing files without printing values. The existing SSH alias worked with its relocated key. A stale October 12 C-path launcher owner record was archived only after checking its process lifetime and vacant ports. Local dev setup/schema verification, hidden backend/web startup/readiness and owned shutdown succeeded using the external private state directory.
 
-Gitleaks scans of staged candidates are a pre-publication gate; private reports remain outside Git. The backup/cleanup completion record is outside the repository under D:/Beacon-Maintenance-20261031. Local development database dumps restored into separate disposable databases; production data was not touched.
+Gitleaks scans of staged candidates are a pre-publication gate; private reports remain outside Git. Local development database dumps restored into separate disposable databases; production data was not touched.
 
-The actual second-PC Windows service/boot/reboot/uninstall and physical Android/cross-network capture/control/file gates remain open. Initial Windows sign-in-screen control remains unimplemented under ADR 0048. Source publication is a development checkpoint, not release acceptance. See workspace-handoff.md for paths, keys/recovery boundaries and next development steps.
+The actual second-PC Windows service/boot/reboot/uninstall and physical Android/cross-network capture/control/file gates remain open. Initial Windows sign-in-screen control remains unimplemented under ADR 0048. Source publication is a development checkpoint, not release acceptance. See workspace.md for paths, keys/recovery boundaries and next development steps.

@@ -1,4 +1,4 @@
-> Workspace migration: [workspace-handoff.md](workspace-handoff.md) gives the current D: paths and external secret/state configuration. Older C: path examples below are historical.
+> Workspace migration: [workspace.md](workspace.md) gives the current D: paths and external secret/state configuration. Older C: path examples below are historical.
 
 # Beacon Remote on the shared Windows workstation
 
@@ -219,40 +219,9 @@ updated local View peer-denial policy and quotas are not deployed. Follow
 and [maintenance runbook](relay-separation.md); local environment separation
 does not mean the live relay has already been separated or hardened.
 
-## Cleanup and retained material
+## Workspace ownership
 
-Validation on October 11: full formatting/lint/type checks, real Remote
-PostgreSQL regressions, backend/web builds, dependency audit and native formatting
-passed locally. Actual launcher start/readiness/stop and occupied-listener
-preservation passed. Both production products' HTTPS health/readiness passed.
-PR #11 CI could not start: GitHub reported an account payment/spending-limit
-block, before any job steps. No billing settings were changed. Keep that distinct
-from a source/test failure. The owner then explicitly authorized local CI/manual
-deployment and merging PR #11; it is merged and production updated with media
-disabled. See validation-2026-10-11.md. Rerun hosted CI when account access returns.
-
-October 11 cleanup moved old loose `beacon-remote-*`, Coturn research and
-`beacon-view-*` root artifacts into `C:/Dev/Archives/2026-10-11` by product and
-Evidence/Tools/Packages/Notes. The restricted local `manifest.json` records every
-original path, destination, bytes and SHA256; all moved contents were reverified.
-There was no deletion. These archives may include sensitive historical material,
-so owner/SYSTEM access is retained; they are not Git content.
-
-Registered `Beacon-Desktop`, `Beacon-Omarchy-Handoff` (including secret migration
-instructions), approved `Beacon-Remote-Design-Review`, the owner's Downloads ZIP,
-all paired identities, recovery DPAPI material, dependency/build caches and
-database volumes remain intact. Ambiguous old release archives/install logs stay
-at root until ownership is proven. `Beacon-OldMain` contained only orphaned
-dependency trees and no Git checkout or active process references; it was
-preserved at `C:/Dev/Archives/2026-10-11/Legacy/Beacon-OldMain`. The directory
-receipt is `legacy-directory.json`; none of its contents were deleted.
-Before deleting merged Remote local refs, a verified complete Git bundle at
-`Beacon-Remote/Notes/pre-cleanup-local-refs.bundle` preserved all branches and the
-unfinished handoff stash. Useful operational details are now in the supplement;
-no uncommitted work is hidden by dropping the stash.
-View's active checkout was inspected only and left to Claude. The workspace
-inventory in `C:/Dev/WORKSPACE.md` lets both agents find current projects and
-recover old artifacts without editing each other's repository.
+Use D:/Dev/Beacon-Remote and its external private state selected by scripts/Enter-Workspace.ps1. Old C:/Dev archives, migration manifests and loose acceptance scripts have been removed. The current guide is workspace.md; approved interactive UI source is under ../design/prototype. Keep View's processes, identities, relay and databases separate. Source publication does not deploy production.
 
 ## Isolated input development
 

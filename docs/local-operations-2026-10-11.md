@@ -1,8 +1,10 @@
-# Verified local operations supplement — 2026-10-11
+# Operational evidence — October 11, 2026
+
+Historical validation, not a current onboarding guide. Start with [workspace.md](workspace.md), roadmap.md and deployment.md. The approved interactive reference now lives in ../design/prototype, not an external archive.
 
 This preserves the authorized-machine observations from October 10 and adds
 local coexistence work on October 11. It supplements, rather than replaces,
-CLAUDE_HANDOFF.md. Reverify running infrastructure before deployment: the new
+workspace.md. Reverify running infrastructure before deployment: the new
 session deliberately did not change shared Oracle Caddy/Coturn or production.
 See local-development.md for the new isolated launcher and workspace inventory.
 
