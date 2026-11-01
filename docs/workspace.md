@@ -39,3 +39,9 @@ The interactive owner-approved visual target is checked in under `design/prototy
 The secrets root README.md, CREDENTIALS.csv and ROTATION.md explain credential purposes and staged replacement. REMOTE_LOCAL_ACCOUNTS_DIR selects local fixture accounts; REMOTE_PRODUCTION_LOGIN_FILE selects the explicit production test login. Generators keep ephemeral session links/cookies in local state rather than the stable account file.
 
 For an intentional release, pass the canonical remote/signing/update-private-key.pem to scripts/publish-download.mjs where its key argument is required. Never run make-update-key.mjs over an existing signing key or rotate the pinned key without an update-trust handover.
+
+## Credential rotation checkpoint
+
+On November 1, 2026, the owner-authorized Resend handover replaced the sending key in the production backend and its alert configuration, verified delivered test mail and readiness, and revoked the old provider keys. Both products retained their exact running backend image IDs; no source release or database migration accompanied this refresh. The external private root's ROTATION.md and CREDENTIALS.csv track the remaining credential families.
+
+Credential-only Compose recreation now includes `/etc/beacon-remote/runtime-backend-image.override.yaml`, a root-owned override that pins the existing backend by image ID with pulls disabled. Preserve this pin when refreshing credentials using the current container's Compose labels. For an intentional code release, explicitly select the new image and update or remove the pin rather than carrying an old image into the release. Never print resolved Compose environment or container credentials into logs.
