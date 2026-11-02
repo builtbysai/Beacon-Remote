@@ -52,7 +52,7 @@ switch ($Action) {
         if (git -C $root status --porcelain -- apps/android-host) { throw 'Commit the Android host first so the build matches a commit' }
         $env:JAVA_HOME = $javaHome
         $env:BEACON_ANDROID_KEYSTORE = $keystore
-        $env:BEACON_ANDROID_STORE_PASSWORD = (Get-Content -LiteralPath $passwordFile -Raw)
+        $env:BEACON_ANDROID_STORE_PASSWORD = (Get-Content -LiteralPath $passwordFile -Raw).Trim()
         try {
             Push-Location (Join-Path $root 'apps\android-host')
             & .\gradlew.bat :app:testDebugUnitTest :app:assembleRelease
