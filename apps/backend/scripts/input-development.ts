@@ -1,3 +1,7 @@
+import {
+  readLocalDatabase,
+  localDatabaseUrl,
+} from "../../../scripts/local-database.mjs";
 // Isolated, loopback-only acceptance fixture. Never uses a production identity.
 import {
   createHash,
@@ -26,8 +30,10 @@ import { applyMigrations } from "../src/migrations.js";
 if (process.platform !== "win32")
   throw new Error("Windows interactive session required");
 const root = resolve(import.meta.dirname, "../../..");
-const database =
-  "postgresql://remote_dev:development-only@127.0.0.1:5433/beacon_remote_test";
+const database = localDatabaseUrl(
+  (await readLocalDatabase()).password,
+  "beacon_remote_test",
+);
 const admin = new Pool({ connectionString: database });
 const schema = `input_dev_${randomUUID().replaceAll("-", "")}`;
 await admin.query(`CREATE SCHEMA ${schema}`);

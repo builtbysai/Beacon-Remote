@@ -135,7 +135,7 @@ control-plane checks. No runner
 installation, billing changes or shared View environment changes are performed.
 
 ```powershell
-$env:TEST_DATABASE_URL='postgresql://remote_dev:development-only@127.0.0.1:5433/beacon_remote_test'
+. ./scripts/Enter-Workspace.ps1 # selects the private local development/test credentials
 pnpm check
 pnpm audit --prod --audit-level high
 cargo fmt --all -- --check

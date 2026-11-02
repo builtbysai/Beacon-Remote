@@ -1,3 +1,7 @@
+import {
+  readLocalDatabase,
+  localDatabaseUrl,
+} from "../../../scripts/local-database.mjs";
 // Native GUI acceptance with real enrollment/presence and disposable user state.
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -16,8 +20,10 @@ const state = resolve(
   "host-development",
 );
 const profile = resolve(state, `profile-${randomUUID()}`);
-const database =
-  "postgresql://remote_dev:development-only@127.0.0.1:5433/beacon_remote_test";
+const database = localDatabaseUrl(
+  (await readLocalDatabase()).password,
+  "beacon_remote_test",
+);
 const admin = new Pool({ connectionString: database });
 const schema = `host_dev_${randomUUID().replaceAll("-", "")}`;
 await admin.query(`CREATE SCHEMA ${schema}`);

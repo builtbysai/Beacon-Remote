@@ -14,7 +14,9 @@ Get-ChildItem Env: | ForEach-Object { $previousEnvironment[$_.Name] = $_.Value }
 try {
     if (-not $NativeOnly) {
         # Fixed Remote test database, never inherited View or production credentials.
-        $env:TEST_DATABASE_URL = 'postgresql://remote_dev:development-only@127.0.0.1:5433/beacon_remote_test'
+        $localTestDatabase = & node --input-type=module -e "import { readLocalDatabase, localDatabaseUrl } from './scripts/local-database.mjs'; const { password } = await readLocalDatabase(); console.log(localDatabaseUrl(password, 'beacon_remote_test'));"
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot load the private local test database configuration.' }
+        $env:TEST_DATABASE_URL = $localTestDatabase.Trim()
         foreach ($arguments in @(
             @('install', '--frozen-lockfile'),
             @('check'),

@@ -1,3 +1,5 @@
+> Historical validation record. Current workspace, private credentials and paused acceptance configuration are documented in [workspace.md](workspace.md). Do not use the literal old passwords or base-only acceptance startup commands below.
+
 # Operational evidence — October 11, 2026
 
 Historical validation, not a current onboarding guide. Start with [workspace.md](workspace.md), roadmap.md and deployment.md. The approved interactive reference now lives in ../design/prototype, not an external archive.

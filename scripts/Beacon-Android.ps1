@@ -26,14 +26,25 @@ switch ($Action) {
         Set-Content -LiteralPath $passwordFile -Value $password -NoNewline -Encoding ascii
         # Owner-only access for both files.
         foreach ($file in @($passwordFile)) { icacls $file /inheritance:r /grant:r "${env:USERNAME}:(R,W)" | Out-Null }
-        & $keytool -genkeypair -v -keystore $keystore -alias beacon -keyalg RSA -keysize 3072 -validity 9125 `
-            -storepass $password -keypass $password -dname 'CN=Beacon Remote Host, O=Beacon' | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw 'keytool failed' }
+        $env:BEACON_ANDROID_KEYTOOL_PASSWORD = $password
+        try {
+            & $keytool -genkeypair -v -keystore $keystore -alias beacon -keyalg RSA -keysize 3072 -validity 9125 `
+                -storepass:env BEACON_ANDROID_KEYTOOL_PASSWORD -keypass:env BEACON_ANDROID_KEYTOOL_PASSWORD -dname 'CN=Beacon Remote Host, O=Beacon' | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'keytool failed' }
+        } finally {
+            Remove-Item Env:BEACON_ANDROID_KEYTOOL_PASSWORD -ErrorAction SilentlyContinue
+        }
         icacls $keystore /inheritance:r /grant:r "${env:USERNAME}:(R,W)" | Out-Null
         "Created $keystore. Back up the folder $secrets (the key and its password); nothing can replace them."
     }
     'Info' {
-        & $keytool -list -v -keystore $keystore -storepass (Get-Content -LiteralPath $passwordFile -Raw) -alias beacon | Select-String 'SHA256|Valid'
+        $env:BEACON_ANDROID_KEYTOOL_PASSWORD = (Get-Content -LiteralPath $passwordFile -Raw).Trim()
+        try {
+            & $keytool -list -v -keystore $keystore -storepass:env BEACON_ANDROID_KEYTOOL_PASSWORD -alias beacon | Select-String 'SHA256|Valid'
+            if ($LASTEXITCODE -ne 0) { throw 'keytool failed' }
+        } finally {
+            Remove-Item Env:BEACON_ANDROID_KEYTOOL_PASSWORD -ErrorAction SilentlyContinue
+        }
     }
     'Build' {
         if (-not (Test-Path -LiteralPath $keystore)) { throw 'No release key yet. Run: scripts\Beacon-Android.ps1 -Action New' }

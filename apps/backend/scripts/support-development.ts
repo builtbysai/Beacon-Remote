@@ -1,3 +1,7 @@
+import {
+  readLocalDatabase,
+  localDatabaseUrl,
+} from "../../../scripts/local-database.mjs";
 // Isolated, loopback-only fixture for trying one-click temporary support by hand (ADR 0038). It starts the backend on
 // 3011 and the web app on 5175 in a throwaway schema, signs a technician in, creates a support link and prints it.
 // Run the support program against it with BEACON_SERVER=http://127.0.0.1:3011 (see docs/input-development.md).
@@ -11,8 +15,10 @@ import { createApp } from "../src/app.js";
 import { applyMigrations } from "../src/migrations.js";
 
 const root = resolve(import.meta.dirname, "../../..");
-const database =
-  "postgresql://remote_dev:development-only@127.0.0.1:5433/beacon_remote_test";
+const database = localDatabaseUrl(
+  (await readLocalDatabase()).password,
+  "beacon_remote_test",
+);
 const admin = new Pool({ connectionString: database });
 const schema = `support_dev_${randomUUID().replaceAll("-", "")}`;
 await admin.query(`CREATE SCHEMA ${schema}`);

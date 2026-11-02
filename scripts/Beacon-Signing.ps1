@@ -66,7 +66,11 @@ function New-Certificate {
         -HashAlgorithm SHA256 -KeyExportPolicy Exportable -KeyUsage DigitalSignature -NotAfter (Get-Date).AddYears(3) `
         -CertStoreLocation 'Cert:\CurrentUser\My'
     try {
-        $password = [Convert]::ToBase64String((1..24 | ForEach-Object { Get-Random -Maximum 256 } | ForEach-Object { [byte]$_ })) -replace '[+/=]', 'x'
+        $passwordBytes = New-Object byte[] 32
+        $random = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+        try { $random.GetBytes($passwordBytes) } finally { $random.Dispose() }
+        $password = [Convert]::ToBase64String($passwordBytes)
+        [Array]::Clear($passwordBytes, 0, $passwordBytes.Length)
         $secure = ConvertTo-SecureString -String $password -AsPlainText -Force
         Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $secure | Out-Null
         Set-Content -LiteralPath $passwordPath -Value $password -NoNewline -Encoding ASCII

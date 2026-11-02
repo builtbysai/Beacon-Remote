@@ -7,6 +7,7 @@ import { createServer } from "node:net";
 import { open, mkdir, readFile, writeFile, unlink } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
+import { readLocalDatabase, localDatabaseUrl } from "./local-database.mjs";
 import { setTimeout as delay } from "node:timers/promises";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -14,13 +15,14 @@ const directory =
   process.env.REMOTE_DEV_STATE_DIR ??
   join(root, "../../Beacon-Secrets/remote/local/state");
 const lockPath = join(directory, "owner.json");
-const database =
-  "postgresql://remote_dev:development-only@127.0.0.1:5433/beacon_remote_dev";
+const localDatabase = await readLocalDatabase();
+const database = localDatabaseUrl(localDatabase.password);
 const backendRequire = createRequire(join(root, "apps/backend/package.json"));
 const webRequire = createRequire(join(root, "apps/web/package.json"));
 const environment = {
   ...process.env,
   DATABASE_URL: database,
+  REMOTE_DEV_POSTGRES_PASSWORD: localDatabase.password,
   WEB_ORIGIN: "http://127.0.0.1:5174",
   HOST: "127.0.0.1",
   PORT: "3010",

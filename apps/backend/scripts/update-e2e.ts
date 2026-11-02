@@ -1,3 +1,7 @@
+import {
+  readLocalDatabase,
+  localDatabaseUrl,
+} from "../../../scripts/local-database.mjs";
 // Real-process check of signed host updates (ADR 0028) on this Windows machine, no browser.
 // A local server pairs the OLD build's agent and serves a signed feed for the NEW build; the real agent
 // then checks, downloads, verifies and installs it over itself, and the old files are kept.
@@ -26,8 +30,10 @@ const work = resolve(
 );
 const install = resolve(work, "install");
 const profile = resolve(work, "profile");
-const database =
-  "postgresql://remote_dev:development-only@127.0.0.1:5433/beacon_remote_test";
+const database = localDatabaseUrl(
+  (await readLocalDatabase()).password,
+  "beacon_remote_test",
+);
 const port = 13014;
 const origin = `http://127.0.0.1:${port}`;
 const env = { ...process.env, LOCALAPPDATA: profile };

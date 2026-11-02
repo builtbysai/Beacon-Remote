@@ -1,3 +1,7 @@
+import {
+  readLocalDatabase,
+  localDatabaseUrl,
+} from "../../../scripts/local-database.mjs";
 // Real-process check of trusted personal access (ADR 0021) on this Windows machine, with no browser:
 // pair a disposable agent, turn trusted access on from the computer, request a session as the
 // signed-in owner, and confirm that nothing waits for a local Allow, that the session outlives the old
@@ -22,8 +26,10 @@ const profile = resolve(
     resolve(root, "../../Beacon-Secrets/remote/local/state"),
   `trusted-e2e/profile-${randomUUID()}`,
 );
-const database =
-  "postgresql://remote_dev:development-only@127.0.0.1:5433/beacon_remote_test";
+const database = localDatabaseUrl(
+  (await readLocalDatabase()).password,
+  "beacon_remote_test",
+);
 const port = 13012;
 const origin = `http://127.0.0.1:${port}`;
 const holdSeconds = Number(process.env.E2E_HOLD_SECONDS ?? 150);
