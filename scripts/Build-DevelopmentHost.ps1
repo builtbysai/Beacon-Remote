@@ -14,6 +14,9 @@ try {
     if ($nativeChanges) { throw 'Commit and validate native changes before packaging exact-commit binaries' }
     $output = Join-Path $root "dist\BeaconRemoteDevelopment-$($commit.Substring(0, 8))"
     if (Test-Path -LiteralPath $output) { throw "Output exists; preserve/review it before rebuilding: $output" }
+    # Keep the compiler available for the installer build after native CI restores its caller environment.
+    . (Join-Path $PSScriptRoot 'Native-Toolchain.ps1')
+    Initialize-BeaconNativeToolchain
     # Build both endpoint binaries from this exact native source before copying.
     & (Join-Path $PSScriptRoot 'Test-RemoteCi.ps1') -NativeOnly
     $names = @('beacon-remote-agent.exe', 'beacon-remote-host.exe', 'beacon-remote-session.exe')
