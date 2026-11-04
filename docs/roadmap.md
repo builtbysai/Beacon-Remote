@@ -75,7 +75,7 @@ Keep these tasks visible without starting them inside unattended endpoint work:
 - #113 is docs-only and unmerged; its October 20 CI failed `security` (Cargo vulnerabilities) and `control-plane`, while Android/native passed. It is not the current `codex/unattended-access` implementation. Reconcile the direction without restoring its stale roadmap over this one.
 - #105 has green historical security/control-plane/Android/native checks; its own description says it has not been exercised against a live session. It grants no automation control today.
 - Dependabot [#106](https://github.com/builtbysai/Beacon-Remote/pull/106)–[#112](https://github.com/builtbysai/Beacon-Remote/pull/112) remain open: rtc, uuid, serde_json, setup-java, pg/types, websocket and globals. #109 was refreshed November 2 UTC. The latest green Actions activity is Dependabot update machinery on main, not CI for the unattended implementation.
-- GitHub Dependabot currently lists 20 open default-branch alerts, including two high-severity Vite alerts. The November 1 development-branch audit is a different checkpoint; merging and re-auditing the proposed release remains necessary.
+- The November 2 review listed 20 default-branch Dependabot alerts. During November 4 cleanup publication, GitHub reported 29 default-branch alerts: two critical, seven high, twelve moderate and eight low. This is a provider warning about main, not a fresh development-branch audit. Re-audit the proposed code/artifacts and review affected packages before device-session deployment; the November 1 branch audit is historical evidence.
 - Latest merged product PR is #104, October 14. No GitHub Releases were listed; hosted download publication is tracked separately in deployment documentation.
 
 ## Working boundaries
