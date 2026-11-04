@@ -1,12 +1,15 @@
 # Real-device acceptance checklist
 
-For the owner's hands-on testing. CI and local runs cannot prove these; each line needs a real computer, phone or
-network. Every session now records measured quality (route, picture height, frames per second, round-trip time,
+For coordinated testing on the owner's designated devices. Automate repeatable actions and evidence collection
+where supported; permission prompts and subjective media/usability judgments still need the owner. Each line
+requires actual device/network evidence. See roadmap.md and unattended-access.md for the current implementation
+boundary: initial Windows sign-in-screen control is not implemented yet. Every session now records measured quality (route, picture height, frames per second, round-trip time,
 packet loss) every 15 seconds, shown under **Sessions → Connection**, so you only need to note what felt wrong and
 when: the numbers are already saved.
 
-Download the installer from the Downloads page (unsigned: Windows will warn once; choose More info, then Run
-anyway). Uninstall from Apps and features; that also removes the saved sign-in.
+Use an exact matching development build with the refreshed signing identities; the current local artifacts and
+trust instructions are listed in roadmap.md. The Windows installer is self-signed and needs explicit trust approval;
+do not substitute an old hosted installer. Uninstall from Apps and features; that also removes the saved sign-in.
 
 ## 1. Install and pair
 
@@ -70,9 +73,11 @@ anyway). Uninstall from Apps and features; that also removes the saved sign-in.
       asking and whether it is to see or to control; the consent window is also in front. With trusted access it
       says the connection needs no approval. Nothing happens if Focus Assist is on (the consent window still shows).
 
-## 7. Android phone as a host (view only)
+## 7. Android phone as a host (view and control)
 
-Build `apps/android-host` (`gradlew :app:assembleDebug`) and install the debug APK; it is not published yet.
+Build a matching signed APK with scripts/Beacon-Android.ps1, or deliberately select a debug build for a test-only
+install. Release packaging and its Downloads entry were merged in PR #104; use the current refreshed signer,
+not the historical hosted APK. Attended and unattended paths have separate acceptance in unattended-access.md.
 
 - [ ] In the workspace choose Add a computer; in the app enter the server, a name and the code. The phone appears
       online in Computers.
