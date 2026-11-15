@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { Machine } from "@beacon-remote/protocol";
 import { api } from "./api.js";
 import { activityLabel, type Activity } from "./AccountPanels.js";
@@ -45,6 +45,16 @@ export function ComputerInspector({
     ? display
     : undefined;
   const [editing, setEditing] = useState(false);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  const editButton = useRef<HTMLButtonElement>(null);
+  const wasEditing = useRef(false);
+  useEffect(() => {
+    closeButton.current?.focus();
+  }, []);
+  useEffect(() => {
+    if (!editing && wasEditing.current) editButton.current?.focus();
+    wasEditing.current = editing;
+  }, [editing]);
   const [name, setName] = useState(machine.name);
   const [group, setGroup] = useState(machine.group ?? "");
   const [busy, setBusy] = useState(false);
@@ -69,7 +79,7 @@ export function ComputerInspector({
             ? "This computer is locked. Its desktop becomes available after unlock."
             : machine.bootState === "starting"
               ? "Windows is on. Waiting for the desktop host to start."
-              : "This computer is offline. Check its power, network and Windows agent."
+              : "This device is offline. Check its power, network and host app."
         : sessionActive
           ? "End the current session before requesting another connection."
           : !viewEnabled
@@ -152,13 +162,15 @@ export function ComputerInspector({
       onKeyDown={(event) => {
         if (event.key === "Escape" && !busy) {
           event.stopPropagation();
-          onClose();
+          if (editing) setEditing(false);
+          else onClose();
         }
       }}
     >
       <div className="inspector-heading">
         <button
           className="secondary inspector-edit"
+          ref={editButton}
           aria-label={`Edit ${machine.name}`}
           title="Edit computer name"
           disabled={busy || Boolean(machine.revokedAt)}
@@ -172,6 +184,7 @@ export function ComputerInspector({
         </button>
         <button
           className="secondary"
+          ref={closeButton}
           aria-label="Close computer details"
           onClick={onClose}
         >
@@ -179,7 +192,10 @@ export function ComputerInspector({
         </button>
       </div>
       <h2 className="inspector-name">{machine.name}</h2>
-      <p className="inspector-machine-id">{machine.id}</p>
+      <details className="inspector-identity">
+        <summary>Device ID</summary>
+        <p className="inspector-machine-id">{machine.id}</p>
+      </details>
       <p
         className={`inspector-state${machine.online && !stale && !machine.revokedAt ? " is-online" : ""}`}
       >
@@ -309,8 +325,8 @@ export function ComputerInspector({
             {trusted
               ? machine.allowControl
                 ? "Not needed"
-                : "Not needed to view · Control asks on Windows"
-              : "Required on Windows"}
+                : "Not needed to view · Control asks on the device"
+              : "Required on the device"}
           </dd>
           <dt>Remembered helpers</dt>
           <dd>

@@ -9,7 +9,7 @@ accessible after the owner reconnected the drive. The existing branch and all
 unpublished work were preserved; no older download package was substituted.
 `git fetch origin` found main still 12 commits behind the current feature HEAD.
 
-The live CLI inventory finds nine open PRs: #105 MCP, #106 RTC, #107 UUID,
+The initial CLI inventory found nine open PRs: #105 MCP, #106 RTC, #107 UUID,
 #108 serde_json, #110 PostgreSQL dependencies, #111 WebSocket, #112 globals,
 #113 historical unattended roadmap, #114 CI action updates. The connector's
 initial query returned no PRs; it is not used as the authoritative PR inventory.
@@ -48,3 +48,16 @@ MFA, signed-in password recovery, inline errors/password visibility, slow login
 across background polling, late navigation and responsive/rate-limit states.
 No real email was sent or account credential published. Outstanding feature,
 design, platform and acceptance requirements stay in the single checklist.
+
+Final publication checkpoint: #115 merged as `849c636`; its head `79e2532`
+passed all four GitHub CI jobs and was deployed to Remote. Migrations 025–029
+and schema verification passed. Quiesced encrypted backup, repository integrity
+and strict separate-database restore passed before migration. A fresh backup and
+scheduled restore passed after migration. Remote and View health/readiness are
+healthy; old app images remain available for rollback. Sign-in gates remain off,
+and native update feeds remain unchanged. The scheduled operations wrapper now
+selects exact current-release images and preserved private configuration.
+
+Included dependency PRs #106/#107/#108/#110/#111/#112/#114 and the superseded
+direction PR #113 were closed; #105 remains separate. Current follow-up source is
+on `codex/workspace-polish`, preserving the published unattended branch.

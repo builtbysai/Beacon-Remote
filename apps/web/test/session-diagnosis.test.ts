@@ -17,6 +17,10 @@ const quality = (
 
 test("a good connection says nothing; a poor one says what to try, most useful first", () => {
   assert.equal(diagnosis(null), null);
+  assert.equal(
+    diagnosis(quality({ samples: 1, lossPct: 20, rttMs: 500 })),
+    null,
+  );
   assert.equal(diagnosis(quality({})), null);
   assert.equal(diagnosis(quality({ route: "Unavailable" })), null);
   assert.match(diagnosis(quality({ lossPct: 4, rttP95Ms: 400 }))!, /lost/);

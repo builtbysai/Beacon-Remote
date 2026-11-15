@@ -243,11 +243,11 @@
   flex-direction: column;
   min-width: 0;
   gap: 3px;
+  flex: 1;
 }
 .session-rows strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
   font-size: 12px;
 }
 .session-rows span,
@@ -347,9 +347,8 @@
 }
 .activity-rows strong,
 .activity-rows span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 .activity-rows span,
 .activity-rows time {
@@ -396,17 +395,16 @@
     justify-content: flex-start;
     margin-top: 12px;
   }
-  .activity-table-head,
   .activity-rows li {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
     padding-inline: 15px;
   }
-  .activity-table-head span:nth-child(2),
-  .activity-rows li > span {
+  .activity-table-head {
     display: none;
   }
   .activity-rows time {
-    text-align: right;
+    text-align: left;
   }
 }
 .password-toggle {
@@ -1367,6 +1365,21 @@ select {
 .inventory-tools select {
   max-width: 180px;
 }
+@media (max-width: 599px) {
+  .inventory-tools {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .inventory-tools input {
+    grid-column: 1 / -1;
+    max-width: none;
+  }
+  .inventory-tools select {
+    min-width: 0;
+    width: 100%;
+  }
+}
 .inventory-empty {
   min-height: 250px;
   display: flex;
@@ -1433,6 +1446,7 @@ select {
   box-shadow: inset 0 0 0 1.5px var(--muted);
 }
 .device-name {
+  display: block;
   border: 0;
   background: transparent;
   padding: 9px 0;
@@ -2335,7 +2349,7 @@ li {
     display: none;
   }
   .session-table li {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
     padding-block: 8px;
     row-gap: 2px;
   }
@@ -2343,8 +2357,10 @@ li {
     grid-column: 1;
   }
   .session-table li time {
-    grid-column: 2;
-    grid-row: 1;
+    grid-column: 1;
+    grid-row: auto;
+    text-align: left;
+    margin-top: 6px;
   }
   .session-table li span {
     grid-column: 1 / -1;
@@ -2517,6 +2533,7 @@ button.danger {
   font-weight: 600;
 }
 .device-group {
+  display: block;
   color: var(--muted);
   font-weight: 400;
 }
