@@ -4,10 +4,9 @@ RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY apps/backend/package.json apps/backend/package.json
 COPY apps/web/package.json apps/web/package.json
-COPY packages/protocol/package.json packages/protocol/package.json
+COPY packages/protocol packages/protocol
 RUN pnpm install --frozen-lockfile
 COPY apps/backend apps/backend
-COPY packages/protocol packages/protocol
 RUN pnpm --filter @beacon-remote/backend build
 RUN CI=true pnpm install --prod --frozen-lockfile --ignore-scripts
 
