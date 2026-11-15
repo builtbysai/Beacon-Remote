@@ -4,17 +4,24 @@ The [completion checklist](completion-checklist.md) is the current tracker for
 the full-roadmap goal; dated sections below preserve scope and historical evidence.
 
 Updated November 15, 2026. [PR #115](https://github.com/builtbysai/Beacon-Remote/pull/115)
-is merged and its verified head `79e2532` is deployed to the VM. Web/backend UI,
+is merged and its verified head `79e2532` was deployed to the VM. Web/backend UI,
 account mail, pairing, guarded sign-in source and verified download-resume source
 are published. All four CI jobs, ARM64 release image builds, additive migrations
 025–029, encrypted backup/integrity/isolated restore and both products' health and
 readiness passed. Sign-in access remains disabled; native update feeds were not
 advanced. Full unattended/device acceptance is still open.
 
-The current follow-up is the remaining workspace/viewer and native/Android design
-review, candidate packaging, diagnostics and reset follow-through. Included
-dependency PRs and the superseded direction PR were closed; #105 view-only MCP
-remains separate and unintegrated. Full computer-use/Motive, Linux/Raspberry Pi
+[PR #116](https://github.com/builtbysai/Beacon-Remote/pull/116) is also merged;
+its verified head `7d59941` is the current VM release. Computers/details, Sessions
+and Activity now have eleven-viewport browser interaction/render evidence and
+scheduled recovery selects exact release images. Signed Windows default/sign-in
+and Android candidates were built without advancing native feeds.
+
+The current follow-up is the remaining viewer/native/Android design review,
+diagnostics and reset follow-through. Included dependency PRs and the superseded
+direction PR were closed. #105 view-only MCP is now integrated and hardened in
+local source with stdio/core and real local synthetic-RTC evidence, pending
+publication. Full computer-use/Motive, Linux/Raspberry Pi
 and organization policy remain later implementation milestones, not delivered
 features. The checklist distinguishes those from physical acceptance. Earlier
 dated notes below retain historical evidence; the database reset must not be

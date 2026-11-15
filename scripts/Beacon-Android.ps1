@@ -49,7 +49,7 @@ switch ($Action) {
     'Build' {
         if (-not (Test-Path -LiteralPath $keystore)) { throw 'No release key yet. Run: scripts\Beacon-Android.ps1 -Action New' }
         $commit = (git -C $root rev-parse --short=8 HEAD).Trim()
-        if (git -C $root status --porcelain -- apps/android-host) { throw 'Commit the Android host first so the build matches a commit' }
+        if (git -C $root status --porcelain -- apps/android-host scripts/Beacon-Android.ps1) { throw 'Commit the Android host and packaging script first so the build matches a commit' }
         $env:JAVA_HOME = $javaHome
         $env:BEACON_ANDROID_KEYSTORE = $keystore
         $env:BEACON_ANDROID_STORE_PASSWORD = (Get-Content -LiteralPath $passwordFile -Raw).Trim()
@@ -69,7 +69,9 @@ switch ($Action) {
         Copy-Item -LiteralPath $apk -Destination $out -Force
         $sdk = Join-Path $env:LOCALAPPDATA 'Android\Sdk\build-tools'
         $apksigner = Get-ChildItem $sdk -Recurse -Filter apksigner.bat -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1
-        if ($apksigner) { & $apksigner.FullName verify --print-certs $out | Select-String 'SHA-256|Verifies' }
+        if (-not $apksigner) { throw 'apksigner is required to verify the release APK' }
+        & $apksigner.FullName verify --print-certs $out | Select-String 'SHA-256|Verifies'
+        if ($LASTEXITCODE -ne 0) { throw 'APK signature verification failed' }
         Get-FileHash -Algorithm SHA256 -LiteralPath $out | Format-List
         "Signed APK: $out"
     }
