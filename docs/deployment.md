@@ -172,6 +172,18 @@ issue a replacement if needed. This does not enable general registration.
 
 ## Weekly restore drill
 
+November 15, 2026: production operations use the guarded
+`/usr/local/sbin/beacon-remote-compose` wrapper from
+`infrastructure/oracle/beacon-remote-compose.sh`. Install it root-owned mode 0750
+with the matching backup/restore units before enabling their timers. It selects
+the current release's exact image override after private media/data-service
+overrides, so a new source symlink cannot silently run an older operations image.
+The release must contain a matching `SOURCE_REVISION` and generated
+`compose.release-images.json`. Capture a new backup after migrations, then run
+the scheduled restore drill: a pre-migration backup intentionally fails a schema
+comparison with the newly migrated live database. Both updated jobs passed on
+November 15. Empty account tables are valid after the requested reset.
+
 `beacon-remote-restore-drill.timer` runs `restore-check` every Sunday at 05:30 UTC (after the 04:30 backup). It
 restores the latest encrypted backup into the fixed throwaway database, checks that the restored schema matches the
 live one and that accounts survived, then drops only what it created. Counts are not compared because the live

@@ -1116,9 +1116,7 @@ function App() {
                   <div className="inventory-empty">
                     <Monitor />
                     <h2>No computers yet</h2>
-                    <p>
-                      Pair a Windows computer to see its connection status here.
-                    </p>
+                    <p>Pair a Windows or Android device to see it here.</p>
                   </div>
                 )}
                 {machines.length > 0 && visibleMachines.length === 0 && (
@@ -1179,8 +1177,7 @@ function App() {
                         {machine.name}
                         {machine.group && (
                           <small className="device-group">
-                            {" "}
-                            · {machine.group}
+                            {machine.group}
                           </small>
                         )}
                       </button>
@@ -1214,12 +1211,14 @@ function App() {
                             void testVideo(machine);
                           }}
                           title={
-                            machine.accessMode === "trusted"
-                              ? "View only; this computer is set to trusted access"
-                              : "View only; requires approval on your Windows computer"
+                            !mediaEnabled
+                              ? "Desktop access is unavailable on this server"
+                              : machine.accessMode === "trusted"
+                                ? "View only; this computer is set to trusted access"
+                                : "View only; requires approval on this device"
                           }
                         >
-                          {mediaEnabled ? "View" : "Soon"}
+                          View
                         </button>
                       ) : (
                         <span />
