@@ -416,6 +416,38 @@ impl Outgoing {
     pub fn sent(&self) -> u64 {
         self.sent
     }
+    /// Recheck the retained prefix before sending a suffix. The caller can revoke
+    /// authority between bounded reads; a changed source never yields a suffix.
+    pub fn restart_at(
+        &mut self,
+        offset: u64,
+        expected: Option<&str>,
+        live: impl Fn() -> bool,
+    ) -> io::Result<()> {
+        use std::io::{Read, Seek, SeekFrom};
+        if offset > self.size || self.file.metadata()?.len() != self.size {
+            return Err(io::Error::other("source changed or invalid offset"));
+        }
+        self.file.seek(SeekFrom::Start(0))?;
+        self.hasher = Sha256::new();
+        self.sent = 0;
+        let mut buffer = [0u8; 16 * 1024];
+        while self.sent < offset {
+            if !live() {
+                return Err(io::Error::other("authority ended"));
+            }
+            let count = ((offset - self.sent) as usize).min(buffer.len());
+            self.file.read_exact(&mut buffer[..count])?;
+            self.hasher.update(&buffer[..count]);
+            self.sent += count as u64;
+        }
+        if !live()
+            || expected.is_some_and(|expected| expected != hex(&self.hasher.clone().finalize()))
+        {
+            return Err(io::Error::other("prefix mismatch or authority ended"));
+        }
+        Ok(())
+    }
     /// The next chunk, or None at the end of the file.
     pub fn next_chunk(&mut self) -> io::Result<Option<Vec<u8>>> {
         use std::io::Read;

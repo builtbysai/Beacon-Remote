@@ -6,6 +6,25 @@ scope; [development status](development-status.md) retains dated validation
 records. Historical entries do not override this tracker or grant new release
 authorization. No percentage is inferred from passing builds.
 
+November 15 publication: accumulated development is pushed in draft
+[PR #115](https://github.com/builtbysai/Beacon-Remote/pull/115). All four CI jobs
+passed for checkpoint `3f558a1`. Image-build fixes populate the injected protocol
+package before installation and package only backend production dependencies.
+ARM64 VM images now build; packaged backend imports pass. Encrypted VM database
+backup, repository data integrity and isolated schema/readability restore passed.
+The empty-account restore check now accepts the valid state left by the requested
+account reset. No live release switch has happened yet.
+
+Download resume is now implemented in source for one bounded partial copy inside
+the same approved Windows helper/browser session. Resume requires an explicit
+viewer choice and a verified prefix checksum; changed source, invalid offsets or
+ended authority prevent suffix transmission. Pause invalidates retained downloads
+across connection gaps. Stop, discard and session teardown clear partial copies;
+reload/new approval starts fresh. Web transfer tests (66), helper transport tests
+(8), typecheck, lint, build and warning-denied helper Clippy passed. Actual peer,
+network/device acceptance and rendered viewer review remain open. The table's
+earlier download-resume entry is superseded by this checkpoint.
+
 Source, automated verification, physical acceptance and deployment are separate.
 Current unattended/handoff work is on `codex/unattended-access`. The owner now
 authorizes GitHub publication and VM deployment of verified work, excluding

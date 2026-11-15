@@ -566,6 +566,7 @@ async fn stream(
     )
     .await??;
     let mut authorization = MediaAuthorization {
+        downloads: Arc::default(),
         last_activity: Arc::new(AtomicU64::new(0)),
         control_allowed,
         files_allowed,
@@ -627,6 +628,7 @@ async fn stream(
 type RawSignalSocket =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 struct MediaAuthorization {
+    downloads: Arc<crate::files_transport::DownloadCache>,
     last_activity: Arc<AtomicU64>,
     epoch: Instant,
     lease: Arc<AtomicU64>,
@@ -1014,6 +1016,7 @@ async fn media_cycle(
                 files: files_allowed,
                 recording: recording_allowed,
             },
+            authorization.downloads.clone(),
         ))
     } else {
         None
@@ -1664,6 +1667,7 @@ mod tests {
                 .unwrap();
             let active = Arc::new(AtomicBool::new(mode != "stop"));
             let mut authorization = MediaAuthorization {
+                downloads: Arc::default(),
                 last_activity: Arc::new(AtomicU64::new(0)),
                 control_allowed: false,
                 files_allowed: false,
