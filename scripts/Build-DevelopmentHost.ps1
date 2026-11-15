@@ -12,7 +12,7 @@ Push-Location $root
 try {
     $commit = (& git rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0 -or $commit -notmatch '^[a-f0-9]{40}$') { throw 'Git build identity unavailable' }
-    $nativeChanges = & git status --porcelain -- apps/windows-agent apps/windows-session crates Cargo.toml Cargo.lock
+    $nativeChanges = & git status --porcelain -- apps/windows-agent apps/windows-session apps/windows-setup crates Cargo.toml Cargo.lock .cargo packaging/windows-development packaging/windows-trust scripts/Build-DevelopmentHost.ps1 scripts/Beacon-Signing.ps1 scripts/Native-Toolchain.ps1 scripts/Test-RemoteCi.ps1
     if ($nativeChanges) { throw 'Commit and validate native changes before packaging exact-commit binaries' }
     $variant = if ($SignInMedia) { '-signin-media' } else { '' }
     $output = Join-Path $root "dist\BeaconRemoteDevelopment-$($commit.Substring(0, 8))$variant"
