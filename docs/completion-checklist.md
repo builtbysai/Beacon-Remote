@@ -13,10 +13,16 @@ package before installation and package only backend production dependencies.
 ARM64 VM images now build; packaged backend imports pass. Encrypted VM database
 backup, repository data integrity and isolated schema/readability restore passed.
 The empty-account restore check now accepts the valid state left by the requested
-account reset. That exact revision is live on the VM after additive migrations
+account reset. That exact revision was deployed after additive migrations
 025–029 and schema verification. Remote and Beacon View health/readiness pass;
 rollback application images are retained. Native installer/update feeds were not
 advanced and sign-in authority/media remain disabled.
+
+PR #116 is subsequently merged as `6409209`; its head `7d59941` passed all four
+GitHub checks and is the current VM release. It includes the workspace pass and
+guarded operations wrapper. A quiesced backup/integrity/strict isolated restore,
+schema verification and both products' health/readiness passed again. This
+supersedes the previous deployed revision without advancing native feeds.
 
 Scheduled backup/restore now select the current release's exact image override
 and existing private media/data-service configuration through a guarded wrapper.
@@ -25,6 +31,30 @@ backup/restore/health timers remain active. No View services were recreated.
 Dependency PRs #106, #107, #108, #110, #111, #112 and #114 and superseded roadmap
 PR #113 were closed after their changes/direction were included. View-only MCP
 PR #105 remains open and is not claimed integrated.
+
+MCP follow-up source now integrates the stage-one files from #105 with corrected
+Computers routing, reservation before asynchronous setup, cancellation/late-start
+cleanup, hard setup/session limits and paused/ended/reconnecting screenshot gates.
+Credentials are never logged or redirected to another origin; MFA remains enabled.
+The browser transport has bounded requests and rejects calls on closure, and its
+owned temporary login profile is removed after browser exit. Failed cleanup blocks
+a replacement until retried. Stdio/core regressions (8), browser transport tests
+(3), full control-plane checks and a real local MCP→React→synthetic WebRTC picture→
+Stop journey passed. Dummy image/profile cleanup evidence is
+`mcp-browser-2026-11-15/result.json`; no real account/device/provider upload occurred.
+This is view-only source integration, pending publication. Full computer use,
+semantic trees, automation tokens and Motive remain unimplemented milestones.
+
+Signed candidate preparation passed for Windows default (`849c636`) and separate
+sign-in-media (`7d59941`) variants and Android (`44dcf26`). Windows candidates are
+timestamped with the existing private-alpha self-signed certificate; that is not
+public CA trust. Android signature verification passed with the existing release
+key. The isolated installer test passed install/reinstall/uninstall, identity and
+shortcut cleanup, and preservation of unrelated files. Its cleanup now refuses
+pre-existing registry state and validates its owned temporary directory before
+removal. Packaging checks include build inputs and require APK verification.
+No physical endpoint or public update feed was changed. Candidate VM staging and
+real installation/lifecycle acceptance remain separate work.
 
 November 15 workspace follow-up: Computers/details, Sessions and Activity were
 reviewed in real Chromium with a local synthetic API at eleven width/height

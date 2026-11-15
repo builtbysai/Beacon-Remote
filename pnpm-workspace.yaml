@@ -2,6 +2,7 @@ packages:
   - apps/backend
   - apps/web
   - packages/protocol
+  - tools/mcp
 # Keep dependency directories local and movable; never junction into another checkout.
 nodeLinker: hoisted
 packageImportMethod: copy

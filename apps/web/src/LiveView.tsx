@@ -95,8 +95,8 @@ export function LiveView({
     grant.source === "desktop"
       ? grant.approval === "policy"
         ? "Connecting…"
-        : "Approve this request on your Windows computer…"
-      : "Waiting for the Windows helper…",
+        : "Approve this request on the device…"
+      : "Waiting for the sharing app…",
   );
   const [frames, setFrames] = useState(0);
   const [ended, setEnded] = useState(false);
@@ -639,7 +639,7 @@ export function LiveView({
               break;
             case "consent":
               if (message.accepted !== true)
-                finish("Sharing was declined on Windows.");
+                finish("Sharing was declined on the device.");
               else {
                 resumable = message.resumable === true;
                 // The person at the computer may allow viewing but not the control that was asked for.
@@ -798,6 +798,16 @@ export function LiveView({
     <section
       ref={shell}
       className="live-view"
+      data-session-id={grant.id}
+      data-state={
+        ended
+          ? "ended"
+          : peerPaused
+            ? "paused"
+            : frames > 0
+              ? "viewing"
+              : "connecting"
+      }
       aria-label={`${name} remote viewer`}
     >
       <header className={`viewer-toolbar${compact ? " compact" : ""}`}>
@@ -1013,7 +1023,7 @@ export function LiveView({
               </p>
               <p>
                 Timings start at viewer setup. Approval time includes the
-                person's response; it does not measure when the Windows dialog
+                person's response; it does not measure when the approval dialog
                 appeared. Presented FPS can drop when this browser tab is
                 hidden.
               </p>
@@ -1022,7 +1032,7 @@ export function LiveView({
               <p>Browser ICE policy: {policy}</p>
               <p>Selected candidate types: {candidateTypes}</p>
               <p>
-                Relay candidates: browser {localRelays}, Windows {remoteRelays}
+                Relay candidates: browser {localRelays}, device {remoteRelays}
               </p>
               {iceError !== null && <p>ICE server error code: {iceError}</p>}
             </div>
@@ -1065,8 +1075,8 @@ export function LiveView({
           className={controlReady && !ended ? "input-enabled" : undefined}
           aria-label={
             grant.source === "desktop"
-              ? "Windows desktop video"
-              : "Synthetic Windows video"
+              ? "Remote device video"
+              : "Synthetic test video"
           }
         />
         {(frames === 0 || ended) && (
