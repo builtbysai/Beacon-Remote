@@ -920,5 +920,239 @@
     "screen": "temporary-support",
     "purpose": "Temporary support window in the approved native style: pill, technician card, chat, owner-drawn buttons",
     "source": "support-final.png"
+  },
+  {
+    "file": "validation/signin-browser/2026-11-09-1511-desktop.png",
+    "when": "2026-11-09 15:11 UTC",
+    "size": "1440x900",
+    "platform": "validation",
+    "screen": "signin-browser",
+    "purpose": "Real React sign-in viewer with synthetic RTC video; no Windows capture or OS input.",
+    "source": "1440x900.png"
+  },
+  {
+    "file": "validation/signin-browser/2026-11-09-1511-small-phone.png",
+    "when": "2026-11-09 15:11 UTC",
+    "size": "360x640",
+    "platform": "validation",
+    "screen": "signin-browser",
+    "purpose": "Browser-only 360x640 sign-in viewer layout with reachable Stop and synthetic video; not physical-phone acceptance.",
+    "source": "360x640.png"
+  },
+  {
+    "file": "validation/signin-browser/2026-11-09-1511-landscape.png",
+    "when": "2026-11-09 15:11 UTC",
+    "size": "844x390",
+    "platform": "validation",
+    "screen": "signin-browser",
+    "purpose": "Browser-only short landscape sign-in viewer with synthetic video; no secure-desktop acceptance.",
+    "source": "844x390.png"
+  },
+  {
+    "file": "validation/signin-browser/2026-11-09-1605-attention-phone.png",
+    "when": "2026-11-09 16:05 UTC",
+    "size": "360x640",
+    "platform": "validation",
+    "screen": "signin-browser",
+    "purpose": "Browser-only secure-attention toolbar and policy-unavailable feedback at 360x640; synthetic RTC, no Windows SAS invocation.",
+    "source": "360x640.png"
+  },
+  {
+    "file": "validation/signin-browser/2026-11-09-1605-attention-landscape.png",
+    "when": "2026-11-09 16:05 UTC",
+    "size": "844x390",
+    "platform": "validation",
+    "screen": "signin-browser",
+    "purpose": "Browser-only secure-attention toolbar with reachable Stop at 844x390; synthetic RTC and policy feedback, no SYSTEM acceptance.",
+    "source": "844x390.png"
+  },
+  {
+    "file": "validation/signin-browser/2026-11-10-0452-handoff-desktop.png",
+    "when": "2026-11-10 04:52 UTC",
+    "size": "1440x900",
+    "platform": "validation",
+    "screen": "signin-browser",
+    "purpose": "Actual React transition from synthetic sign-in RTC to a fresh ordinary desktop RTC stream; no Windows unlock, capture or OS input.",
+    "source": "handoff-desktop.png"
+  },
+  {
+    "file": "validation/signin-browser/2026-11-10-0516-restart-waiting.png",
+    "when": "2026-11-10 05:16 UTC",
+    "size": "1440x900",
+    "platform": "validation",
+    "screen": "signin-browser",
+    "purpose": "Synthetic restart progress above inventory with reachable Cancel; no OS reboot",
+    "source": "restart-waiting.png"
+  },
+  {
+    "file": "validation/signin-browser/2026-11-10-0516-restart-phone.png",
+    "when": "2026-11-10 05:16 UTC",
+    "size": "360x640",
+    "platform": "validation",
+    "screen": "signin-browser",
+    "purpose": "Synthetic restart waiting and reachable Cancel at 360x640; no OS reboot",
+    "source": "restart-waiting-360x640.png"
+  },
+  {
+    "file": "validation/signin-browser/2026-11-10-0516-restart-short.png",
+    "when": "2026-11-10 05:16 UTC",
+    "size": "844x390",
+    "platform": "validation",
+    "screen": "signin-browser",
+    "purpose": "Synthetic restart waiting and reachable Cancel at 844x390; no OS reboot",
+    "source": "restart-waiting-844x390.png"
+  },
+  {
+    "file": "validation/signin-browser/2026-11-10-0516-restart-desktop.png",
+    "when": "2026-11-10 05:16 UTC",
+    "size": "1440x900",
+    "platform": "validation",
+    "screen": "signin-browser",
+    "purpose": "Synthetic automatic restart through separate sign-in to fresh ordinary desktop; no OS reboot",
+    "source": "restart-desktop.png"
+  },
+  {
+    "file": "validation/appearance/2026-11-11-1634-compact-dark.png",
+    "when": "2026-11-11 16:34 UTC",
+    "size": "320x480",
+    "platform": "validation",
+    "screen": "appearance",
+    "purpose": "Real React synthetic API: compact appearance radios, visible focus and phone-width placement; no device acceptance.",
+    "source": "dark-320x480.png"
+  },
+  {
+    "file": "validation/appearance/2026-11-11-1634-public-light.png",
+    "when": "2026-11-11 16:34 UTC",
+    "size": "1440x900",
+    "platform": "validation",
+    "screen": "appearance",
+    "purpose": "Real React public header appearance control with concise Light/Dark/System selection.",
+    "source": "light-public-1440x900.png"
+  },
+  {
+    "file": "validation/appearance/2026-11-11-1634-short-forced-colors.png",
+    "when": "2026-11-11 16:34 UTC",
+    "size": "640x240",
+    "platform": "validation",
+    "screen": "appearance",
+    "purpose": "Real Chromium forced-colors emulation: portalled appearance choices stay above mobile navigation in a short viewport.",
+    "source": "forced-colors-640x240.png"
+  },
+  {
+    "file": "validation/native-signin-settings/2026-11-11-1634-keyboard-review.jpg",
+    "when": "2026-11-11 16:34 UTC",
+    "size": "458x203",
+    "platform": "validation",
+    "screen": "native-signin-settings",
+    "purpose": "Actual native read-only unpaired sign-in settings after Tab/Space Refresh and focus-return review; no service mutations.",
+    "source": "unpaired-keyboard.jpg"
+  },
+  {
+    "file": "validation/downloads/2026-11-11-1640-minimalist-platforms.png",
+    "when": "2026-11-11 16:40 UTC",
+    "size": "1440x900",
+    "platform": "validation",
+    "screen": "downloads",
+    "purpose": "Actual React Downloads with synthetic manifest: two platform actions, metadata and collapsed setup details; no published artifact acceptance.",
+    "source": "downloads-desktop.png"
+  },
+  {
+    "file": "validation/downloads/2026-11-11-1640-narrow-verification.png",
+    "when": "2026-11-11 16:40 UTC",
+    "size": "320x480",
+    "platform": "validation",
+    "screen": "downloads",
+    "purpose": "Actual Chromium 320px view of expanded Windows setup and checksum details using synthetic manifest; normal page scrolling preserves access.",
+    "source": "downloads-phone-details.png"
+  },
+  {
+    "file": "validation/downloads/2026-11-11-1641-readable-checksum.png",
+    "when": "2026-11-11 16:41 UTC",
+    "size": "320x480",
+    "platform": "validation",
+    "screen": "downloads",
+    "purpose": "Corrected actual Chromium 320px expanded setup: scoped block checksum styling avoids the previous inline-code collision. Synthetic manifest only.",
+    "source": "downloads-phone-details.png"
+  },
+  {
+    "file": "validation/settings/2026-11-11-1656-organized-security.png",
+    "when": "2026-11-11 16:56 UTC",
+    "size": "1440x900",
+    "platform": "validation",
+    "screen": "settings",
+    "purpose": "Actual React synthetic-account Settings: separate section navigation, authenticator controls and inline browser-session result. No real account mutation.",
+    "source": "settings-security-desktop.png"
+  },
+  {
+    "file": "validation/settings/2026-11-11-1656-account-phone.png",
+    "when": "2026-11-11 16:56 UTC",
+    "size": "320x480",
+    "platform": "validation",
+    "screen": "settings",
+    "purpose": "Actual React 320px Settings with wrapping section navigation and long synthetic account identity; vertical page scrolling remains available.",
+    "source": "settings-account-phone.png"
+  },
+  {
+    "file": "validation/email/2026-11-11-1656-confirmation-phone.png",
+    "when": "2026-11-11 16:56 UTC",
+    "size": "320x760",
+    "platform": "validation",
+    "screen": "email",
+    "purpose": "Actual Chromium preview of shared account confirmation template at 320px: dummy invalid token only, no live email sent.",
+    "source": "mail-verify-light-320.png"
+  },
+  {
+    "file": "validation/email/2026-11-11-1656-confirmation-dark.png",
+    "when": "2026-11-11 16:56 UTC",
+    "size": "768x800",
+    "platform": "validation",
+    "screen": "email",
+    "purpose": "Actual Chromium dark-preference preview of shared confirmation email; dummy token and example.test only; real email-client acceptance remains open.",
+    "source": "mail-verify-dark-768.png"
+  },
+  {
+    "file": "validation/email/2026-11-11-1656-operations-phone.png",
+    "when": "2026-11-11 16:56 UTC",
+    "size": "320x760",
+    "platform": "validation",
+    "screen": "email",
+    "purpose": "Actual Chromium narrow operational alert preview retaining full synthetic diagnostic text; renderer has no provider credentials and sends nothing.",
+    "source": "mail-operations-light-320.png"
+  },
+  {
+    "file": "validation/pairing/2026-11-11-1712-clear-setup.png",
+    "when": "2026-11-11 17:12 UTC",
+    "size": "1440x900",
+    "platform": "validation",
+    "screen": "pairing",
+    "purpose": "Actual React synthetic enrollment: workspace address, one-use code and explicit cancellation; first-device empty inventory is omitted while pairing. No real device was paired.",
+    "source": "pairing-waiting-1440.png"
+  },
+  {
+    "file": "validation/pairing/2026-11-11-1712-narrow-setup.png",
+    "when": "2026-11-11 17:12 UTC",
+    "size": "320x480",
+    "platform": "validation",
+    "screen": "pairing",
+    "purpose": "Actual Chromium 320px pairing setup with visible cancellation and normal page scrolling; synthetic code and loopback origin only.",
+    "source": "pairing-waiting-320.png"
+  },
+  {
+    "file": "validation/assist/2026-11-12-0149-late-request-review.png",
+    "when": "2026-11-12 01:49 UTC",
+    "size": "1440x900",
+    "platform": "validation",
+    "screen": "assist",
+    "purpose": "Actual React synthetic support data after a failed sign-out and stopped delayed grant; no viewer opened. No real support session or device action.",
+    "source": "assist-desktop.png"
+  },
+  {
+    "file": "validation/public-security/2026-11-12-0149-truthful-phone.png",
+    "when": "2026-11-12 01:49 UTC",
+    "size": "320x480",
+    "platform": "validation",
+    "screen": "public-security",
+    "purpose": "Actual Chromium 320px public Security page with truthful standing-access copy and normal page scrolling.",
+    "source": "security-phone.png"
   }
 ]

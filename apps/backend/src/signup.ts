@@ -11,6 +11,7 @@ import type { Pool } from "pg";
 import { z } from "zod";
 import type { Config } from "./config.js";
 import type { Mailer } from "./mail.js";
+import { accountMail } from "./account-mail.js";
 
 const digest = (value: string) =>
   createHash("sha256").update(value).digest("hex");
@@ -52,8 +53,7 @@ export function registerSignup(
     );
     await mailer!.send({
       to,
-      subject: "Confirm your Beacon Remote account",
-      text: `Confirm your email address to finish creating your Beacon Remote account:\n\n${link(`verify=${raw}`)}\n\nThe link works once and expires in ${VERIFY_HOURS} hours. If you did not sign up, you can ignore this message and nothing will be created.\n`,
+      ...accountMail("verify", link(`verify=${raw}`), `${VERIFY_HOURS} hours`),
     });
   }
 
@@ -104,8 +104,7 @@ export function registerSignup(
       } else {
         await mailer!.send({
           to: address,
-          subject: "Beacon Remote sign-up",
-          text: `Someone tried to create a Beacon Remote account with this address, which already has one.\n\nIf it was you, sign in at ${config.WEB_ORIGIN} or choose Forgot password there. If not, ignore this message; nothing changed.\n`,
+          ...accountMail("existing", config.WEB_ORIGIN),
         });
       }
     } catch {
@@ -194,8 +193,11 @@ export function registerSignup(
         );
         await mailer.send({
           to: parsed.data.email,
-          subject: "Reset your Beacon Remote password",
-          text: `Use this link to choose a new password for Beacon Remote:\n\n${link(`recover=${raw}`)}\n\nThe link works once and expires in ${RECOVERY_MINUTES} minutes. If you did not ask for this, ignore this message; your password has not changed.\n`,
+          ...accountMail(
+            "recover",
+            link(`recover=${raw}`),
+            `${RECOVERY_MINUTES} minutes`,
+          ),
         });
       }
     } catch {

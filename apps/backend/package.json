@@ -18,18 +18,18 @@
     "@beacon-remote/protocol": "workspace:*",
     "@fastify/cookie": "11.1.3",
     "@fastify/rate-limit": "10.3.0",
-    "@fastify/websocket": "^11.3.3",
+    "@fastify/websocket": "^11.3.4",
     "@node-rs/argon2": "2.0.2",
     "fastify": "5.12.6",
-    "pg": "8.22.0",
+    "pg": "8.23.1",
     "zod": "4.6.6"
   },
   "devDependencies": {
     "@types/node": "26.1.1",
-    "@types/pg": "8.20.0",
+    "@types/pg": "8.23.1",
     "@types/ws": "^8.18.2",
     "tsx": "4.23.15",
-    "ws": "^8.22.0",
-    "vite": "8.1.6"
+    "vite": "8.1.6",
+    "ws": "^8.22.0"
   }
 }

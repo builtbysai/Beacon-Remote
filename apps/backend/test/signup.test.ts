@@ -125,7 +125,8 @@ test(
       );
       const notice = sent[sent.length - 1]!;
       assert.ok(!/verify=/.test(notice.text));
-      assert.match(notice.text, /already has one/);
+      assert.match(notice.text, /already has a Beacon Remote account/);
+      assert.match(notice.html!, /You already have an account/);
       assert.equal(
         Number(
           (

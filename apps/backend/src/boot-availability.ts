@@ -53,6 +53,16 @@ export function registerBootAvailability(
         return reply.code(409).send({ error: "Binding rejected" });
       }
       if (b.publicKey) {
+        const reused = await client.query(
+          "SELECT 1 FROM machines WHERE public_key=$1 UNION ALL SELECT 1 FROM signin_endpoints WHERE public_key=$1 OR worker_public_key=$1",
+          [Buffer.from(b.publicKey, "base64")],
+        );
+        if (reused.rowCount) {
+          await client.query("ROLLBACK");
+          return reply
+            .code(400)
+            .send({ error: "A separate boot identity is required" });
+        }
         await client.query(
           `INSERT INTO boot_agents(machine_id,public_key) VALUES ($1,$2)
           ON CONFLICT (machine_id) DO UPDATE SET public_key=$2,last_seen_at=NULL,state='signed-out'`,

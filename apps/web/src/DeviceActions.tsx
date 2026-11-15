@@ -60,7 +60,7 @@ export function DeviceActions({
           onRestart?.(result.hostInstanceId ?? null);
         setNote(
           action === "restart"
-            ? "Restart requested. Windows shows a 30-second countdown its user can cancel. Reconnection currently requires the Windows user to sign in."
+            ? "Restart requested. The person at the computer can cancel Windows’ 30-second countdown."
             : action === "disconnect"
               ? "Any active session was ended. The computer stays available."
               : result.online
@@ -90,7 +90,7 @@ export function DeviceActions({
     },
     restart: {
       label: "Restart computer…",
-      text: "Restart this computer in 30 seconds? Any session ends and unsaved work on it can be lost. Windows shows a countdown the person there can cancel. It reconnects after the restart once Windows is signed in, because Beacon Remote runs in a signed-in session.",
+      text: "Restart in 30 seconds? This ends active sessions and can lose unsaved work. The person at the computer can cancel Windows’ countdown.",
       go: "Restart",
     },
     uninstall: {
@@ -139,6 +139,11 @@ export function DeviceActions({
                 onChange={(event) => setReconnect(event.target.checked)}
               />
               Reconnect automatically when this computer returns
+              <span className="field-help">
+                {" "}
+                Uses current permissions. Windows sign-in access must be enabled
+                separately.
+              </span>
             </label>
           )}
           <div className="actions">

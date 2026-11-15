@@ -8,6 +8,7 @@ export function DataPanel() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [errorAction, setErrorAction] = useState<"export" | "delete">("export");
 
   const fields = (form: HTMLFormElement) => {
     const data = new FormData(form);
@@ -21,9 +22,11 @@ export function DataPanel() {
 
   async function download(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const { password, code } = fields(event.currentTarget);
+    const form = event.currentTarget;
+    const { password, code } = fields(form);
     setBusy(true);
     setError("");
+    setErrorAction("export");
     setNotice("");
     try {
       const data = await api<unknown>("account/export", { password, code });
@@ -35,8 +38,8 @@ export function DataPanel() {
       link.download = "beacon-remote-data.json";
       link.click();
       URL.revokeObjectURL(url);
-      setNotice("Your data was downloaded.");
-      event.currentTarget.reset();
+      setNotice("Your export is ready.");
+      form.reset();
     } catch {
       setError("The password or code did not work.");
     } finally {
@@ -49,6 +52,7 @@ export function DataPanel() {
     const { password, code, word } = fields(event.currentTarget);
     setBusy(true);
     setError("");
+    setErrorAction("delete");
     try {
       await api("account/delete", { password, code, confirm: word });
       window.location.hash = "#home";
@@ -81,51 +85,70 @@ export function DataPanel() {
           Authenticator code (only if two-step sign-in is on)
           <input name="code" autoComplete="one-time-code" />
         </label>
-        <button disabled={busy}>Download my data</button>
-      </form>
-      {notice && <p role="status">{notice}</p>}
-      <h2>Delete account</h2>
-      {deleting ? (
-        <form onSubmit={erase} className="mfa-form">
-          <p>
-            This removes your account, every computer paired to it, and all
-            history. It cannot be undone. Computers stop being reachable at once
-            and can be paired again to a new account.
-          </p>
-          <label>
-            Password
-            <input
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              required
-            />
-          </label>
-          <label>
-            Authenticator code (only if two-step sign-in is on)
-            <input name="code" autoComplete="one-time-code" />
-          </label>
-          <label>
-            Type DELETE to confirm
-            <input name="confirm" autoComplete="off" required />
-          </label>
-          <button className="danger" disabled={busy}>
-            Delete my account
-          </button>{" "}
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => setDeleting(false)}
-          >
-            Cancel
-          </button>
-        </form>
-      ) : (
-        <button className="secondary" onClick={() => setDeleting(true)}>
-          Delete my account…
+        <button disabled={busy}>
+          {busy && errorAction === "export"
+            ? "Preparing download…"
+            : "Download my data"}
         </button>
+      </form>
+      {error && errorAction === "export" && (
+        <p role="alert" className="error">
+          {error}
+        </p>
       )}
-      {error && (
+      {notice && <p role="status">{notice}</p>}
+      <div className="settings-danger">
+        <h2>Delete account</h2>
+        {deleting ? (
+          <form onSubmit={erase} className="mfa-form">
+            <p>
+              This removes your account, every computer paired to it, and all
+              history. It cannot be undone. Computers stop being reachable at
+              once and can be paired again to a new account.
+            </p>
+            <label>
+              Password
+              <input
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                required
+              />
+            </label>
+            <label>
+              Authenticator code (only if two-step sign-in is on)
+              <input name="code" autoComplete="one-time-code" />
+            </label>
+            <label>
+              Type DELETE to confirm
+              <input
+                name="confirm"
+                autoComplete="off"
+                pattern="DELETE"
+                required
+              />
+            </label>
+            <button className="danger" disabled={busy}>
+              {busy && errorAction === "delete"
+                ? "Deleting…"
+                : "Delete my account"}
+            </button>{" "}
+            <button
+              type="button"
+              className="secondary"
+              disabled={busy}
+              onClick={() => setDeleting(false)}
+            >
+              Cancel
+            </button>
+          </form>
+        ) : (
+          <button className="secondary" onClick={() => setDeleting(true)}>
+            Delete my account…
+          </button>
+        )}
+      </div>
+      {error && errorAction === "delete" && (
         <p role="alert" className="error">
           {error}
         </p>

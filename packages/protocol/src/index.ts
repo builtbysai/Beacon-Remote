@@ -1,4 +1,5 @@
 import { z } from "zod";
+export * from "./signin.js";
 
 export const PROTOCOL_VERSION = 1;
 // Separate signing domain and credential: a boot agent never receives a session grant.
@@ -69,6 +70,15 @@ export const heartbeat = z
     timestamp: z.number().int().positive(),
     nonce: z.string().uuid(),
     instanceId: z.uuid().optional(),
+    // Canonical v3 binds the ordinary Windows host to its own process session.
+    // Null is an explicit unavailable report; omission is the legacy domain.
+    consoleSessionId: z
+      .number()
+      .int()
+      .min(1)
+      .max(0xfffffffe)
+      .nullable()
+      .optional(),
     signature: z.string().regex(/^[A-Za-z0-9+/]{86}==$/),
     displays: z.array(displayInfo).max(8).optional(),
     // For Wake-on-LAN (ADR 0042): hardware addresses, and a name for the local network the computer is on.
@@ -83,7 +93,11 @@ export const heartbeat = z
       .nullable()
       .optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (body) =>
+      body.consoleSessionId === undefined || body.instanceId !== undefined,
+  );
 
 // Exact canonical bytes signed by the native agent. No user-defined payload.
 export function heartbeatMessage(
@@ -91,7 +105,10 @@ export function heartbeatMessage(
   timestamp: number,
   nonce: string,
   instanceId?: string,
+  consoleSessionId?: number | null,
 ): string {
+  if (consoleSessionId !== undefined)
+    return `beacon-remote:heartbeat:v3\n${machineId}\n${timestamp}\n${nonce}\n${instanceId ?? "off"}\n${consoleSessionId ?? "off"}`;
   if (instanceId)
     return `beacon-remote:heartbeat:v2\n${machineId}\n${timestamp}\n${nonce}\n${instanceId}`;
   return `beacon-remote:heartbeat:v1\n${machineId}\n${timestamp}\n${nonce}`;
@@ -181,6 +198,7 @@ export interface Machine {
   online: boolean;
   bootState?: "signed-out" | "locked" | "starting" | null;
   hostInstanceId?: string | null;
+  hostConsoleSessionId?: number | null;
   lastSeenAt: string | null;
   revokedAt: string | null;
   // The computer's own access policy (ADR 0021). Only the computer can raise it.

@@ -15,6 +15,13 @@ fn maintenance(arguments: &[String]) -> bool {
         let _ = std::fs::write(std::path::Path::new(install).join("update.log"), message);
     };
     match arguments.get(1).map(String::as_str) {
+        Some("--sign-in-settings") if arguments.len() == 2 => {
+            if unsafe { beacon_remote_agent::signin_settings::show(std::ptr::null_mut()) }.is_err()
+            {
+                host_window::show_startup_error();
+            }
+            true
+        }
         Some("--apply-update") if arguments.len() == 5 => {
             let sequence = arguments[4].parse().unwrap_or(0);
             let pid = arguments[3].parse().unwrap_or(0);

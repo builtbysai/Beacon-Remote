@@ -3,7 +3,10 @@ param(
     [Parameter(ParameterSetName = 'ControlPlane')]
     [switch]$ControlPlaneOnly,
     [Parameter(ParameterSetName = 'Native')]
-    [switch]$NativeOnly
+    [switch]$NativeOnly,
+    [Parameter(ParameterSetName = 'All')]
+    [Parameter(ParameterSetName = 'Native')]
+    [switch]$SignInMedia
 )
 
 $ErrorActionPreference = 'Stop'
@@ -39,7 +42,17 @@ try {
         @('test', '--workspace', '--locked'),
         @('build', '--workspace', '--release', '--locked')
     )) {
-        & cargo @arguments
+        $commandArguments = @($arguments)
+        if ($SignInMedia) {
+            $featureArguments = @('--features', 'beacon-remote-agent/signin-media')
+            $separator = [Array]::IndexOf($commandArguments, '--')
+            if ($separator -ge 0) {
+                $commandArguments = @($commandArguments[0..($separator - 1)]) + $featureArguments + @($commandArguments[$separator..($commandArguments.Count - 1)])
+            } else {
+                $commandArguments += $featureArguments
+            }
+        }
+        & cargo @commandArguments
         if ($LASTEXITCODE -ne 0) { throw "Remote native check failed: $($arguments -join ' ')" }
     }
     if ($NativeOnly) {

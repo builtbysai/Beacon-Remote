@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, ApiError } from "./api.js";
 import type { ViewGrant } from "./LiveView.js";
 import { SupportSessionPanel } from "./SupportSessionPanel.js";
+import type { SessionRequest } from "./useSessionRequest.js";
 
 type Capability = "desktop:view" | "desktop:control";
 type Link = {
@@ -27,10 +28,10 @@ const STATE_TEXT: Record<Link["state"], string> = {
 
 // A technician's support queue (ADR 0038): make a one-use link, send it, and connect when the person has run it.
 export function SupportSessions({
-  onClaimed,
+  requestSession,
   sessionActive,
 }: {
-  onClaimed: (grant: ViewGrant, name: string) => void;
+  requestSession: SessionRequest;
   sessionActive: boolean;
 }) {
   const [links, setLinks] = useState<Link[] | null>(null);
@@ -42,12 +43,14 @@ export function SupportSessions({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [opened, setOpened] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState(false);
 
   const load = useCallback(async () => {
     try {
       setLinks((await api<{ links: Link[] }>("support-links")).links);
+      setLoadError(false);
     } catch {
-      setLinks([]);
+      setLoadError(true);
     }
   }, []);
   useEffect(() => {
@@ -104,15 +107,17 @@ export function SupportSessions({
     }
   }
   async function connect(link: Link, capability: Capability) {
-    if (!link.machineId || sessionActive || busy) return;
+    if (!link.machineId || sessionActive || busy || loadError) return;
     setBusy(true);
     setError("");
     try {
-      const grant = await api<ViewGrant>(
-        `machines/${link.machineId}/sessions`,
-        { source: "desktop", capability },
-      );
-      onClaimed(grant, link.name ?? "Support session");
+      await requestSession(async () => {
+        const grant = await api<ViewGrant>(
+          `machines/${link.machineId}/sessions`,
+          { source: "desktop", capability },
+        );
+        return { grant, name: link.name ?? "Support session" };
+      });
     } catch (failure) {
       setError(
         failure instanceof ApiError && failure.status === 409
@@ -137,9 +142,8 @@ export function SupportSessions({
       </div>
       <div className="assist-panel-body">
         <p>
-          Make a link and send it by text, email or chat. The person downloads
-          and runs a small temporary program, then allows you in. Nothing stays
-          on their computer afterwards.
+          Send a one-use link to the person you’re helping. They run the
+          temporary app and approve the connection.
         </p>
         <form className="support-form" onSubmit={create}>
           <label>
@@ -183,6 +187,17 @@ export function SupportSessions({
             {error}
           </p>
         )}
+        {loadError && (
+          <p className="error" role="alert">
+            Couldn’t refresh support sessions.{" "}
+            <button className="secondary" onClick={() => void load()}>
+              Try again
+            </button>
+          </p>
+        )}
+        {links === null && !loadError && (
+          <p role="status">Loading support sessions…</p>
+        )}
         {open.length > 0 && (
           <ul className="support-list">
             {open.map((link) => (
@@ -202,14 +217,14 @@ export function SupportSessions({
                     <>
                       <button
                         className="secondary"
-                        disabled={busy || sessionActive}
+                        disabled={busy || sessionActive || loadError}
                         onClick={() => void connect(link, "desktop:view")}
                       >
                         View
                       </button>
                       {link.capability === "desktop:control" && (
                         <button
-                          disabled={busy || sessionActive}
+                          disabled={busy || sessionActive || loadError}
                           onClick={() => void connect(link, "desktop:control")}
                         >
                           Control

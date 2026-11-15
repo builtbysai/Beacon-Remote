@@ -33,6 +33,9 @@ const environment = {
 // production proxy trust. Media acceptance uses its separate explicit runner.
 for (const key of [
   "SESSION_SECRET",
+  "CONTROL_ENABLED",
+  "SIGNIN_AUTHORITY_ENABLED",
+  "SIGNIN_MEDIA_ENABLED",
   "DEV_CONTROL_ENABLED",
   "REMOTE_DEV_CONTROL",
   "TURN_SECRET",

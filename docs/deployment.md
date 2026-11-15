@@ -202,3 +202,10 @@ sudo HEALTH_FORCE_FAIL=disk bash infrastructure/oracle/beacon-remote-health.sh  
 ```
 
 It watches Beacon Remote only; Beacon View has its own monitor. It cannot report that the whole server is down.
+
+The current local source formats alerts as HTML plus the full original plain
+text using the adjacent `render-alert.py` (Python 3 standard library). Keep that
+file with the health script in the matching checkout during release. Its renderer
+has no credentials/network access; the existing shell sender owns the provider
+call. This change has not been installed on the server. Local preview/unit checks
+do not prove live alert delivery; retain the explicit deployment acceptance step.

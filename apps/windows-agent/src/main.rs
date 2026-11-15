@@ -1,6 +1,12 @@
 fn main() -> Result<(), beacon_remote_agent::HostError> {
     #[cfg(windows)]
     if let Some(result) =
+        beacon_remote_agent::signin_endpoint::command(&std::env::args().collect::<Vec<_>>())
+    {
+        return result;
+    }
+    #[cfg(windows)]
+    if let Some(result) =
         beacon_remote_agent::availability::command(&std::env::args().collect::<Vec<_>>())
     {
         return result;

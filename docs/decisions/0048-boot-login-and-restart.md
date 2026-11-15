@@ -2,6 +2,24 @@
 
 Date: 2026-10-30. Scope authorized by the owner; sign-in endpoint not implemented.
 
+November 10 source checkpoint: separate sign-in transport/control, supported
+secure-attention requests, worker retirement and fresh browser-bound desktop
+handoff are now integrated. Restart recovery may enter that separate sign-in
+viewer only for an original control intent and explicit current readiness;
+view-only recovery never upgrades. Cancel/navigation and late-grant cleanup
+remain enforced. Synthetic browser restart/sign-in/desktop/Stop passed, without
+an OS reboot. Actual boot, Windows capture/input and lifecycle acceptance remain
+open; readiness/public connectability remain disabled. Historical implementation
+descriptions below are superseded by the current completion checklist.
+
+November 8 development: the separate backend identity/lease boundary exists
+behind a default-off flag. Native protected installation, scoped service/worker
+supervision, private IPC, offline local disable and a guarded worker Disable UI
+exist in source; media, controller/Stop integration,
+transport and handoff remain unfinished. See [the current contract and native work](../signin-authority.md),
+including the documented cross-session handle-inheritance constraint on the
+proposed IPC design below. This is not full unattended completion.
+
 The owner explicitly requires optional startup at Windows boot, remote control
 at the initial Windows sign-in screen and reconnection after restart. The
 signed-in-only target in ADR 0047 is therefore insufficient for completion of

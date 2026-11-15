@@ -1,0 +1,286 @@
+import { useEffect, useRef, useState } from "react";
+import { api, ApiError } from "./api.js";
+
+type Progress = {
+  state: "waiting" | "claimed" | "expired" | "cancelled" | "unavailable";
+  machine: { id: string; name: string } | null;
+};
+type Invitation = { code: string; deadline: number };
+
+export function PairComputer({
+  onClose,
+  onPaired,
+}: {
+  onClose: () => void;
+  onPaired: (id: string | null) => void;
+}) {
+  const [invitation, setInvitation] = useState<Invitation | null>(null);
+  const [progress, setProgress] = useState<Progress>({
+    state: "waiting",
+    machine: null,
+  });
+  const [error, setError] = useState("");
+  const [statusError, setStatusError] = useState("");
+  const [creating, setCreating] = useState(true);
+  const [cancelling, setCancelling] = useState(false);
+  const [copied, setCopied] = useState<"code" | "address" | null>(null);
+  const [seconds, setSeconds] = useState(300);
+  const [attempt, setAttempt] = useState(0);
+  const owned = useRef<string | null>(null);
+  const settled = useRef(false);
+  const paired = useRef(onPaired);
+  paired.current = onPaired;
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    heading.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    let live = true;
+    settled.current = false;
+    setCreating(true);
+    setError("");
+    setStatusError("");
+    setCopied(null);
+    setInvitation(null);
+    setProgress({ state: "waiting", machine: null });
+    // Do not abort issuance and lose the returned bearer. If the panel closes
+    // while issuance is pending, cancel only the code this request created.
+    void api<{ code: string; expiresInSeconds: number }>(
+      "enrollments",
+      {},
+      AbortSignal.timeout(10_000),
+    )
+      .then((result) => {
+        if (!live) {
+          void api(
+            "enrollments/cancel",
+            { code: result.code },
+            AbortSignal.timeout(5000),
+          ).catch(() => {});
+          return;
+        }
+        owned.current = result.code;
+        setInvitation({
+          code: result.code,
+          deadline: performance.now() + result.expiresInSeconds * 1000,
+        });
+        setSeconds(result.expiresInSeconds);
+      })
+      .catch(() => {
+        if (live) setError("Couldn’t create a pairing code. Try again.");
+      })
+      .finally(() => {
+        if (live) setCreating(false);
+      });
+    return () => {
+      live = false;
+      const code = owned.current;
+      owned.current = null;
+      if (code)
+        void api(
+          "enrollments/cancel",
+          { code },
+          AbortSignal.timeout(5000),
+        ).catch(() => {});
+    };
+  }, [attempt]);
+
+  useEffect(() => {
+    if (!invitation || progress.state !== "waiting") return;
+    const timer = window.setInterval(
+      () =>
+        setSeconds(
+          Math.max(
+            0,
+            Math.ceil((invitation.deadline - performance.now()) / 1000),
+          ),
+        ),
+      1000,
+    );
+    return () => window.clearInterval(timer);
+  }, [invitation, progress.state]);
+
+  useEffect(() => {
+    if (!invitation) return;
+    const controller = new AbortController();
+    let timer: number | undefined;
+    async function poll() {
+      if (controller.signal.aborted || settled.current) return;
+      try {
+        const result = await api<Progress>(
+          "enrollments/status",
+          { code: invitation!.code },
+          AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]),
+        );
+        if (controller.signal.aborted || settled.current) return;
+        setProgress(result);
+        setStatusError("");
+        if (result.state !== "waiting") {
+          setError("");
+          settled.current = true;
+          owned.current = null;
+          if (result.state === "claimed")
+            paired.current(result.machine?.id ?? null);
+          return;
+        }
+      } catch (failure) {
+        if (controller.signal.aborted || settled.current) return;
+        if (failure instanceof ApiError && failure.status === 404) {
+          settled.current = true;
+          owned.current = null;
+          setProgress({ state: "unavailable", machine: null });
+          setStatusError("");
+          return;
+        }
+        setStatusError(
+          "Couldn’t check pairing. Retrying; the code still expires automatically.",
+        );
+      }
+      timer = window.setTimeout(() => void poll(), 2000);
+    }
+    void poll();
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [invitation]);
+
+  async function cancel() {
+    if (!invitation || progress.state !== "waiting") {
+      onClose();
+      return;
+    }
+    setCancelling(true);
+    setError("");
+    try {
+      const result = await api<Progress>(
+        "enrollments/cancel",
+        { code: invitation.code },
+        AbortSignal.timeout(5000),
+      );
+      owned.current = null;
+      settled.current = true;
+      if (result.state === "claimed") {
+        setProgress(result);
+        paired.current(result.machine?.id ?? null);
+      } else onClose();
+    } catch {
+      if (!settled.current)
+        setError(
+          "Couldn’t cancel the code. Try again; it remains valid until it expires.",
+        );
+    } finally {
+      setCancelling(false);
+    }
+  }
+  async function copy(value: string, kind: "code" | "address") {
+    const code = owned.current;
+    try {
+      await navigator.clipboard.writeText(value);
+      if (owned.current === code && !settled.current) {
+        setCopied(kind);
+        setError("");
+      }
+    } catch {
+      if (owned.current === code && !settled.current)
+        setError("Couldn’t copy. Select the address or code manually.");
+    }
+  }
+  const waiting = progress.state === "waiting";
+  return (
+    <section
+      className="pairing-panel"
+      aria-labelledby="pairing-title"
+      aria-busy={creating || cancelling}
+    >
+      <div className="pairing-heading">
+        <h2 id="pairing-title" ref={heading} tabIndex={-1}>
+          {progress.state === "claimed" ? "Computer paired" : "Add a computer"}
+        </h2>
+        <button
+          className="secondary"
+          disabled={cancelling}
+          onClick={() => void cancel()}
+        >
+          {cancelling ? "Cancelling…" : waiting ? "Cancel pairing" : "Done"}
+        </button>
+      </div>
+      {(error || statusError) && (
+        <p className="error" role="alert">
+          {error || statusError}
+        </p>
+      )}
+      {creating ? (
+        <p role="status">Creating a one-use code…</p>
+      ) : progress.state === "claimed" ? (
+        <div role="status">
+          <p>
+            <strong>{progress.machine?.name ?? "Your device"}</strong> is paired
+            with your account.
+          </p>
+          <p>
+            Choose local sharing permissions on that device. Pairing does not
+            start a remote session.
+          </p>
+        </div>
+      ) : progress.state === "expired" ||
+        progress.state === "cancelled" ||
+        progress.state === "unavailable" ? (
+        <>
+          <p role="status">
+            {progress.state === "expired"
+              ? "This code expired."
+              : progress.state === "cancelled"
+                ? "This code was cancelled."
+                : "This code is no longer available."}
+          </p>
+          <button onClick={() => setAttempt((value) => value + 1)}>
+            Create a new code
+          </button>
+        </>
+      ) : invitation ? (
+        <>
+          <p>Open Beacon Remote on the device, choose its name, then enter:</p>
+          <div className="pairing-field">
+            <span>Workspace address</span>
+            <div className="pairing-code-row">
+              <code>{window.location.origin}</code>
+              <button
+                className="secondary"
+                onClick={() => void copy(window.location.origin, "address")}
+              >
+                {copied === "address" ? "Copied" : "Copy address"}
+              </button>
+            </div>
+          </div>
+          <div className="pairing-field">
+            <span>Pairing code</span>
+            <div className="pairing-code-row">
+              <code aria-label="Pairing code">
+                {seconds > 0 ? invitation.code : "Checking expiry…"}
+              </code>
+              <button
+                className="secondary"
+                disabled={seconds <= 0}
+                onClick={() => void copy(invitation.code, "code")}
+              >
+                {copied === "code" ? "Copied" : "Copy code"}
+              </button>
+            </div>
+          </div>
+          <p className="note">
+            {seconds > 0
+              ? `One use · expires in ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
+              : "Checking whether the code was used…"}
+          </p>
+          <a href="#downloads">Get the Windows or Android app →</a>
+        </>
+      ) : (
+        <button onClick={() => setAttempt((value) => value + 1)}>
+          Try again
+        </button>
+      )}
+    </section>
+  );
+}

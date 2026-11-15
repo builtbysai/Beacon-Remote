@@ -11,6 +11,7 @@ import {
 } from "../../../packages/protocol/src/index.js";
 import { relayCredentials, relayExpiry } from "./relay.js";
 import { interactiveReadySql } from "./machine-readiness.js";
+import { signinLeaseJoins, signinLiveHandoff } from "./signin-shared.js";
 
 type Session = {
   id: string;
@@ -25,6 +26,9 @@ type Session = {
   policy_version: number | null;
   display_id: string | null;
   relationship_id: string | null;
+  host_instance_id: string | null;
+  host_console_session_id: number | string | null;
+  handoff_browser_token_hash: string | null;
 };
 type Role = "viewer" | "machine";
 type Authorization = { session: Session; role: Role; request: FastifyRequest };
@@ -117,10 +121,14 @@ export async function endInterruptedSessions(pool: Pool) {
     UPDATE view_sessions SET status='ended'
     WHERE status IN ('requested','connecting','active')
     RETURNING account_id,machine_id,capability
+  ), signin_interrupted AS (
+    UPDATE signin_leases SET ended_at=COALESCE(ended_at,now()),ended_reason='interrupted',handoff_expires_at=NULL WHERE ended_at IS NULL OR handoff_expires_at IS NOT NULL
+    RETURNING account_id,machine_id
   )
   INSERT INTO audit_events(account_id,machine_id,action)
   SELECT account_id,machine_id,CASE WHEN capability='desktop:control' THEN 'desktop.control.interrupted:backend-restart' ELSE 'desktop.view.interrupted:backend-restart' END
-  FROM interrupted`);
+  FROM interrupted
+  UNION ALL SELECT account_id,machine_id,'signin.lease.interrupted:backend-restart' FROM signin_interrupted`);
 }
 
 export async function registerSessions(
@@ -143,7 +151,9 @@ export async function registerSessions(
   // request is under two minutes old, and, for a policy session, the computer's policy still
   // allows what was granted. Sign-in and revocation are re-checked on every lease renewal.
   function liveDuration(alias: string, seconds = 0) {
-    return `(${alias}.expires_at>now()+interval '${seconds} seconds' AND (${alias}.status='active' OR ${alias}.created_at>now()-interval '120 seconds') AND (${alias}.approval='local' OR EXISTS (SELECT 1 FROM machine_access pa WHERE pa.machine_id=${alias}.machine_id AND pa.version=${alias}.policy_version AND CASE WHEN ${alias}.relationship_id IS NULL THEN pa.mode='trusted' AND (${alias}.capability<>'desktop:control' OR pa.allow_control) ELSE pa.helpers_unattended='control' OR (pa.helpers_unattended='view' AND ${alias}.capability='desktop:view') END))) AND (${alias}.relationship_id IS NULL OR EXISTS (SELECT 1 FROM support_relationships rr WHERE rr.id=${alias}.relationship_id AND rr.revoked_at IS NULL AND rr.expires_at>now()))`;
+    const host = `(${alias}.host_instance_id IS NULL OR EXISTS (SELECT 1 FROM machines m WHERE m.id=${alias}.machine_id AND m.host_instance_id=${alias}.host_instance_id AND m.host_console_session_id=${alias}.host_console_session_id AND ${interactiveReadySql}))
+      AND (${alias}.handoff_browser_token_hash IS NULL OR EXISTS (SELECT 1 FROM browser_sessions hb WHERE hb.token_hash=${alias}.handoff_browser_token_hash AND hb.expires_at>now()))`;
+    return `(${host} AND ${alias}.expires_at>now()+interval '${seconds} seconds' AND (${alias}.status='active' OR ${alias}.created_at>now()-interval '120 seconds') AND (${alias}.approval='local' OR EXISTS (SELECT 1 FROM machine_access pa WHERE pa.machine_id=${alias}.machine_id AND pa.version=${alias}.policy_version AND CASE WHEN ${alias}.relationship_id IS NULL THEN pa.mode='trusted' AND (${alias}.capability<>'desktop:control' OR pa.allow_control) ELSE pa.helpers_unattended='control' OR (pa.helpers_unattended='view' AND ${alias}.capability='desktop:view') END))) AND (${alias}.relationship_id IS NULL OR EXISTS (SELECT 1 FROM support_relationships rr WHERE rr.id=${alias}.relationship_id AND rr.revoked_at IS NULL AND rr.expires_at>now()))`;
   }
   // Clients are told 0, meaning no fixed expiry: the cap is enforced here and the lease is the clock.
   const expiryMillis = () => 0;
@@ -353,6 +363,8 @@ export async function registerSessions(
       displayId: string | null;
       support: boolean;
       relationshipId?: string;
+      hostContext?: { instanceId: string; consoleSessionId: number };
+      handoffBrowser?: string;
     },
   ): Promise<Session | "busy"> {
     await client.query(
@@ -360,7 +372,8 @@ export async function registerSessions(
       [input.machineId],
     );
     const busy = await client.query(
-      "SELECT 1 FROM view_sessions WHERE machine_id=$1 AND status IN ('requested','connecting','active')",
+      `SELECT 1 FROM view_sessions WHERE machine_id=$1 AND status IN ('requested','connecting','active')
+       UNION ALL SELECT 1 FROM signin_leases WHERE machine_id=$1 AND ended_at IS NULL AND expires_at>now()`,
       [input.machineId],
     );
     if (busy.rowCount) return "busy";
@@ -402,9 +415,12 @@ export async function registerSessions(
       policy_version: byPolicy ? policy!.version : null,
       display_id: input.displayId,
       relationship_id: input.relationshipId ?? null,
+      host_instance_id: input.hostContext?.instanceId ?? null,
+      host_console_session_id: input.hostContext?.consoleSessionId ?? null,
+      handoff_browser_token_hash: input.handoffBrowser ?? null,
     };
     await client.query(
-      "INSERT INTO view_sessions(id,account_id,machine_id,source,token_hash,expires_at,status,capability,approval,policy_version,display_id,relationship_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
+      "INSERT INTO view_sessions(id,account_id,machine_id,source,token_hash,expires_at,status,capability,approval,policy_version,display_id,relationship_id,host_instance_id,host_console_session_id,handoff_browser_token_hash) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",
       [
         session.id,
         input.account,
@@ -418,6 +434,9 @@ export async function registerSessions(
         session.policy_version,
         session.display_id,
         session.relationship_id,
+        session.host_instance_id,
+        session.host_console_session_id,
+        session.handoff_browser_token_hash,
       ],
     );
     const action = `${session.capability === "desktop:control" ? "desktop.control" : "desktop.view"}.requested:${session.source}`;
@@ -453,27 +472,77 @@ export async function registerSessions(
           displayId: displayInfo.shape.id.optional(),
           // Automatic restart recovery must never fall back to a local Allow prompt.
           requirePolicy: z.boolean().default(false),
+          signinLeaseId: z.uuid().optional(),
+          hostContext: z
+            .object({
+              instanceId: z.uuid(),
+              consoleSessionId: z.number().int().min(1).max(0xfffffffe),
+            })
+            .strict()
+            .optional(),
         })
         .strict()
         .safeParse(request.body);
       if (!parsed.success || !body.success)
         return reply.code(400).send({ error: "Invalid session" });
       if (
+        body.data.hostContext &&
+        (body.data.source !== "desktop" || !body.data.requirePolicy)
+      )
+        return reply.code(400).send({
+          error: "A host-bound session requires fresh desktop policy",
+        });
+      if (
         body.data.capability === "desktop:control" &&
         (!controlEnabled || body.data.source !== "desktop")
       )
         return reply.code(403).send({ error: "Control unavailable" });
+      if (
+        body.data.signinLeaseId &&
+        (!body.data.hostContext ||
+          !body.data.requirePolicy ||
+          body.data.source !== "desktop" ||
+          body.data.capability !== "desktop:control")
+      )
+        return reply.code(400).send({ error: "Invalid handoff session" });
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
         const machine = await client.query(
-          `SELECT m.id,m.displays,(SELECT capability FROM support_links WHERE id=m.support_link_id) AS link_capability
+          `SELECT m.id,m.displays,m.host_instance_id,m.host_console_session_id,(SELECT capability FROM support_links WHERE id=m.support_link_id) AS link_capability
            FROM machines m WHERE m.id=$1 AND m.account_id=$2 AND ${interactiveReadySql} FOR UPDATE OF m`,
           [parsed.data.id, account],
         );
         if (!machine.rowCount) {
           await client.query("ROLLBACK");
           return reply.code(404).send({ error: "Computer unavailable" });
+        }
+        const context = body.data.hostContext;
+        if (body.data.signinLeaseId) {
+          const transition = await client.query(
+            `SELECT s.id ${signinLeaseJoins} WHERE s.id=$1 AND s.machine_id=$2 AND s.account_id=$3
+            AND s.browser_token_hash=$4 AND s.console_session_id=$5 AND ${signinLiveHandoff} FOR UPDATE OF s,e,b,p`,
+            [
+              body.data.signinLeaseId,
+              parsed.data.id,
+              account,
+              browserHash(request),
+              context!.consoleSessionId,
+            ],
+          );
+          if (!transition.rowCount) {
+            await client.query("ROLLBACK");
+            return reply.code(409).send({ error: "Handoff unavailable" });
+          }
+        }
+        if (
+          context &&
+          (machine.rows[0].host_instance_id !== context.instanceId ||
+            Number(machine.rows[0].host_console_session_id) !==
+              context.consoleSessionId)
+        ) {
+          await client.query("ROLLBACK");
+          return reply.code(409).send({ error: "Desktop host changed" });
         }
         // A temporary support computer never goes beyond what its link offered.
         if (
@@ -500,6 +569,10 @@ export async function registerSessions(
           capability: body.data.capability,
           displayId: body.data.displayId ?? null,
           support: false,
+          hostContext: context,
+          handoffBrowser: body.data.signinLeaseId
+            ? browserHash(request)
+            : undefined,
         });
         if (opened === "busy") {
           await client.query("ROLLBACK");
@@ -513,6 +586,16 @@ export async function registerSessions(
           return reply
             .code(403)
             .send({ error: "Unattended permission changed" });
+        }
+        if (body.data.signinLeaseId) {
+          await client.query(
+            "UPDATE signin_leases SET handoff_session_id=$2,handoff_expires_at=NULL WHERE id=$1",
+            [body.data.signinLeaseId, session.id],
+          );
+          await client.query(
+            "INSERT INTO audit_events(account_id,machine_id,action) VALUES ($1,$2,'signin.handoff.connected')",
+            [account, parsed.data.id],
+          );
         }
         await client.query("COMMIT");
         wake(session.machine_id);
@@ -971,13 +1054,15 @@ export async function registerSessions(
         `SELECT s.* FROM view_sessions s JOIN machines m
          ON m.id=s.machine_id AND m.account_id=s.account_id
          WHERE s.id=$1 AND s.account_id=$2 AND s.expires_at>now()+interval '1 second'
-         AND s.status IN ('requested','connecting','active') AND m.revoked_at IS NULL`,
+         AND s.status IN ('requested','connecting','active') AND m.revoked_at IS NULL AND ${liveDuration("s")}`,
         [parsed.data.id, account],
       );
       const session = result.rows[0];
       if (
         !session ||
         !session.expires_at ||
+        (session.handoff_browser_token_hash !== null &&
+          session.handoff_browser_token_hash !== browserHash(request)) ||
         (session.capability === "desktop:control" && !controlEnabled)
       )
         return reply.code(404).send({ error: "Session unavailable" });
@@ -1015,6 +1100,8 @@ export async function registerSessions(
         return reply.code(403).send({ error: "Session unavailable" });
       if (query.data.role === "viewer") {
         if (
+          (session.handoff_browser_token_hash !== null &&
+            session.handoff_browser_token_hash !== browserHash(request)) ||
           request.headers.origin !== config.WEB_ORIGIN ||
           (await owner(request)) !== session.account_id ||
           (entries.get(session.id)?.viewer &&
@@ -1386,6 +1473,10 @@ export async function registerSessions(
   }
   // Ends every live session on one computer, for a computer that was just revoked or finished.
   async function endMachineSessions(machineId: string) {
+    await pool.query(
+      "UPDATE signin_leases SET ended_at=COALESCE(ended_at,now()),ended_reason='invalidated',handoff_expires_at=NULL WHERE machine_id=$1 AND (ended_at IS NULL OR handoff_expires_at IS NOT NULL)",
+      [machineId],
+    );
     const live = await pool.query<{ id: string }>(
       "SELECT id FROM view_sessions WHERE machine_id=$1 AND status IN ('requested','connecting','active')",
       [machineId],
@@ -1398,5 +1489,6 @@ export async function registerSessions(
     enabled,
     endRelationshipSessions,
     endMachineSessions,
+    stopSession: finish,
   };
 }

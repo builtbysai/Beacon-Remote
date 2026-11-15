@@ -51,10 +51,11 @@ use windows_sys::{
 };
 use zeroize::Zeroize;
 
-const PRIVATE_ACL: &str = "O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)";
+pub(crate) const PRIVATE_ACL: &str = "O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)";
 // Explicit file read/execute bits: Windows maps generic GR/GX at creation, which
 // would make an otherwise exact descriptor comparison reject its own directory.
-const PUBLIC_ACL: &str = "O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)";
+pub(crate) const PUBLIC_ACL: &str =
+    "O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)";
 const SECURITY: u32 = 1 | 2 | 4; // owner, group, DACL
 static MACHINE: OnceLock<String> = OnceLock::new();
 fn wide(s: &str) -> Vec<u16> {
@@ -68,7 +69,7 @@ fn valid_machine(machine: &str) -> Result<(), HostError> {
     Ok(())
 }
 
-fn known_folder(id: &GUID) -> Result<PathBuf, HostError> {
+pub(crate) fn known_folder(id: &GUID) -> Result<PathBuf, HostError> {
     let mut raw = null_mut();
     if unsafe { SHGetKnownFolderPath(id, 0, null_mut(), &mut raw) } < 0 {
         return Err("Windows folder unavailable".into());
@@ -94,7 +95,7 @@ fn roots() -> Result<(PathBuf, PathBuf), HostError> {
         known_folder(&FOLDERID_ProgramData)?.join("BeaconRemoteAvailability"),
     ))
 }
-fn reject_reparse(path: &Path) -> Result<(), HostError> {
+pub(crate) fn reject_reparse(path: &Path) -> Result<(), HostError> {
     use std::os::windows::fs::MetadataExt;
     for ancestor in path.ancestors() {
         match fs::symlink_metadata(ancestor) {
@@ -108,7 +109,7 @@ fn reject_reparse(path: &Path) -> Result<(), HostError> {
     }
     Ok(())
 }
-unsafe fn descriptor_string(sd: *mut std::ffi::c_void) -> Result<String, HostError> {
+pub(crate) unsafe fn descriptor_string(sd: *mut std::ffi::c_void) -> Result<String, HostError> {
     let mut output = null_mut();
     if ConvertSecurityDescriptorToStringSecurityDescriptorW(
         sd,
@@ -129,7 +130,7 @@ unsafe fn descriptor_string(sd: *mut std::ffi::c_void) -> Result<String, HostErr
     Ok(value)
 }
 // Atomic creation with an exact protected ACL; reject pre-created or modified directories.
-fn secure_directory(path: &Path, acl: &str) -> Result<(), HostError> {
+pub(crate) fn secure_directory(path: &Path, acl: &str) -> Result<(), HostError> {
     reject_reparse(path)?;
     unsafe {
         let mut sd = null_mut();
@@ -224,7 +225,7 @@ unsafe fn sid_of_token(token: HANDLE) -> Result<String, HostError> {
     LocalFree(sid.cast());
     Ok(value)
 }
-fn current_sid() -> Result<String, HostError> {
+pub(crate) fn current_sid() -> Result<String, HostError> {
     unsafe {
         let mut token = null_mut();
         if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
@@ -409,9 +410,13 @@ pub fn command(arguments: &[String]) -> Option<Result<(), HostError>> {
             );
             Ok(())
         })()),
-        Some("boot-remove-local") => Some(remove_for_user(
-            !arguments.iter().any(|arg| arg == "--silent"),
-        )),
+        Some("boot-remove-local") => Some((|| {
+            let interactive = !arguments.iter().any(|arg| arg == "--silent");
+            // The legacy uninstaller entry point must also remove a separately
+            // installed sign-in endpoint before the user's identity disappears.
+            crate::signin_endpoint::remove_for_user(interactive)?;
+            remove_for_user(interactive)
+        })()),
         Some("boot-install") if arguments.len() == 5 => {
             Some(install(&arguments[2], &arguments[3], &arguments[4]))
         }

@@ -4,11 +4,12 @@
   flex-shrink: 0;
 }
 .theme-trigger {
+  width: 44px;
   min-height: 44px;
-  gap: 7px;
-  padding: 8px 10px;
-  border-color: var(--line);
-  background: var(--surface);
+  padding: 10px;
+  justify-content: center;
+  border-color: transparent;
+  background: transparent;
   color: var(--text);
   font-size: 12px;
   font-weight: 500;
@@ -23,20 +24,15 @@
   height: 18px;
   flex-shrink: 0;
 }
-.theme-trigger .theme-chevron {
-  width: 12px;
-  height: 12px;
-  color: var(--muted);
-}
 .theme-panel {
-  position: absolute;
+  position: fixed;
   z-index: 60;
-  top: calc(100% + 8px);
-  right: 0;
-  width: min(228px, calc(100vw - 32px));
+  width: min(184px, calc(100vw - 16px));
   min-width: 0;
   margin: 0;
-  padding: 36px 6px 6px;
+  padding: 32px 6px 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface);
@@ -57,7 +53,7 @@
   display: flex;
   align-items: center;
   gap: 11px;
-  min-height: 54px;
+  min-height: 44px;
   margin: 0;
   padding: 9px 10px;
   border-radius: 6px;
@@ -83,18 +79,9 @@
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
-.theme-choice strong,
-.theme-choice small {
-  display: block;
-}
-.theme-choice strong {
-  font-size: 12px;
-  font-weight: 600;
-}
-.theme-choice small {
-  margin-top: 1px;
-  color: var(--muted);
-  font-size: 11px;
+.theme-choice span {
+  font-size: 13px;
+  font-weight: 500;
 }
 .theme-choice .theme-check {
   width: 16px;
@@ -105,16 +92,33 @@
 .theme-choice:has(input:checked) .theme-check {
   visibility: visible;
 }
-@media (max-width: 600px) {
-  .theme-trigger {
-    width: 44px;
-    min-height: 44px;
-    padding: 10px;
-  }
-  .theme-trigger span,
-  .theme-trigger .theme-chevron {
-    display: none;
-  }
+.appearance-settings {
+  min-width: 0;
+  margin: 0 0 24px;
+  padding: 0;
+  border: 0;
+}
+.appearance-settings legend {
+  padding: 0;
+  margin-bottom: 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.appearance-settings .theme-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: fit-content;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.appearance-settings .theme-choice {
+  gap: 8px;
+}
+.appearance-settings .theme-check {
+  display: none;
 }
 @media (forced-colors: active) {
   .theme-choice:has(input:checked) {
@@ -509,6 +513,21 @@ h3 {
 }
 .note {
   font-size: 12px;
+}
+.restart-progress {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-block: 12px;
+}
+.restart-progress > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.restart-progress > button {
+  min-height: 44px;
 }
 .brand {
   color: var(--text);
@@ -972,18 +991,109 @@ header nav a {
   gap: 40px;
   margin: 32px 0;
 }
-.quiet-panel,
-.download-panel {
+.quiet-panel {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface);
   padding: 24px;
   margin: 28px 0;
 }
-.download-panel {
+.downloads-page {
+  max-width: 1080px;
+}
+.downloads-heading {
   display: flex;
-  gap: 24px;
-  max-width: 700px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 32px;
+  margin-bottom: 28px;
+}
+.downloads-page h1 {
+  margin: 0 0 10px;
+  font-size: 32px;
+  letter-spacing: -0.04em;
+}
+.downloads-heading p {
+  margin: 0;
+}
+.download-platforms {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 20px;
+}
+.download-platform {
+  min-width: 0;
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.download-platform-icon {
+  width: 28px;
+  height: 28px;
+  margin-bottom: 18px;
+  color: var(--muted);
+}
+.download-platform h2 {
+  margin: 0 0 6px;
+  font-size: 22px;
+}
+.download-platform-meta {
+  margin: 0 0 22px;
+  font-size: 13px;
+}
+.download-platform .button,
+.download-platform button {
+  min-height: 44px;
+}
+.download-trust {
+  margin: 14px 0 0;
+  font-size: 12px;
+}
+.download-platform details {
+  margin-top: 20px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+  font-size: 13px;
+}
+.download-platform summary {
+  min-height: 44px;
+  align-content: center;
+  cursor: pointer;
+  font-weight: 500;
+}
+.download-platform ol {
+  padding-left: 20px;
+}
+.download-platform li {
+  margin-bottom: 10px;
+}
+.downloads-page code.download-hash {
+  display: block;
+  margin: 8px 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow-wrap: anywhere;
+  user-select: all;
+  font-size: 12px;
+  color: var(--text);
+}
+.downloads-release {
+  margin-top: 20px;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+@media (max-width: 650px) {
+  .download-platforms {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .download-platform {
+    padding: 22px;
+  }
 }
 .login {
   max-width: 414px;
@@ -1434,6 +1544,36 @@ aside {
 }
 .pairing-panel {
   max-width: 680px;
+  padding: 24px;
+  margin-bottom: 24px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.pairing-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.pairing-heading h2 {
+  margin: 0;
+  font-size: 20px;
+}
+.pairing-panel button {
+  min-height: 44px;
+}
+.pairing-field > span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.pairing-field .pairing-code-row {
+  margin: 6px 0 16px;
+}
+.pairing-field code {
+  overflow-wrap: anywhere;
 }
 .pairing-code-row {
   display: flex;
@@ -1853,10 +1993,6 @@ li {
   .hero .actions > * {
     width: auto;
   }
-  .download-panel {
-    padding: 20px;
-    gap: 12px;
-  }
   .product-preview {
     padding: 20px;
   }
@@ -2259,54 +2395,121 @@ button.danger {
   text-decoration: underline;
 }
 
-/* Settings: flat sections with the label on the left, not cards inside cards. One quiet button style;
-   only deleting the account is loud. */
-.settings-page .quiet-panel {
+/* Settings share a restrained section navigation and one readable content column. */
+.settings-layout {
   display: grid;
-  grid-template-columns: minmax(150px, 220px) minmax(0, 1fr);
-  gap: 10px 40px;
-  padding: 24px 0;
+  grid-template-columns: 180px minmax(0, 720px);
+  gap: 40px;
+  align-items: start;
+}
+.settings-nav {
+  display: grid;
+  gap: 4px;
+}
+.settings-nav button {
+  min-height: 44px;
+  justify-content: flex-start;
+  padding: 10px 12px;
   border: 0;
-  border-top: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-weight: 500;
+  text-align: left;
+}
+.settings-nav button:hover {
+  background: var(--soft);
+}
+.settings-nav button[aria-current] {
+  background: var(--bluewash);
+  color: var(--blue);
+  font-weight: 600;
+}
+.settings-content,
+.settings-section {
+  min-width: 0;
+}
+.settings-section[hidden] {
+  display: none;
+}
+.settings-page .quiet-panel {
+  margin: 0;
+  padding: 0 0 28px;
+  border: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
 }
-.settings-page .quiet-panel > h2 {
-  grid-column: 1;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  font-size: 14px;
+.settings-page .quiet-panel + .quiet-panel {
+  padding-top: 28px;
+  border-top: 1px solid var(--line);
 }
-.settings-page .quiet-panel > *:not(h2) {
-  grid-column: 2;
-  max-width: 560px;
+.settings-page h2,
+.settings-page .appearance-settings legend {
+  margin: 0 0 16px;
+  font-size: 18px;
 }
 .settings-page .quiet-panel > p {
+  max-width: 580px;
+  margin: 0 0 16px;
+}
+.settings-page button,
+.settings-page .button {
+  min-height: 44px;
+}
+.settings-section-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.settings-section-heading h2 {
   margin: 0;
 }
-.settings-page .quiet-panel button:not(.danger):not(.password-toggle) {
-  background: transparent;
-  color: var(--blue);
-  box-shadow: inset 0 0 0 1px var(--line);
+.account-identity dl {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: 12px 24px;
+  margin: 0 0 24px;
 }
-.settings-page .quiet-panel button:not(.danger):not(.password-toggle):hover {
-  background: var(--bluewash);
+.account-identity dt {
+  color: var(--muted);
+}
+.account-identity dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.settings-danger {
+  border-top: 1px solid var(--line);
+  padding-top: 28px;
+  margin-top: 32px;
+}
+.settings-danger h2 {
+  color: var(--red);
+}
+.settings-page .history-list {
+  margin: 16px 0;
 }
 @media (max-width: 800px) {
-  .settings-page .quiet-panel {
-    grid-template-columns: 1fr;
-    gap: 8px;
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
   }
-  .settings-page .quiet-panel > h2,
-  .settings-page .quiet-panel > *:not(h2) {
-    grid-column: 1;
+  .settings-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--line);
   }
-}
-.settings-page .quiet-panel > button {
-  justify-self: start;
-  width: auto;
+  .account-identity dl {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .account-identity dd {
+    margin-bottom: 12px;
+  }
 }
 
 .viewer-recording {
@@ -2320,6 +2523,14 @@ button.danger {
 
 .support-who {
   overflow-wrap: anywhere;
+}
+.support-invite .download-panel {
+  min-width: 0;
+  margin: 20px 0;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
 }
 .support-platform {
   display: grid;

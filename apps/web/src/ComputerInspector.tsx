@@ -7,6 +7,7 @@ import { WorkspaceIcon } from "./WorkspaceIcon.js";
 import { SupportAccess } from "./SupportAccess.js";
 import { DeviceActions } from "./DeviceActions.js";
 import "./computer-inspector.css";
+import { SignInAccess } from "./SignInAccess.js";
 
 export function ComputerInspector({
   machine,
@@ -21,6 +22,7 @@ export function ComputerInspector({
   requesting = false,
   sessionActive = false,
   onRestart,
+  onRequestSignIn,
 }: {
   machine: Machine;
   onClose: () => void;
@@ -34,6 +36,7 @@ export function ComputerInspector({
   requesting?: boolean;
   sessionActive?: boolean;
   onRestart?: (previousInstance: string | null) => void;
+  onRequestSignIn?: () => void;
 }) {
   const [display, setDisplay] = useState("");
   const displays = machine.displays ?? [];
@@ -238,6 +241,13 @@ export function ComputerInspector({
         <p className="inspector-availability" role="status">
           {unavailable}
         </p>
+      )}
+      {onRequestSignIn && !machine.revokedAt && (
+        <SignInAccess
+          machineId={machine.id}
+          disabled={stale || requesting || busy || sessionActive}
+          onOpen={onRequestSignIn}
+        />
       )}
       {editing ? (
         <form

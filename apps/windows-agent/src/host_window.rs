@@ -49,6 +49,7 @@ const BOOT_START: usize = 122;
 const UPDATE: usize = 150;
 const UNATTENDED: usize = 151;
 const UNATTENDED_OFF: usize = 152;
+const SIGNIN_SETTINGS: usize = 153;
 const SUPPORT_VIEW: usize = 130;
 const SUPPORT_CONTROL: usize = 131;
 const HELPERS_OFF: usize = 140;
@@ -104,6 +105,9 @@ struct State {
     update_offer: Option<UpdateOffer>,
     update_check: Option<JoinHandle<Result<Option<UpdateOffer>, HostError>>>,
     update_install: Option<JoinHandle<Result<(), HostError>>>,
+    signin_check: Option<JoinHandle<Result<Option<bool>, HostError>>>,
+    signin_health: Option<bool>,
+    signin_recheck: bool,
     helpers_job: Option<(JoinHandle<Result<(), HostError>>, u8)>,
     autostart: HWND,
     support: [HWND; 2],
@@ -364,7 +368,13 @@ impl State {
             && self.helpers_job.is_none()
             && self.unattended_job.is_none()
             && !self.closing;
-        for id in [AUTOSTART, BOOT_START, UNATTENDED, UNATTENDED_OFF] {
+        for id in [
+            AUTOSTART,
+            BOOT_START,
+            UNATTENDED,
+            UNATTENDED_OFF,
+            SIGNIN_SETTINGS,
+        ] {
             let control = GetDlgItem(self.window, id as i32);
             EnableWindow(control, i32::from(settings_ready));
             InvalidateRect(control, null(), 0);
@@ -675,7 +685,44 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
             EnableWindow(self.stop, 0);
         }
     }
+    fn check_signin(&mut self) {
+        if self.paired && !self.closing {
+            if self.signin_check.is_some() {
+                self.signin_recheck = true;
+                return;
+            }
+            self.signin_recheck = false;
+            self.signin_check = Some(thread::spawn(|| {
+                Ok(beacon_remote_agent::signin_endpoint::status()?.needs_repair())
+            }));
+        }
+    }
     unsafe fn poll(&mut self, window: HWND) {
+        if self
+            .signin_check
+            .as_ref()
+            .is_some_and(|job| job.is_finished())
+        {
+            self.signin_health = self
+                .signin_check
+                .take()
+                .unwrap()
+                .join()
+                .ok()
+                .and_then(Result::ok)
+                .flatten();
+            text(
+                GetDlgItem(window, SIGNIN_SETTINGS as i32),
+                match self.signin_health {
+                    Some(true) => "Sign-in needs repair…",
+                    Some(false) => "Sign-in access…",
+                    None => "Check sign-in access…",
+                },
+            );
+            if self.signin_recheck {
+                self.check_signin();
+            }
+        }
         if self
             .unattended_job
             .as_ref()
@@ -704,6 +751,7 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
             self.show_access();
             self.show_helpers();
             InvalidateRect(window, null(), 0);
+            self.check_signin();
         }
         if let Some(worker) = &self.worker {
             while let Ok(status) = worker.status.try_recv() {
@@ -829,6 +877,7 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
             let success = matches!(worker.handle.join(), Ok(Ok(())));
             if worker.pairing && success {
                 self.paired = beacon_remote_agent::is_paired();
+                self.check_signin();
                 text(
                     self.status,
                     "Computer paired · Select Start host to make it available.",
@@ -904,7 +953,12 @@ unsafe fn paint(window: HWND, state: &State) {
         let pill_width = if state.pill_mode() == 4 { 124.0 } else { 100.0 };
         ui::pill(
             &canvas,
-            (492.0 - pill_width, 26.0, pill_width, 26.0),
+            (
+                (if state.paired { 476.0 } else { 492.0 }) - pill_width,
+                if state.paired { 112.0 } else { 26.0 },
+                pill_width,
+                26.0,
+            ),
             label,
             fill,
             line,
@@ -1105,6 +1159,21 @@ unsafe extern "system" fn procedure(
                 ACCESS_VIEW => (*state).choose_access(window, 1),
                 ACCESS_CONTROL => (*state).choose_access(window, 2),
                 UNATTENDED => (*state).setup_unattended(),
+                SIGNIN_SETTINGS => {
+                    if (*state).unattended_job.is_none()
+                        && (*state).access_job.is_none()
+                        && (*state).helpers_job.is_none()
+                        && !(*state).closing
+                    {
+                        if let Err(error) = beacon_remote_agent::signin_settings::show(window) {
+                            text(
+                                (*state).status,
+                                &format!("Could not open sign-in settings: {error}"),
+                            );
+                        }
+                        (*state).check_signin();
+                    }
+                }
                 UNATTENDED_OFF => {
                     if (*state).unattended_job.is_none() && (*state).access_job.is_none() {
                         text((*state).status, "Turning off unattended access…");
@@ -1112,6 +1181,7 @@ unsafe extern "system" fn procedure(
                         (*state).unattended_job = Some(thread::spawn(|| {
                             let lowered = beacon_remote_agent::set_access(false, false);
                             // Local service removal must not depend on a successful policy POST.
+                            beacon_remote_agent::signin_endpoint::remove()?;
                             beacon_remote_agent::availability::remove()?;
                             lowered
                         }));
@@ -1142,6 +1212,23 @@ unsafe extern "system" fn procedure(
                         TRAY_SHOW,
                         wide("Show Beacon Remote").as_ptr(),
                     );
+                    if (*state).paired {
+                        let available = (*state).unattended_job.is_none()
+                            && (*state).access_job.is_none()
+                            && (*state).helpers_job.is_none()
+                            && !(*state).closing;
+                        AppendMenuW(
+                            menu,
+                            MF_STRING | if available { 0 } else { MF_GRAYED },
+                            SIGNIN_SETTINGS,
+                            wide(if (*state).signin_health == Some(true) {
+                                "Windows sign-in needs repair…"
+                            } else {
+                                "Windows sign-in access…"
+                            })
+                            .as_ptr(),
+                        );
+                    }
                     let stoppable = (*state).worker.as_ref().is_some_and(|worker| {
                         !worker.pairing && !worker.cancel.load(Ordering::SeqCst)
                     });
@@ -1258,6 +1345,9 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             update_offer: None,
             update_check: None,
             update_install: None,
+            signin_check: None,
+            signin_health: None,
+            signin_recheck: false,
             helpers_job: None,
             autostart: null_mut(),
             support: [null_mut(); 2],
@@ -1555,14 +1645,14 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                     .push(child("BUTTON", label, x, 594, width, 34, owner_draw, id)?);
             }
             state.paired_details.push(child(
-                "STATIC",
-                "Your account · visible sharing · desktop available after Windows sign-in",
-                28,
-                662,
-                464,
-                20,
-                SS_NOPREFIX,
-                H_LABEL as usize,
+                "BUTTON",
+                "Sign-in access…",
+                324,
+                10,
+                168,
+                44,
+                owner_draw,
+                SIGNIN_SETTINGS,
             )?);
             state.action = child(
                 "BUTTON",
@@ -1627,6 +1717,7 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             state.controls();
             state.show_access();
             state.show_helpers();
+            state.check_signin();
             Ok(())
         })();
         if let Err(error) = build {

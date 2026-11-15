@@ -5,6 +5,35 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 try {
   const expected: Record<string, string[]> = {
     boot_agents: ["machine_id", "public_key", "last_seen_at", "state"],
+    signin_endpoints: [
+      "machine_id",
+      "public_key",
+      "enabled",
+      "version",
+      "instance_id",
+      "console_session_id",
+      "state",
+      "worker_ready",
+      "worker_public_key",
+      "last_seen_at",
+    ],
+    signin_leases: [
+      "id",
+      "machine_id",
+      "account_id",
+      "browser_token_hash",
+      "endpoint_version",
+      "policy_version",
+      "instance_id",
+      "console_session_id",
+      "expires_at",
+      "deadline",
+      "ended_at",
+      "ended_reason",
+      "handoff_expires_at",
+      "handoff_session_id",
+      "created_at",
+    ],
     view_sessions: [
       "id",
       "account_id",
@@ -19,6 +48,9 @@ try {
       "policy_version",
       "display_id",
       "relationship_id",
+      "handoff_browser_token_hash",
+      "host_instance_id",
+      "host_console_session_id",
     ],
     machine_access: [
       "machine_id",
@@ -64,7 +96,14 @@ try {
     account_invitations: ["token_hash", "expires_at", "claimed_at"],
     accounts: ["id", "email", "password_hash", "created_at"],
     browser_sessions: ["token_hash", "account_id", "expires_at"],
-    enrollments: ["code_hash", "account_id", "expires_at", "claimed_at"],
+    enrollments: [
+      "code_hash",
+      "account_id",
+      "expires_at",
+      "claimed_at",
+      "machine_id",
+      "cancelled_at",
+    ],
     machines: [
       "id",
       "account_id",
@@ -72,6 +111,7 @@ try {
       "public_key",
       "last_seen_at",
       "host_instance_id",
+      "host_console_session_id",
       "revoked_at",
       "created_at",
       "displays",
@@ -97,6 +137,14 @@ try {
   if (duration.rows[0]?.is_nullable !== "YES")
     throw new Error("Missing development session duration migration");
   const requiredConstraints = [
+    "signin_endpoints_pkey",
+    "signin_endpoints_machine_id_fkey",
+    "signin_endpoints_public_key_key",
+    "signin_worker_key_length",
+    "signin_leases_pkey",
+    "signin_leases_machine_id_fkey",
+    "signin_leases_account_id_fkey",
+    "signin_leases_browser_token_hash_fkey",
     "view_sessions_pkey",
     "view_sessions_account_id_fkey",
     "view_sessions_machine_id_fkey",
@@ -111,6 +159,7 @@ try {
     "browser_sessions_account_id_fkey",
     "enrollments_pkey",
     "enrollments_account_id_fkey",
+    "enrollments_machine_id_fkey",
     "machines_pkey",
     "machines_account_id_fkey",
     "machines_public_key_key",
@@ -132,6 +181,16 @@ try {
   );
   if (!sessionIndex.rowCount)
     throw new Error("Missing active-session uniqueness index");
+  const signinIndex = await pool.query(
+    "SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE c.relnamespace='public'::regnamespace AND c.relname='signin_one_controller' AND i.indisunique AND i.indisvalid AND i.indpred IS NOT NULL",
+  );
+  if (!signinIndex.rowCount)
+    throw new Error("Missing sign-in controller uniqueness index");
+  const workerIndex = await pool.query(
+    "SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE c.relnamespace='public'::regnamespace AND c.relname='signin_worker_key_unique' AND i.indisunique AND i.indisvalid AND i.indpred IS NOT NULL",
+  );
+  if (!workerIndex.rowCount)
+    throw new Error("Missing sign-in worker-key uniqueness index");
   const role = await pool.query<{
     rolsuper: boolean;
     rolcreatedb: boolean;

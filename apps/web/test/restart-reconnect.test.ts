@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Machine } from "@beacon-remote/protocol";
 import { ApiError } from "../src/api.js";
-import { waitForRestart } from "../src/restart-reconnect.js";
+import {
+  waitForRestart,
+  waitForRestartAccess,
+  type RestartStage,
+} from "../src/restart-reconnect.js";
 
 const machine: Machine = {
   id: "computer",
@@ -23,6 +27,115 @@ const base = {
   capability: "desktop:control" as const,
   isCurrent: () => true,
 };
+const signInReady = {
+  enabled: true,
+  state: "sign-in",
+  endpointReady: true,
+  connectable: true,
+};
+test("control restart reaches separately enabled sign-in without making the ordinary host online", async () => {
+  const stages: RestartStage[] = [];
+  const result = await waitForRestartAccess({
+    ...base,
+    observe: async () => [{ ...machine, online: false, bootState: "locked" }],
+    observeSignIn: async () => signInReady,
+    progress: (stage) => stages.push(stage),
+  });
+  assert.equal(result?.kind, "sign-in");
+  assert.equal(result?.machine.online, false);
+  assert.deepEqual(stages, [
+    "restarting",
+    "waiting-for-windows",
+    "sign-in-available",
+  ]);
+});
+test("view-only recovery never queries or silently enters sign-in control", async () => {
+  let calls = 0;
+  const result = await waitForRestartAccess({
+    ...base,
+    capability: "desktop:view",
+    observe: async () => [
+      ++calls === 1
+        ? { ...machine, online: false }
+        : { ...machine, hostInstanceId: "new-host" },
+    ],
+    observeSignIn: async () => {
+      throw new Error("must not request control");
+    },
+    sleep: async () => {},
+  });
+  assert.equal(result?.kind, "desktop");
+});
+test("disabled, malformed or unavailable sign-in status cannot replace ordinary recovery", async () => {
+  for (const status of [
+    { ...signInReady, enabled: false },
+    { ...signInReady, connectable: false },
+    { ...signInReady, endpointReady: false },
+    { ...signInReady, state: "signed-in" },
+    { ...signInReady, automation: true },
+    null,
+  ]) {
+    let calls = 0;
+    const result = await waitForRestartAccess({
+      ...base,
+      observe: async () => [
+        ++calls === 1
+          ? { ...machine, online: false }
+          : { ...machine, hostInstanceId: "new-host" },
+      ],
+      observeSignIn: async () => status,
+      sleep: async () => {},
+    });
+    assert.equal(result?.kind, "desktop");
+  }
+});
+test("late sign-in readiness cannot survive cancellation, expiry or permission loss", async () => {
+  let active = true;
+  assert.equal(
+    await waitForRestartAccess({
+      ...base,
+      isCurrent: () => active,
+      observe: async () => [{ ...machine, online: false }],
+      observeSignIn: async () => {
+        active = false;
+        return signInReady;
+      },
+    }),
+    null,
+  );
+  let clock = 0;
+  await assert.rejects(
+    waitForRestartAccess({
+      ...base,
+      now: () => clock,
+      windowMs: 1000,
+      observe: async () => [{ ...machine, online: false }],
+      observeSignIn: async () => {
+        clock = 1001;
+        return signInReady;
+      },
+    }),
+    /timed out/,
+  );
+  await assert.rejects(
+    waitForRestartAccess({
+      ...base,
+      observe: async () => [{ ...machine, online: false, allowControl: false }],
+      observeSignIn: async () => signInReady,
+    }),
+    /permission changed/,
+  );
+  await assert.rejects(
+    waitForRestartAccess({
+      ...base,
+      observe: async () => [{ ...machine, online: false }],
+      observeSignIn: async () => {
+        throw new ApiError(401);
+      },
+    }),
+    ApiError,
+  );
+});
 
 test("fast restart waits for a new host instead of connecting to stale online presence", async () => {
   let polls = 0,

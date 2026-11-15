@@ -1,3 +1,7 @@
+// The owned subprocess fixtures use the GUI subsystem like the installed host.
+// Keep console-host initialization out of the restricted child-process path.
+#![cfg_attr(all(windows, test), windows_subsystem = "windows")]
+
 #[cfg(windows)]
 pub mod availability;
 mod credentials;
@@ -6,6 +10,36 @@ mod helper_lifetime;
 pub mod incoming;
 pub mod network;
 mod sessions;
+#[cfg(windows)]
+mod signin_attention;
+#[cfg(windows)]
+pub mod signin_capture;
+#[cfg(windows)]
+pub mod signin_endpoint;
+#[cfg(windows)]
+mod signin_files;
+#[cfg(windows)]
+mod signin_indicator;
+#[cfg(windows)]
+pub mod signin_input;
+#[cfg(windows)]
+pub mod signin_ipc;
+#[cfg(windows)]
+mod signin_lease;
+#[cfg(windows)]
+mod signin_media;
+#[cfg(windows)]
+mod signin_pixels;
+#[cfg(windows)]
+mod signin_revoke;
+#[cfg(windows)]
+pub mod signin_scope;
+#[cfg(windows)]
+pub mod signin_settings;
+#[cfg(windows)]
+pub mod signin_signaling;
+#[cfg(windows)]
+mod signin_worker;
 pub mod support;
 pub mod support_supervisor;
 mod update;
@@ -254,7 +288,15 @@ pub fn set_access(trusted: bool, allow_control: bool) -> Result<(), HostError> {
         save_local_access(access)?;
     } else {
         save_local_access(access)?;
+        #[cfg(windows)]
+        let disabled = if !access.allow_control {
+            signin_endpoint::disable()
+        } else {
+            Ok(())
+        };
         let _ = post_access(&client, &identity, access);
+        #[cfg(windows)]
+        disabled?;
     }
     Ok(())
 }
@@ -480,6 +522,36 @@ fn store_identity(
     file.sync_all()?;
     Ok(())
 }
+fn ordinary_host_console() -> Option<u32> {
+    #[cfg(windows)]
+    {
+        let mut session = 0;
+        if unsafe {
+            windows_sys::Win32::System::RemoteDesktop::ProcessIdToSessionId(
+                std::process::id(),
+                &mut session,
+            )
+        } != 0
+            && session != 0
+            && session != u32::MAX
+        {
+            return Some(session);
+        }
+    }
+    None
+}
+fn presence_message(
+    machine: &str,
+    timestamp: u64,
+    nonce: &str,
+    instance: &str,
+    console: Option<u32>,
+) -> String {
+    format!(
+        "beacon-remote:heartbeat:v3\n{machine}\n{timestamp}\n{nonce}\n{instance}\n{}",
+        console.map_or_else(|| "off".into(), |value| value.to_string())
+    )
+}
 pub fn run(cancel: Arc<AtomicBool>, status: SyncSender<HostStatus>) -> Result<(), HostError> {
     let _ = status.try_send(HostStatus::Connecting);
     let client = client()?;
@@ -510,10 +582,8 @@ pub fn run(cancel: Arc<AtomicBool>, status: SyncSender<HostStatus>) -> Result<()
     while !cancel.load(Ordering::Acquire) {
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
         let nonce = uuid::Uuid::new_v4().to_string();
-        let message = format!(
-            "beacon-remote:heartbeat:v2\n{}\n{}\n{}\n{}",
-            identity.machine_id, timestamp, nonce, instance
-        );
+        let console = ordinary_host_console();
+        let message = presence_message(&identity.machine_id, timestamp, &nonce, &instance, console);
         let mut query = vec![("wait", "1")];
         if let Some(id) = handled_request.as_deref() {
             query.push(("handled", id));
@@ -522,6 +592,7 @@ pub fn run(cancel: Arc<AtomicBool>, status: SyncSender<HostStatus>) -> Result<()
         .timeout(Duration::from_secs(25)).query(&query).json(&serde_json::json!({
             "version": 1, "machineId": identity.machine_id, "timestamp": timestamp,
             "nonce": nonce, "instanceId": instance, "signature": STANDARD.encode(key.sign(message.as_bytes()).to_bytes()),
+            "consoleSessionId":console,
             "displays": local_displays(),
             "network": network_report(),
         })).send();
@@ -718,6 +789,17 @@ fn pause(cancel: &AtomicBool, duration: Duration) {
 pub fn cli() -> Result<(), HostError> {
     let command = std::env::args().nth(1).unwrap_or_else(|| "help".into());
     match command.as_str() {
+        "build-info" => {
+            // Safe before enrollment: no identity, policy, service or network IO.
+            println!(
+                "{}",
+                serde_json::json!({
+                    "version":env!("CARGO_PKG_VERSION"),
+                    "signInMedia":cfg!(all(windows, feature = "signin-media"))
+                })
+            );
+            Ok(())
+        }
         "pair" => {
             pair(
                 &prompt("Beacon Remote server origin")?,
@@ -828,6 +910,8 @@ Network: {lan}",
             // Otherwise a later pairing in this Windows profile inherits the previous owner's access.
             save_local_access(LocalAccess::default())?;
             #[cfg(windows)]
+            signin_endpoint::remove()?;
+            #[cfg(windows)]
             availability::remove()?;
             fs::remove_file(state_path()?)?;
             println!("Local identity removed. Revoke the computer in Beacon Remote to disable its server identity.");
@@ -838,5 +922,21 @@ Network: {lan}",
             Ok(())
         }
         _ => Err("Unknown command; use help".into()),
+    }
+}
+
+#[cfg(test)]
+mod presence_tests {
+    use super::*;
+    #[test]
+    fn ordinary_presence_binds_console_and_explicit_unavailable_in_v3_domain() {
+        assert_eq!(
+            presence_message("machine", 123, "nonce", "instance", Some(7)),
+            "beacon-remote:heartbeat:v3\nmachine\n123\nnonce\ninstance\n7"
+        );
+        assert_eq!(
+            presence_message("machine", 123, "nonce", "instance", None),
+            "beacon-remote:heartbeat:v3\nmachine\n123\nnonce\ninstance\noff"
+        );
     }
 }

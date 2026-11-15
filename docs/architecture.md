@@ -43,20 +43,25 @@ Ordinary capture/input guards remain in place until that endpoint exists.
 
 Start capture with Windows Graphics Capture and explicit monitor selection. Its
 [system picker and capture indicator](https://learn.microsoft.com/en-us/windows/apps/develop/media-authoring-processing/screen-capture)
-fit visible, attended access. Keep DXGI Desktop Duplication as a researched
-alternative for later unattended-session support: it supplies dirty/move regions
-and separate cursor metadata, but needs explicit consent/indication and
-device-loss recovery. Capture owns BGRA snapshots independently of the encoder;
+fit visible, attended access. A separate DXGI Desktop Duplication source now
+exists for sign-in development, behind native scope/peer/desktop guards. An
+initial separate worker runner now connects it to the shared H.264 encoder and
+scoped RTC transport in source. Browser/positive SYSTEM/media acceptance remain
+unfinished. Rotation/cursor composition exists in source but physical
+acceptance remains unfinished. Ordinary WGC secure-desktop rejection stays intact. DXGI
+supplies dirty/move regions and separate cursor metadata and requires explicit
+consent/indication and device-loss handling. Capture owns BGRA snapshots independently of the encoder;
 the same source feeds a continuous stream. The primary display comes first.
 Per-monitor physical-pixel coordinates and DPI metadata avoid CSS-coordinate
 input drift. Track monitor rotation and negative virtual-desktop origins.
 
-For the next media spike, evaluate Media Foundation hardware H.264 encoding with
-low-latency settings and browser-compatible profiles, then measured software
-fallback. Do not describe webrtc-rs as an encoder: its maintainers explicitly
+The existing helper uses Media Foundation hardware H.264 with low-latency
+settings and an inbox software fallback. Sign-in now reuses that in-memory
+encoder through the session library; its actual SYSTEM/GPU behavior still needs
+acceptance. Do not describe webrtc-rs as an encoder: its maintainers explicitly
 [require pre-encoded media](https://github.com/orgs/webrtc-rs/discussions/329).
-Benchmark native WebRTC integration against libwebrtc before selecting the
-shipping transport implementation. No unmeasured codec claim is a final decision.
+Further transport/codec changes require measurements against the existing path.
+No unmeasured codec claim establishes sign-in performance or acceptance.
 
 WebRTC favors direct peers, with Coturn fallback;
 [ICE exchanges candidates and TURN supplies relay reachability](https://webrtc.org/getting-started/peer-connections).

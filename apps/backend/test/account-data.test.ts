@@ -50,6 +50,30 @@ test(
       const session = String(login.headers["set-cookie"]).split(";")[0]!;
 
       assert.equal(
+        (await app.inject({ method: "GET", url: "/api/account" })).statusCode,
+        401,
+      );
+      const identity = await app.inject({
+        method: "GET",
+        url: "/api/account",
+        headers: { cookie: session },
+      });
+      assert.equal(identity.statusCode, 200);
+      assert.equal(identity.headers["cache-control"], "no-store");
+      assert.equal(identity.json().email, email);
+      assert.deepEqual(Object.keys(identity.json()).sort(), [
+        "createdAt",
+        "email",
+        "guestExpiresAt",
+      ]);
+      const ignoredSelector = await app.inject({
+        method: "GET",
+        url: `/api/account?id=${randomUUID()}`,
+        headers: { cookie: session },
+      });
+      assert.equal(ignoredSelector.json().email, email);
+
+      assert.equal(
         (await post("/api/account/export", { password })).statusCode,
         401,
       );
@@ -91,6 +115,16 @@ test(
         session,
       );
       assert.equal(removed.statusCode, 200);
+      assert.equal(
+        (
+          await app.inject({
+            method: "GET",
+            url: "/api/account",
+            headers: { cookie: session },
+          })
+        ).statusCode,
+        401,
+      );
       for (const table of ["accounts", "machines", "browser_sessions"]) {
         const column =
           table === "accounts"

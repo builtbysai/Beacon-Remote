@@ -2,6 +2,12 @@
 import { isModifierCode, modifierChanges } from "./modifiers.js";
 import { pasteSteps, type PasteInput } from "./paste.js";
 import { TouchPad, type TouchAction, type TouchMode } from "./touch-input.js";
+import {
+  signInInput,
+  signInDisplay,
+  signInAttentionReply,
+  type SignInInputScope,
+} from "./signin-input.js";
 const scans: Record<string, number> = {
   Escape: 0x01,
   Backspace: 0x0e,
@@ -159,28 +165,55 @@ export function attachRemoteInput(
   touchMode: () => TouchMode = () => "trackpad",
   onNotice: (message: string) => void = () => undefined,
   onPlatform: (platform: "android" | "desktop") => void = () => undefined,
+  signIn?: SignInInputScope,
 ) {
   let display: { id: string; width: number; height: number } | null = null;
-  let sequence = 0,
+  let sequence = signIn ? 1 : 0,
     disposed = false,
     frame = 0;
+  let encoded: { width: number; height: number } | null = null;
   let pending: Record<string, unknown> | null = null;
+  let attention: {
+    sequence: number;
+    timer: ReturnType<typeof setTimeout>;
+  } | null = null;
+  let attentionNext = 0;
+  let attentionCooldown: ReturnType<typeof setTimeout> | undefined;
   const send = (input: Record<string, unknown>) => {
     if (disposed || channel.readyState !== "open" || !display) return;
+    if (signIn && !signIn.live()) {
+      onFailure();
+      return;
+    }
+    if (signIn) {
+      if (!element.videoWidth || !element.videoHeight) return;
+      if (
+        !encoded ||
+        element.videoWidth !== encoded.width ||
+        element.videoHeight !== encoded.height
+      ) {
+        onFailure();
+        return;
+      }
+    }
     if (channel.bufferedAmount > 16384) {
       onFailure();
       return;
     }
     try {
+      const sentSequence = sequence;
       channel.send(
-        JSON.stringify({
-          version: 1,
-          sessionId,
-          leaseId: sessionId,
-          sequence: sequence++,
-          input,
-        }),
+        signIn
+          ? signInInput(signIn, sequence++, input)
+          : JSON.stringify({
+              version: 1,
+              sessionId,
+              leaseId: sessionId,
+              sequence: sequence++,
+              input,
+            }),
       );
+      return sentSequence;
     } catch {
       onFailure();
     }
@@ -200,6 +233,10 @@ export function attachRemoteInput(
     if (step) send(step);
   }, 25);
   const paste = async () => {
+    if (signIn) {
+      onNotice("Clipboard is unavailable during Windows sign-in.");
+      return;
+    }
     let text: string;
     try {
       text = await navigator.clipboard.readText();
@@ -475,6 +512,7 @@ export function attachRemoteInput(
   // that text goes to this browser's clipboard. Nothing is sent unasked.
   let awaitingClipboard: ReturnType<typeof setTimeout> | null = null;
   const requestClipboard = () => {
+    if (signIn) return;
     if (!display || awaitingClipboard) return;
     awaitingClipboard = setTimeout(() => {
       awaitingClipboard = null;
@@ -516,6 +554,60 @@ export function attachRemoteInput(
     }
   };
   channel.onmessage = (event) => {
+    if (signIn) {
+      if (
+        !disposed &&
+        signIn.live() &&
+        display &&
+        typeof event.data === "string" &&
+        attention
+      ) {
+        const reply = signInAttentionReply(
+          event.data,
+          signIn,
+          attention.sequence,
+        );
+        if (!reply) {
+          onFailure();
+          return;
+        }
+        clearTimeout(attention.timer);
+        attention = null;
+        attentionNext = performance.now() + 2000;
+        attentionCooldown = setTimeout(
+          () => signIn.attentionState?.(false),
+          2000,
+        );
+        onNotice(
+          reply.status === "requested"
+            ? "Ctrl+Alt+Delete requested."
+            : reply.status === "policy-unavailable"
+              ? "This computer’s Windows policy does not allow remote Ctrl+Alt+Delete."
+              : "Ctrl+Alt+Delete is unavailable. Try again.",
+        );
+        return;
+      }
+      if (
+        disposed ||
+        !signIn.live() ||
+        display ||
+        typeof event.data !== "string"
+      ) {
+        onFailure();
+        return;
+      }
+      const next = signInDisplay(event.data, signIn);
+      if (!next) {
+        onFailure();
+        return;
+      }
+      encoded = { width: next.encodedWidth, height: next.encodedHeight };
+      display = next;
+      onPlatform("desktop");
+      onState(true);
+      send({ type: "keep_alive" });
+      return;
+    }
     if (
       display &&
       typeof event.data === "string" &&
@@ -592,6 +684,23 @@ export function attachRemoteInput(
       send({ type: "nav", action });
   };
   element.addEventListener("beacon-keyboard", openKeyboard);
+  const secureAttention = () => {
+    if (!signIn || attention || performance.now() < attentionNext) return;
+    release();
+    const sequence = send({ type: "secure_attention" });
+    if (sequence === undefined) return;
+    const timer = setTimeout(() => {
+      attention = null;
+      signIn.attentionState?.(false);
+      onNotice(
+        "Ctrl+Alt+Delete could not be confirmed. Check the screen before trying again.",
+      );
+    }, 6000);
+    attention = { sequence, timer };
+    signIn.attentionState?.(true);
+    onNotice("Requesting Ctrl+Alt+Delete…");
+  };
+  element.addEventListener("beacon-secure-attention", secureAttention);
   element.addEventListener("beacon-nav", navigate);
   element.addEventListener("beacon-clipboard-read", requestClipboard);
   window.addEventListener("blur", release);
@@ -600,6 +709,10 @@ export function attachRemoteInput(
   return () => {
     release();
     disposed = true;
+    if (attention) clearTimeout(attention.timer);
+    clearTimeout(attentionCooldown);
+    attention = null;
+    signIn?.attentionState?.(false);
     clearInterval(heartbeat);
     clearInterval(longPress);
     clearInterval(pasteTimer);
@@ -621,6 +734,7 @@ export function attachRemoteInput(
     element.removeEventListener("blur", release);
     element.removeEventListener("contextmenu", context);
     element.removeEventListener("beacon-keyboard", openKeyboard);
+    element.removeEventListener("beacon-secure-attention", secureAttention);
     element.removeEventListener("beacon-nav", navigate);
     element.removeEventListener("beacon-clipboard-read", requestClipboard);
     if (awaitingClipboard) clearTimeout(awaitingClipboard);
