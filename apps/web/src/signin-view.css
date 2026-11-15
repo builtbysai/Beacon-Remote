@@ -1,0 +1,40 @@
+.signin-view .viewer-toolbar {
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: max(8px, env(safe-area-inset-top));
+}
+.signin-view .viewer-toolbar,
+.signin-view .viewer-status {
+  padding-left: max(10px, env(safe-area-inset-left));
+  padding-right: max(10px, env(safe-area-inset-right));
+}
+.signin-view .viewer-identity {
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+.signin-view .viewer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.signin-view .viewer-actions button {
+  min-height: 44px;
+  font-size: 12px;
+}
+.signin-view .viewer-status {
+  margin: 0;
+  overflow-wrap: anywhere;
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+}
+.signin-view.is-controlling video {
+  cursor: none;
+  touch-action: none;
+}
+.signin-access {
+  margin-block: 12px;
+}
+.signin-access p {
+  margin-block: 0 8px;
+}

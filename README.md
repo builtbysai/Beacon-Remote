@@ -1,19 +1,33 @@
 # Beacon Remote
 
-**For development handoff:** read [CLAUDE.md](CLAUDE.md),
-[the complete Claude handoff](docs/CLAUDE_HANDOFF.md), and
-[the active roadmap](docs/roadmap.md). Merging a feature branch does not
-release it; production media/control remain disabled until acceptance.
+Start development with [docs/workspace.md](docs/workspace.md). See [docs/roadmap.md](docs/roadmap.md) for scope and [docs/development-status.md](docs/development-status.md) for validation and remaining gates.
+
+The hosted alpha has ordinary media and control enabled. The separate Windows
+sign-in endpoint is integrated in source behind default-off build/server gates;
+actual boot/sign-in/control/handoff acceptance remains open. See the current
+[completion checklist](docs/completion-checklist.md) for exact publication and
+deployment evidence; a successful build is not physical acceptance.
 
 Windows computers, accessible from a browser. Part of Beacon, independently
 maintained from [Beacon View](https://github.com/builtbysai/Beacon-View).
 
-This development release implements private account login, one-use machine
-enrollment, cryptographic machine identity, signed presence, inventory, and
-revocation. The native Windows agent runs visibly in a terminal and stores its
-private key with user-scoped Windows DPAPI. It installs no service or autostart.
-Attended desktop viewing has local development acceptance. Production media is
-disabled pending relay/network validation; mouse and keyboard input are absent.
+The hosted alpha includes account signup and recovery, two-step sign-in, Windows
+view/control, trusted owner access, attended support, file transfer, opt-in
+recording and an Android host. See the [roadmap](docs/roadmap.md) for the difference
+between implemented, published and accepted features.
+
+Unattended development consolidates Windows setup and adds a separate optional
+boot-availability service. Android 11+ has an explicitly enabled accessibility
+capture path for low-frame-rate unattended administration. Both require local
+setup once and keep visible sharing, Pause, Stop and revocation. Windows desktop
+access requires the enrolled user signed in and unlocked; Android cannot cross
+lock screens or secure content. See [setup and acceptance](docs/unattended-access.md).
+The owner now requires Windows sign-in-screen control and optional full boot
+startup. Its separate authorization and native service/worker lifecycle exist
+in development source, including gated capture/control and fresh desktop handoff.
+Their real SYSTEM/GPU/boot behavior remains unaccepted and is not enabled publicly.
+The current boot-presence service reports status only. Restart recovery requests a fresh owner session
+after the interactive host returns. See [the updated scope](docs/decisions/0048-boot-login-and-restart.md).
 
 ## Develop
 
@@ -22,7 +36,7 @@ Tools/Windows SDK for native Windows builds. Use a feature branch.
 
 On the shared Windows workstation use `pnpm dev:setup`, `pnpm dev:start`,
 `pnpm dev:status` and `pnpm dev:stop`. Remote uses strict ports 3010/5174/5433
-and its own `.remote-dev/` ownership/logs; it never stops View's processes.
+and its own external private `remote/development/` ownership/logs; it never stops View's processes.
 See [local coexistence and recovery](docs/local-development.md).
 
 ```sh
@@ -37,7 +51,8 @@ account with `REMOTE_ACCOUNT_EMAIL` and `REMOTE_ACCOUNT_PASSWORD` (at least 16
 characters) set privately in the process environment, then run
 `pnpm --filter @beacon-remote/backend account:create`. Clear those two variables
 afterwards. Do not put passwords in command arguments or shared shell history.
-There is no public signup or reuse of Beacon View passwords/sessions.
+Public signup/recovery are available only when configured with the dedicated mail
+provider. Beacon View passwords and sessions are never reused.
 
 In separate terminals:
 

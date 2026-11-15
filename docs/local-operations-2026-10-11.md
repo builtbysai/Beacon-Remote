@@ -1,8 +1,12 @@
-# Verified local operations supplement — 2026-10-11
+> Historical validation record. Current workspace, private credentials and paused acceptance configuration are documented in [workspace.md](workspace.md). Do not use the literal old passwords or base-only acceptance startup commands below.
+
+# Operational evidence — October 11, 2026
+
+Historical validation, not a current onboarding guide. Start with [workspace.md](workspace.md), roadmap.md and deployment.md. The approved interactive reference now lives in ../design/prototype, not an external archive.
 
 This preserves the authorized-machine observations from October 10 and adds
 local coexistence work on October 11. It supplements, rather than replaces,
-CLAUDE_HANDOFF.md. Reverify running infrastructure before deployment: the new
+workspace.md. Reverify running infrastructure before deployment: the new
 session deliberately did not change shared Oracle Caddy/Coturn or production.
 See local-development.md for the new isolated launcher and workspace inventory.
 
@@ -250,7 +254,7 @@ Local backend logs are terminal stdout; agent logs exclude grants/signatures/med
 Tracked runner: `scripts/android-acceptance-host.mjs`; the old external
 `C:/Dev/beacon-remote-android-host.mjs` wrapper is archived, not an active entry point.
 Isolated identity/
-private login at `C:/Users/Saiha/.beacon-remote-recovery/android-acceptance-20261010`.
+private login at `D:/Beacon-Secrets/remote/acceptance/android`.
 Its `native-status.log` is preserved; `STOP` marker intentionally present.
 The runner now points to downloaded validated 0979cd1 artifacts and skips the
 entire login/enrollment/pair block when its isolated `BeaconRemote/identity.dpapi`
@@ -323,7 +327,7 @@ then current symlink. Do not deploy merely because main merged.
 Backup uses isolated encrypted Restic OCI prefix in existing private
 `beacon-backups` bucket, 32 MiB dump budget; independent timer. Protected root
 env stores backup credentials. Owner-scoped DPAPI recovery material exists in
-`C:/Users/Saiha/.beacon-remote-recovery`; verify required files privately. Retention
+`D:/Beacon-Secrets/remote/acceptance`; verify required files privately. Retention
 and quota must be reviewed before growth. No new bucket/tier/billing permission.
 Shared Caddy/Coturn are not part of ordinary Remote app recreation.
 

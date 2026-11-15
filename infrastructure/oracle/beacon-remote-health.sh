@@ -69,15 +69,14 @@ chmod 700 "$STATE_DIR"
 now=$(date +%s)
 
 send() { # subject, body
-  local key from to subject body
+  local key from to payload
   key=$(sed -n 's/^RESEND_API_KEY=//p' "$ENV_FILE" | head -1)
   from=$(sed -n 's/^MAIL_FROM=//p' "$ENV_FILE" | head -1)
   to=$(head -1 "$TO_FILE" 2>/dev/null | tr -d '\r\n ')
   [ -n "$key" ] && [ -n "$from" ] && [ -n "$to" ] || { echo "mail not configured; would send: $1"; return 1; }
-  subject=$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')
-  body=$(printf '%s' "$2" | sed 's/\\/\\\\/g; s/"/\\"/g' | awk '{printf "%s\\n", $0}')
+  payload=$(python3 "$(dirname "${BASH_SOURCE[0]}")/render-alert.py" "$from" "$to" "$1" <<<"$2") || return 1
   curl -fsS -m 20 https://api.resend.com/emails -H "Authorization: Bearer $key" -H "Content-Type: application/json" \
-    -d "{\"from\":\"$from\",\"to\":[\"$to\"],\"subject\":\"$subject\",\"text\":\"$body\"}" >/dev/null
+    --data-binary "$payload" >/dev/null
 }
 
 for name in "${names[@]}"; do

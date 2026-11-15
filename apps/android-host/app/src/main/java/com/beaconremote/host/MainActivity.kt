@@ -14,6 +14,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.ScrollView
 import kotlin.concurrent.thread
 
 /** Pair this phone with a Beacon Remote account, and start or stop being available. */
@@ -33,7 +34,7 @@ class MainActivity : Activity() {
         root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val pad = (24 * resources.displayMetrics.density).toInt()
         root.setPadding(pad, pad * 2, pad, pad)
-        setContentView(root)
+        setContentView(ScrollView(this).apply { isFillViewport = true; addView(root) })
         render()
         if (identity.paired && identity.wantsAvailable) AvailabilityService.start(this)
     }
@@ -121,6 +122,41 @@ class MainActivity : Activity() {
         root.addView(label(identity.name, 20f, true))
         root.addView(label("Paired to ${identity.server}"))
         root.addView(label("", 16f).also { it.tag = "status" })
+        root.addView(label("Unattended access", 18f, true))
+        root.addView(label("Your account can view, control and send files while this phone is unlocked. Enable Android's accessibility access once, then enable it here. Sharing stays visible with Pause and Stop. Android 11 or newer; up to 2 frames per second, no sound.", 13f))
+        root.addView(Button(this).apply {
+            text = if (identity.unattended) "Turn off unattended access" else "Enable unattended access"
+            isEnabled = Build.VERSION.SDK_INT >= 30
+            setOnClickListener {
+                val enable = !identity.unattended
+                if (enable && !androidx.core.app.NotificationManagerCompat.from(this@MainActivity).areNotificationsEnabled()) {
+                    startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, packageName))
+                    return@setOnClickListener
+                }
+                if (enable && !UnattendedAccess.ready(this@MainActivity)) {
+                    startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    return@setOnClickListener
+                }
+                isEnabled = false
+                if (!enable) {
+                    identity.unattended = false
+                    startService(Intent(this@MainActivity, CaptureService::class.java).setAction(CaptureService.ACTION_STOP))
+                }
+                thread {
+                    val result = runCatching {
+                        Api.setAccess(identity, enable)
+                        identity.unattended = enable
+                    }
+                    handler.post {
+                        if (result.isSuccess) { AvailabilityService.start(this@MainActivity); render() }
+                        else {
+                            isEnabled = true
+                            root.findViewWithTag<TextView>("status")?.text = if (enable) "Could not enable access. Check the connection and try again." else "Disabled on this phone. The server will be updated when connected."
+                        }
+                    }
+                }
+            }
+        })
         root.addView(
             Button(this).apply {
                 text = "Start being available"

@@ -28,6 +28,8 @@ class ControlService : AccessibilityService() {
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
         if (instance === this) instance = null
+        Identity(this).unattended = false
+        if (HostState.sharing) runCatching { startService(android.content.Intent(this, CaptureService::class.java).setAction(CaptureService.ACTION_STOP)) }
         return super.onUnbind(intent)
     }
 
@@ -111,8 +113,8 @@ class ControlService : AccessibilityService() {
         /** Whether the person has turned this service on in Settings. */
         fun enabled(context: Context): Boolean {
             val enabled = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
-            val ours = ComponentName(context, ControlService::class.java).flattenToString()
-            return enabled.split(':').any { it.equals(ours, ignoreCase = true) }
+            val ours = ComponentName(context, ControlService::class.java)
+            return enabled.split(':').any { ComponentName.unflattenFromString(it) == ours }
         }
     }
 }

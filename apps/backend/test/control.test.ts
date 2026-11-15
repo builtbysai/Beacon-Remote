@@ -27,6 +27,28 @@ test("remote control is an operator switch that also needs enabled sessions", ()
   );
 });
 
+test("sign-in media requires an explicit separate gate and enabled authority/control", () => {
+  const base = {
+    DATABASE_URL: "postgresql://localhost/unused",
+    WEB_ORIGIN: "https://remote.example.test",
+    SESSION_SECRET: "a".repeat(64),
+    CONTROL_ENABLED: "true",
+  };
+  assert.equal(parseConfig(base).SIGNIN_MEDIA_ENABLED, undefined);
+  assert.throws(
+    () => parseConfig({ ...base, SIGNIN_MEDIA_ENABLED: "true" }),
+    /requires separate sign-in authority/,
+  );
+  assert.equal(
+    parseConfig({
+      ...base,
+      SIGNIN_AUTHORITY_ENABLED: "true",
+      SIGNIN_MEDIA_ENABLED: "true",
+    }).SIGNIN_MEDIA_ENABLED,
+    "true",
+  );
+});
+
 test(
   "control is separately gated, scoped, audited and consumed on disconnect",
   { skip: !process.env.TEST_DATABASE_URL },

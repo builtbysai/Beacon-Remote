@@ -42,6 +42,8 @@ enum Control {
     // The helper's answers to a file this computer offered.
     Accept {
         id: u32,
+        #[serde(default)]
+        resume: Option<Resume>,
     },
     Reject {
         id: u32,
@@ -56,6 +58,27 @@ enum Control {
         #[serde(default)]
         reason: Option<String>,
     },
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Resume {
+    offset: u64,
+    sha256: String,
+}
+
+#[derive(Default)]
+pub struct DownloadCache(std::sync::Mutex<Option<Outbound>>);
+
+fn retain(authority: &Authority) -> bool {
+    authority.session_active.load(Ordering::Acquire)
+        && authority.deadline.is_none_or(|end| Instant::now() < end)
+        && crate::renewal::remaining(
+            authority.lease.load(Ordering::Acquire),
+            authority.epoch.elapsed().as_millis() as u64,
+        )
+        .is_some()
+        && !crate::pause::is_paused()
 }
 
 fn parse(message: &[u8]) -> Result<Control, ()> {
@@ -216,7 +239,7 @@ enum Stage {
     Idle,
     Offered(Outgoing, Instant),
     Streaming(Outgoing),
-    Ending(Instant, String),
+    Ending(Instant, Outgoing),
 }
 
 /// A file this computer is sending to the helper: offer, wait for their accept, stream, then wait for their
@@ -225,6 +248,8 @@ pub(crate) struct Outbound {
     stage: Stage,
     id: u32,
     announced: u64,
+    token: String,
+    pause_generation: u64,
 }
 
 impl Outbound {
@@ -233,6 +258,8 @@ impl Outbound {
             stage: Stage::Idle,
             id: 0,
             announced: 101,
+            token: String::new(),
+            pause_generation: crate::pause::generation(),
         }
     }
     pub(crate) fn idle(&self) -> bool {
@@ -253,10 +280,12 @@ impl Outbound {
                 return None;
             }
         };
-        self.id += 2;
+        self.id = self.id.checked_add(2)?;
+        self.token = uuid::Uuid::new_v4().simple().to_string();
+        self.pause_generation = crate::pause::generation();
         files::set_status(&format!("Offering {} to the helper", outgoing.name));
         let frame = Frame::Text(
-            serde_json::json!({"t":"send","id":self.id,"name":outgoing.name,"size":outgoing.size}),
+            serde_json::json!({"t":"send","id":self.id,"name":outgoing.name,"size":outgoing.size,"transferId":self.token}),
         );
         self.stage = Stage::Offered(outgoing, Instant::now());
         Some(frame)
@@ -274,19 +303,38 @@ impl Outbound {
     fn name(&self) -> String {
         match &self.stage {
             Stage::Offered(outgoing, _) | Stage::Streaming(outgoing) => outgoing.name.clone(),
-            Stage::Ending(_, name) => name.clone(),
+            Stage::Ending(_, outgoing) => outgoing.name.clone(),
             Stage::Idle => "the file".into(),
         }
     }
     /// The helper's answer. Returns nothing to send.
+    #[cfg(test)]
     fn answer(&mut self, control: &Control) {
-        let Some(current) = self.current_id() else {
-            return;
-        };
+        let _ = self.answer_checked(control, || true);
+    }
+    fn answer_checked(&mut self, control: &Control, live: impl Fn() -> bool) -> Option<Frame> {
+        let current = self.current_id()?;
         match control {
-            Control::Accept { id } if *id == current => {
-                if let Stage::Offered(outgoing, _) = std::mem::replace(&mut self.stage, Stage::Idle)
+            Control::Accept { id, resume }
+                if *id == current && matches!(self.stage, Stage::Offered(..)) =>
+            {
+                if let Stage::Offered(mut outgoing, _) =
+                    std::mem::replace(&mut self.stage, Stage::Idle)
                 {
+                    let (offset, hash) = resume
+                        .as_ref()
+                        .map_or((0, None), |r| (r.offset, Some(r.sha256.as_str())));
+                    if outgoing
+                        .restart_at(offset, hash, || {
+                            live() && self.pause_generation == crate::pause::generation()
+                        })
+                        .is_err()
+                    {
+                        self.finish("The source or partial copy changed; offer the file again");
+                        return Some(Frame::Text(
+                            serde_json::json!({"t":"failed","id":current,"reason":"resume"}),
+                        ));
+                    }
                     files::set_status(&format!("Sending {} · 0%", outgoing.name));
                     self.stage = Stage::Streaming(outgoing);
                 }
@@ -304,6 +352,20 @@ impl Outbound {
             }
             _ => {}
         }
+        None
+    }
+    fn reoffer(&mut self) -> Option<Frame> {
+        let stage = std::mem::replace(&mut self.stage, Stage::Idle);
+        let outgoing = match stage {
+            Stage::Offered(o, _) | Stage::Streaming(o) | Stage::Ending(_, o) => o,
+            Stage::Idle => return None,
+        };
+        self.id = self.id.checked_add(2)?;
+        let frame = Frame::Text(
+            serde_json::json!({"t":"send","id":self.id,"name":outgoing.name,"size":outgoing.size,"transferId":self.token}),
+        );
+        self.stage = Stage::Offered(outgoing, Instant::now());
+        Some(frame)
     }
     /// The next chunk, or the closing message with the checksum.
     pub(crate) fn pump(&mut self) -> Option<Frame> {
@@ -324,7 +386,12 @@ impl Outbound {
             Ok(None) => match outgoing.digest() {
                 Ok(sha256) => {
                     let id = self.id;
-                    self.stage = Stage::Ending(Instant::now(), outgoing.name.clone());
+                    let Stage::Streaming(outgoing) =
+                        std::mem::replace(&mut self.stage, Stage::Idle)
+                    else {
+                        unreachable!()
+                    };
+                    self.stage = Stage::Ending(Instant::now(), outgoing);
                     Some(Frame::Text(
                         serde_json::json!({"t":"end","id":id,"sha256":sha256}),
                     ))
@@ -372,9 +439,10 @@ pub fn start(
     channel: Arc<dyn DataChannel>,
     authority: Authority,
     permissions: Permissions,
+    downloads: Arc<DownloadCache>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let result = run(channel, &authority, permissions).await;
+        let result = run(channel, &authority, permissions, &downloads).await;
         files::set_recording(false);
         if result.is_err() {
             println!("File transfer stopped: invalid message, expired authority or no folder.");
@@ -405,16 +473,36 @@ async fn send_frame(channel: &Arc<dyn DataChannel>, frame: Frame) -> Result<(), 
     }
 }
 
+async fn send_download(
+    channel: &Arc<dyn DataChannel>,
+    frame: Frame,
+    outbound: &mut Outbound,
+    downloads: &DownloadCache,
+    authority: &Authority,
+) -> Result<(), ()> {
+    let result = send_frame(channel, frame).await;
+    if result.is_err() && retain(authority) {
+        *downloads.0.lock().map_err(|_| ())? = Some(std::mem::replace(outbound, Outbound::new()));
+    }
+    result
+}
+
 async fn run(
     channel: Arc<dyn DataChannel>,
     authority: &Authority,
     permissions: Permissions,
+    downloads: &DownloadCache,
 ) -> Result<(), ()> {
     let folder = files::received_folder().ok_or(())?;
     // Left over from a session that ended abnormally.
     files::sweep_stale(&folder);
     let mut receiver = Receiver::new(folder);
-    let mut outbound = Outbound::new();
+    let mut outbound = downloads
+        .0
+        .lock()
+        .map_err(|_| ())?
+        .take()
+        .unwrap_or_else(Outbound::new);
     // The browser's buffer fills when the network is slower than the disk; wait for it to drain.
     let mut blocked = false;
     let mut pump = tokio::time::interval(Duration::from_millis(2));
@@ -430,20 +518,20 @@ async fn run(
                     || (opened && !authority.live())
                 {
                     // A viewer that is only reconnecting leaves the session alive: keep what has arrived for it.
-                    if authority.session_active.load(Ordering::Acquire)
-                        && !authority.peer_active.load(Ordering::Acquire)
-                        && !authority.deadline.is_some_and(|end| Instant::now() >= end)
+                    if retain(authority) && !authority.peer_active.load(Ordering::Acquire)
                     {
                         receiver.interrupted();
+                        *downloads.0.lock().map_err(|_| ())? = Some(std::mem::replace(&mut outbound, Outbound::new()));
                     } else {
                         receiver.abort();
                     }
                     if let Some(frame) = outbound.abort() { let _ = send_frame(&channel, frame).await; }
                     return Ok(());
                 }
-                if (receiver.active() || !outbound.idle()) && crate::pause::is_paused() {
+                if (receiver.active() || !outbound.idle()) && (crate::pause::is_paused() || outbound.pause_generation != crate::pause::generation()) {
                     receiver.abort();
                     if let Some(frame) = outbound.abort() { send_frame(&channel, frame).await?; }
+                    outbound.pause_generation = crate::pause::generation();
                     send(&channel, serde_json::json!({"t":"paused"})).await?;
                 }
                 if receiver.active() && last_message.elapsed() >= Duration::from_secs(30) {
@@ -456,7 +544,7 @@ async fn run(
                         if crate::pause::is_paused() {
                             files::set_status("Resume sharing before sending a file");
                         } else if let Some(frame) = outbound.start(&path) {
-                            send_frame(&channel, frame).await?;
+                            send_download(&channel, frame, &mut outbound, downloads, authority).await?;
                         }
                     }
                 }
@@ -465,23 +553,27 @@ async fn run(
                 for _ in 0..16 {
                     let Some(frame) = outbound.pump() else { break };
                     let last = matches!(frame, Frame::Text(_));
-                    send_frame(&channel, frame).await?;
+                    send_download(&channel, frame, &mut outbound, downloads, authority).await?;
+                    authority.last_activity.store(authority.epoch.elapsed().as_millis() as u64,Ordering::Release);
                     if last || blocked { break; }
                 }
             }
             event = channel.poll() => match event {
                 Some(DataChannelEvent::OnOpen) => {
                     if !authority.live() { return Err(()); }
+                    if outbound.pause_generation != crate::pause::generation() || crate::pause::is_paused() { outbound.abort(); outbound.pause_generation = crate::pause::generation(); }
                     opened = true;
                     last_message = Instant::now();
                     channel.set_buffered_amount_low_threshold(256 * 1024).await.map_err(|_| ())?;
                     channel.set_buffered_amount_high_threshold(1024 * 1024).await.map_err(|_| ())?;
-                    send(&channel, serde_json::json!({"t":"ready","maxFile":MAX_FILE,"chunk":MAX_CHUNK,"files":permissions.files,"recording":permissions.recording})).await?;
+                    send(&channel, serde_json::json!({"t":"ready","maxFile":MAX_FILE,"chunk":MAX_CHUNK,"files":permissions.files,"recording":permissions.recording,"downloadTransferId":if outbound.idle(){None}else{Some(&outbound.token)}})).await?;
+                    if let Some(frame) = outbound.reoffer() { send_download(&channel, frame, &mut outbound, downloads, authority).await?; }
                 }
                 Some(DataChannelEvent::OnBufferedAmountHigh) => blocked = true,
                 Some(DataChannelEvent::OnBufferedAmountLow) => blocked = false,
                 Some(DataChannelEvent::OnMessage(message)) => {
                     if !opened || !authority.live() { return Err(()); }
+                    if !message.is_string { authority.last_activity.store(authority.epoch.elapsed().as_millis() as u64,Ordering::Release); }
                     last_message = Instant::now();
                     let reply = if message.is_string {
                         if message.data.len() > 2048 { return Err(()); }
@@ -510,7 +602,7 @@ async fn run(
                             _ => false,
                         };
                         if ours {
-                            outbound.answer(&control);
+                            if let Some(frame) = outbound.answer_checked(&control, || authority.live() && !crate::pause::is_paused()) { send_frame(&channel, frame).await?; }
                             continue;
                         }
                         receiver.handle(control, crate::pause::is_paused())?
@@ -530,8 +622,9 @@ async fn run(
                 }
                 Some(DataChannelEvent::OnClose | DataChannelEvent::OnError) | None => {
                     // The connection went; the session may not have. Keep the part for a reconnecting viewer.
-                    if authority.session_active.load(Ordering::Acquire) {
+                    if retain(authority) {
                         receiver.interrupted();
+                        *downloads.0.lock().map_err(|_| ())? = Some(std::mem::replace(&mut outbound, Outbound::new()));
                     } else {
                         receiver.abort();
                     }
@@ -749,6 +842,78 @@ mod tests {
         outbound.answer(&parse(format!(r#"{{"t":"done","id":{id}}}"#).as_bytes()).unwrap());
         assert!(outbound.idle());
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn resumed_download_verifies_prefix_waits_for_accept_and_handles_lost_end() {
+        let dir = folder();
+        let path = dir.join("resume.bin");
+        let data = vec![42u8; 50_000];
+        std::fs::write(&path, &data).unwrap();
+        let mut sender = Outbound::new();
+        let Some(Frame::Text(first)) = sender.start(&path) else {
+            panic!()
+        };
+        sender.answer(&parse(br#"{"t":"accept","id":2}"#).unwrap());
+        let Some(Frame::Binary(part)) = sender.pump() else {
+            panic!()
+        };
+        let offset = part.len() - 4;
+        let Some(Frame::Text(again)) = sender.reoffer() else {
+            panic!()
+        };
+        assert_eq!(first["transferId"], again["transferId"]);
+        assert_ne!(first["id"], again["id"]);
+        assert!(sender.pump().is_none());
+        let accept = serde_json::json!({"t":"accept","id":4,"resume":{"offset":offset,"sha256":hex(&data[..offset])}});
+        assert!(sender
+            .answer_checked(&parse(accept.to_string().as_bytes()).unwrap(), || true)
+            .is_none());
+        let mut actual = part[4..].to_vec();
+        loop {
+            match sender.pump().unwrap() {
+                Frame::Binary(b) => actual.extend_from_slice(&b[4..]),
+                Frame::Text(end) => {
+                    assert_eq!(end["sha256"], hex(&data));
+                    break;
+                }
+            }
+        }
+        assert_eq!(actual, data);
+        sender.reoffer().unwrap();
+        let accept = serde_json::json!({"t":"accept","id":6,"resume":{"offset":data.len(),"sha256":hex(&data)}});
+        sender.answer_checked(&parse(accept.to_string().as_bytes()).unwrap(), || true);
+        assert!(
+            matches!(sender.pump(), Some(Frame::Text(_))),
+            "a full prefix needs only the end message"
+        );
+        sender.reoffer().unwrap();
+        let bad = serde_json::json!({"t":"accept","id":8,"resume":{"offset":offset,"sha256":"0".repeat(64)}});
+        assert!(matches!(
+            sender.answer_checked(&parse(bad.to_string().as_bytes()).unwrap(), || true),
+            Some(Frame::Text(_))
+        ));
+        assert!(sender.idle());
+        drop(sender);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn source_changes_invalid_ranges_and_revocation_prevent_resuming() {
+        let dir = folder();
+        let path = dir.join("a.bin");
+        std::fs::write(&path, b"original").unwrap();
+        let mut file = Outgoing::open(&path).unwrap();
+        assert!(file
+            .restart_at(9, Some(&hex(b"original")), || true)
+            .is_err());
+        assert!(file.restart_at(1, Some(&hex(b"o")), || false).is_err());
+        std::fs::write(&path, b"changed!").unwrap();
+        assert!(file.restart_at(4, Some(&hex(b"orig")), || true).is_err());
+        file.restart_at(0, None, || true).unwrap();
+        assert_eq!(file.next_chunk().unwrap().unwrap(), b"changed!");
+        drop(file);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

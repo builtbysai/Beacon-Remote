@@ -54,27 +54,29 @@ class ShareSession(
     private val controlAllowed: Boolean = false,
     /** The person also allowed the helper to send files to this phone. */
     private val filesAllowed: Boolean = false,
+    private val unattended: Boolean = false,
     private val onControl: (Boolean) -> Unit = {},
     private val onEnded: (String) -> Unit,
 ) {
     private val worker = Executors.newSingleThreadScheduledExecutor()
     private var socket: WebSocket? = null
-    private var ended = false
+    @Volatile private var ended = false
     private var generation = 0L
-    private var paused = false
+    @Volatile private var paused = false
+    @Volatile private var viewerAttached = false
 
     // Lease bookkeeping, in SystemClock.elapsedRealtime milliseconds.
     private val started = SystemClock.elapsedRealtime()
     private var sequence = 0L
     private val challenges = ArrayDeque<Pair<String, Long>>()
-    private var lastLease = 0L
+    @Volatile private var lastLease = 0L
     private var ticker: ScheduledFuture<*>? = null
 
     private var egl: EglBase? = null
     private var factory: PeerConnectionFactory? = null
     private var source: VideoSource? = null
     private var track: VideoTrack? = null
-    private var capturer: ScreenCapturerAndroid? = null
+    private var capturer: org.webrtc.VideoCapturer? = null
     private var helper: SurfaceTextureHelper? = null
     private var peer: PeerConnection? = null
     private var control: RemoteControl? = null
@@ -190,6 +192,14 @@ class ShareSession(
     private fun tick() {
         if (ended) return
         val now = SystemClock.elapsedRealtime()
+        if (unattended && now - maxOf(started, control?.lastActivity ?: 0L, files?.lastActivity ?: 0L) >= 30 * 60 * 1000L) {
+            end("Unattended session ended after 30 minutes without input")
+            return
+        }
+        if (!Identity(context).wantsAvailable || (unattended && (!Identity(context).unattended || !UnattendedAccess.ready(context)))) {
+            end("Unattended access was turned off or the phone was locked")
+            return
+        }
         // Authorization lapses without a fresh reply: nothing keeps sharing on its own.
         if (now - started >= MAX_AGE && (lastLease == 0L || now - lastLease >= MAX_AGE)) {
             end("Authorization lapsed")
@@ -254,7 +264,11 @@ class ShareSession(
         val videoSource = peerFactory.createVideoSource(true).also { source = it }
         track = peerFactory.createVideoTrack("beacon-screen", videoSource)
         val surfaces = SurfaceTextureHelper.create("screen-capture", eglBase.eglBaseContext).also { helper = it }
-        val projection =
+        val projection = if (unattended && android.os.Build.VERSION.SDK_INT >= 30) {
+            AccessibilityCapturer(context, {
+                !ended && !paused && viewerAttached && lastLease != 0L && SystemClock.elapsedRealtime() - lastLease < MAX_AGE
+            }, { reason -> post { end(reason) } })
+        } else {
             ScreenCapturerAndroid(
                 projectionData ?: error("No capture permission"),
                 object : MediaProjection.Callback() {
@@ -263,6 +277,7 @@ class ShareSession(
                     }
                 },
             )
+        }
         capturer = projection
         projection.initialize(surfaces, context, videoSource.capturerObserver)
         val (realWidth, realHeight) = currentSize()
@@ -339,6 +354,7 @@ class ShareSession(
                 },
             ) ?: return
         peer = connection
+        viewerAttached = true
         val screen = track ?: return
         screen.setEnabled(!paused)
         val sender = connection.addTrack(screen, listOf("beacon-screen"))
@@ -353,13 +369,19 @@ class ShareSession(
             // The input channel is made here, before the offer, as the Windows host does.
             connection.createDataChannel("beacon-input-v1", DataChannel.Init().apply { ordered = true })?.let { channel ->
                 control =
-                    RemoteControl(channel, grant.id, screenWidth, screenHeight, { !paused && !ended }) { active -> onControl(active) }
+                    RemoteControl(channel, grant.id, screenWidth, screenHeight, {
+                        !paused && !ended && lastLease != 0L && SystemClock.elapsedRealtime() - lastLease < MAX_AGE &&
+                            Identity(context).wantsAvailable && (!unattended || (Identity(context).unattended && UnattendedAccess.ready(context)))
+                    }) { active -> onControl(active) }
                         .also { it.start() }
             }
         }
         if (filesAllowed && FileReceiver.supported) {
             connection.createDataChannel("beacon-files-v1", DataChannel.Init().apply { ordered = true })?.let { channel ->
-                files = FileReceiver(context, channel) { !paused && !ended }.also { it.start() }
+                files = FileReceiver(context, channel) {
+                    !paused && !ended && lastLease != 0L && SystemClock.elapsedRealtime() - lastLease < MAX_AGE &&
+                        Identity(context).wantsAvailable && (!unattended || (Identity(context).unattended && UnattendedAccess.ready(context)))
+                }.also { it.start() }
             }
         }
         connection.createOffer(
@@ -389,6 +411,7 @@ class ShareSession(
     }
 
     private fun closePeer() {
+        viewerAttached = false
         control?.stop()
         control = null
         files?.stop()

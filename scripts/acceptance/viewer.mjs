@@ -87,6 +87,7 @@ export async function openViewer({ origin, cookie, port = 9555 }) {
     return result.result?.result?.value;
   };
   return {
+    command: send,
     goto: async (url) => {
       await send("Page.navigate", { url });
       await new Promise((done) => setTimeout(done, 2500));

@@ -1,3 +1,7 @@
+import {
+  readLocalDatabase,
+  localDatabaseUrl,
+} from "../../../scripts/local-database.mjs";
 // Isolated, loopback-only acceptance fixture. Never uses a production identity.
 import {
   createHash,
@@ -15,10 +19,10 @@ import {
 } from "node:fs/promises";
 import { hostname } from "node:os";
 import { spawn, type ChildProcess } from "node:child_process";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { Pool } from "pg";
 import { hash } from "@node-rs/argon2";
-import { createServer } from "../../web/node_modules/vite/dist/node/index.js";
+import { createServer } from "vite";
 import { createApp } from "../src/app.js";
 import { heartbeatMessage } from "../../../packages/protocol/src/index.js";
 import { applyMigrations } from "../src/migrations.js";
@@ -26,8 +30,10 @@ import { applyMigrations } from "../src/migrations.js";
 if (process.platform !== "win32")
   throw new Error("Windows interactive session required");
 const root = resolve(import.meta.dirname, "../../..");
-const database =
-  "postgresql://remote_dev:development-only@127.0.0.1:5433/beacon_remote_test";
+const database = localDatabaseUrl(
+  (await readLocalDatabase()).password,
+  "beacon_remote_test",
+);
 const admin = new Pool({ connectionString: database });
 const schema = `input_dev_${randomUUID().replaceAll("-", "")}`;
 await admin.query(`CREATE SCHEMA ${schema}`);
@@ -38,9 +44,18 @@ const pool = new Pool({
 const origin = "http://127.0.0.1:5175";
 const server = "http://127.0.0.1:3011";
 const account = randomUUID();
-const state = resolve(root, ".remote-dev/input-development");
+const state = resolve(
+  process.env.REMOTE_DEV_STATE_DIR ??
+    resolve(root, "../../Beacon-Secrets/remote/local/state"),
+  "input-development",
+);
+const loginPath = resolve(
+  process.env.REMOTE_LOCAL_ACCOUNTS_DIR ??
+    resolve(root, "../../Beacon-Secrets/remote/local/accounts"),
+  "development.json",
+);
 // Keep this local demo's credentials stable across an intentional restart.
-const priorLogin: unknown = await readFile(resolve(state, "login.json"), "utf8")
+const priorLogin: unknown = await readFile(loginPath, "utf8")
   .then((text) => JSON.parse(text) as unknown)
   .catch(() => undefined);
 const prior = priorLogin as
@@ -165,12 +180,10 @@ try {
   });
   await web.listen();
   await mkdir(state, { recursive: true });
-  await writeFile(
-    resolve(state, "login.json"),
-    JSON.stringify({ origin, email, password }),
-  );
+  await mkdir(dirname(loginPath), { recursive: true });
+  await writeFile(loginPath, JSON.stringify({ origin, email, password }));
   console.log(
-    "Isolated input development: http://127.0.0.1:5175 — login in .remote-dev/input-development/login.json. Local Windows approval remains mandatory. Runs until explicitly stopped; active sessions have no fixed duration.",
+    `Isolated input development: http://127.0.0.1:5175 — login in ${loginPath}. Local Windows approval remains mandatory. Runs until explicitly stopped; active sessions have no fixed duration.`,
   );
   const handled = new Set<string>();
   let polling = false;

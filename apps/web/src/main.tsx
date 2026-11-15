@@ -3,9 +3,11 @@ import { createRoot } from "react-dom/client";
 import type { Machine } from "@beacon-remote/protocol";
 import "./style.css";
 import { LiveView, type ViewGrant } from "./LiveView.js";
+import { SignInView } from "./SignInView.js";
 import { Brand, Monitor, ProductPage, pageFromHash } from "./Product.js";
 import { api, ApiError } from "./api.js";
 import { AccountPanels } from "./AccountPanels.js";
+import { PairComputer } from "./PairComputer.js";
 import { SessionHistory } from "./SessionHistory.js";
 import { ComputerInspector } from "./ComputerInspector.js";
 import { AssistPanel } from "./AssistPanel.js";
@@ -14,6 +16,10 @@ import { ThemePicker, readTheme, saveTheme } from "./ThemePicker.js";
 import { WorkspaceIcon, workspaceItems } from "./WorkspaceIcon.js";
 import { resolveViewRequest } from "./view-request.js";
 import { readView, forgetView } from "./resume-view.js";
+import {
+  waitForRestartAccess,
+  type RestartStage,
+} from "./restart-reconnect.js";
 import {
   ForgotForm,
   SignupForm,
@@ -56,8 +62,33 @@ function lastSeen(iso: string): string {
 }
 
 function App() {
+  type SignInIntent = {
+    machineId: string;
+    name: string;
+    abort: AbortController;
+    restart?: { active: boolean; abort: AbortController };
+  };
+  const signInContext = useRef<SignInIntent | null>(null);
+  const pairingRefresh = useRef<AbortController | null>(null);
+  const assistEpoch = useRef(0);
+  const knownSignedIn = useRef(false);
+  const [signInView, setSignInView] = useState<SignInIntent | null>(null);
+  function closeSignIn() {
+    signInContext.current?.abort.abort();
+    signInContext.current = null;
+    setSignInView(null);
+  }
   const viewContext = useRef({ active: false });
   const recoveryAttempted = useRef(false);
+  const manualViewEpoch = useRef(0);
+  const restartContext = useRef({
+    active: false,
+    abort: new AbortController(),
+  });
+  const [restarting, setRestarting] = useState<{
+    name: string;
+    stage: RestartStage;
+  } | null>(null);
   const [page, setPage] = useState(pageFromHash);
   const [supportToken, setSupportToken] = useState(supportFromHash);
   const [theme, setTheme] = useState(readTheme);
@@ -71,6 +102,10 @@ function App() {
   const [publicMenuOpen, setPublicMenuOpen] = useState(false);
   useEffect(() => {
     const change = () => {
+      assistEpoch.current++;
+      closeSignIn();
+      pairingRefresh.current?.abort();
+      cancelRestart();
       viewContext.current.active = false;
       const hash = window.location.hash;
       setEntry(
@@ -79,9 +114,14 @@ function App() {
       setSupportToken(supportFromHash());
       setSupportToken(supportFromHash());
       setPage(pageFromHash());
+      setPairOpen(false);
       setMobileMore(false);
       setPublicMenuOpen(false);
       setSelected(null);
+      setError("");
+      setChallenge(null);
+      setUnconfirmed(false);
+      setShowPassword(false);
     };
     window.addEventListener("hashchange", change);
     return () => window.removeEventListener("hashchange", change);
@@ -112,14 +152,12 @@ function App() {
   const entryConfig = useEntryConfig();
   const [machines, setMachines] = useState<Machine[] | null>(null);
   const [error, setError] = useState("");
-  const [code, setCode] = useState<{ code: string; expiresAt: number } | null>(
-    null,
-  );
-  const [codeCopied, setCodeCopied] = useState(false);
+  const [pairOpen, setPairOpen] = useState(false);
+  const addComputer = useRef<HTMLButtonElement>(null);
   const [busy, setBusy] = useState(false);
   const [challenge, setChallenge] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
-  const [clock, setClock] = useState(Date.now());
+  const [, setClock] = useState(Date.now());
   const [mediaEnabled, setMediaEnabled] = useState(false);
   const [controlEnabled, setControlEnabled] = useState(false);
   const [view, setView] = useState<{
@@ -133,6 +171,147 @@ function App() {
     setError("");
   }, [page]);
   const signedIn = machines !== null;
+  knownSignedIn.current = signedIn;
+  const assistGeneration = assistEpoch.current;
+  useEffect(
+    () => () => {
+      pairingRefresh.current?.abort();
+      restartContext.current.active = false;
+      restartContext.current.abort.abort();
+      signInContext.current?.abort.abort();
+      signInContext.current = null;
+      viewContext.current.active = false;
+    },
+    [page, signedIn],
+  );
+  function cancelRestart() {
+    manualViewEpoch.current++;
+    if (signInContext.current?.restart === restartContext.current)
+      closeSignIn();
+    restartContext.current.active = false;
+    restartContext.current.abort.abort();
+    setRestarting(null);
+  }
+  async function reconnectAfterRestart(
+    machine: Machine,
+    previousInstance: string | null,
+  ) {
+    if (!viewContext.current.active) return;
+    cancelRestart();
+    const context = { active: true, abort: new AbortController() };
+    // Discard in-flight requests/resume replies from before the restart intent.
+    viewContext.current.active = false;
+    const pageContext = { active: true };
+    viewContext.current = pageContext;
+    restartContext.current = context;
+    const isCurrent = () =>
+      context.active && pageContext.active && !context.abort.signal.aborted;
+    const capability =
+      view?.machineId === machine.id
+        ? (view.grant.capability ?? "desktop:view")
+        : "desktop:control";
+    const displayId =
+      view?.machineId === machine.id ? view.displayId : undefined;
+    setRestarting({ name: machine.name, stage: "restarting" });
+    setError("");
+    const previous = view;
+    setView(null);
+    forgetView();
+    if (previous)
+      void api(`sessions/${previous.grant.id}/stop`, {}).catch(() => {});
+    try {
+      const destination = await waitForRestartAccess({
+        machineId: machine.id,
+        previousInstance,
+        capability,
+        isCurrent,
+        progress: (stage) => {
+          if (isCurrent()) setRestarting({ name: machine.name, stage });
+        },
+        observeSignIn: controlEnabled
+          ? () =>
+              api<unknown>(
+                `machines/${machine.id}/signin-authority`,
+                undefined,
+                AbortSignal.any([
+                  context.abort.signal,
+                  AbortSignal.timeout(3000),
+                ]),
+              )
+          : undefined,
+        observe: async () =>
+          (
+            await api<{ machines: Machine[] }>(
+              "machines",
+              undefined,
+              AbortSignal.any([
+                context.abort.signal,
+                AbortSignal.timeout(15000),
+              ]),
+            )
+          ).machines,
+      });
+      if (!destination || !isCurrent()) return;
+      const ready = destination.machine;
+      if (destination.kind === "sign-in") {
+        const abort = new AbortController();
+        context.abort.signal.addEventListener("abort", () => abort.abort(), {
+          once: true,
+          signal: abort.signal,
+        });
+        const intent = {
+          machineId: ready.id,
+          name: ready.name,
+          abort,
+          restart: context,
+        };
+        signInContext.current = intent;
+        setSignInView(intent);
+        return;
+      }
+      const grant = await api<ViewGrant>(`machines/${machine.id}/sessions`, {
+        source: "desktop",
+        capability,
+        requirePolicy: true,
+        ...(displayId ? { displayId } : {}),
+      });
+      await resolveViewRequest(
+        Promise.resolve(grant),
+        () => isCurrent() && grant.approval === "policy",
+        (accepted) =>
+          setView({
+            grant: accepted,
+            name: ready.name,
+            machineId: ready.id,
+            displayId,
+          }),
+        (unused) => api(`sessions/${unused.id}/stop`, {}),
+      );
+      if (isCurrent() && grant.approval !== "policy")
+        throw new Error(
+          "Reconnect stopped because unattended permission changed.",
+        );
+    } catch (failure) {
+      if (isCurrent())
+        setError(
+          failure instanceof Error
+            ? failure.message
+            : "Could not reconnect after restart.",
+        );
+    } finally {
+      if (restartContext.current === context) {
+        context.active = false;
+        setRestarting(null);
+      }
+    }
+  }
+  function restartCallback(machine: Machine) {
+    const epoch = manualViewEpoch.current;
+    return (previousInstance: string | null) => {
+      if (epoch === manualViewEpoch.current && viewContext.current.active)
+        void reconnectAfterRestart(machine, previousInstance);
+    };
+  }
   useEffect(() => {
     const context = { active: signedIn && page === "computers" };
     viewContext.current = context;
@@ -155,6 +334,14 @@ function App() {
   }, [page, signedIn]);
   const workspaceOpen =
     signedIn && page !== "home" && page !== "support" && page !== "security";
+  const entryVisible =
+    !supportToken &&
+    (Boolean(invite || recoverToken || verifyToken) ||
+      page === "signin" ||
+      (!signedIn &&
+        ["computers", "sessions", "assist", "activity", "settings"].includes(
+          page,
+        )));
   useEffect(() => {
     if (!mobileMore) return;
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -218,6 +405,11 @@ function App() {
     capability: "desktop:view" | "desktop:control" = "desktop:view",
     displayId?: string,
   ) {
+    if (signInContext.current) {
+      setError("End Windows sign-in control before opening another session.");
+      return;
+    }
+    cancelRestart();
     const context = viewContext.current;
     if (!context.active) return;
     setBusy(true);
@@ -255,14 +447,15 @@ function App() {
     async function refresh() {
       if (pending) return;
       pending = true;
+      const epoch = assistEpoch.current;
       try {
         const data = await api<{ machines: Machine[] }>("machines");
-        if (!disposed) {
+        if (!disposed && epoch === assistEpoch.current) {
           setMachines(data.machines);
           setStale(false);
         }
       } catch (failure) {
-        if (!disposed) {
+        if (!disposed && epoch === assistEpoch.current) {
           setStale(true);
           if (
             failure instanceof Error &&
@@ -271,6 +464,9 @@ function App() {
             viewContext.current.active = false;
             setView(null);
             setMachines(null);
+            if (knownSignedIn.current) assistEpoch.current++;
+            knownSignedIn.current = false;
+            closeSignIn();
           }
         }
       } finally {
@@ -290,6 +486,7 @@ function App() {
 
   async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const epoch = assistEpoch.current;
     const form = new FormData(event.currentTarget);
     setBusy(true);
     setError("");
@@ -300,6 +497,7 @@ function App() {
           email: form.get("email"),
           password: form.get("password"),
         });
+        if (epoch !== assistEpoch.current) return;
         setInvite(null);
       }
       const response = await api<{
@@ -310,12 +508,14 @@ function App() {
         email: form.get("email"),
         password: form.get("password"),
       });
+      if (epoch !== assistEpoch.current) return;
       if (response.mfaRequired && response.challenge) {
         setChallenge(response.challenge);
         return;
       }
-      await finishSignIn();
+      await finishSignIn(epoch);
     } catch (failure) {
+      if (epoch !== assistEpoch.current) return;
       setUnconfirmed(failure instanceof ApiError && failure.status === 403);
       setError(
         failure instanceof ApiError && failure.status === 429
@@ -333,6 +533,7 @@ function App() {
 
   async function recoverPassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const epoch = assistEpoch.current;
     const password = String(
       new FormData(event.currentTarget).get("password") ?? "",
     );
@@ -340,9 +541,11 @@ function App() {
     setError("");
     try {
       await api("account/recover", { token: recoverToken, password });
+      if (epoch !== assistEpoch.current) return;
       setRecoverToken(null);
       setRecovered(true);
     } catch {
+      if (epoch !== assistEpoch.current) return;
       setError(
         "That recovery link did not work. It may have expired or been used; ask for a new one.",
       );
@@ -351,8 +554,11 @@ function App() {
     }
   }
 
-  async function finishSignIn() {
+  async function finishSignIn(epoch = assistEpoch.current) {
+    if (epoch !== assistEpoch.current) return;
     const result = await api<{ machines: Machine[] }>("machines");
+    if (epoch !== assistEpoch.current) return;
+    assistEpoch.current++;
     setMachines(result.machines);
     setStale(false);
     window.location.hash = [
@@ -368,43 +574,42 @@ function App() {
 
   async function submitCode(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const epoch = assistEpoch.current;
     const code = String(new FormData(event.currentTarget).get("code") ?? "");
     setBusy(true);
     setError("");
     try {
       await api("login/mfa", { challenge, code });
+      if (epoch !== assistEpoch.current) return;
       setChallenge(null);
-      await finishSignIn();
+      await finishSignIn(epoch);
     } catch {
+      if (epoch !== assistEpoch.current) return;
       setError("That code did not work. Try again, or use a recovery code.");
     } finally {
       setBusy(false);
     }
   }
 
-  async function pair() {
-    setBusy(true);
-    setError("");
+  async function paired(id: string | null) {
+    pairingRefresh.current?.abort();
+    const controller = new AbortController();
+    pairingRefresh.current = controller;
     try {
-      const result = await api<{ code: string; expiresInSeconds: number }>(
-        "enrollments",
-        {},
+      const result = await api<{ machines: Machine[] }>(
+        "machines",
+        undefined,
+        controller.signal,
       );
-      const issuedAt = Date.now();
-      setClock(issuedAt);
-      setCode({
-        code: result.code,
-        expiresAt: issuedAt + result.expiresInSeconds * 1000,
-      });
-      setCodeCopied(false);
-    } catch (caught) {
-      setError(
-        caught instanceof ApiError && caught.status === 429
-          ? "Too many pairing codes are waiting. Use one, or wait five minutes."
-          : "Could not start pairing.",
-      );
-    } finally {
-      setBusy(false);
+      if (controller.signal.aborted) return;
+      setMachines(result.machines);
+      if (id && result.machines.some((machine) => machine.id === id))
+        setSelected(id);
+    } catch {
+      if (!controller.signal.aborted)
+        setError(
+          "Computer paired, but the list could not refresh. Try refreshing the page.",
+        );
     }
   }
 
@@ -424,13 +629,16 @@ function App() {
   }
 
   async function logout() {
+    assistEpoch.current++;
+    closeSignIn();
+    cancelRestart();
     try {
       await api("logout", {});
       forgetView();
       viewContext.current.active = false;
       setView(null);
       setMachines(null);
-      setCode(null);
+      setPairOpen(false);
     } catch {
       setError("Could not sign out. Please try again.");
     }
@@ -609,7 +817,17 @@ function App() {
           <>
             <AssistPanel
               sessionActive={view !== null}
-              onClaimed={(grant, name) => setView({ grant, name })}
+              onClaimed={(grant, name) => {
+                if (
+                  assistEpoch.current !== assistGeneration ||
+                  window.location.hash !== "#assist" ||
+                  !signedIn
+                ) {
+                  return false;
+                }
+                setView({ grant, name });
+                return true;
+              }}
             />
             {view && (
               <LiveView
@@ -621,18 +839,33 @@ function App() {
             )}
           </>
         ) : page === "settings" || page === "activity" ? (
-          <AccountPanels activity={page === "activity"} />
+          <AccountPanels
+            activity={page === "activity"}
+            theme={theme}
+            onThemeChange={setTheme}
+          />
         ) : (
           <ProductPage page={page} signedIn={signedIn} />
         )
-      ) : machines === null || invite || recoverToken || verifyToken ? (
-        <section className="login">
+      ) : page === "signin" ||
+        entry ||
+        machines === null ||
+        invite ||
+        recoverToken ||
+        verifyToken ? (
+        <section className="login" aria-busy={busy}>
+          {error && (
+            <p id="entry-error" className="error" role="alert">
+              {error}
+            </p>
+          )}
           {verifyToken ? (
             <VerifyEmail
               token={verifyToken}
               onDone={() => {
+                if (assistEpoch.current !== assistGeneration) return;
                 setVerifyToken(null);
-                void finishSignIn().catch(() => undefined);
+                void finishSignIn(assistGeneration).catch(() => undefined);
               }}
             />
           ) : entry === "signup" ? (
@@ -672,7 +905,9 @@ function App() {
                       autoFocus
                     />
                   </label>
-                  <button disabled={busy}>Set password</button>
+                  <button disabled={busy}>
+                    {busy ? "Saving…" : "Set password"}
+                  </button>
                 </form>
               ) : challenge ? (
                 <form key="mfa-code" onSubmit={submitCode}>
@@ -685,7 +920,9 @@ function App() {
                       required
                     />
                   </label>
-                  <button disabled={busy}>Verify</button>
+                  <button disabled={busy}>
+                    {busy ? "Verifying…" : "Verify"}
+                  </button>
                   <button
                     type="button"
                     className="secondary"
@@ -734,7 +971,11 @@ function App() {
                     </button>
                   </span>
                   <button disabled={busy}>
-                    {invite ? "Create account" : "Continue"}
+                    {busy
+                      ? "Signing in…"
+                      : invite
+                        ? "Create account"
+                        : "Continue"}
                   </button>
                 </form>
               )}
@@ -782,251 +1023,288 @@ function App() {
                 {!stale && <> · {onlineCount} online</>}
               </p>
             </div>
-            <button onClick={pair} disabled={busy}>
+            <button
+              ref={addComputer}
+              onClick={() => setPairOpen(true)}
+              disabled={busy || pairOpen}
+            >
               Add a computer
             </button>
           </div>
+          {restarting && (
+            <div className="note restart-progress" role="status">
+              <span>
+                {restarting.stage === "restarting"
+                  ? `Waiting for ${restarting.name} to restart…`
+                  : restarting.stage === "waiting-for-windows"
+                    ? `Waiting for Windows on ${restarting.name}…`
+                    : restarting.stage === "sign-in-available"
+                      ? `Windows sign-in is available on ${restarting.name}.`
+                      : `Connecting to ${restarting.name}…`}
+              </span>
+              <button className="secondary" onClick={cancelRestart}>
+                Cancel reconnect
+              </button>
+            </div>
+          )}
           {stale && (
             <p role="status">
               Connection interrupted. Status may be out of date.
             </p>
           )}
-          {code && (
-            <aside className="pairing-panel">
-              <h2>Pair your Windows computer</h2>
-              {clock < code.expiresAt ? (
-                <>
-                  <p>
-                    Enter this one-use code in the Beacon Remote agent within
-                    five minutes.
-                  </p>
-                  <div className="pairing-code-row">
-                    <code aria-label="Pairing code">{code.code}</code>
-                    <button
-                      className="secondary"
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(code.code);
-                          setCodeCopied(true);
-                        } catch {
-                          setError(
-                            "Could not copy the code. Select it manually.",
-                          );
-                        }
-                      }}
-                    >
-                      {codeCopied ? "Copied" : "Copy code"}
-                    </button>
-                  </div>
-                  <p className="note" role="status">
-                    Expires in {Math.ceil((code.expiresAt - clock) / 1000)}{" "}
-                    seconds
-                  </p>
-                </>
-              ) : (
-                <p>
-                  This pairing code has expired. Choose Add a computer for a new
-                  code.
-                </p>
-              )}
-              <button className="secondary" onClick={() => setCode(null)}>
-                Dismiss
-              </button>
-            </aside>
+          {pairOpen && (
+            <PairComputer
+              onPaired={(id) => void paired(id)}
+              onClose={() => {
+                setPairOpen(false);
+                requestAnimationFrame(() => addComputer.current?.focus());
+              }}
+            />
           )}
-          <div
-            className={
-              selected ? "inventory-layout with-inspector" : "inventory-layout"
-            }
-          >
-            <div className="grid">
-              <div className="inventory-tools">
-                <input
-                  type="search"
-                  aria-label="Search computers"
-                  placeholder="Search computers"
-                  value={search}
-                  onChange={(event) => {
-                    setSearch(event.target.value);
-                    setSelected(null);
-                  }}
-                />
-                <select
-                  aria-label="Computer status"
-                  value={filter}
-                  onChange={(event) => {
-                    setFilter(event.target.value);
-                    setSelected(null);
-                  }}
-                >
-                  <option value="all">All computers</option>
-                  <option value="online">Online</option>
-                  <option value="offline">Offline</option>
-                  <option value="revoked">Revoked</option>
-                </select>
-                {groups.length > 0 && (
-                  <select
-                    aria-label="Computer group"
-                    value={groupFilter}
+          {(machines.length > 0 || !pairOpen) && (
+            <div
+              className={
+                selected
+                  ? "inventory-layout with-inspector"
+                  : "inventory-layout"
+              }
+            >
+              <div className="grid">
+                <div className="inventory-tools">
+                  <input
+                    type="search"
+                    aria-label="Search computers"
+                    placeholder="Search computers"
+                    value={search}
                     onChange={(event) => {
-                      setGroupFilter(event.target.value);
+                      setSearch(event.target.value);
+                      setSelected(null);
+                    }}
+                  />
+                  <select
+                    aria-label="Computer status"
+                    value={filter}
+                    onChange={(event) => {
+                      setFilter(event.target.value);
                       setSelected(null);
                     }}
                   >
-                    <option value="">All groups</option>
-                    {groups.map((group) => (
-                      <option key={group} value={group}>
-                        {group}
-                      </option>
-                    ))}
+                    <option value="all">All computers</option>
+                    <option value="online">Online</option>
+                    <option value="offline">Offline</option>
+                    <option value="revoked">Revoked</option>
                   </select>
-                )}
-              </div>
-              {machines.length === 0 && (
-                <div className="inventory-empty">
-                  <Monitor />
-                  <h2>No computers yet</h2>
-                  <p>
-                    Pair a Windows computer to see its connection status here.
-                  </p>
-                </div>
-              )}
-              {machines.length > 0 && visibleMachines.length === 0 && (
-                <div className="inventory-empty">
-                  <h2>No matching computers</h2>
-                  <p>Try a different search or status filter.</p>
-                  <button
-                    className="secondary"
-                    onClick={() => {
-                      setSearch("");
-                      setFilter("all");
-                      setGroupFilter("");
-                    }}
-                  >
-                    Clear filters
-                  </button>
-                </div>
-              )}
-              {visibleMachines.length > 0 && (
-                <div className="device-head" aria-hidden="true">
-                  <span>Computer</span>
-                  <span>Access</span>
-                  <span>Last seen</span>
-                </div>
-              )}
-              {visibleMachines.map((machine) => {
-                const live = machine.online && !stale && !machine.revokedAt;
-                const canView = mediaEnabled && !busy && live && view === null;
-                return (
-                  <article
-                    key={machine.id}
-                    className={`device-row${selected === machine.id ? " is-selected" : ""}`}
-                  >
-                    <span
-                      className={`status-dot ${live ? "online" : "offline"}`}
-                      role="img"
-                      aria-label={
-                        machine.revokedAt
-                          ? "Access revoked"
-                          : stale
-                            ? "Status unavailable"
-                            : machine.online
-                              ? "Online"
-                              : "Offline"
-                      }
-                    />
-                    <button
-                      id={`device-${machine.id}`}
-                      className="device-name secondary"
-                      onClick={() =>
-                        setSelected(selected === machine.id ? null : machine.id)
-                      }
-                      aria-expanded={selected === machine.id}
+                  {groups.length > 0 && (
+                    <select
+                      aria-label="Computer group"
+                      value={groupFilter}
+                      onChange={(event) => {
+                        setGroupFilter(event.target.value);
+                        setSelected(null);
+                      }}
                     >
-                      {machine.name}
-                      {machine.group && (
-                        <small className="device-group">
-                          {" "}
-                          · {machine.group}
-                        </small>
-                      )}
+                      <option value="">All groups</option>
+                      {groups.map((group) => (
+                        <option key={group} value={group}>
+                          {group}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+                {machines.length === 0 && (
+                  <div className="inventory-empty">
+                    <Monitor />
+                    <h2>No computers yet</h2>
+                    <p>
+                      Pair a Windows computer to see its connection status here.
+                    </p>
+                  </div>
+                )}
+                {machines.length > 0 && visibleMachines.length === 0 && (
+                  <div className="inventory-empty">
+                    <h2>No matching computers</h2>
+                    <p>Try a different search or status filter.</p>
+                    <button
+                      className="secondary"
+                      onClick={() => {
+                        setSearch("");
+                        setFilter("all");
+                        setGroupFilter("");
+                      }}
+                    >
+                      Clear filters
                     </button>
-                    <span className="device-access">
-                      {machine.revokedAt
-                        ? "Revoked"
-                        : machine.accessMode === "trusted"
-                          ? "Trusted"
-                          : "Ask each time"}
-                    </span>
-                    <span className="device-seen">
-                      {machine.revokedAt
-                        ? "—"
-                        : live
-                          ? "Now"
-                          : machine.lastSeenAt
-                            ? lastSeen(machine.lastSeenAt)
-                            : "Never"}
-                    </span>
-                    {live ? (
-                      <button
-                        className="device-open"
-                        disabled={!canView}
-                        onClick={() => {
-                          void testVideo(machine);
-                        }}
-                        title={
-                          machine.accessMode === "trusted"
-                            ? "View only; this computer is set to trusted access"
-                            : "View only; requires approval on your Windows computer"
+                  </div>
+                )}
+                {visibleMachines.length > 0 && (
+                  <div className="device-head" aria-hidden="true">
+                    <span>Computer</span>
+                    <span>Access</span>
+                    <span>Last seen</span>
+                  </div>
+                )}
+                {visibleMachines.map((machine) => {
+                  const live = machine.online && !stale && !machine.revokedAt;
+                  const canView =
+                    mediaEnabled && !busy && live && view === null;
+                  return (
+                    <article
+                      key={machine.id}
+                      className={`device-row${selected === machine.id ? " is-selected" : ""}`}
+                    >
+                      <span
+                        className={`status-dot ${live ? "online" : "offline"}`}
+                        role="img"
+                        aria-label={
+                          machine.revokedAt
+                            ? "Access revoked"
+                            : stale
+                              ? "Status unavailable"
+                              : machine.online
+                                ? "Online"
+                                : "Offline"
                         }
+                      />
+                      <button
+                        id={`device-${machine.id}`}
+                        className="device-name secondary"
+                        onClick={() =>
+                          setSelected(
+                            selected === machine.id ? null : machine.id,
+                          )
+                        }
+                        aria-expanded={selected === machine.id}
                       >
-                        {mediaEnabled ? "View" : "Soon"}
+                        {machine.name}
+                        {machine.group && (
+                          <small className="device-group">
+                            {" "}
+                            · {machine.group}
+                          </small>
+                        )}
                       </button>
-                    ) : (
-                      <span />
-                    )}
-                  </article>
-                );
-              })}
+                      <span className="device-access">
+                        {machine.revokedAt
+                          ? "Revoked"
+                          : machine.accessMode === "trusted"
+                            ? "Trusted"
+                            : "Ask each time"}
+                      </span>
+                      <span className="device-seen">
+                        {machine.revokedAt
+                          ? "—"
+                          : live
+                            ? "Now"
+                            : machine.bootState === "locked"
+                              ? "Locked"
+                              : machine.bootState === "signed-out"
+                                ? "Sign-in needed"
+                                : machine.bootState === "starting"
+                                  ? "Starting host"
+                                  : machine.lastSeenAt
+                                    ? lastSeen(machine.lastSeenAt)
+                                    : "Never"}
+                      </span>
+                      {live ? (
+                        <button
+                          className="device-open"
+                          disabled={!canView}
+                          onClick={() => {
+                            void testVideo(machine);
+                          }}
+                          title={
+                            machine.accessMode === "trusted"
+                              ? "View only; this computer is set to trusted access"
+                              : "View only; requires approval on your Windows computer"
+                          }
+                        >
+                          {mediaEnabled ? "View" : "Soon"}
+                        </button>
+                      ) : (
+                        <span />
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+              {selected &&
+                machines.find((machine) => machine.id === selected) && (
+                  <ComputerInspector
+                    key={selected}
+                    stale={stale}
+                    viewEnabled={mediaEnabled}
+                    controlEnabled={controlEnabled}
+                    requesting={busy}
+                    sessionActive={view !== null || signInView !== null}
+                    onRequestSignIn={() => {
+                      const machine = machines.find(
+                        (entry) => entry.id === selected,
+                      );
+                      if (
+                        !machine ||
+                        machine.revokedAt ||
+                        stale ||
+                        busy ||
+                        view ||
+                        signInContext.current
+                      )
+                        return;
+                      cancelRestart();
+                      // A delayed ordinary-view resume cannot coexist with this
+                      // separate privileged request context.
+                      viewContext.current.active = false;
+                      viewContext.current = { active: true };
+                      forgetView();
+                      const context = {
+                        machineId: machine.id,
+                        name: machine.name,
+                        abort: new AbortController(),
+                      };
+                      signInContext.current = context;
+                      setSignInView(context);
+                    }}
+                    onRequestView={(displayId) => {
+                      void testVideo(
+                        machines.find((machine) => machine.id === selected)!,
+                        "desktop:view",
+                        displayId,
+                      );
+                    }}
+                    onRequestControl={(displayId) => {
+                      void testVideo(
+                        machines.find((machine) => machine.id === selected)!,
+                        "desktop:control",
+                        displayId,
+                      );
+                    }}
+                    machine={machines.find(
+                      (machine) => machine.id === selected,
+                    )!}
+                    onRestart={
+                      !view || view.machineId === selected
+                        ? restartCallback(
+                            machines.find(
+                              (machine) => machine.id === selected,
+                            )!,
+                          )
+                        : undefined
+                    }
+                    onClose={() => {
+                      setSelected(null);
+                      document.getElementById(`device-${selected}`)?.focus();
+                    }}
+                    onUpdated={async () => {
+                      const result = await api<{ machines: Machine[] }>(
+                        "machines",
+                      );
+                      setMachines(result.machines);
+                    }}
+                    onRevoke={() => revoke(selected)}
+                  />
+                )}
             </div>
-            {selected &&
-              machines.find((machine) => machine.id === selected) && (
-                <ComputerInspector
-                  key={selected}
-                  stale={stale}
-                  viewEnabled={mediaEnabled}
-                  controlEnabled={controlEnabled}
-                  requesting={busy}
-                  sessionActive={view !== null}
-                  onRequestView={(displayId) => {
-                    void testVideo(
-                      machines.find((machine) => machine.id === selected)!,
-                      "desktop:view",
-                      displayId,
-                    );
-                  }}
-                  onRequestControl={(displayId) => {
-                    void testVideo(
-                      machines.find((machine) => machine.id === selected)!,
-                      "desktop:control",
-                      displayId,
-                    );
-                  }}
-                  machine={machines.find((machine) => machine.id === selected)!}
-                  onClose={() => {
-                    setSelected(null);
-                    document.getElementById(`device-${selected}`)?.focus();
-                  }}
-                  onUpdated={async () => {
-                    const result = await api<{ machines: Machine[] }>(
-                      "machines",
-                    );
-                    setMachines(result.machines);
-                  }}
-                  onRevoke={() => revoke(selected)}
-                />
-              )}
-          </div>
+          )}
           {view && (
             <LiveView
               key={view.grant.id}
@@ -1039,6 +1317,32 @@ function App() {
               }
               displayId={view.displayId}
               onSwitchDisplay={(id) => void switchDisplay(id)}
+            />
+          )}
+          {signInView && (
+            <SignInView
+              key={signInView.machineId}
+              machineId={signInView.machineId}
+              name={signInView.name}
+              signal={signInView.abort.signal}
+              onClose={closeSignIn}
+              onDesktop={(grant, transfer) => {
+                if (
+                  signInContext.current !== signInView ||
+                  signInView.abort.signal.aborted ||
+                  page !== "computers" ||
+                  view !== null
+                )
+                  return false;
+                transfer();
+                closeSignIn();
+                setView({
+                  grant,
+                  name: signInView.name,
+                  machineId: signInView.machineId,
+                });
+                return true;
+              }}
             />
           )}
         </section>
@@ -1094,7 +1398,7 @@ function App() {
           </nav>
         </>
       )}
-      {error && (
+      {error && !entryVisible && (
         <p className="error" role="alert">
           {error}
         </p>

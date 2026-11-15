@@ -21,6 +21,7 @@ struct Envelope {
     input: Input,
 }
 pub struct Authority {
+    pub last_activity: Arc<AtomicU64>,
     pub session: String,
     pub display_id: Option<String>,
     pub deadline: Option<Instant>,
@@ -120,6 +121,9 @@ async fn run(channel: Arc<dyn DataChannel>, authority: &Authority) -> Result<(),
                         continue;
                     }
                     desktop.input(&body.session_id, &body.lease_id, &body.input, Instant::now()).map_err(|_| ())?;
+                    if !matches!(body.input, Input::KeepAlive) {
+                        authority.last_activity.store(authority.epoch.elapsed().as_millis() as u64,Ordering::Release);
+                    }
                     // A clipboard read is answered only after the lease check above, at most once a second.
                     if matches!(body.input, Input::ClipboardRead) && last_clipboard.is_none_or(|at| at.elapsed() >= Duration::from_secs(1)) {
                         last_clipboard = Some(Instant::now());

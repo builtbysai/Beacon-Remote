@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
     # Fail instead of producing unsigned output when no signing certificate is available.
-    [switch]$RequireSigning
+    [switch]$RequireSigning,
+    # Deliberate separate sign-in media candidate; ordinary packages stay off.
+    [switch]$SignInMedia
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -12,10 +14,16 @@ try {
     if ($LASTEXITCODE -ne 0 -or $commit -notmatch '^[a-f0-9]{40}$') { throw 'Git build identity unavailable' }
     $nativeChanges = & git status --porcelain -- apps/windows-agent apps/windows-session crates Cargo.toml Cargo.lock
     if ($nativeChanges) { throw 'Commit and validate native changes before packaging exact-commit binaries' }
-    $output = Join-Path $root "dist\BeaconRemoteDevelopment-$($commit.Substring(0, 8))"
+    $variant = if ($SignInMedia) { '-signin-media' } else { '' }
+    $output = Join-Path $root "dist\BeaconRemoteDevelopment-$($commit.Substring(0, 8))$variant"
     if (Test-Path -LiteralPath $output) { throw "Output exists; preserve/review it before rebuilding: $output" }
+    # Keep the compiler available for the installer build after native CI restores its caller environment.
+    . (Join-Path $PSScriptRoot 'Native-Toolchain.ps1')
+    Initialize-BeaconNativeToolchain
     # Build both endpoint binaries from this exact native source before copying.
-    & (Join-Path $PSScriptRoot 'Test-RemoteCi.ps1') -NativeOnly
+    & (Join-Path $PSScriptRoot 'Test-RemoteCi.ps1') -NativeOnly -SignInMedia:$SignInMedia
+    $buildInfo = & (Join-Path $root 'target\release\beacon-remote-agent.exe') build-info | ConvertFrom-Json
+    if ($LASTEXITCODE -ne 0 -or $buildInfo.signInMedia -ne [bool]$SignInMedia) { throw 'Native sign-in feature does not match the requested package variant' }
     $names = @('beacon-remote-agent.exe', 'beacon-remote-host.exe', 'beacon-remote-session.exe')
     foreach ($name in $names) {
         if (-not (Test-Path -LiteralPath (Join-Path $root "target\release\$name"))) { throw 'Run scripts/Test-RemoteCi.ps1 -NativeOnly before packaging' }
@@ -26,7 +34,7 @@ try {
     # Sign with Beacon Remote's own certificate (ADR 0035) before anything is hashed, so the update feed's SHA-256
     # and the installer carry the signed files. The key comes from the secrets folder or BEACON_SIGNING_PFX.
     $signingScript = Join-Path $PSScriptRoot 'Beacon-Signing.ps1'
-    $signed = [bool]$env:BEACON_SIGNING_PFX -or (Test-Path -LiteralPath (Join-Path $env:USERPROFILE '.beacon\secrets\remote-codesign\beacon-remote-codesign.pfx'))
+    $signed = [bool]$env:BEACON_SIGNING_PFX -or (Test-Path -LiteralPath (Join-Path $(if ($env:BEACON_PRIVATE_DIR) { $env:BEACON_PRIVATE_DIR } else { [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..\Beacon-Secrets')) }) 'remote\signing\windows\beacon-remote-codesign.pfx'))
     if (-not $signed -and $RequireSigning) { throw 'No signing certificate (run scripts\Beacon-Signing.ps1 -Action New)' }
     $trust = "$output-trust"
     if ($signed) {
@@ -38,13 +46,15 @@ try {
     $files = foreach ($name in @('beacon-remote-agent.exe', 'beacon-remote-host.exe', 'beacon-remote-session.exe', 'Uninstall.ps1')) {
         @{ name = $name; sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $output $name)).Hash }
     }
-    @{kind = 'beacon-remote-development-v2'; commit = $commit; files = @($files)} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $output 'manifest.json') -Encoding UTF8
+    $features = @()
+    if ($SignInMedia) { $features = @('signin-media') }
+    @{kind = 'beacon-remote-development-v2'; commit = $commit; features = @($features); files = @($files)} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $output 'manifest.json') -Encoding UTF8
     Compress-Archive -Path (Join-Path $output '*') -DestinationPath "$output.zip"
     Get-FileHash -Algorithm SHA256 -LiteralPath "$output.zip" | Format-List
     # The double-click installer carries the same three programs and manifest. The zip stays the update payload.
     $env:BEACON_PAYLOAD_DIR = $output
     try { & cargo build --release -p beacon-remote-setup; if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' } } finally { Remove-Item Env:BEACON_PAYLOAD_DIR -ErrorAction SilentlyContinue; Remove-Item Env:BEACON_TRUST_DIR -ErrorAction SilentlyContinue }
-    $setup = Join-Path $root "dist\BeaconRemoteSetup-$($commit.Substring(0, 8)).exe"
+    $setup = Join-Path $root "dist\BeaconRemoteSetup-$($commit.Substring(0, 8))$variant.exe"
     Copy-Item -LiteralPath (Join-Path $root 'target\release\beacon-remote-setup.exe') -Destination $setup
     if ($signed) { & $signingScript -Action Sign -Path $setup }
     Get-FileHash -Algorithm SHA256 -LiteralPath $setup | Format-List

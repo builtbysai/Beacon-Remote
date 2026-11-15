@@ -28,6 +28,8 @@ class FileReceiver(
     /** False while sharing is paused or the session is over: offers are refused and a file in flight is dropped. */
     private val allowed: () -> Boolean,
 ) : DataChannel.Observer {
+    @Volatile var lastActivity: Long = 0L
+        private set
     private val io = Executors.newSingleThreadExecutor()
     private var current: Incoming? = null
     private var total = 0L
@@ -132,6 +134,7 @@ class FileReceiver(
             incoming.stream.write(message, 4, count)
             incoming.digest.update(message, 4, count)
             incoming.written += count
+            lastActivity = android.os.SystemClock.elapsedRealtime()
         }.onFailure { fail(incoming, "write") }
     }
 

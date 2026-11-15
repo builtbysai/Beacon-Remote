@@ -97,4 +97,17 @@ object Api {
     }
 
     class Rejected : Exception("The server no longer accepts this phone")
+    fun setAccess(identity: Identity, unattended: Boolean) {
+        val timestamp = System.currentTimeMillis()
+        val nonce = UUID.randomUUID().toString()
+        val mode = if (unattended) "trusted" else "attended"
+        val message = "beacon-remote:access:v1\n${identity.machineId}\n$timestamp\n$nonce\n$mode\n$unattended"
+        val body = JSONObject().put("version", 1).put("machineId", identity.machineId)
+            .put("timestamp", timestamp).put("nonce", nonce).put("mode", mode).put("allowControl", unattended)
+            .put("signature", identity.sign(message))
+        val request = Request.Builder().url("${identity.server}/api/agent/access").post(body.toString().toRequestBody(json)).build()
+        http.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw java.io.IOException("The server did not accept the access setting")
+        }
+    }
 }

@@ -36,6 +36,10 @@ class Identity(private val context: Context) {
         set(value) = prefs.edit().putBoolean("available", value).apply()
 
     val paired: Boolean get() = machineId.isNotEmpty() && prefs.contains("seed")
+    /** Raised only by the local setup screen. Server policy alone cannot enable capture. */
+    var unattended: Boolean
+        get() = prefs.getBoolean("unattended", false)
+        set(value) { check(prefs.edit().putBoolean("unattended", value).commit()) }
 
     /** A new key pair for pairing. The seed is stored only once the server accepts the enrollment. */
     fun newKey(): Pair<ByteArray, String> {

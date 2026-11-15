@@ -104,7 +104,7 @@ export function MfaPanel() {
         <form onSubmit={disable} className="mfa-form">
           <p>
             Two-step sign-in is on. Signing in needs your password and a code
-            from your authenticator app. Password recovery is not available yet.
+            from your authenticator app.
           </p>
           <label>
             Password
@@ -119,7 +119,9 @@ export function MfaPanel() {
             Authenticator or recovery code
             <input name="code" autoComplete="one-time-code" required />
           </label>
-          <button disabled={busy}>Turn off two-step sign-in</button>
+          <button disabled={busy}>
+            {busy ? "Turning off…" : "Turn off two-step sign-in"}
+          </button>
         </form>
       ) : secret ? (
         <form onSubmit={enable} className="mfa-form">
@@ -143,16 +145,16 @@ export function MfaPanel() {
               required
             />
           </label>
-          <button disabled={busy}>Turn on</button>
+          <button disabled={busy}>{busy ? "Turning on…" : "Turn on"}</button>
         </form>
       ) : (
         <>
           <p>
-            Add a second step to signing in. This matters more once a computer
-            allows your account to connect without asking.
+            Require an authenticator code as well as your password when signing
+            in.
           </p>
           <button disabled={busy} onClick={() => void begin()}>
-            Set up two-step sign-in
+            {busy ? "Starting setup…" : "Set up two-step sign-in"}
           </button>
         </>
       )}

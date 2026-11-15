@@ -1,5 +1,9 @@
 //! Keep the interactive helper bounded by the development agent's lifetime.
-use std::{io, os::windows::io::AsRawHandle, process::Child};
+use std::{
+    io,
+    os::windows::io::{AsRawHandle, BorrowedHandle},
+    process::Child,
+};
 use windows_sys::Win32::{
     Foundation::{CloseHandle, HANDLE},
     System::JobObjects::{
@@ -12,6 +16,10 @@ use windows_sys::Win32::{
 pub struct Job(HANDLE);
 
 impl Job {
+    pub(crate) fn handle(&self) -> BorrowedHandle<'_> {
+        // This borrow cannot outlive the owner of the non-inheritable job.
+        unsafe { BorrowedHandle::borrow_raw(self.0) }
+    }
     pub fn new() -> io::Result<Self> {
         // Unnamed, non-inheritable: the agent owns the only job handle. Windows
         // closes it even on forced termination, which also terminates helpers.

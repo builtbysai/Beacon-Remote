@@ -11,9 +11,8 @@ Android permits.
 
 ## Release key and building
 
-`scripts\Beacon-Android.ps1 -Action New` creates the release key once (RSA 3072, valid 25 years) under `%USERPROFILE%\.beacon\secrets
-emote-android`, with a
-random password beside it, both readable only by you, and never replaces an existing key. Back that folder up: Android only installs an update over an app signed
+`scripts\Beacon-Android.ps1 -Action New` creates the release key once (RSA 3072, valid 25 years) under `<BEACON_PRIVATE_DIR>/remote/signing/android`, with a
+random password beside it, both restricted to the owner, SYSTEM and Administrators, and never replaces an existing key. Back that folder up: Android only installs an update over an app signed
 with the same key, so losing it means every phone must uninstall and pair again. `-Action Info` prints its SHA-256. `-Action Build` runs the unit test and a
 release build signed from that key (the gradle build reads it from the environment; nothing secret is in the repository), verifies the signature and writes
 `dist\BeaconRemoteHost-<commit>.apk`. The Downloads page offers it when `scripts/publish-download.mjs` is given the APK and the key's SHA-256 as its

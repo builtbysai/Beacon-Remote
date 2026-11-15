@@ -1,4 +1,9 @@
-import { FileSender, type Offer, type Transfer } from "./file-transfer.js";
+import {
+  FileSender,
+  DownloadResume,
+  type Offer,
+  type Transfer,
+} from "./file-transfer.js";
 import { useEffect, useRef, useState } from "react";
 import { playForSession } from "./playback.js";
 import { viewDeadline } from "./deadline.js";
@@ -29,6 +34,8 @@ function transferLine(transfer: Transfer): string {
     ? Math.floor((transfer.sent / transfer.size) * 100)
     : 0;
   if (transfer.incoming) {
+    if (transfer.status === "interrupted")
+      return `Download interrupted: ${transfer.name}. Reconnect to resume or discard the partial copy.`;
     if (transfer.status === "receiving")
       return `Receiving ${transfer.name} · ${percent}%`;
     if (transfer.status === "done") return `Received ${transfer.name}`;
@@ -179,6 +186,7 @@ export function LiveView({
   const [fileReady, setFileReady] = useState(false);
   const [transfer, setTransfer] = useState<Transfer | null>(null);
   const [offer, setOffer] = useState<Offer | null>(null);
+  const downloads = useRef(new DownloadResume());
   // Recording happens in this browser only, and only when the person at the computer allowed it. The computer is
   // told when it starts and stops, and its sharing window says so while it lasts.
   const [recordingAllowed, setRecordingAllowed] = useState(false);
@@ -338,6 +346,7 @@ export function LiveView({
       return api(`sessions/${grant.id}/stop`, {}).catch(() => {});
     }
     function finish(reason: string, reloading = false) {
+      downloads.current.dispose();
       if (finished) return;
       finished = true;
       recoveryAbort.abort();
@@ -458,6 +467,7 @@ export function LiveView({
           {
             permissions: (allowed) => setRecordingAllowed(allowed.recording),
             recordingDenied: () => stopRecording(),
+            downloads: downloads.current,
           },
         );
         return;
@@ -686,6 +696,11 @@ export function LiveView({
               if (typeof message.paused !== "boolean")
                 throw new Error("Invalid pause");
               setPeerPaused(message.paused);
+              if (message.paused) {
+                downloads.current.clear();
+                sender.current?.cancel();
+                setOffer(null);
+              }
               break;
             case "ended":
               finish("Session ended.");
@@ -1098,7 +1113,7 @@ export function LiveView({
               className="viewer-control"
               onClick={() => sender.current?.accept(offer)}
             >
-              Save
+              {downloads.current.has(offer) ? "Resume download" : "Save"}
             </button>{" "}
             <button
               className="viewer-control"
@@ -1111,6 +1126,17 @@ export function LiveView({
         {transfer && (
           <span role="status" className="viewer-transfer">
             {transferLine(transfer)}
+            {transfer.status === "interrupted" && (
+              <button
+                className="viewer-control"
+                onClick={() => {
+                  downloads.current.clear();
+                  setTransfer(null);
+                }}
+              >
+                Discard partial copy
+              </button>
+            )}
             {(transfer.status === "sending" ||
               transfer.status === "waiting" ||
               transfer.status === "receiving") && (

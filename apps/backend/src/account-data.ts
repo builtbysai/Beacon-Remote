@@ -1,4 +1,5 @@
-// Export and deletion of an account's own data. Both need the password again (and the second step when it
+// Read-only account identity, plus export and deletion of an account's own data.
+// Export/deletion need the password again (and the second step when it
 // is on), so a stolen browser session alone cannot take the data or erase the account.
 import { verify } from "@node-rs/argon2";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -25,6 +26,20 @@ export function registerAccountData(
   clearSession: (reply: FastifyReply) => void,
 ) {
   const limit = { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } };
+
+  app.get("/api/account", async (request, reply) => {
+    reply.header("Cache-Control", "no-store");
+    const account = await owner(request);
+    if (!account) return reply.code(401).send({ error: "Sign in required" });
+    const result = await pool.query(
+      `SELECT email,created_at AS "createdAt",guest_expires_at AS "guestExpiresAt"
+       FROM accounts WHERE id=$1`,
+      [account],
+    );
+    if (!result.rows[0])
+      return reply.code(401).send({ error: "Sign in required" });
+    return result.rows[0];
+  });
 
   // Resolves to the account id when the caller proves who they are again, otherwise sends the error.
   async function reauthenticate(

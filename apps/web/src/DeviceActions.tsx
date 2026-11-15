@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Machine } from "@beacon-remote/protocol";
 import { api } from "./api.js";
 
@@ -10,15 +10,25 @@ export function DeviceActions({
   machine,
   onRevoke,
   onChanged,
+  onRestart,
 }: {
   machine: Machine;
   onRevoke: () => Promise<void>;
   onChanged: () => Promise<void>;
+  onRestart?: (previousInstance: string | null) => void;
 }) {
   const [asking, setAsking] = useState<Action | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  const [reconnect, setReconnect] = useState(true);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   if (machine.uninstalledAt)
     return (
@@ -42,13 +52,15 @@ export function DeviceActions({
     try {
       if (action === "revoke") await onRevoke();
       else {
-        const result = await api<{ online?: boolean }>(
-          `machines/${machine.id}/${action}`,
-          {},
-        );
+        const result = await api<{
+          online?: boolean;
+          hostInstanceId?: string | null;
+        }>(`machines/${machine.id}/${action}`, {});
+        if (action === "restart" && reconnect && mounted.current)
+          onRestart?.(result.hostInstanceId ?? null);
         setNote(
           action === "restart"
-            ? "Restart requested. The computer shows a 30-second countdown its user can cancel. Everything open on it is closed; it comes back once Windows has started and someone is signed in."
+            ? "Restart requested. The person at the computer can cancel Windows’ 30-second countdown."
             : action === "disconnect"
               ? "Any active session was ended. The computer stays available."
               : result.online
@@ -78,7 +90,7 @@ export function DeviceActions({
     },
     restart: {
       label: "Restart computer…",
-      text: "Restart this computer in 30 seconds? Any session ends and unsaved work on it can be lost. Windows shows a countdown the person there can cancel. It reconnects after the restart once Windows is signed in, because Beacon Remote runs in a signed-in session.",
+      text: "Restart in 30 seconds? This ends active sessions and can lose unsaved work. The person at the computer can cancel Windows’ countdown.",
       go: "Restart",
     },
     uninstall: {
@@ -118,6 +130,22 @@ export function DeviceActions({
       {asking ? (
         <>
           <p>{copy[asking].text}</p>
+          {asking === "restart" && onRestart && (
+            <label>
+              <input
+                type="checkbox"
+                checked={reconnect}
+                disabled={busy}
+                onChange={(event) => setReconnect(event.target.checked)}
+              />
+              Reconnect automatically when this computer returns
+              <span className="field-help">
+                {" "}
+                Uses current permissions. Windows sign-in access must be enabled
+                separately.
+              </span>
+            </label>
+          )}
           <div className="actions">
             <button disabled={busy} onClick={() => void run(asking)}>
               {copy[asking].go}

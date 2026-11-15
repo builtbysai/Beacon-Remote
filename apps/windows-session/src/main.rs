@@ -8,7 +8,7 @@ mod clipboard;
 #[cfg(windows)]
 mod consent;
 #[cfg(windows)]
-mod encoder;
+use beacon_remote_session::{encoder, pixels};
 #[cfg(windows)]
 mod files;
 #[cfg(windows)]
@@ -25,8 +25,6 @@ mod media;
 mod native_ui;
 #[cfg(windows)]
 mod pause;
-#[cfg(any(windows, test))]
-mod pixels;
 #[cfg(any(windows, test))]
 mod renewal;
 

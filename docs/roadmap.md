@@ -1,403 +1,383 @@
 # Beacon Remote delivery roadmap
 
-## Where it stands (2026-10-13)
+The [completion checklist](completion-checklist.md) is the current tracker for
+the full-roadmap goal; dated sections below preserve scope and historical evidence.
 
-The product described by ADRs 0021 to 0029 is built, merged to main and deployed at `remote.builtbysai.com` with
-sessions, remote control and the dedicated relay enabled. The phases below set priority, not order: work on any
-independent item, and when one needs a real device, a certificate or an owner decision, record the blocker and move on.
-The section under the line is the earlier milestone record, kept for history; where it conflicts with this one, this one wins.
+Updated November 11, 2026 against the current checkout, approved product design,
+unattended decisions and the owner's latest UI/account-reset request. The GitHub
+inventory below is dated historical evidence, not a new live review.
+Implementation, automated checks, physical acceptance and hosted release are
+separate facts. The initial owner assessment was roadmap-only; subsequent local
+development checkpoints are recorded below. No UI or application release has
+been deployed, and the previously executed database reset must not be repeated.
 
-Each feature is tracked on five facts. **Impl** the code exists. **Integ** it is wired into the product end to end.
-**Valid** it was checked on a real device or a real stack, not only by unit tests or CI. **Rel** it is in the deployed
-product. **Block** an actual external dependency. A dash means no, a tick means yes. Never mark a box because code exists.
+Current November 10 source connects sign-in video/input, supported secure
+attention requests, worker retirement, fresh desktop handoff and automatic
+restart entry. Synthetic browser journeys and control-plane checks passed;
+actual Windows behavior remains unaccepted and readiness disabled. The host now
+has separate sign-in setup/repair/status/Disable/removal controls, and signed
+local Disable invalidates pending/issued handoffs on the backend. Native and
+control-plane checks passed. Read-only unpaired native rendering/keyboard review
+now passed; paired/error/narrow/DPI and physical review remain. Readiness/preflight is now
+connected behind default-off native/backend gates; both build variants passed.
+Repair service preserves Disable and backend binding, with explicit Enable kept
+separate. Candidate packaging checks capability and remains unrun/unreleased.
+Bounded crash recovery and protected-service drift/repair handling are implemented
+locally, with both native variants passing November 11; actual SCM/install/upgrade/
+rollback behavior remains unaccepted. Appearance revision now has local browser
+evidence. Minimalist Downloads now has synthetic-manifest/browser evidence;
+Settings and email revisions now have local source and rendered/automated
+evidence; pairing now has local status/cancellation/completion evidence, with additive
+migration 029 pending deployment. The remaining journey review follows. Use the checklist
+for current gaps; dated prerequisite
+notes below are historical, not instructions to rebuild completed components.
 
-### Phase 1: finish the existing product
+## November 8 owner review: completion plan
 
-| Feature                                                                                                                                                         | Impl | Integ | Valid                                                                                                                                       | Rel                     | Block / note                                                                                             |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------- |
-| Access modes: attended, trusted, support codes, remembered helpers (0021, 0023, 0024, 0027)                                                                     | ✓    | ✓     | ✓                                                                                                                                           | ✓                       |                                                                                                          |
-| Open-ended sessions, auto-reconnect, immediate revocation                                                                                                       | ✓    | ✓     | ✓                                                                                                                                           | ✓                       | Interruption matrix on real devices still open                                                           |
-| Remote control: mouse, keyboard, shortcuts, scroll, touch and trackpad, paste and copy                                                                          | ✓    | ✓     | ✓                                                                                                                                           | ✓                       |                                                                                                          |
-| Two-step sign-in, recovery codes, operator password recovery (0025, 0026)                                                                                       | ✓    | ✓     | ✓                                                                                                                                           | ✓                       |                                                                                                          |
-| Windows host: pairing, start at sign-in, tray, signed updates with rollback (0022, 0028)                                                                        | ✓    | ✓     | ✓                                                                                                                                           | ✓                       |                                                                                                          |
-| Native consent, sharing and host windows with Pause (0029)                                                                                                      | ✓    | ✓     | ✓                                                                                                                                           | ✓                       |                                                                                                          |
-| Screenshots preserved with a manifest and README (`scripts/shot.mjs`)                                                                                           | ✓    | ✓     | ✓                                                                                                                                           | ✓                       |                                                                                                          |
-| Design: direction and Computers list                                                                                                                            | ✓    | ✓     | ✓                                                                                                                                           | ✓                       | `design/DIRECTION.md`                                                                                    |
-| Design: Sessions, inspector header                                                                                                                              | ✓    | ✓     | ✓                                                                                                                                           | ✓                       |                                                                                                          |
-| Design: Assist, Activity, landing, sign-in, settings, downloads, pairing, viewer overlays, tray and host surfaces                                               | –    | –     | –                                                                                                                                           | –                       | Audit and rollout in progress; one screen at a time                                                      |
-| Adaptive video quality (five tiers from receiver reports and encode cost)                                                                                       | ✓    | ✓     | loopback: reached 1080p30 at about 0.9 core                                                                                                 | ✓                       | Constrained and relay-only links need real devices                                                       |
-| Hardware H.264 encoding (graphics card) with automatic fallback to software                                                                                     | ✓    | ✓     | this PC (Intel Iris Xe): 1080p30 at 0.56 cores vs 0.87 in software, Chrome decoded it with no loss                                          | ✓ in published builds   | Other GPUs (NVIDIA, AMD) untested; fallback is automatic and `BEACON_SOFTWARE_ENCODER=1` forces software |
-| Cursor shape, multi-monitor switching during a session                                                                                                          | –    | –     | –                                                                                                                                           | –                       |                                                                                                          |
-| Double-click Windows installer, uninstall that removes credentials (0030)                                                                                       | ✓    | ✓     | sandboxed profile and the published exe                                                                                                     | ✓                       | Unsigned. Graphical wizard not built                                                                     |
-| Authenticode signing: free self-signed certificate, one-time trust in the installer, trust script for other devices (0035)                                      | ✓    | ✓     | signatures and sandbox install checked; administrator import not yet run on a real machine                                                  | ✓ published 2026-10-14  | Unknown publisher remains for people who do not opt in; a public certificate is optional later           |
-| Tray notification for incoming requests (who, view or control, whether approval is needed); the consent window stays the real request                           | ✓    | ✓     | unit-tested text and signal; not yet seen on a real desktop                                                                                 | –                       | Respects Focus Assist; ships with the next host build                                                    |
-| Public sign-up, email confirmation and password recovery by email (0032)                                                                                        | ✓    | ✓     | production 2026-10-14: sign-up accepted and the confirmation mail was sent; the confirm click and a recovery mail not yet exercised by hand | ✓ 2026-10-14            | Open to anyone; shares the Resend free limit (100 mails a day) with Beacon View                          |
-| Account data export and deletion                                                                                                                                | ✓    | ✓     | local fixture                                                                                                                               | ✓                       | Needs password (and code) again                                                                          |
-| Abuse limits beyond per-route rate limits: pending pairing codes (10), computers per account (50), helpers per computer (20)                                    | ✓    | ✓     | backend test                                                                                                                                | ✓ production 2026-10-14 | Guest accounts are already bounded by support codes                                                      |
-| Account data export and deletion                                                                                                                                | ✓    | ✓     | local fixture                                                                                                                               | ✓                       | Needs password (and code) again                                                                          |
-| Accountless guest support (migration 012)                                                                                                                       | ✓    | ✓     | backend test; UI error path                                                                                                                 | ✓                       | Not yet run end to end with a real code on a real device                                                 |
-| Accessibility and reduced-motion audit of the Remote web app                                                                                                    | ✓    | ✓     | axe-core: zero violations, light, dark and 375 px                                                                                           | ✓                       | Screen-reader pass by hand not done                                                                      |
-| Weekly restore drill of the latest encrypted backup (0 findings on first run)                                                                                   | ✓    | ✓     | ✓ on production (restored, schema matched live)                                                                                             | ✓                       | Alerts on failure need the Resend key; failures are in the journal until then                            |
-| Plain-language advice for a poor session in Sessions (loss, delay, relay, frame rate) from the measured numbers                                                 | ✓    | ✓     | unit test                                                                                                                                   | –                       | Encoder, relay status and reconnect counts are not measured yet                                          |
-| Hardware encoder selection is by capability, not GPU vendor; acceptance procedure for NVIDIA, AMD, older Intel and no-GPU computers (docs/hardware-encoding.md) | ✓    | ✓     | Intel Iris Xe only                                                                                                                          | –                       | NVIDIA and AMD need the hardware; do not claim them untested                                             |
-| Measured connection quality per session (route, resolution, fps, round trip, loss) in Sessions                                                                  | ✓    | ✓     | local fixture; fps and resolution need a visible browser tab                                                                                | ✓                       | Gives real-device acceptance numbers without extra effort; see docs/acceptance-checklist.md              |
-| Relay quota alerting and server health alerts for Remote (mail after two failures, recovery notice; deployment.md)                                              | ✓    | ✓     | forced-failure mail test on production                                                                                                      | ✓ 2026-10-14            | Cannot report that the whole server is down                                                              |
-| Real-device acceptance: sustained load, Wi-Fi to mobile data, sleep and resume, relay-only, lock/UAC                                                            | –    | –     | –                                                                                                                                           | –                       | Blocked: needs the owner's devices                                                                       |
+**Full unattended access is not complete.** Ordinary signed-in Windows standing
+access and Android's locally enabled accessibility path exist. Initial Windows
+sign-in control has initial native H.264/RTC/input wiring but still lacks the
+integrated browser flow, complete visible session/Stop integration and fresh
+ordinary-desktop handoff.
+Backend authority, protected service/worker lifecycle, capture/input adapters,
+lease discovery/revalidation/delivery and initial controller-label acknowledgement
+exist in local source. Readiness remains false. Passing source checks do not prove
+SYSTEM secure-desktop behavior, device acceptance or hosted availability.
 
-### Phase 2: complete remote support
+The initial native signaling client now has passing loopback wire regressions
+and warning-denied agent Clippy. The previously incomplete fixture is finished;
+it independently verifies the worker proof, negotiation and scope-Stop closure.
+Wrong-scope/binary messages also end authority over real sockets. This client
+does not itself connect the media gate. The new separate native media runner
+consumes signaling and gates capture/input on actual RTC Connected; browser and
+positive SYSTEM/media checks remain open. Full native CI is tracked in
+development status. Nothing in
+this checkpoint enables readiness or resumes device testing.
 
-| Feature                                                                                                                                                                                         | Impl | Integ | Valid                                                                                                                       | Rel                     | Block / note                                                                                                                                                                            |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ----- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| File transfer both ways: viewer to computer (choose or drop) and computer to helper (Send a file…, helper must Save); trusted-account setting; progress, cancel, checksum (0031)                | ✓    | ✓     | loopback through the real consent window, host window, file dialog and the trusted path: hash, name safety, Mark of the Web | ✓ (build ee25f718)      | Resend after interruption and streaming of files over 512 MB to the browser not built; trusted setting is local only                                                                    |
-| Session recording by the helper, announced on the computer, only with its consent (0033)                                                                                                        | ✓    | ✓     | loopback: Record, host indicator on and off, gating without the box                                                         | ✓ in published builds   | Saved on the helper's device; no server storage, encryption at rest or in-app playback                                                                                                  |
-| Disconnect now, revoke and uninstall-and-remove for a computer, with an offline instruction that waits 30 days for the computer's own signed heartbeat (0039)                                   | ✓    | ✓     | backend test; agent removes its identity on a local fixture                                                                 | –                       | Installed-copy uninstall dialog and offline-then-online delivery need a real PC                                                                                                         |
-| Automatic acceptance runner for two computers (technician over the API, the person's computer over SSH): scenarios for support end, crash, restart, time limit, consent, chat (docs/testing.md) | ✓    | ✓     | seven scenarios pass on one PC against a local server                                                                       | –                       | Needs the second computer with OpenSSH Server                                                                                                                                           |
-| Support workflow: chat with the person, private notes, session history, handoff to another team technician (0040)                                                                               | ✓    | ✓     | backend test; chat both ways and the window verified by the device acceptance runner on this PC                             | –                       | Handoff and the web panel not yet tried with two real accounts; no chat for permanently installed computers                                                                             |
-| Switch displays during a session (each display approved separately) and a single, true remote cursor (0041)                                                                                     | ✓    | ✓     | typecheck and web tests; needs a computer with a second monitor                                                             | –                       | No multi-display consent choice or previews yet                                                                                                                                         |
-| Resume an interrupted upload after a reconnect, verified by hash, only within the same session (0031 update)                                                                                    | ✓    | ✓     | Rust and web unit tests; not yet run through a real reconnect                                                               | –                       | Uploads only; downloads to the viewer do not resume                                                                                                                                     |
-| Receive files over 512 MB in the browser by streaming to a chosen file, discarded unless the checksum matches (0031 update)                                                                     | ✓    | ✓     | unit test with a fake disk; real multi-GB transfer not yet run                                                              | –                       | Chrome and Edge only; resume of interrupted transfers not built                                                                                                                         |
-| One-click temporary support: link, download page with platform picker, approval, temporary computer, automatic cleanup (0038)                                                                   | ✓    | ✓     | local fixture on Windows: claim, consent window, end by either side, crash, time limit, cleanup                             | –                       | Survives window crashes and restarts (supervisor, 0038). Real second PC, SmartScreen behaviour and the signed installer download not yet exercised; Linux and Android clients not built |
-| Teams: technicians and viewers for all computers or one group, kept in step as computers change (0037)                                                                                          | ✓    | ✓     | backend test: add, scope, role, group change, new computer, revoke, remove                                                  | ✓ production 2026-10-14 | Not an organisation: no shared admin or team-wide policy                                                                                                                                |
-| Wake-on-LAN: an offline computer is woken by another of the owner's online computers on the same network (0042)                                                                                 | ✓    | ✓     | backend test; the agent reports this PC's cards; no sleeping computer woken yet                                             | –                       | Needs a second computer and a network card set to wake on a magic packet                                                                                                                |
-| Remote restart of a trusted computer with a visible, cancellable 30-second countdown (0043)                                                                                                     | ✓    | ✓     | backend test; the instruction path only, no real restart yet                                                                | –                       | Needs a second PC; no automatic session resume                                                                                                                                          |
-| Share the computer's sound (loopback, Opus) only when the person ticks it, separate from view and control, shown in the indicator, with a Sound toggle in the viewer (0044)                     | ✓    | ✓     | real browser on this PC: a sound track and button arrive only when ticked                                                   | –                       | Listening quality and a computer playing real audio not yet judged by ear; trusted sessions carry no sound                                                                              |
-| Session diagnostics: encoder, relay status, reconnect counts                                                                                                                                    | –    | –     | –                                                                                                                           | –                       |                                                                                                                                                                                         |
+November 9: a browser reservation/renewal lifecycle and strict shared response
+schemas now connect to a separate browser signaling/media/input viewer, short
+lifecycle timer and inspector entry. Protocol/cancellation regressions and a real
+Chrome synthetic RTC walkthrough passed; screenshots cover desktop/phone/short
+landscape. Restart entry, supported secure attention, persistent Disable failure
+handling and fresh ordinary-host handoff remain unfinished. The real backend/
+native readiness gates remain false. See development status for full checks;
+browser fixtures do not establish SYSTEM or physical-device acceptance.
 
-### Phase 3: cross-platform expansion
+The subsequent local Disable pass now forwards failed saves over private IPC,
+latches supervisor revocation and separates pending cleanup from durable
+confirmation. A responsive Retry-only worker is retained after media cleanup
+while persistence fails; unconfirmed/stalled cleanup is bounded and terminated.
+This closes the ordinary save-failure/relaunch source path. Actual SYSTEM
+service, disk-fault/recovery and reboot evidence remain open, and no durable
+success is claimed while storage is unwritable. Secure attention, restart entry
+and fresh ordinary-host handoff remain implementation work.
 
-A shared protocol and backend, built up progressively. Beacon View's credentials, permissions and databases stay separate.
+The next November 9 checkpoint adds the viewer's fixed Ctrl+Alt+Delete request,
+tracked-input release, bounded native mailbox and authenticated private forwarding.
+The service revalidates backend/local authority before the supported Windows
+`SendSAS` call, using only its own worker token for console targeting. Explicit
+service-allowing Windows policy is required and is never rewritten by this path.
+Browser feedback distinguishes invocation from delivery. Source/browser checks
+are recorded in development status; actual SYSTEM/policy/session targeting and
+delivery remain unaccepted. Restart entry and fresh ordinary-host handoff remain
+implementation work. Readiness/public connectability remain false.
 
-| Feature                                                                                                                                                                  | Impl | Integ | Valid                                                                                                    | Rel | Block / note                                                                                                                                                                                                                           |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---- | ----- | -------------------------------------------------------------------------------------------------------- | --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Controller: any modern desktop browser                                                                                                                                   | ✓    | ✓     | ✓                                                                                                        | ✓   | Chrome verified; Safari, Firefox, Chromebook not yet                                                                                                                                                                                   |
-| Controller: Android phone and tablet (web)                                                                                                                               | ✓    | ✓     | ✓                                                                                                        | ✓   | Native Android controller not started                                                                                                                                                                                                  |
-| Host: Android: view and control (MediaProjection, AccessibilityService, foreground services; 0034, 0036), receiving files, rotation, tablet and TV installability (0045) | ✓    | ✓     | emulator only (receive a file with a matching hash, rotate, view); no real phone, TV or Android below 10 | –   | Real phone, audio, multi-touch, sending files from the phone, signed release APK builds (scripts/Beacon-Android.ps1) and installs on the emulator; not yet published on the Downloads page; not on Play (docs/android-distribution.md) |
-| Host: Linux (X11 and Wayland), Raspberry Pi, Android TV                                                                                                                  | –    | –     | –                                                                                                        | –   | macOS and iOS are out of scope                                                                                                                                                                                                         |
+The following handoff pass adds ordinary-host console binding: signed heartbeat
+v3, additive migration 027, verified inventory metadata and optional exact host
+pins on fresh owner-policy desktop grants. Host/console change or legacy
+downgrade permanently ends those pinned grants; normal ordinary requests retain
+their existing behavior. PostgreSQL and loopback WebSocket regressions exercise
+the boundary. Confirmed worker teardown/unlock attestation, browser-bound
+transition/Stop behavior, fresh-grant orchestration and restart entry remain
+implementation work. This source prerequisite does not enable handoff or raise
+readiness. See development status for current validation/rollout requirements.
 
-### Phase 4: advanced capabilities
+Native worker retirement now has a final private challenge/reply and process
+exit confirmation, preserving final local Disable requests and preventing new
+authority while draining. Owned-child/pipe and UI-thread regressions cover
+cleanup failure, mismatched identity, crash and forced termination. This adds
+the local teardown evidence needed for handoff; scoped unlock attestation,
+exact-browser transition/cancellation and fresh ordinary-grant orchestration
+remain unfinished. No real-device/readiness gate was raised.
 
-| Feature                                                                                                                                                                             | Impl | Integ | Valid                                                                                            | Rel | Block / note                                                                                              |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ----- | ------------------------------------------------------------------------------------------------ | --- | --------------------------------------------------------------------------------------------------------- |
-| Computer groups (one owner label per computer, filter and search)                                                                                                                   | ✓    | ✓     | backend test; list and inspector exercised on the fixture                                        | ✓   | Roles, permission policies, audit history and organisations not built                                     |
-| Groups, roles, permission policies, audit history, organization management                                                                                                          | –    | –     | –                                                                                                | –   |                                                                                                           |
-| Self-hosted deployment: Compose bundle (PostgreSQL, backend, website with automatic HTTPS, TURN), first-admin link, secrets, backup/restore, update/rollback (docs/self-hosting.md) | ✓    | ✓     | brought up from nothing locally with a localhost domain: health, first-admin, backup and restore | –   | Not yet on a real VPS with a real domain and open UDP ports; installers carry a build-time default server |
-| MCP and computer-use integration over the existing view and input core                                                                                                              | –    | –     | –                                                                                                | –   | Explicit authorization, bounded capability, visible state, immediate revocation                           |
-| Further performance work from measured bottlenecks                                                                                                                                  | –    | –     | –                                                                                                | –   |                                                                                                           |
+The original approved idea is one coherent product: browser workspace,
+Windows/Android host setup and pairing, owner unattended access, attended/guest
+support with visible control, reliable reconnect and a consistent interface.
+The approved [design specification](../design/prototype/DESIGN_SPEC.md) and
+[ADRs 0047](decisions/0047-unattended-owner-access.md)/
+[0048](decisions/0048-boot-login-and-restart.md) define that scope. Automation/Motive
+is a later requested milestone; the unmerged view-only MCP work does not deliver
+full computer use. Working features must be preserved during the redesign.
 
----
+### Execution order when the owner resumes development
 
-## Earlier milestone record
+1. **Finish the reset follow-through.** The four database resets, recovery
+   verification and fresh private local test identity are already recorded.
+   Finish historical-copy/provider retention handling and offline endpoint
+   refusal/re-enrollment evidence. Do not wipe the new baseline again. Rotate or
+   delete fresh temporary identities and their private records at completion.
+2. **Finish unattended implementation.** Connect authenticated sign-in signaling,
+   encoder/video/input and browser controls; integrate controller identity,
+   local Stop, expiry, peer loss, input cleanup acknowledgement and frame discard.
+   Implement supported secure attention where required and fresh-policy handoff
+   to the enrolled user's host. Preserve Windows authentication and account
+   boundaries. Complete honest boot/restart/sign-in/reconnect statuses.
+3. **Deliver the UI/email revision as one coherent pass.** Start with shared
+   appearance/components, then Downloads and Settings, then remaining journeys
+   and outgoing email. Use the concrete scope and acceptance criteria below;
+   implement against real state, not prototype success placeholders.
+4. **Review and integrate exact source.** Recheck open branches/PRs, reconcile
+   #113, prepare the unattended implementation PR, review dependency/security
+   updates and current CI, and remove contradictory historical status copy from
+   README/setup/help. Do not silently merge stale lockfiles or delete branches.
+5. **Resume acceptance after development is ready.** Full app walkthrough,
+   fresh-account email flows, Windows/Pixel, sign-in/handoff/reboot/recovery,
+   installation/upgrade/uninstall and actual direct/relay/separate-network tests.
+   Then review matching migrations 023–026, signed artifacts and rollback for an
+   intentional release. No current local change has been deployed.
+6. **Take later milestones separately.** Live consented MCP/computer-use/Motive,
+   other host platforms and richer organisation administration remain distinct
+   work; they must not be represented as shipping capabilities.
 
-Updated 2026-10-12 after the public-source security review, restored hosted CI
-and attended-consent lifecycle work. Earlier PR #8/#9 media, interface, relay
-and owner mobile-data evidence remains recorded below. See
-[Claude handoff](CLAUDE_HANDOFF.md).
+### Design, UI and UX revision
 
-Latest owner acceptance: the PR #25 native pair passed the guided real-device
-Decline/Escape, pending cancellation/re-request, manual desktop viewing and local
-Stop sequence, plus keyboard Stop. An updated bounded fixture subsequently passed
-owner-confirmed sign-in and automatic expiry: video ended and the Windows Stop
-window closed after two minutes. The owner also confirmed Windows lock ended
-viewing and reconnecting required a fresh session. Pending-prompt lock/expiry,
-route/performance and updated UI acceptance still remain; media release acceptance remains open. See [the consent validation](consent-validation-2026-10-12.md).
+The owner supplied `C:/Users/Saiha/Downloads/Universal_UI_Responsiveness_Viewport_Standards.md`
+as a design reference. Its relevant criteria are captured here so future goal
+runs do not depend on the attachment or this chat. The requested deliverable for
+this pass is the roadmap; the redesign itself remains queued.
 
-The viewer recovery follow-up aligns browser peer-loss handling with the native
-helper: allow a brief disconnected state to recover on the same approved peer;
-failed/closed peers and sustained loss still end the request. Playback
-results are scoped to the original session lifetime so a late manual Play result
-cannot replace an ended status. Actual device/network interruption acceptance
-remains required; these guards do not complete milestone 4.
+| Surface        | Required change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Completion evidence                                                                                                                                                                                                                                                                                         |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Appearance     | Replace the current `theme-trigger` treatment with a quiet, consistent appearance control. Use a compact theme icon button in the header and a small anchored Light/Dark/System selector with a clear selected state; expose the same three-way choice directly in Settings. Remove repeated explanatory rows and decorative chevrons where they add no value. Preserve persisted preference, live OS-theme changes, keyboard/radio semantics, Escape/focus return and an accessible current-value name. | Real interaction in light/dark/system, OS theme changes, storage unavailable, keyboard/screen reader, forced colors and narrow/short viewports; no clipped popover or theme flash.                                                                                                                          |
+| Downloads      | One short title and concise Windows/Android choices, each with a clear download action and platform/version/size metadata from the real release manifest. Place setup, checksum, signing/trust and alternate-package detail behind purposeful disclosure or a setup guide. Remove repeated paragraphs, onboarding essays and prominent command/hash blocks. Keep one brief truthful trust warning when necessary; never replace trust verification with blanket instructions to bypass warnings.         | Both published/unavailable/loading/error states, actual artifact links and metadata, readable optional verification details, desktop/mobile screenshots and working keyboard/touch. Public and workspace Downloads use the same components.                                                                 |
+| Settings       | Replace the stacked panel collection with clear Appearance, Account, Security & sessions, Team/access and Data & deletion sections. Use restrained section navigation on wide screens and simple accessible navigation/stacking on phones. Group related controls in aligned rows, use brief contextual help, show saving/saved/error beside the affected control, and visually separate destructive actions. Keep computer-specific permissions with the computer.                                      | Real settings persist; MFA, recovery/session revocation, team roles, export and deletion remain reachable and functional. Long content, errors, browser zoom and virtual keyboards do not obscure actions or trap scrolling.                                                                                |
+| Outgoing email | Inventory every mail-producing path, including operational alerts separately from account mail. Account confirmation and password reset currently send plain text only. Add a shared restrained Beacon Remote HTML template plus equivalent plain text: recognizable sender, concise subject/preheader, one primary action, honest expiry, fallback URL and short security footer. No tracking pixels, remote-font dependence, decorative marketing blocks or exposed credentials in previews/logs.      | Escaped content/URLs, unchanged one-use token/expiry behavior, local previews using dummy tokens, narrow/light/dark/images-off rendering and real fresh-account confirmation/reset delivery. Exercise expired, used and failed-send states. Operational alerts retain all necessary diagnostic information. |
+| Entire product | Review public/auth/pairing, Computers/inspector, Sessions/viewer, Assist, Activity and native/Android surfaces against the approved V6 language. Use consistent typography, spacing, icons, buttons, form labels and interaction feedback. Remove redundant copy and repeated card wrappers; do not fill space with generic dashboard widgets, gradients or decorative status. Show real offline, revoked, pending, reconnecting, loading, empty and error states.                                       | End-to-end journeys with actual backend/native state, screenshots reviewed for hierarchy and usability, keyboard/touch/screen-reader/reduced-motion checks and no removal of working capabilities.                                                                                                          |
 
-The owner then tested refresh: it disconnected, but they explicitly requested
-that a reload keep an active authorization. The reload follow-up preserves the
-original login/approval/deadline through a short transport-recovery window with
-capture stopped while absent. Stop/lock/logout/revoke/restart still end access.
-The owner confirmed video returned after refresh on the matching fixture, but
-reported noticeable delay and a failed later connection. Reliability acceptance
-has not passed. Renewal now continues independently of media rebuild/cleanup,
-the recovered peer clears its disconnect timer, and cleanup runs concurrently.
-Matching acceptance of this corrective change remains pending. See
-[ADR 0015](decisions/0015-active-viewer-reload-recovery.md).
+Use layouts suited to each screen: stable flexible workspace regions, natural
+scrolling for public content and grouped settings/forms. Account for width AND
+height, split windows, safe areas, long identifiers and virtual keyboards. Use
+intrinsic Grid/Flex sizing and scoped scrolling; no global overflow hiding,
+arbitrary minimum-height stacks, compressed text or hidden controls to force fit.
 
-The next owner test again showed an unreliable second connection and roughly
-ten-second startup. Native offer setup was 4–12 ms and cleanup 24–41 ms, so the
-unmeasured network/ICE/first-frame portion remains the latency target. The viewer
-now attempts bounded replacement of a failed peer within the original approval;
-candidate pooling prepares browser ICE during the consent wait. Native ICE
-stages, error codes and first-packet timings support diagnosis. A sub-second
-connection target is not verified, and two-minute attended grants remain in
-force. Remembered personal-device authorization still belongs to the explicit
-setup in milestones 6–7; it is not inferred from one attended Allow.
+Review representative 1920×1080, 1440×900, 1366×768, 1280×720, 1024×768,
+768×1024, 390×844, 360×640 and 844×390 viewports, plus the approved design's
+320px width. Include browser zoom/enlarged text, menus/dialogs, expanded content,
+long labels, error states and orientation changes. Verify actual rendered output
+and interactions; an overflow test or screenshot at one size is insufficient.
+Accessibility, functionality and content access take priority over avoiding
+scrollbars. Record any untested platforms honestly.
 
-Viewer expiry also bounds the initial remaining lifetime with a monotonic clock,
-so rolling the system clock backward during a session cannot defer local cleanup.
-Server/native leases remain authoritative. Updated real-device automatic expiry
-passed; browser sleep/resume acceptance remains open.
+### Requested clean-slate account/data reset
 
-Pending viewer requests are also scoped to the original page/sign-in context.
-Late responses after navigation or sign-out cannot open a viewer; obsolete
-grants get a best-effort Stop attempt. Actual browser/prompt acceptance and the
-original expiry fallback remain relevant after authentication or network loss.
+November 8 execution checkpoint: [the reset record](account-reset.md) now records
+the committed reset of all four databases after independent encrypted recovery,
+passing current/legacy regressions, empty-store checks and refusal of both old
+production logins. Current obsolete credential records/canonical dumps and known
+plaintext staging copies were removed with hash/path guards. Fresh local test
+credentials follow the clean baseline. Historical backup/provider/server
+artifacts and offline endpoint refusal/re-enrollment remain open; do not repeat
+the account wipe against fresh identities while finishing those gates.
 
-The owner requested compact, polished Windows host surfaces with concise copy
-and a later one-time trusted-device setup. Current milestone 4 work simplifies
-the consent/Stop windows and shows actual remaining grant time. Full approved
-native host design belongs with milestone 6 and the ongoing UX track. Plan an
-explicit owner setup choice for remembered personal devices, durable device
-authorization and revocation in milestones 6–7; keep guest support attended and
-view/control scopes separate. Do not reuse attended approval or a browser cookie
-as permanent desktop permission. The owner also requested recovery after restart
-and unlock in that remembered mode. See [the access-mode decision](decisions/0014-personal-device-access-direction.md).
+The owner explicitly requests removal of **all existing Beacon Remote accounts
+and their associated data, including testing accounts**, with fresh accounts
+created afterwards. This supersedes the earlier instruction to retain temporary
+test identities until full completion. The initial roadmap-only update queued
+the work; its subsequently executed database reset is recorded above.
 
-## Product and architecture
+- Inventory local development/test, retained acceptance and hosted Remote
+  accounts and associated computers/enrollments, browser/MFA/recovery sessions,
+  guest/support links, teams/helpers, leases, pending commands, activity and
+  account-linked files. Review cascade coverage for migration 025 and external
+  stores; deleting rows from `accounts` alone is not proof of complete erasure.
+- Before deletion, make and restore-test an independent encrypted backup as
+  required by workspace policy. Record its retention/expiry and the treatment of
+  older backups and provider-held email/log data. A recoverable backup still
+  contains data; do not claim irreversible erasure while copies remain. Prevent
+  accidental restoration/reuse of retired identities.
+- Stop/revoke active Remote authority, execute bounded environment-specific
+  deletion, and verify zero old accounts and no usable related sessions, grants,
+  invitations or enrollments. Offline devices must lose server authority and
+  require deliberate fresh enrollment; verify this on reconnection.
+- Remove obsolete Remote test-account credential records/private fixture data
+  within the verified scope, then create only the fresh identities needed for
+  testing, stored securely outside Git. Rotate/delete those at completion.
+  Preserve shared signing keys, SSH/server secrets, Windows/Android OS accounts
+  and Beacon View/Motive data. Account reset is not machine or volume cleanup.
+- Produce a sanitized per-environment result and list any retained recovery or
+  third-party copies with their deletion/expiry status. No secret values or
+  personal account list belongs in the roadmap/report.
 
-The goal is Windows computer → authenticated browser → responsive desktop
-viewing and control. The consumer journey is download, install, pair, see the
-computer online, choose Remote, and use mouse/keyboard. Network and codec details
-belong in diagnostics, not the normal setup flow. Attended access must clearly
-identify the viewer, requested permissions and local Stop control.
+### Gaps and opportunities to keep visible
 
-React/Vite provides public, account, inventory and session surfaces.
-Fastify/PostgreSQL owns account/machine authorization, presence, audit and bounded
-signaling. The Rust agent owns Ed25519/DPAPI identity; an interactive Rust helper
-owns capture and eventually input through reusable capability interfaces.
-WebRTC carries video directly where possible, with Coturn as relay fallback.
-Oracle hosts the isolated control plane, not a recording server. Beacon View
-remains an independent Android camera product, with separate credentials,
-database and permissions even when infrastructure is shared.
+| Priority                 | Gap                                                                         | Plan                                                                                                                                                                                                        |
+| ------------------------ | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Required                 | Full unattended sign-in/control/handoff is unfinished                       | Finish the integrated path and then actual SYSTEM/desktop/device acceptance; keep readiness false until supported.                                                                                          |
+| Required                 | Setup still requires too much interpretation                                | Give each platform one clear install/pair/access-policy journey, accurate permission/readiness feedback and a visible way to disable/revoke. Windows administrator and Android OS consent remain explicit.  |
+| Required                 | Implemented features lack complete real-world evidence                      | Close the acceptance backlog below, including file interruption, multi-monitor, audio, Wake-on-LAN, sleep/reconnect and relay tests.                                                                        |
+| Required                 | Current documentation mixes old release assumptions with new source         | Align README, roadmap, setup/help, download metadata and release notes with verified implementation/deployment status.                                                                                      |
+| Follow-up implementation | Download resume is missing                                                  | Implement bounded verified resume separately from already implemented upload resume; preserve streamed downloads/cancellation.                                                                              |
+| Scope to resolve         | Android multi-touch/audio, outbound phone files and TV/tablet experience    | Establish what is implemented versus required, make capability limitations visible and implement agreed platform work; do not promise lock/PIN or protected-content bypass.                                 |
+| Later                    | Full MCP/computer-use/Motive, Linux/Raspberry Pi, organisation policy/audit | Retain as separate milestones. Passkeys/OAuth, macOS/iOS hosting, terminal/general privileged commands and cloud media storage are not existing promised features; assess only under an explicit new scope. |
 
-## Evidence and current gaps
+Additional Settings opportunity: the reviewed UI/routes expose current-browser
+and expiry information plus bulk end-others, rather than individual browser
+revocation or a direct signed-in password-change flow. Evaluate those additions
+with reauthentication, useful session identification, minimal retained metadata
+and explicit invalidation behavior. Existing password recovery/MFA should remain
+intact; these are proposed improvements, not previously completed features.
 
-| Area                     | Working evidence                                                                                                  | Remaining gate                                                                                 |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Foundation               | Backend/web and native Windows builds, including local MSVC checks                                                | Keep required hosted CI green and validate fresh test databases                                |
-| Account/machine identity | Private invitations/login, actual pairing, DPAPI persistence, signed presence, restart and revoke                 | Public account lifecycle, MFA/recovery and retention/deletion                                  |
-| Capture                  | Actual attended primary-display WGC capture, snapshot interface and measurements                                  | Sustained performance, lock/display-loss behavior, broader hardware                            |
-| Media                    | Real native H.264 in Chrome, local Stop; owner confirmed Android/T-Mobile separate-network desktop viewing + Stop | Full interruption/recovery, sustained performance, broader route/hardware acceptance           |
-| Approved interface       | Real inventory/inspector/naming, activity/history/browser sessions; responsive/theme checks                       | Complete native host states, permission focus/readability feedback and backend-dependent flows |
-| Deployment               | Isolated Oracle control plane, HTTPS, encrypted backup/restore and rollback                                       | Production media/control disabled; input development slice now implemented                     |
+No numerical feature-completion percentage is justified: source implementation,
+live deployment, physical acceptance and design completion have different gates.
 
-October 12 update: the private-alpha control plane and interface were manually
-rolled out at exact `74a4e6e4d6573836c3da6dfc766b4c84c90c02e7` after local
-control-plane validation, encrypted backup/integrity, isolated restore, and
-schema/role verification. Production media remains disabled. See
-[October 12 validation](validation-2026-10-12.md). The earlier
-`ff452ffe66dd600e9a7b18d12fccc08ac970a7d6` interface release below is
-historical.
-PR #8 was merged as `d6c40c8`, PR #9 as `6d8d7496` into main. CI was
-successful at PR #9 head `0979cd1` (run 38083605846); merged code is **not**
-proof of a new deployment or production media approval.
-Local follow-up changes are not deployment evidence. A synthetic stream is not
-desktop acceptance; a local direct connection is not relay acceptance. Consent
-audit proves permission, not that a viewer decoded media.
+November 8 local development includes a separate, default-off backend sign-in
+credential/lease boundary (migration 025) and native protected installation,
+service supervision, scoped worker/IPC lifecycle and offline local disable.
+The worker Disable UI, initial guarded DXGI readback and native lease scopes
+exist in source, including rotation/cursor composition that awaits GPU acceptance.
+An initial scoped input adapter now exists with fake-sink cleanup regressions;
+initial native/browser transport and controls are now wired in source. Actual
+OS interoperability, persistent Disable failure handling and fresh desktop
+handoff remain unfinished; [the current implementation contract](signin-authority.md)
+records that boundary. Device testing is paused by owner direction while source
+development continues. [The live branch/PR review](branch-review-2026-11-07.md)
+accounts for the branches and nine open PRs at that review date. Existing temporary
+credentials now refer only to the fresh post-reset local identity. Supervisor
+lease discovery, separate signed revalidation and private worker delivery now
+exist in source; actual SYSTEM/worker acceptance remains open.
 
-## Implementation tracks and release gates
+Worker transport identity is now prepared in source: each worker keeps a fresh
+ephemeral secret and sends only its public key over private IPC. Signed v2
+supervisor presence attests that key with additive migration 026, and same-instance
+replacement/downgrade ends existing grants. Backend worker-signed/browser
+signaling is now implemented and exercised over loopback TCP with real PostgreSQL.
+The initial native signaling client now passes focused wire checks. An initial
+shared-encoder/RTC/scoped-input runner is now wired into the worker in source.
+Restart-to-sign-in entry, persistent local Disable failure handling, supported secure attention,
+adaptive sign-in quality, handoff and positive SYSTEM/physical acceptance remain
+open; readiness and public connectability are still false.
 
-Historical milestone numbers identify feature tracks, not sequential implementation
-locks. The owner's October 12 instruction authorizes independent implementation
-across input, installation, approved UI and accounts/support. Implementation
-readiness means a feature can be safely built and tested in isolation. Release
-readiness requires its own security, functional and real-device evidence.
-Unfinished media acceptance does not block independent input/installer/UI work.
-Production media and control remain disabled; no rollout is authorized by a build.
+### Completion gates for the next goal run
 
-| Milestone                              | Status                                 | Deliverable and completion gate                                                                                                                                                                                      |
-| -------------------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0 — Research/architecture              | Foundation recorded                    | Existing capture/encoding/transport decisions remain measured prototypes; refine using evidence                                                                                                                      |
-| 1 — Repository foundation              | Implemented                            | Formatting/lint/types/backend regressions and native Windows CI remain green                                                                                                                                         |
-| 2 — Identity/presence                  | Private-alpha acceptance passed        | Pair real agent, survive backend restart, expire stale presence and reject revoked identity                                                                                                                          |
-| 3 — Capture                            | Initial acceptance passed              | Visible primary-display capture and bounded snapshot path; broader hardening belongs in media/resilience gates                                                                                                       |
-| **4 — Attended WebRTC media**          | **Implemented; acceptance continuing** | Authorized direct and forced-relay real Windows/browser viewing, explicit local consent/Stop, safe loss/restart/expiry and measured behavior                                                                         |
-| 5 — Authorized input                   | Implemented; development only          | Separate view/control approval, typed DataChannels, one controller, pointer/buttons/drag/scroll/keys/modifiers, held-input release on shutdown, respect UIPI/UAC                                                     |
-| 6 — Resilient installation             | Authorized independent track           | Least-privilege service/interactive helper, restricted IPC, visible status/tray, reboot recovery, unsigned development installer, secure update/rollback design and clean uninstall; signing before consumer release |
-| 7 — Consumer account/release readiness | Authorized independent track           | Reviewed signup/email verification, MFA/recovery, credential rotation, retention/deletion, abuse limits and complete account/support flows                                                                           |
-| 8 — Production UX and reliability      | Authorized independent track           | Complete approved responsive UI, actionable lifecycle errors, accessibility and attended temporary support with distinct view/control approval                                                                       |
+- **Development ready:** finish actual peer/video/input integration, local Stop
+  persistence/failure behavior and
+  fresh-authority handoff; complete the shared theme, Downloads, Settings and
+  email work above. Check real loading/error/revoked states, rather than adding
+  more placeholder screens. Keep unsupported capabilities visibly unavailable.
+- **Design ready:** review rendered public and signed-in journeys in light,
+  dark and system appearance across the viewport matrix above. Verify hierarchy,
+  concise copy, keyboard/focus, touch, enlarged text, short windows and dialogs.
+  The current source review is not a new visual acceptance pass of the hosted
+  page; the web fetch could not inspect it in this assessment.
+- **Acceptance ready:** reconcile current source/PRs and dependency findings,
+  pass checks for the exact saved changes, prepare matching migrations and
+  signed artifacts, then resume the explicitly scheduled device walkthrough.
+- **Release ready:** demonstrate cold boot/sign-in/control/handoff, persistent
+  local disable, disconnect/expiry/input cleanup, Windows/Pixel and direct/relay
+  operation; verify upgrade, rollback, uninstall and recovery. Review the pinned
+  operational backup image update as well as application images. A green build
+  or healthy backend does not close these gates.
 
-Account lifecycle is a general-consumer release gate. It can be reprioritized by
-the owner, but unfinished recovery/MFA screens remain honestly unavailable.
-Guest support needs scoped authorization, expiration and local approval; it must
-never inherit computer access from a camera or a public support code.
+Human participation remains necessary for OS administrator/permission prompts
+where required, physical power/network scenarios that cannot be controlled from
+the available devices, intelligible audio judged by ear and final subjective
+usability review. Automate the remaining reproducible checks where supported;
+record unavailable evidence instead of inferring it.
 
-## October 12 delivery pass: input and approved inspector
+## Source and historical release checkpoint
 
-The installation follow-up adds a native per-user pairing/status window and tray,
-real signed presence, shared GUI/CLI identity locking, Start/Stop and graceful
-helper cancellation through a private anonymous child pipe. Installer v2 opens
-the native Host directly. Service/session-0 IPC, logon/reboot startup and signed
-updates remain unbuilt. Web appearance now uses one compact System/Light/Dark
-picker across public/auth/workspace headers with safe preference persistence.
+The current local branch is `codex/unattended-access` at `8df0741`, with substantial
+uncommitted sign-in development described above. The November 7 branch review
+found no implementation PR; PR state was not refreshed in this planning pass.
+The last recorded hosted web/download release is `eb1ea99a`, with backend source
+`2721aae` (October 29 deployment check). November credential maintenance retained
+exact running images: it did not release this source or apply migrations 023–025.
 
-Implemented behind two explicit development switches: separate `desktop:control`
-requests, scope-bound server token, local Allow control and visible Stop,
-ordered WebRTC DataChannel, physical primary-display pointer mapping, mouse
-buttons/drag/scroll, scan-code keyboard/modifiers, focus/Escape release, bounded
-messages and monotonic deadlines. View grants cannot open the native input path.
-Control disconnect consumes approval; it never inherits view reload recovery.
-The input watchdog releases state on authority loss, local Stop, desktop loss or
-missing browser heartbeat. Production configuration rejects the control switch.
+The owner has no external production users and approved fresh signing identities, installation and re-enrollment. The inventoried credentials, database consumers, backup passwords and signing material were refreshed November 1; cleanup finished November 2. Do not repeat rotation as a product milestone. Source public update pins are new; old downloaded installers/APKs are not compatible recovery baselines for new signing trust.
 
-Owner-approved local control now delivered actual streamed clicks and a drag
-movement to the native test window; browser Stop ended control and the helper
-exited. The owner requested removal of the demo cutoff: explicitly enabled
-loopback sessions now run until stopped while short authorization renewals remain
-mandatory. The connection stayed active past two minutes. Wheel/keyboard and
-held-input cleanup acceptance remain open because the same-PC viewer loses focus
-when remote clicks activate the target. Cross-network control remains unverified.
-Automated scope, exclusivity, audit, cleanup and coordinate regressions are
-validation, not full device acceptance. The fixture enrolls a fresh in-memory
-identity in a disposable Remote test schema; it uses no owner/production identity.
-See [input development](input-development.md) and [ADR 0016](decisions/0016-development-control-slice.md).
+The earlier artifact checkpoint recorded `BeaconRemoteSetup-5f019c49.exe`, the
+matching `BeaconRemoteDevelopment-5f019c49` folder/ZIP/trust folder and
+`BeaconRemoteHost-4e7a39fc.apk`. These do not represent today's uncommitted source.
+Historical native CI, hashes and signatures are not current install/media
+acceptance. Rebuild matching signed artifacts before acceptance/release. The
+owner-approved [visual reference](../design/prototype/README.md) uses simulated
+flows, not implemented product behavior.
 
-Approved UI work adds the device inspector's identity/status, separate Remote and
-View only actions, factual access state and real history, plus corrected workspace
-proportions and selection. Actual desktop/mobile/tablet rendering was inspected
-against the running desktop prototype. Full fidelity, native host design, account
-lifecycle, support and installer/service remain ongoing independent tracks.
+## Active milestone: finish unattended owner access
 
-True release blockers: authorization/consent/Stop/expiry/revocation failures,
-held-input cleanup, secure-desktop boundaries, account lifecycle and update trust.
-Remaining media acceptance: sustained performance, broader hardware/routes,
-interruption/reload reliability and native focus/DPI feedback. Preserve these
-checks without repeating investigations absent a new reproduced failure.
+The owner's October 20 direction is in [PR #113](https://github.com/builtbysai/Beacon-Remote/pull/113). The October 30 clarification explicitly requires optional boot startup, control at the initial Windows sign-in screen and fresh-policy reconnect after restart. Signed-in-only access does not complete this milestone. [ADR 0047](decisions/0047-unattended-owner-access.md), [ADR 0048](decisions/0048-boot-login-and-restart.md) and [unattended-access.md](unattended-access.md) define the boundary.
 
-## Current milestone 4 implementation sequence
+| Area                                    | Current evidence                                                                                                                                          | Remaining work                                                                                                                          |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows standing owner access           | Local opt-in, owner control/files, sign-in startup, visible Pause/Stop and local revocation are implemented; process/database fixtures passed             | Real installed-host and cross-network acceptance                                                                                        |
+| Optional boot presence                  | Separate presence-only credential, restricted install/ACL checks, explicit locked/signed-out readiness and service-aware forget/uninstall are implemented | Administrator-approved install/repair/reboot/uninstall on a designated test PC                                                          |
+| Windows initial sign-in capture/control | Integrated sign-in media/input, secure attention, retirement and fresh ordinary handoff in source; readiness remains false                                | Finish restart entry/setup/readiness and final Disable failure feedback; accept actual SYSTEM sign-in/handoff on devices                |
+| Restart recovery                        | Signed host-process marker, bounded wait and fresh authorization implemented; migration 024 and local fixtures checked                                    | Actual Windows restart/fast restart, cancellation, console switch and end-to-end handoff; a host-process restart is not proof of reboot |
+| Android 11+ unattended                  | Local standing opt-in, accessibility screenshots, owner-policy intersection, notifications and Stop implemented; unit/build/emulator evidence recorded    | Physical phone, protected content, permission loss, lock/unlock, reboot and separate-network acceptance                                 |
+| Release integration                     | Matching development source and migrations 023–028 exist; deployment remains separate                                                                     | Review/merge exact code, validate migrations, rebuild fresh signers and deliberately select rollout/rollback images                     |
 
-October 11 continuation: PR #11 merged after local validation and the control
-plane manually rolled out at 4ea7ad9, with production media still disabled.
-The long-poll backend and matching native fixture are installed in isolated
-acceptance. Actual synthetic dual-relay playback and backend restart/fresh request
-passed; no new desktop acceptance is claimed. Viewer timing/FPS/RTT diagnostics
-support remaining real-device measurement. See validation-2026-10-11.md.
+### Unattended implementation sequence
 
-October 11 local foundation: Remote now has its own start/stop/status supervisor,
-strict API/viewer ports and isolated state; View's active work is preserved.
-Historical loose artifacts are recoverably archived with hashes. See
-[local-development.md](local-development.md). This is development isolation,
-not milestone 6 service installation or production media release. Continue
-milestone 4 consent-latency and real-desktop lifecycle acceptance next.
+Use the completion checklist for current status and the owner's overall order
+above. The sequence below retains the full implementation/acceptance contract;
+it is not an instruction to rebuild completed integration. Sign-in media,
+secure attention, retirement and backend/browser handoff now exist in source.
+The next implementation is restart-to-sign-in/progress and setup/readiness;
+actual Windows and device acceptance remain open.
 
-1. **Backend relay foundation — started in this pass.** Validate paired TURN
-   configuration; issue Coturn REST credentials only for an authenticated owner's
-   live, nonrevoked view session, with exact Origin, rate limit and no caching.
-   Bind expiry to the existing deadline. Prove ownership, disabled configuration,
-   expiry, revocation and HMAC compatibility using real PostgreSQL routes.
-   Preserve atomic consent/audit transitions.
-2. **Native/browser transport integration — implemented; Windows CI passed.** Carry matching short-lived ICE
-   credentials to both peers through existing authorized paths. Extend strict
-   native validation and RTC configuration. Add a bounded forced-relay acceptance
-   mode, selected-candidate diagnostics and honest connection errors. Preserve
-   consent, no recording/input and local lease enforcement.
-   Backend/web checks and Windows native formatting, Clippy, tests and release
-   build passed for `d64854f` in
-   [CI run 38066791856](https://github.com/builtbysai/Beacon-Remote/actions/runs/38066791856).
-   The local MSVC linker was absent during those attempts; matching CI binaries
-   were used. Local C++ Build Tools and the Windows SDK are now installed and
-   native formatting, Clippy, tests and release builds pass.
-3. **Real relay acceptance.** Use existing Coturn without changing protected-peer
-   restrictions or buying resources. Verify relay candidates and decoded native
-   video on a reachable external peer; test a distinct-network path. A credential
-   API alone does not complete this step. On 2026-10-10, two relay-only synthetic
-   attempts from Windows through existing Oracle Coturn ended before decoded
-   frames or a selected relay route could be verified. The second displayed
-   “Video connection interrupted.” Root cause remains unresolved; this is failed
-   acceptance, not proof of a successful TURN allocation. No desktop was captured.
-   The attempt exposed a delayed playback rejection overwriting the ended status;
-   the browser now ignores that rejection after shutdown.
-   Follow-up diagnostics confirmed both peers obtained relay candidates. Browser-
-   only forced-relay synthetic decoding and Stop passed with an existing native
-   Tailscale path, including 444 presented frames. This narrows the failure but
-   does not prove distinct-public-network desktop acceptance. Chrome's peer-
-   reflexive candidate reporting exposed a false Direct label; diagnostics now
-   honor relay-only policy and report ambiguous routes as unavailable. Unsupported
-   TCP/TLS TURN URLs are rejected rather than silently skipped by native RTC.
-   The permission failure is now reproduced and corrected: Coturn's wildcard
-   relay mapping translated its public peer into a protected zero address. An
-   isolated comparison returned `403` for wildcard and `200` for concrete mapping.
-   The dynamic relay-address wrapper then enabled native/Chrome synthetic decoding
-   with relay/relay selected and 667 presented frames at observation. Stop passed;
-   both products' health/readiness remained healthy. Protected-peer restrictions
-   remain intact. A subsequent owner test on Android over T-Mobile mobile data **did** decode
-   actual Windows desktop video and pass local Stop; native logs and PostgreSQL
-   recorded the sessions ending. This is a bounded single network-path acceptance,
-   not the full network/failure/performance matrix. See `android-acceptance-2026-10-10.md`.
-4. **Failure and UX acceptance.** Verify Stop, denial, logout, browser refresh,
-   machine revoke, expiry, backend restart and network loss. Reconnect requires
-   fresh authorization after the session ends; a reload may recover its ongoing
-   original approval under ADR 0015. Confirm native focus/readability; measure startup,
-   sustained FPS/CPU/RAM and relay usage. Pause must actually stop capture before
-   a Pause/Resume control is enabled.
-   Backend startup now atomically ends interrupted persisted grants with audit
-   before listening, releasing busy computers after a crash. Real PostgreSQL
-   checks passed for rollback on audit failure, rejection of old grants and fresh
-   pending authorization. This does not replace actual Windows outage acceptance.
-   October 12 continuation adds cancellable native approval: the helper reads
-   signaling while the prompt is open, closes it on cancellation/disconnect/
-   expiry/desktop loss, defaults to Decline and preserves the original monotonic
-   deadline. Real loopback cancellation/close checks pass without approving or
-   capturing a desktop. See [the consent decision](decisions/0013-cancellable-attended-consent.md).
-   Actual prompt keyboard/DPI/lifecycle and desktop/network acceptance remains.
-   PR #23 merged at `fed694d`; all three required merged-main jobs passed in
-   [run 38215310190](https://github.com/builtbysai/Beacon-Remote/actions/runs/38215310190).
-   Matching acceptance backend/web images were installed in the existing
-   isolated account/database with their one-hour limit preserved; schema/role,
-   readiness, unauthenticated rejection and both products' health passed.
-   The paired Windows fixture remains stopped pending human testing. The
-   follow-up fixes a stale quit message during prompt cleanup, with a real
-   hidden-window regression. See [the validation record](consent-validation-2026-10-12.md).
-   PR #24 merged at `a68a430` with reviewed-head and merged-main checks passing.
-   Further native hardening makes the Stop window enforce input-desktop loss and
-   the original deadline while the browser is connecting, adds dialog keyboard
-   handling and destroys the window before releasing state on a loop exit.
-   Local native checks and a real noninput-desktop dispatcher regression pass;
-   actual physical lock/unlock and keyboard acceptance remain open.
-5. **Release decision.** Review evidence, quota impact and exact-commit rollout/
-   rollback. Enable production viewing only after acceptance. Production input remains disabled until its separate authorization, lifecycle and
-   actual input acceptance gates pass. Independent implementation is authorized.
+1. **Resume ADR 0048 implementation.** Build a separate administrator-enabled machine endpoint, default off, with owner-only sign-in authority and short leases. Keep the boot-presence credential incapable of desktop access. Use the supported interactive-session worker/desktop boundary; never put capture/input in Session 0 or weaken UAC/UIPI/desktop ACLs. Disable files, clipboard, audio, recording and automation in sign-in scope. Terminate that worker on Windows sign-in and obtain fresh ordinary-host authorization.
+2. **Validate the machine boundary before treating sign-in as connectable.** Exercise authorization/replay/account isolation, restricted installation/IPC, worker lifetime, desktop switches, local Stop, lease expiry, held-input release and revocation. Preserve current ordinary-session rejection of secure desktops. Run the relevant real-PostgreSQL and native checks; local CI must not install services or reboot this workstation.
+3. **Resume device acceptance after development is ready.** The owner supplied a USB Pixel and a Windows SSH endpoint; the November 7 readiness session verified those connections. Testing is now paused by owner direction. Reconfirm device identity and availability when testing resumes; do not probe unrelated endpoints. Cold boot/sign-in/restart/uninstall and true separate-network capture/control/file gates remain open. Use [acceptance-checklist.md](acceptance-checklist.md), [unattended-access.md](unattended-access.md) and the October 29/30 records; compilation or emulator screenshots do not close these gates.
+4. **Integrate and release deliberately after evidence review.** Reconcile roadmap PR #113 with this newer implementation branch, resolve current dependency/CI failures against the proposed head, and review the seven Dependabot PRs rather than merging old lockfiles blindly. Apply migrations 023/024 before compatible backend/hosts; update v2-emitting hosts only after the backend, and roll hosts back first. Credential-maintenance backend/data image pins must be explicitly reviewed for a code release. Use the new signers and fresh enrollment. Keep the separate acceptance fixture's STOP marker/services stopped until deliberately scheduled.
+5. **Then take up automation.** Review the view-only MCP work in #105, integrate/revalidate it on the current stack and prove a live consented session. Full computer-use input, UI-tree semantics, scoped automation tokens, audit and Beacon Motive integration follow as their own milestone. A green protocol test is not a working Motive integration.
 
-## Boundaries and owner dependencies
+## Work ownership
 
-Integrate the approved design with real state across these slices; do not replace
-working code with the prototype or ship simulated devices. No terminal,
-or cloud media storage without an approved design.
-No new services/dependencies without demonstrated need. Preserve Oracle free
-allocation and Beacon View health.
+| Can be implemented and checked independently                                                                                                                                                  | Needs owner/device evidence for completion                                                                                                                                                |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ADR 0048 endpoint/protocol implementation, authorization/replay/IPC regression checks, build/signing, dependency/CI repair, PR preparation and approved prototype integration with real state | Administrator-approved installation on a designated endpoint; cold boot/sign-in/restart/upgrade/uninstall; actual local Stop/input/media and physical Android/separate-network acceptance |
 
-Owner dependencies: further actual device/network tests for interruption and sustained
-performance, Windows native consent/readability/timing feedback, legitimate signing
-credentials before installer distribution, and external release prerequisites.
-The Android/T-Mobile viewer already provided one real separate-network pass. Never weaken OS or
-relay protections to pass tests. The owner has authorized commits to Beacon
-Remote; use its feature branches and keep Beacon View changes separate.
+Source work can proceed before hardware acceptance. Do not label the full unattended milestone complete or install/reboot this active workstation merely because implementation and automated checks pass. Motive/automation integration remains after the unattended milestone.
 
-Use the smallest useful suite at security/database boundaries plus real Windows/
-browser/network checks. Report failed/skipped checks and unproven behavior;
-test counts, screenshots and CI alone do not prove remote control is ready.
+## Existing product baseline
 
-## Ongoing UI/UX fidelity track (parallel with technical gates)
+The last hosted baseline includes attended/trusted/support access, remembered helpers, browser control, local visible consent/Stop, account sign-up and recovery/MFA, account export/deletion, groups/team roles, signed updates, installer/uninstaller, two-way files, consented helper-local recording, dedicated TURN and backup/monitoring jobs. These are implemented features with historical evidence, not a blanket current-device acceptance pass.
 
-An unsigned per-user development package now copies the matching native endpoint
-pair, creates Pair/Run/Uninstall shortcuts and verifies payload integrity.
-`scripts/Build-DevelopmentHost.ps1` builds and validates the native source before
-packaging. It does not install service/tray/startup/update behavior. Isolated
-package copy/shortcuts/executable launch/removal, unknown-file preservation and
-tampered-payload rejection passed on this workstation. Owner-machine pairing/view
-acceptance remains open; see [development host package](development-host-package.md).
+Recent development already includes display switching/cursor work, resumed uploads, streamed large browser downloads, temporary support lifecycle, chat/notes/handoff, Wake-on-LAN, trusted restart and opt-in system audio. Their remaining physical/browser/network gates are below. Do not rebuild these features from scratch based on superseded early-milestone notes. Android release packaging and its Downloads entry were merged in [#104](https://github.com/builtbysai/Beacon-Remote/pull/104); old roadmap text saying they were not published was stale.
 
-The visual target is the owner-supplied `Beacon-Remote-Final-Package.zip` (external
-attachment, **not checked into the repo**). UI completeness and backend
-availability are different measures. A feature can match the target visually
-while remaining honestly disabled until its secure backend exists.
+## Acceptance and follow-up backlog
 
-| Surface                          | Integrated now                                                          | Remaining visual/functional gaps                                                                                       |
-| -------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Public landing/download/security | React public navigation and partial approved style                      | Match prototype composition and copy; show real release/download state                                                 |
-| Sign-in/account                  | Operator invitation and password login                                  | Complete visual/auth states, signup, email/MFA/recovery (milestone 7)                                                  |
-| Sidebar/workspace                | Device inventory, search/status filter, inspector, inline rename        | Prototype-aligned sidebar/density/responsiveness, hide dev diagnostics from consumer UI                                |
-| Sessions/Assist/Activity         | Authenticated view/audit history, browser session management            | Fill available space, real states, one-time support UI after backend capability                                        |
-| Remote session                   | Attended view-only browser video, native consent + local Stop           | Polished viewer, accurate reconnect and input states; development control implemented; actual input acceptance pending |
-| Windows host                     | Native helper consent/Stop control                                      | Approved idle/tray/request/active/error visual system after service/installer work                                     |
-| Themes, icons, accessibility     | Blue/slate tokens and mark assets; viewport checks on integrated slices | Complete fidelity in light/dark, keyboard/touch/focus, mobile and reduced motion                                       |
+Keep these tasks visible without starting them inside unattended endpoint work:
 
-For each implementation slice: compare actual desktop/tablet/mobile screenshots
-against the approved prototype, fix layout/UX gaps, run accessibility/browser
-checks and document remaining differences. No simulated production data.
+| Track                 | Remaining evidence or scope                                                                                                                                                                                                           |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Real sessions         | Sustained load, sleep/resume, Wi-Fi/cellular changes, direct/forced-relay, disconnect/revocation and local held-input release; retain the historical Android/T-Mobile viewing pass without generalizing it                            |
+| Windows install/trust | Administrator trust import on a real test endpoint, SmartScreen, upgrade/rollback, service repair and full uninstall/identity removal with the fresh signer                                                                           |
+| Support and accounts  | Real guest code flow, email confirmation/recovery clicks, two-account handoff/chat and the actual web/native panel; offline-then-online disconnect/revoke/uninstall instruction delivery                                              |
+| Files                 | Real interrupted-upload resume/hash, large streaming browser download and cancellation; download resume remains unimplemented; browser disk streaming is Chrome/Edge specific                                                         |
+| Media/display/audio   | Second-monitor approval and switching, sound judged by ear, native tray notification, constrained/relayed adaptive quality, NVIDIA/AMD/older Intel/no-GPU fallback; existing hardware measurements prove only the tested Intel system |
+| Diagnostics           | Complete measured encoder/relay/reconnect data and verify poor-session advice against real measurements                                                                                                                               |
+| Android               | Physical phone and Android TV/tablet coverage, real control/rotation/files, audio/multi-touch requirements and outbound phone files; store distribution is separate from signed sideloading                                           |
+| UX/accessibility      | Finish approved Assist/Activity/public/auth/settings/download/pairing/viewer/native surfaces with real states; keyboard, screen reader, reduced motion and device layouts beyond historical automated axe results                     |
+| Wake-on-LAN           | Wake an actual configured sleeping peer; reporting a NIC or checking a backend route does not prove wake-up                                                                                                                           |
+| Self-hosting          | Exercise the existing Compose/bootstrap/backup/restore/update bundle on a real VPS/domain with UDP; local bootstrap evidence is already recorded                                                                                      |
+
+## Later milestones
+
+- Automation: consented MCP/computer-use over the actual session core, semantic UI actions, narrowly scoped revocable tokens and Motive integration. #105 is view-only and unmerged.
+- Other hosts: Linux X11/Wayland and Raspberry Pi remain research/implementation work; Android TV installability is distinct from real TV acceptance. macOS/iOS hosting remains out of scope.
+- Organisations: computer groups and scoped technician/viewer membership exist; shared administration, organisation-wide permission policy and richer organisation audit do not.
+- Performance: measure actual bottlenecks before adding transport/encoder infrastructure. No server media storage or terminal/general privileged-command surface is approved by this roadmap review.
+
+## GitHub checkpoint — November 2, 2026
+
+- No GitHub issues or milestones were listed; nine PRs are open. The owner work is [#113 unattended/automation direction](https://github.com/builtbysai/Beacon-Remote/pull/113) and [#105 view-only MCP](https://github.com/builtbysai/Beacon-Remote/pull/105).
+- #113 is docs-only and unmerged; its October 20 CI failed `security` (Cargo vulnerabilities) and `control-plane`, while Android/native passed. It is not the current `codex/unattended-access` implementation. Reconcile the direction without restoring its stale roadmap over this one.
+- #105 has green historical security/control-plane/Android/native checks; its own description says it has not been exercised against a live session. It grants no automation control today.
+- Dependabot [#106](https://github.com/builtbysai/Beacon-Remote/pull/106)–[#112](https://github.com/builtbysai/Beacon-Remote/pull/112) remain open: rtc, uuid, serde_json, setup-java, pg/types, websocket and globals. #109 was refreshed November 2 UTC. The latest green Actions activity is Dependabot update machinery on main, not CI for the unattended implementation.
+- The November 2 review listed 20 default-branch Dependabot alerts. During November 4 cleanup publication, GitHub reported 29 default-branch alerts: two critical, seven high, twelve moderate and eight low. This is a provider warning about main, not a fresh development-branch audit. Re-audit the proposed code/artifacts and review affected packages before device-session deployment; the November 1 branch audit is historical evidence.
+- Latest merged product PR is #104, October 14. No GitHub Releases were listed; hosted download publication is tracked separately in deployment documentation.
+
+## Working boundaries
+
+Preserve View on the shared VM/workstation, independent databases and dedicated relay ownership. Keep visible sharing, single-controller authority, local revoke, short leases, the unattended idle limit, fresh-policy reconnect and protected-content handling. Never bypass Windows credentials, secure desktop rules, Android lock/PIN or protected content. Read [security.md](security.md), [architecture.md](architecture.md) and [workspace.md](workspace.md) before implementation. November 1 automated checks and November 2 roadmap inspection do not prove new hardware acceptance or authorize a deployment.

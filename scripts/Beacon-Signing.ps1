@@ -8,7 +8,7 @@
   this is for the owner's own devices, not a replacement for a public certificate authority (ADR 0035).
 
   The private key lives only in a password-protected .pfx under the secrets folder (default
-  $env:USERPROFILE\.beacon\secrets\remote-codesign, readable by this Windows user only). It is never stored
+  <BEACON_PRIVATE_DIR>/remote/signing/windows, with restricted local access). It is never stored
   in a certificate store after creation and is never committed. CI can supply it with BEACON_SIGNING_PFX
   (base64 of the .pfx) and BEACON_SIGNING_PFX_PASSWORD instead.
 
@@ -28,7 +28,7 @@ param(
     [Parameter(Mandatory)][ValidateSet('New', 'Renew', 'Revoke', 'Info', 'Sign', 'Verify', 'Package')][string]$Action,
     [string[]]$Path,
     [string]$Output,
-    [string]$Directory = (Join-Path $env:USERPROFILE '.beacon\secrets\remote-codesign'),
+    [string]$Directory = (Join-Path $(if ($env:BEACON_PRIVATE_DIR) { $env:BEACON_PRIVATE_DIR } else { [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..\Beacon-Secrets')) }) 'remote\signing\windows'),
     [string[]]$TimestampServer = @('http://timestamp.digicert.com', 'http://timestamp.sectigo.com', 'http://timestamp.globalsign.com/tsa/r6advanced1'),
     [switch]$AllowNoTimestamp
 )
@@ -66,7 +66,11 @@ function New-Certificate {
         -HashAlgorithm SHA256 -KeyExportPolicy Exportable -KeyUsage DigitalSignature -NotAfter (Get-Date).AddYears(3) `
         -CertStoreLocation 'Cert:\CurrentUser\My'
     try {
-        $password = [Convert]::ToBase64String((1..24 | ForEach-Object { Get-Random -Maximum 256 } | ForEach-Object { [byte]$_ })) -replace '[+/=]', 'x'
+        $passwordBytes = New-Object byte[] 32
+        $random = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+        try { $random.GetBytes($passwordBytes) } finally { $random.Dispose() }
+        $password = [Convert]::ToBase64String($passwordBytes)
+        [Array]::Clear($passwordBytes, 0, $passwordBytes.Length)
         $secure = ConvertTo-SecureString -String $password -AsPlainText -Force
         Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $secure | Out-Null
         Set-Content -LiteralPath $passwordPath -Value $password -NoNewline -Encoding ASCII

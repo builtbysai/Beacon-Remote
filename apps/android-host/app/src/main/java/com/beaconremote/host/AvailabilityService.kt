@@ -35,13 +35,13 @@ class AvailabilityService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             Identity(this).wantsAvailable = false
+            if (HostState.sharing) runCatching { startService(Intent(this, CaptureService::class.java).setAction(CaptureService.ACTION_STOP)) }
             running = false
             HostState.status = "Not available"
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
         }
-        if (running) return START_STICKY
         val identity = Identity(this)
         if (!identity.paired) {
             stopSelf()
@@ -55,12 +55,13 @@ class AvailabilityService : Service() {
             NotificationCompat.Builder(this, AVAILABLE)
                 .setSmallIcon(R.drawable.ic_stat_beacon)
                 .setContentTitle("Beacon Remote is available")
-                .setContentText("Someone you allow can ask to see this screen. You approve each request.")
+                .setContentText(if (identity.unattended) "Your account can connect while this phone is unlocked. Tap to manage access." else "Someone you allow can ask to see this screen. You approve each request.")
                 .setContentIntent(open)
                 .addAction(0, "Stop", stop)
                 .setOngoing(true)
                 .build()
         ServiceCompat.startForeground(this, 1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        if (running) return START_STICKY
         running = true
         worker = thread(name = "presence") { loop(identity) }
         return START_STICKY
@@ -72,13 +73,34 @@ class AvailabilityService : Service() {
         while (running) {
             try {
                 HostState.status = if (HostState.sharing) "Sharing your screen" else "Available"
+                val before = identity.unattended
                 val reply = Api.heartbeat(identity, wait = true, handled = handled)
+                if (!running || !identity.wantsAvailable) return
+                val access = reply.optJSONObject("access")
+                if (before == identity.unattended && access != null) {
+                    val trusted = access.optString("mode") == "trusted" && access.optBoolean("allowControl")
+                    if (before && !trusted) {
+                        identity.unattended = false
+                        startService(Intent(this, CaptureService::class.java).setAction(CaptureService.ACTION_STOP))
+                    } else if (!before && access.optString("mode") == "trusted") {
+                        // A local disable wins even if the network was down when it happened.
+                        Api.setAccess(identity, false)
+                    }
+                }
                 delay = 2000L
                 val sessions = reply.optJSONArray("sessions")
                 if (sessions != null && sessions.length() > 0 && !HostState.sharing) {
                     val grant = sessions.getJSONObject(0)
                     handled = grant.getString("id")
-                    askForConsent(grant)
+                    if (UnattendedAccess.accepts(identity.unattended, grant.optString("approval") == "policy", grant.optBoolean("viaRelationship"), UnattendedAccess.ready(this))) {
+                        startForegroundService(Intent(this, CaptureService::class.java)
+                            .putExtra("grant", grant.toString()).putExtra("unattended", true))
+                    } else if (grant.optString("approval") == "policy") {
+                        // Never replace an unavailable standing permission with another surprise approval screen.
+                        ShareSession(applicationContext, Grant.from(grant), identity.server, null) {}.decline()
+                    } else {
+                        askForConsent(grant)
+                    }
                 } else if (sessions == null || sessions.length() == 0) {
                     handled = null
                 }

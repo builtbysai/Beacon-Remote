@@ -1,18 +1,24 @@
+import {
+  readLocalDatabase,
+  localDatabaseUrl,
+} from "../../../scripts/local-database.mjs";
 // Isolated, loopback-only fixture for trying one-click temporary support by hand (ADR 0038). It starts the backend on
 // 3011 and the web app on 5175 in a throwaway schema, signs a technician in, creates a support link and prints it.
 // Run the support program against it with BEACON_SERVER=http://127.0.0.1:3011 (see docs/input-development.md).
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { Pool } from "pg";
 import { hash } from "@node-rs/argon2";
-import { createServer } from "../../web/node_modules/vite/dist/node/index.js";
+import { createServer } from "vite";
 import { createApp } from "../src/app.js";
 import { applyMigrations } from "../src/migrations.js";
 
 const root = resolve(import.meta.dirname, "../../..");
-const database =
-  "postgresql://remote_dev:development-only@127.0.0.1:5433/beacon_remote_test";
+const database = localDatabaseUrl(
+  (await readLocalDatabase()).password,
+  "beacon_remote_test",
+);
 const admin = new Pool({ connectionString: database });
 const schema = `support_dev_${randomUUID().replaceAll("-", "")}`;
 await admin.query(`CREATE SCHEMA ${schema}`);
@@ -21,7 +27,16 @@ const pool = new Pool({
   options: `-c search_path=${schema}`,
 });
 const origin = "http://127.0.0.1:5175";
-const state = resolve(root, ".remote-dev/support-development");
+const state = resolve(
+  process.env.REMOTE_DEV_STATE_DIR ??
+    resolve(root, "../../Beacon-Secrets/remote/local/state"),
+  "support-development",
+);
+const loginPath = resolve(
+  process.env.REMOTE_LOCAL_ACCOUNTS_DIR ??
+    resolve(root, "../../Beacon-Secrets/remote/local/accounts"),
+  "support.json",
+);
 const account = randomUUID();
 const email = `tech-${account}@example.test`;
 const password = randomBytes(32).toString("base64url");
@@ -87,18 +102,18 @@ try {
     },
   });
   await mkdir(state, { recursive: true });
+  await mkdir(dirname(loginPath), { recursive: true });
+  await writeFile(loginPath, JSON.stringify({ origin, email, password }));
   await writeFile(
-    resolve(state, "login.json"),
+    resolve(state, "session.json"),
     JSON.stringify({
       origin,
-      email,
-      password,
       cookie: token,
       link: made.json().url,
     }),
   );
   console.log(
-    `Support fixture: ${origin} (login in ${state}). Link: ${made.json().url}`,
+    `Support fixture: ${origin} (login in ${loginPath}). Link: ${made.json().url}`,
   );
 } catch (error) {
   await stop();

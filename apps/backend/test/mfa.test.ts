@@ -55,7 +55,10 @@ test(
       });
     const cookieOf = (response: { headers: Record<string, unknown> }) =>
       String(response.headers["set-cookie"]).split(";")[0]!;
-    const step = (offset = 0) => Math.floor(Date.now() / 1000 / 30) + offset;
+    // Replays must submit the same code even if the wall clock crosses a step
+    // between requests. Recomputing it made the replay assertion try a new code.
+    const initialStep = Math.floor(Date.now() / 1000 / 30);
+    const step = (offset = 0) => initialStep + offset;
     try {
       await pool.query(
         "INSERT INTO accounts(id,email,password_hash) VALUES ($1,$2,$3)",

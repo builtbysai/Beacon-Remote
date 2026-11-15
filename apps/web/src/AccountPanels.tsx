@@ -3,6 +3,16 @@ import { DataPanel } from "./DataPanel.js";
 import { MfaPanel } from "./MfaPanel.js";
 import { TeamPanel } from "./TeamPanel.js";
 import { api } from "./api.js";
+import { AppearanceSettings, type Theme } from "./ThemePicker.js";
+import { AccountIdentity } from "./AccountIdentity.js";
+
+const settingsSections = [
+  { id: "appearance", label: "Appearance" },
+  { id: "account", label: "Account" },
+  { id: "security", label: "Security & sessions" },
+  { id: "team", label: "Team access" },
+  { id: "data", label: "Data & deletion" },
+] as const;
 
 type BrowserSession = { expiresAt: string; current: boolean };
 export type Activity = {
@@ -18,6 +28,10 @@ export function activityLabel(action: string) {
   switch (action) {
     case "machine.enrolled":
       return "Computer paired";
+    case "machine.boot.enabled":
+      return "Availability before Windows sign-in enabled";
+    case "machine.boot.disabled":
+      return "Availability before Windows sign-in disabled";
     case "machine.revoked":
       return "Access revoked";
     case "machine.renamed":
@@ -79,7 +93,15 @@ export function activityLabel(action: string) {
   }
 }
 
-export function AccountPanels({ activity }: { activity: boolean }) {
+export function AccountPanels({
+  activity,
+  theme,
+  onThemeChange,
+}: {
+  activity: boolean;
+  theme: Theme;
+  onThemeChange: (theme: Theme) => void;
+}) {
   const [sessions, setSessions] = useState<BrowserSession[] | null>(null);
   const [events, setEvents] = useState<Activity[] | null>(null);
   const [error, setError] = useState("");
@@ -88,6 +110,7 @@ export function AccountPanels({ activity }: { activity: boolean }) {
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
   const [eventFilter, setEventFilter] = useState("all");
+  const [section, setSection] = useState<string>("appearance");
   useEffect(() => {
     let disposed = false;
     setError("");
@@ -269,58 +292,114 @@ export function AccountPanels({ activity }: { activity: boolean }) {
     <section className="workspace-page settings-page">
       <div className="workspace-page-heading">
         <h1>Settings</h1>
-        <button
-          className="secondary"
-          disabled={loading || busy}
-          onClick={() => setRefresh((value) => value + 1)}
-        >
-          {loading ? "Refreshing…" : error ? "Try again" : "Refresh"}
-        </button>
       </div>
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
-      {notice && <p role="status">{notice}</p>}
-      <>
-        <div className="quiet-panel">
-          <h2>Browser sessions</h2>
-          <p>
-            Sessions expire after eight hours. Sign out to end this browser’s
-            session.
-          </p>
-          {sessions === null && !error ? (
-            <p role="status">Loading browser sessions…</p>
-          ) : (
-            <ul className="history-list">
-              {sessions?.map((session, index) => (
-                <li key={`${session.expiresAt}-${index}`}>
-                  <strong>
-                    {session.current
-                      ? "This browser"
-                      : "Another browser session"}
-                  </strong>
-                  <span>
-                    Expires {new Date(session.expiresAt).toLocaleString()}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-          <button
-            disabled={busy || !sessions?.some((session) => !session.current)}
-            onClick={() => {
-              void endOthers();
-            }}
+      <div className="settings-layout">
+        <nav className="settings-nav" aria-label="Settings sections">
+          {settingsSections.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              aria-current={section === item.id ? "page" : undefined}
+              aria-controls={`settings-${item.id}`}
+              onClick={() => setSection(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+        <div className="settings-content">
+          <section
+            className="settings-section"
+            id="settings-appearance"
+            aria-label="Appearance"
+            hidden={section !== "appearance"}
           >
-            {busy ? "Ending sessions…" : "End other browser sessions"}
-          </button>
+            <AppearanceSettings theme={theme} onChange={onThemeChange} />
+          </section>
+          <section
+            className="settings-section"
+            id="settings-account"
+            aria-label="Account"
+            hidden={section !== "account"}
+          >
+            <AccountIdentity />
+          </section>
+          <section
+            className="settings-section"
+            id="settings-security"
+            aria-label="Security and sessions"
+            hidden={section !== "security"}
+          >
+            <MfaPanel />
+            <div className="quiet-panel">
+              <div className="settings-section-heading">
+                <h2>Browser sessions</h2>
+                <button
+                  className="secondary"
+                  disabled={loading || busy}
+                  onClick={() => setRefresh((value) => value + 1)}
+                >
+                  {loading ? "Refreshing…" : "Refresh"}
+                </button>
+              </div>
+              {error && (
+                <p role="alert" className="error">
+                  {error}
+                </p>
+              )}
+              {notice && <p role="status">{notice}</p>}
+              <p>
+                Sessions expire after eight hours. Sign out to end this
+                browser’s session.
+              </p>
+              {sessions === null && !error ? (
+                <p role="status">Loading browser sessions…</p>
+              ) : (
+                <ul className="history-list">
+                  {sessions?.map((session, index) => (
+                    <li key={`${session.expiresAt}-${index}`}>
+                      <strong>
+                        {session.current
+                          ? "This browser"
+                          : "Another browser session"}
+                      </strong>
+                      <span>
+                        Expires {new Date(session.expiresAt).toLocaleString()}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <button
+                disabled={
+                  busy || !sessions?.some((session) => !session.current)
+                }
+                onClick={() => {
+                  void endOthers();
+                }}
+              >
+                {busy ? "Ending sessions…" : "End other browser sessions"}
+              </button>
+            </div>
+          </section>
+          <section
+            className="settings-section"
+            id="settings-team"
+            aria-label="Team access"
+            hidden={section !== "team"}
+          >
+            <TeamPanel />
+          </section>
+          <section
+            className="settings-section"
+            id="settings-data"
+            aria-label="Data and deletion"
+            hidden={section !== "data"}
+          >
+            <DataPanel />
+          </section>
         </div>
-        <MfaPanel />
-        <TeamPanel />
-        <DataPanel />
-      </>
+      </div>
     </section>
   );
 }
