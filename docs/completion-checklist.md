@@ -23,7 +23,9 @@ was found; source fixes startup/recovery acknowledgement and the gap before the
 first active waiter. Focused real-HTTP/state regressions passed. The updated
 signed `9d377c6` candidate acknowledged in 208 ms on Surfiena, and the owner
 confirmed Online was quick. Follow-up native UI/blank-console changes still need
-signed-device review and publication. Production sign-in gates
+owner review on Surfiena. Signed `d3bd11c` passed both native configurations and
+all four GitHub jobs; source/artifacts are checksum-verified on the VM and PR
+#126 tracks publication. Production sign-in gates
 and public native feeds remain unchanged.
 
 ## Latest publication and device readiness - November 15

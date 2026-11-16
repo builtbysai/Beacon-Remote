@@ -65,7 +65,18 @@ complete. Revocation/repair remain reachable. The sharing helper uses
 consent/sharing windows. The test fixture also launches its bounded PowerShell
 wrapper through the inbox windowless script host because an early console can
 otherwise trigger Windows Terminal. Signing and on-device UI/terminal review of
-this follow-up are pending.
+this follow-up passed: ordinary candidate `d3bd11c` is signed, hash/signer/
+timestamp-verified and running as the limited user in Surfiena session 1 with
+the same private profile. Both native configurations and all four GitHub jobs
+passed (run `43925818548`). Source and ordinary signed ZIP/installer are also
+checksum-verified on the VM, outside public feeds. Owner review of the new
+toggle/layout and blank-window behavior is pending; no new media result is claimed.
+
+After a deliberately bounded acceptance-backend restart, the earlier candidate
+logged a 15410 ms recovery sample including network retry/backoff. Do not treat
+the 208 ms initial acknowledgement as an all-reconnect latency guarantee. The
+restart had no active sessions; acceptance readiness recovered after a transient
+502, and both production products remained ready.
 
 The maintained Windows fixture refuses other devices, checks pinned archives/
 signers, retains versioned binaries, preserves its on-device profile and never

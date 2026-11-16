@@ -23,7 +23,10 @@ found to hold that acknowledgement. Startup/recovery source and focused wire
 regressions now avoid that wait and the following idle gap. Full native checks,
 signing and an actual-device comparison passed: the signed `9d377c6` candidate
 acknowledged in 208 ms and the owner confirmed Online was quick. The follow-up
-native UI/blank-console changes are in validation; media startup remains separate.
+native UI/blank-console candidate `d3bd11c` passed both native configurations and
+all four GitHub jobs and is open on Surfiena for owner review. Its source and
+signed ordinary artifacts are checksum-verified on the VM; media startup and
+physical UI review remain separate.
 See development status and the completion
 checklist; the paused legacy local fixture/identity were not started or moved.
 
