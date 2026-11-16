@@ -39,7 +39,6 @@ use windows_sys::Win32::{
 use zeroize::Zeroize;
 
 const ACTION: usize = 101;
-const STOP: usize = 102;
 const SERVER: usize = 103;
 const NAME: usize = 104;
 const CODE: usize = 105;
@@ -88,7 +87,6 @@ struct State {
     name: HWND,
     code: HWND,
     action: HWND,
-    stop: HWND,
     status: HWND,
     introduction: HWND,
     last_status: Option<HostStatus>,
@@ -327,6 +325,16 @@ unsafe fn read(window: HWND) -> String {
     buffer.zeroize();
     result
 }
+fn primary_label(paired: bool, busy: bool, stopping: bool) -> &'static str {
+    match (paired, busy, stopping) {
+        (_, true, true) => "Stopping…",
+        (true, true, false) => "Stop host",
+        (true, false, _) => "Start host",
+        (false, true, false) => "Pairing…",
+        (false, false, _) => "Pair computer",
+    }
+}
+
 impl State {
     // 0 not paired, 1 stopped, 2 starting, 3 online, 4 trouble.
     fn pill_mode(&self) -> u8 {
@@ -379,6 +387,42 @@ impl State {
             EnableWindow(control, i32::from(settings_ready));
             InvalidateRect(control, null(), 0);
         }
+        // Keep the setup shortcut only while it can add something. Revocation
+        // remains available even if a service's status could not be read.
+        let configured = self.access.trusted
+            && self.access.allow_control
+            && self.access.files
+            && self.autostart_on;
+        ShowWindow(
+            GetDlgItem(self.window, UNATTENDED as i32),
+            if self.paired && !configured {
+                SW_SHOW
+            } else {
+                SW_HIDE
+            },
+        );
+        ShowWindow(
+            GetDlgItem(self.window, UNATTENDED_OFF as i32),
+            if self.paired
+                && (self.access.trusted
+                    || self.autostart_on
+                    || self.boot_on != Some(false)
+                    || self.signin_health.is_some())
+            {
+                SW_SHOW
+            } else {
+                SW_HIDE
+            },
+        );
+        let px = |value: i32| (value as f32 * self.scale).round() as i32;
+        MoveWindow(
+            GetDlgItem(self.window, UNATTENDED_OFF as i32),
+            px(if configured { 28 } else { 286 }),
+            px(594),
+            px(if configured { 248 } else { 206 }),
+            px(34),
+            1,
+        );
         text(
             self.boot_start,
             if self.boot_on.is_some() {
@@ -389,6 +433,14 @@ impl State {
         );
         // Sending files without asking only makes sense once trusted access is on.
         if !self.files.is_null() {
+            ShowWindow(
+                self.files,
+                if self.paired && self.access.trusted {
+                    SW_SHOW
+                } else {
+                    SW_HIDE
+                },
+            );
             EnableWindow(
                 self.files,
                 i32::from(
@@ -588,11 +640,10 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
             self.action,
             px(28),
             px(if self.paired { 498 } else { 322 }),
-            px(if self.paired { 120 } else { 160 }),
+            px(220),
             px(38),
             1,
         );
-        MoveWindow(self.stop, px(160), px(498), px(110), px(38), 1);
         // The window is as tall as its current view needs.
         let mut bounds = RECT {
             left: 0,
@@ -629,18 +680,17 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
         for &window in &self.paired_details {
             ShowWindow(window, if self.paired { SW_SHOW } else { SW_HIDE });
         }
-        text(
-            self.action,
-            if self.paired {
-                "Start host"
-            } else {
-                "Pair computer"
-            },
-        );
+        let stopping = self
+            .worker
+            .as_ref()
+            .is_some_and(|worker| worker.cancel.load(Ordering::Acquire));
+        text(self.action, primary_label(self.paired, busy, stopping));
         InvalidateRect(self.action, null(), 0);
-        EnableWindow(self.action, i32::from(!busy && !self.closing));
-        ShowWindow(self.stop, if self.paired { SW_SHOW } else { SW_HIDE });
-        EnableWindow(self.stop, i32::from(busy && !self.closing));
+        EnableWindow(
+            self.action,
+            i32::from(!self.closing && !stopping && (self.paired || !busy)),
+        );
+        self.show_access();
     }
     unsafe fn start(&mut self) {
         if self.worker.is_some() || self.closing {
@@ -682,7 +732,7 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
         if let Some(worker) = &self.worker {
             worker.cancel.store(true, Ordering::SeqCst);
             text(self.status, "Stopping host and releasing sharing…");
-            EnableWindow(self.stop, 0);
+            self.controls();
         }
     }
     fn check_signin(&mut self) {
@@ -722,6 +772,7 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
             if self.signin_recheck {
                 self.check_signin();
             }
+            self.show_access();
         }
         if self
             .unattended_job
@@ -1125,8 +1176,13 @@ unsafe extern "system" fn procedure(
         }
         WM_COMMAND if !state.is_null() && (wparam >> 16) == BN_CLICKED as usize => {
             match wparam & 0xffff {
-                ACTION => (*state).start(),
-                STOP => (*state).stop(),
+                ACTION => {
+                    if (*state).paired && (*state).worker.is_some() {
+                        (*state).stop();
+                    } else {
+                        (*state).start();
+                    }
+                }
                 AUTOSTART => {
                     if (*state).unattended_job.is_some() || (*state).closing {
                         return 0;
@@ -1138,6 +1194,7 @@ unsafe extern "system" fn procedure(
                         text((*state).status, "Could not change start at sign-in.");
                     }
                     InvalidateRect((*state).autostart, null(), 0);
+                    (*state).show_access();
                 }
                 BOOT_START => (*state).toggle_boot_start(),
                 FILES => {
@@ -1328,7 +1385,6 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             name: null_mut(),
             code: null_mut(),
             action: null_mut(),
-            stop: null_mut(),
             status: null_mut(),
             introduction: null_mut(),
             last_status: None,
@@ -1659,18 +1715,17 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                 "Pair computer",
                 28,
                 if paired { 498 } else { 322 },
-                if paired { 120 } else { 160 },
+                220,
                 38,
                 owner_draw | WS_VISIBLE,
                 ACTION,
             )?;
-            state.stop = child("BUTTON", "Stop host", 160, 498, 110, 38, owner_draw, STOP)?;
             state.update_button = child(
                 "BUTTON",
                 "Check for updates",
-                282,
+                260,
                 498,
-                170,
+                232,
                 38,
                 owner_draw,
                 UPDATE,

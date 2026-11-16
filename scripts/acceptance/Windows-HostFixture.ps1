@@ -153,7 +153,8 @@ if ($Action -eq 'Show') {
 [void]`$child.Start()
 `$line=`$child.StandardOutput.ReadLineAsync()
 `$errorLine=`$child.StandardError.ReadLineAsync()
-@{pid=`$child.Id;session=(Get-Process -Id `$child.Id).SessionId;userInteractive=[Environment]::UserInteractive;startedAt=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path `$root 'host-process.json') -Encoding utf8
+`$traceName='media-timings-$($taskName.Split('_')[-1]).jsonl'
+@{pid=`$child.Id;session=(Get-Process -Id `$child.Id).SessionId;userInteractive=[Environment]::UserInteractive;startedAt=[DateTime]::UtcNow.ToString('o');traceFile=`$traceName;source='$($candidate.source)'} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path `$root 'host-process.json') -Encoding utf8
 try {
  `$deadline=[DateTime]::UtcNow.AddMinutes(35)
  while(-not `$child.HasExited -and [DateTime]::UtcNow -lt `$deadline -and -not(Test-Path -LiteralPath (Join-Path `$root 'STOP'))){
@@ -161,6 +162,9 @@ try {
    `$value=`$line.Result
    if(`$null -ne `$value){
     if(`$value -match '^Presence ready in ([0-9]+) ms\.`$'){@{elapsedMillis=[long]`$Matches[1];at=[DateTime]::UtcNow.ToString('o');source='$($candidate.source)'}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path `$root 'presence-timing.json') -Encoding utf8}
+    # Only fixed numeric/state timing messages are retained. Drop every other
+    # stdout/stderr line, including any controller, candidate, SDP or grant data.
+    if(`$value -match '^(Media offer ready: generation [0-9]+, setup [0-9]+ ms\.|First video packet sent: generation [0-9]+, [0-9]+ ms\.|Native (ICE state|ICE gathering|peer connection state): generation [0-9]+, [A-Za-z]+, [0-9]+ ms\.|Native ICE error: generation [0-9]+, code [0-9]+, [0-9]+ ms\.)`$'){@{at=[DateTime]::UtcNow.ToString('o');event=`$value}|ConvertTo-Json -Compress|Add-Content -LiteralPath (Join-Path `$root `$traceName) -Encoding utf8}
     `$line=`$child.StandardOutput.ReadLineAsync()
    }else{`$line=`$null}
   }
@@ -170,7 +174,17 @@ try {
 } finally { if(-not `$child.HasExited){ `$child.Kill(); `$child.WaitForExit() }; `$child.Dispose() }
 "@
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($code))
-    $taskAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand $encoded"
+    # A console-subsystem task can cause Windows Terminal to create a blank
+    # window before PowerShell applies -WindowStyle Hidden. Start through the
+    # inbox windowless script host; hide only this owned launcher, not Beacon.
+    $bootstrap = Join-Path $root ('launch-' + $taskName.Split('_')[-1] + '.vbs')
+    Assert-PlainPath $bootstrap
+    if (Test-Path -LiteralPath $bootstrap) { throw 'Existing launch bootstrap refused.' }
+    $shell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $command = '"' + $shell + '" -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand ' + $encoded
+    $script = 'CreateObject("WScript.Shell").Run "' + $command.Replace('"', '""') + '", 0, True'
+    [IO.File]::WriteAllText($bootstrap, $script, [Text.Encoding]::Unicode)
+    $taskAction = New-ScheduledTaskAction -Execute (Join-Path $env:SystemRoot 'System32\wscript.exe') -Argument ('//B //NoLogo "' + $bootstrap + '"')
     $principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 40)
     Register-ScheduledTask -TaskName $taskName -Action $taskAction -Principal $principal -Settings $settings | Out-Null

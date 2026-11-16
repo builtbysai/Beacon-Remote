@@ -16,9 +16,10 @@ What remains:
   test account prepared November 16. A limited Surfiena fixture passed actual
   view-only video and browser Stop with owner approval. The Pixel update preserved
   its data; Pixel-host and wider device acceptance remain open.
-- Verify the startup-speed fix on Surfiena: initial/recovery acknowledgements
-  now avoid the first idle long poll and the following 15-second gap in source.
-  Focused regressions pass; full native checks, signing and device timing remain.
+- Startup-speed comparison passed on Surfiena: signed `9d377c6` acknowledged in
+  208 ms and the owner confirmed Online was quick. Finish the follow-up native
+  UI review (single Start/Stop, applicable actions, hidden background consoles),
+  signed candidate/device check and publication. Measure media startup separately.
 - Complete Windows cold boot/sign-in/secure attention/handoff/restart, Stop/
   Disable/input release, service recovery and installation/upgrade/rollback/
   removal acceptance. Complete Android real sharing, permissions, lock/revoke,

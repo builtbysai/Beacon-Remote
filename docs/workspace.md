@@ -21,8 +21,10 @@ app identity/data. Wider Windows/Pixel/unattended/lifecycle acceptance stays ope
 The owner reported slow initial Online status. First-request long polling was
 found to hold that acknowledgement. Startup/recovery source and focused wire
 regressions now avoid that wait and the following idle gap. Full native checks,
-signing and an actual-device comparison are in progress. No performance result
-for the new candidate is claimed yet. See development status and the completion
+signing and an actual-device comparison passed: the signed `9d377c6` candidate
+acknowledged in 208 ms and the owner confirmed Online was quick. The follow-up
+native UI/blank-console changes are in validation; media startup remains separate.
+See development status and the completion
 checklist; the paused legacy local fixture/identity were not started or moved.
 
 The private state root's `active-acceptance-preparation.txt` locates the current

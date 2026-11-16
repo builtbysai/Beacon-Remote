@@ -21,7 +21,9 @@ full unattended or Pixel-host acceptance. Details/measurements are in
 The owner reported slow initial Online status. A first-request long-poll delay
 was found; source fixes startup/recovery acknowledgement and the gap before the
 first active waiter. Focused real-HTTP/state regressions passed. The updated
-signed candidate and device comparison remain pending. Production sign-in gates
+signed `9d377c6` candidate acknowledged in 208 ms on Surfiena, and the owner
+confirmed Online was quick. Follow-up native UI/blank-console changes still need
+signed-device review and publication. Production sign-in gates
 and public native feeds remain unchanged.
 
 ## Latest publication and device readiness - November 15

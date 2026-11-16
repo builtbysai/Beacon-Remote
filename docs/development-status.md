@@ -52,7 +52,20 @@ A real loopback HTTP regression verifies readiness before work arrives and that
 the following request is already listening. Recovery/idle-backoff regressions
 also pass. A timing-only log line supports the next actual-device measurement;
 it contains no identity, grant, screen or input data. Full native checks, signing
-and the on-device comparison are pending before claiming a latency improvement.
+and the signed `9d377c6` candidate passed. Surfiena recorded its first successful
+acknowledgement in **208 ms**; the owner confirmed "Online quickly now." This is
+startup acknowledgement evidence, not a completed media-performance result.
+
+The owner's follow-up UI review requested one Start/Stop control, applicable
+actions only, and no blank terminal window. Follow-up source uses one primary
+host toggle, shows its stopping/pairing progress, hides file permission until
+trusted access is on, and removes the setup shortcut once its settings are already
+complete. Revocation/repair remain reachable. The sharing helper uses
+`CREATE_NO_WINDOW`; a real console-child regression passes without suppressing
+consent/sharing windows. The test fixture also launches its bounded PowerShell
+wrapper through the inbox windowless script host because an early console can
+otherwise trigger Windows Terminal. Signing and on-device UI/terminal review of
+this follow-up are pending.
 
 The maintained Windows fixture refuses other devices, checks pinned archives/
 signers, retains versioned binaries, preserves its on-device profile and never
