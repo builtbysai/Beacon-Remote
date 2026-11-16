@@ -71,7 +71,7 @@ export async function openViewer({
           chrome.kill();
           await Promise.race([
             stopped,
-            new Promise((done) => setTimeout(done, 2000)),
+            new Promise((done) => setTimeout(done, 10000)),
           ]);
         }
         // The profile contains the login cookie. Delete only this invocation's

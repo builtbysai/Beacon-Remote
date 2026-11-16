@@ -17,6 +17,8 @@ import {
   accessMessage,
   accessRequest,
   enrollment,
+  enrollmentCode,
+  ENROLLMENT_CODE_ALPHABET,
   heartbeat,
   heartbeatMessage,
   helpersMessage,
@@ -554,7 +556,12 @@ export async function createApp(
       );
       if (pending.rows[0].n >= MAX_PENDING_ENROLLMENTS)
         return reply.code(429).send({ error: "Too many pending codes" });
-      const code = randomBytes(24).toString("base64url");
+      const symbols = Array.from(
+        { length: 12 },
+        () =>
+          ENROLLMENT_CODE_ALPHABET[randomInt(ENROLLMENT_CODE_ALPHABET.length)],
+      ).join("");
+      const code = `${symbols.slice(0, 4)}-${symbols.slice(4, 8)}-${symbols.slice(8)}`;
       await pool.query(
         "INSERT INTO enrollments(code_hash,account_id,expires_at) VALUES ($1,$2,now()+interval '5 minutes')",
         [digest(code), account],
@@ -576,7 +583,7 @@ export async function createApp(
         if (!account)
           return reply.code(401).send({ error: "Sign in required" });
         const parsed = z
-          .object({ code: z.string().regex(/^[A-Za-z0-9_-]{32}$/) })
+          .object({ code: enrollmentCode })
           .strict()
           .safeParse(request.body);
         if (!parsed.success)

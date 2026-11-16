@@ -28,8 +28,12 @@ What remains:
   input and require fresh local approval for increased access; never expand an
   existing grant silently. This flow is unimplemented.
 - Fix Android's case-sensitive enrollment: its pairing screen uppercased the
-  server's mixed-case base64url code. Source now preserves case and disables
-  forced keyboard capitalization; mixed-case wire/device validation is in progress.
+  server's mixed-case base64url code. Signed `b17549a` preserves case and is
+  installed on the Pixel without clearing data; actual pairing remains pending.
+  The owner requested shorter codes: readable 12-symbol grouped codes now pass
+  real-database regression; finish full checks, the isolated service update,
+  actual Pixel pairing and publication. The dummy emulator regression did not
+  run because cold boot exceeded its readiness bound.
 - Complete Windows cold boot/sign-in/secure attention/handoff/restart, Stop/
   Disable/input release, service recovery and installation/upgrade/rollback/
   removal acceptance. Complete Android real sharing, permissions, lock/revoke,

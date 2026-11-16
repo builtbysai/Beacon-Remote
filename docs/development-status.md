@@ -118,6 +118,26 @@ base64url code. The fix preserves case/keyboard entry and changes the guarded
 dummy-emulator enrollment regression to a mixed-case 32-character code.
 Validation/signing/update and actual pairing remain in progress.
 
+Android `b17549a` passed unit tests, lint, debug/instrumentation builds and an
+existing-key release build; all four GitHub jobs passed (run `43932341191`). The
+APK SHA-256 is `fcc21fa4327d3ad38b5eed76b76568dca3d1b89108220eb0c14ab9f3ce2de774`.
+Its signer matches the installed app. `adb install -r` succeeded with capture
+inactive, without clearing data. The guarded read-only emulator did not finish
+cold boot within the bounded readiness check; mixed-case instrumentation was not
+run, and that owned emulator was stopped. Actual Pixel pairing remains pending.
+
+The owner found the 32-character invitation impractical. Follow-up source now
+issues 12 readable base32 symbols grouped four/four/four, with 60 random bits,
+the same five-minute expiry and existing rate/owner/pending-device bounds.
+New-format case/grouping normalize before hashing; legacy bearer codes preserve
+their exact case. The real local test-database enrollment regression passed,
+including normalized claim/status/cancel, expiry, replay, cross-account/Origin,
+cancel/claim races and legacy compatibility. Full control-plane checks and the
+isolated service update are pending. The unused long code was explicitly cancelled.
+The second owned pairing-browser profile was removed. The first browser's exit
+was not confirmed within its old two-second bound; no arbitrary profile sweep
+was attempted. The helper now allows ten seconds before reporting retained cleanup.
+
 The fixture-only `78b8c79` CI failed its formatting check on `viewer.mjs`; its
 security/native/Android jobs passed. The file is formatted in the follow-up;
 fresh complete CI is still required before merging PR #126.
