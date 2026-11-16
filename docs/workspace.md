@@ -4,22 +4,31 @@ Beacon Remote is the remote access product. This checkout is D:/Dev/Beacon-Remot
 
 ## Current checkpoint - November 15, 2026
 
-The authoritative tracker is [completion-checklist.md](completion-checklist.md).
-PRs #115-#117 are merged. The VM runs verified source `96f64ec` from #117;
-migrations 025-029, recovery drills, exact release images and both products'
-health/readiness passed. Web theme, Downloads, Settings, email, pairing and
-workspace changes are deployed. Stage-one view-only MCP is published; #105 is
-closed. Full automation/input/Motive integration is still a later milestone.
+Use [completion-checklist.md](completion-checklist.md) and [roadmap.md](roadmap.md).
+PRs #115-#117 and #124 are merged. The VM runs tested application source
+`5e8d5c5` from #124. All four CI jobs, ARM64 runtime verification, migrations
+025-029, quiesced encrypted backup/integrity/isolated recovery and both products'
+health/readiness passed. Theme, Downloads, Settings, email, pairing, workspace and
+stage-one view-only MCP are published. The larger automation/input/Motive
+milestone remains unimplemented.
 
-Signed Windows default/sign-in and Android candidates exist; native update feeds
-have not advanced. Windows sign-in authority/media remain disabled pending actual
-SYSTEM, cold-boot, capture/input, handoff and installation lifecycle acceptance.
-Source and synthetic checks do not establish full unattended access.
+Android native UI and delayed-response lifecycle fixes passed unit/lint/build
+and guarded dummy API/emulator review. Existing-key signed Android and both
+Windows candidates from `a6d114d` are staged privately on the VM. Native feeds
+remain unchanged; Windows sign-in authority/media remain disabled pending actual
+SYSTEM, boot, capture/input, handoff and installation lifecycle acceptance.
 
-The current feature branch is `codex/android-host-ux`. Android native design,
-consent layout and delayed-response lifecycle fixes now have a guarded emulator
-review using only a dummy loopback API. No Pixel, SSH test PC, installed identity
-or real account was used. This is separate from physical Android acceptance.
+The current documentation handoff branch is `codex/publication-receipts`, based
+on merged #124. No existing branch was removed. Dependency PRs #118-#123 were
+included/closed; no open PR remained at this checkpoint. One moderate lint-only
+npm advisory remains outside production runtime dependencies.
+
+The Pixel 7a is ADB-authorized; pinned-key SSH reaches Surfiena with signed-in
+session 1. Only inventory/session queries ran. The isolated acceptance backend
+still returns 502 and its STOP marker remains present. Matching isolated server/
+schema and retained test identity preparation comes before physical tests; do
+not substitute production or remove the marker merely because hardware exists.
+Full unattended access is not accepted. No installed identity was relocated.
 
 The sections below are historical implementation checkpoints. Their statements
 about unpublished work, pending migrations or missing browser integration are

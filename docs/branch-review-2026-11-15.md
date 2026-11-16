@@ -102,3 +102,24 @@ native labels/buttons to accessibility. Attempted resize did not confirm changed
 bounds, so narrow/DPI/paired/error review remains open. The window was closed;
 no service action or installed identity was used. Final GitHub and VM receipts
 are recorded in the completion tracker after publication.
+
+Final #124 receipt: merge `008a5bb`, tested/deployed application head `5e8d5c5`.
+All four GitHub jobs passed in run `43781869285`. ARM64 actual compiled imports,
+old/new password hashes and production-only dependencies passed. Quiesced VM
+backup/integrity/strict isolated restore/schema and both products' health passed.
+The source-only protocol import error was in the custom probe, not the actual
+compiled app; the corrected runtime probe passed without a source change.
+Existing-key candidates from `a6d114d` were checksum/provenance/signature-verified
+and staged root-only on the VM. #118-#123 are closed as included. Fresh open-PR
+inventory was empty; branches remain preserved. Sign-in gates and native feeds
+remain unchanged. The completion tracker records the remaining physical and
+implementation gaps; these publication receipts do not claim full completion.
+
+The source-only publication follow-up also verifies real Chromium 200% page zoom
+for five workspace screens, with bounded use of Chromium's zoom preference in a
+disposable profile. Menu bounds, scrolled inspector/details, executable/APK action
+hit tests and browser accessibility names passed. Its final run confirms profile
+cleanup before success. An earlier retained dummy profile could not be removed:
+automatic approval review stated "blocked by policy". A private receipt records
+its exact path; unrelated historical profiles were not removed. These changes
+are test fixture/documentation only; deployed application source remains `5e8d5c5`.

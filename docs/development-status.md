@@ -1,9 +1,69 @@
 # Development status
 
-Current checkpoint: November 15, 2026. PRs #115-#117 are merged; VM source
-`96f64ec` is deployed. The [completion checklist](completion-checklist.md) records
+Current checkpoint: November 15, 2026. PRs #115-#117 and #124 are merged; VM application
+source `5e8d5c5` is deployed. The [completion checklist](completion-checklist.md) records
 publication, encrypted recovery, migration and browser/MCP verification. Older
 dated entries below are historical, including their local-only release statements.
+
+## Latest publication and device readiness - November 15
+
+[PR #124](https://github.com/builtbysai/Beacon-Remote/pull/124) merged as `008a5bb`.
+Its tested head `5e8d5c511fa3ba542a3f2d79d78a0534ce5837b9` is the current VM
+application release. All four GitHub jobs passed (run `43781869285`). ARM64
+backend/web/backup images built; actual compiled backend/protocol imports,
+patched Fastify, prior/new Argon2 hashes and production-only dependencies passed.
+The first custom probe incorrectly imported the development TypeScript package
+entry; checking the actual compiled application passed without a source change.
+
+Before deployment, there were no live Remote sessions. Prior application images
+were retained. Remote-only quiesced encrypted backup, repository integrity,
+strict separate-database restore and schema verification passed. After replacement,
+Remote and View health/readiness passed, sign-in authority/media stayed disabled,
+and all three Remote operations timers were active. A transient 502 during web
+replacement recovered on retry; this was not a zero-interruption deployment.
+View services and shared Caddy/Coturn configuration were not changed.
+
+Existing-key Android and timestamped private-alpha Windows default/sign-in
+candidates from `a6d114d784d8a9dc253c9dc459d2f511a5a5e2cf` are verified and
+staged root-only (directory 0700, files 0600) under the VM's private candidates
+area. Archive payload hashes, source/features and native signer/timestamps were
+checked. The Windows self-signed certificate is not publicly trusted. Public
+download/update feeds were not advanced. No physical endpoint was installed or
+reconfigured. Dependency PRs #118-#123 were closed after their reviewed updates
+were included; no open PR remained at this checkpoint. Branches were preserved.
+One moderate lint-only npm advisory remains; no high/critical npm findings or
+RustSec warnings were reported. Development tools are absent from the runtime.
+
+The owner's Pixel 7a is ADB-authorized. Pinned-key SSH reaches Surfiena and a
+read-only query confirms a signed-in Explorer session (session 1). This establishes
+management reachability only. Windows Home lacks `quser`; the fallback query
+succeeded. Neither device's capture/input/boot permissions were exercised.
+The isolated acceptance backend is still deliberately stopped: `/ready` and
+unauthenticated `/api/machines` return 502, and its private STOP marker remains.
+A matching isolated backend/schema and current retained test identity must be
+prepared deliberately before resuming actual tests; production is not the test DB.
+
+## Real browser zoom review - November 15
+
+Computers, Sessions, Activity, Settings/security and Downloads passed at actual
+Chromium 200% page zoom in a fresh synthetic profile. The browser's own zoom
+preference changed CSS viewport width from 1258 to 629 and DPR from 1 to 2 while
+visualViewport.scale stayed 1; no emulated viewport was active. The review checks
+route headings, native browser accessibility names, appearance-menu bounds,
+inspector scrolling, expanded download details and hit-tested Windows/Android
+download actions. Dummy screenshots were reviewed. It does not prove real screen-
+reader announcements, every public/auth/viewer route or physical-device usability.
+
+The optional `REMOTE_UI_ZOOM_REVIEW=1` workspace fixture uses a separate result
+folder, chooses an ephemeral loopback port with strict binding and verifies its
+own browser-profile cleanup before reporting overall success. Existing headless
+launch defaults and MCP authorization did not change. Final evidence is
+`workspace-zoom-browser-2026-11-15/result.json`, with profileCleanupConfirmed true.
+One earlier synthetic profile was retained when browser exit confirmation timed
+out; explicit removal was rejected by automatic approval review ("blocked by
+policy"). Its ownership was checked read-only; the private cleanup receipt
+`zoom-cleanup-retained-2026-11-15.json` identifies it for manual cleanup. No actual
+account credential or physical screen content was used in that profile.
 
 ## November 15 Android design and lifecycle review
 
