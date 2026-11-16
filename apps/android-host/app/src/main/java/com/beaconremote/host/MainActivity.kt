@@ -18,7 +18,6 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.app.NotificationManagerCompat
-import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
@@ -86,8 +85,8 @@ class MainActivity : Activity() {
         root.addView(label("Pair this device", 20f, true))
         root.addView(HostUi.text(this, "In your workspace, choose Add a computer and enter its one-use code here.", secondary = true))
         val name = input(R.id.pair_name, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS, 80).apply { setText(Build.MODEL) }
-        val code = input(R.id.pair_code, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS, 32).apply {
-            hint = "ABCD-EFGH"
+        val code = input(R.id.pair_code, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS, 32).apply {
+            hint = "One-use code"
             imeOptions = EditorInfo.IME_ACTION_DONE
         }
         field("Device name", name)
@@ -109,7 +108,8 @@ class MainActivity : Activity() {
         pair.setOnClickListener {
             val origin = Api.validServer(server.text.toString())
             val deviceName = name.text.toString().trim()
-            val pairingCode = code.text.toString().trim().uppercase(Locale.ROOT)
+            // Enrollment codes are case-sensitive base64url bearer tokens.
+            val pairingCode = code.text.toString().trim()
             if (origin == null) { server.visibility = View.VISIBLE; serverLabel.visibility = View.VISIBLE; server.error = "Enter a server origin, such as https://remote.builtbysai.com"; server.requestFocus(); return@setOnClickListener }
             if (deviceName.isEmpty()) { name.error = "Enter a device name"; name.requestFocus(); return@setOnClickListener }
             if (pairingCode.isEmpty()) { code.error = "Enter the code from your workspace"; code.requestFocus(); return@setOnClickListener }

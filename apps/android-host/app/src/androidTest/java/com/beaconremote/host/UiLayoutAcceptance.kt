@@ -69,7 +69,9 @@ class UiLayoutAcceptance : Instrumentation() {
             onMain {
                 screen.findViewById<EditText>(R.id.pair_server).setText(server)
                 screen.findViewById<EditText>(R.id.pair_name).setText("Synthetic Android device with a long name")
-                screen.findViewById<EditText>(R.id.pair_code).setText("DUMMY-CODE")
+                val code = screen.findViewById<EditText>(R.id.pair_code)
+                check(code.inputType and android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS == 0) { "Keyboard must preserve code case" }
+                code.setText("aB3_dE6-gH9_jK2-mN5_pQ8-rS1_tU4v")
                 screen.window.decorView.findViewWithTag<Button>("pair-submit").performClick()
                 check(!screen.findViewById<EditText>(R.id.pair_name).isEnabled)
             }

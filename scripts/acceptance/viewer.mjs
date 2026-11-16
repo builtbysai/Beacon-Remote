@@ -30,7 +30,12 @@ function chromePath() {
   throw new Error("No Chrome found. Set CHROME_PATH.");
 }
 
-export async function openViewer({ origin, cookie, port = 9555, headless = true }) {
+export async function openViewer({
+  origin,
+  cookie,
+  port = 9555,
+  headless = true,
+}) {
   const profile = mkdtempSync(join(tmpdir(), "beacon-viewer-"));
   const chrome = spawn(
     chromePath(),

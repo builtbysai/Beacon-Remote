@@ -22,6 +22,14 @@ What remains:
   a new terminal. Defer further layout choices until core acceptance as requested.
   Repeat view/Stop passed, but media startup still took 11.8 seconds on relay;
   diagnose that separately. Connection-time blinking was seen once, not on repeat.
+- Add in-session requests for more access (owner request, November 16). A
+  view-only connection must be able to request control and reopen permission
+  approval for files/audio/recording. Preserve one controller, release existing
+  input and require fresh local approval for increased access; never expand an
+  existing grant silently. This flow is unimplemented.
+- Fix Android's case-sensitive enrollment: its pairing screen uppercased the
+  server's mixed-case base64url code. Source now preserves case and disables
+  forced keyboard capitalization; mixed-case wire/device validation is in progress.
 - Complete Windows cold boot/sign-in/secure attention/handoff/restart, Stop/
   Disable/input release, service recovery and installation/upgrade/rollback/
   removal acceptance. Complete Android real sharing, permissions, lock/revoke,

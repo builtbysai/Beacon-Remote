@@ -11,7 +11,7 @@ const exec = promisify(execFile),
   root = resolve(import.meta.dirname, "../..");
 if (!process.env.REMOTE_DEV_STATE_DIR)
   throw Error("Enter the Remote workspace first");
-const output = join(process.env.REMOTE_DEV_STATE_DIR, "android-ui-2026-11-15");
+const output = join(process.env.REMOTE_DEV_STATE_DIR, "android-ui-2026-11-16");
 await mkdir(output, { recursive: true });
 const serial = "emulator-5580",
   expectedAvd = "BeaconRemote_UI_20261115";
@@ -96,7 +96,7 @@ const server = createServer((req, res) => {
       const path = req.url.split("?")[0];
       if (path === "/api/agent/enroll") {
         assert.equal(body.name, "Synthetic Android device with a long name");
-        assert.equal(body.code, "DUMMY-CODE");
+        assert.equal(body.code, "aB3_dE6-gH9_jK2-mN5_pQ8-rS1_tU4v");
         publicKey = createPublicKey({
           format: "der",
           type: "spki",
@@ -266,6 +266,7 @@ try {
         scope:
           "fresh owned emulator, dummy loopback API; no real account/device/capture/input",
         setupAndApproval: true,
+        mixedCasePairing: true,
         queuedCompletion: true,
         lateEnableRejected: true,
         stalePresenceRejected: true,

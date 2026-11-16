@@ -100,6 +100,28 @@ have a separate regression. It uses bounded owned processes/tasks and requires
 explicit resume of its own STOP guard. Existing broad automated consent actions
 in the older temporary-support fixture were not used.
 
+## November 16 Android pairing and further permission requests
+
+November 16 follow-up: the owner requested additional permissions from a live
+view-only session (control/files/audio/recording). This is an implementation gap;
+increasing access must require fresh local approval and preserve input release
+and single-controller rules. It has been added to the roadmap. Windows testing
+was set aside while the owner charges the laptop; the owned visible viewer was
+closed with session/profile cleanup confirmed.
+
+Pixel testing found the installed app unpaired, accessibility off. Automatic
+approval review rejected ADB entry of its server/pairing fields with "blocked by
+policy"; no alternate automation route was used. The owner is entering pairing
+details manually, with the code shown only in a local isolated browser. Source
+inspection then found a real blocker: the app uppercased the case-sensitive
+base64url code. The fix preserves case/keyboard entry and changes the guarded
+dummy-emulator enrollment regression to a mixed-case 32-character code.
+Validation/signing/update and actual pairing remain in progress.
+
+The fixture-only `78b8c79` CI failed its formatting check on `viewer.mjs`; its
+security/native/Android jobs passed. The file is formatted in the follow-up;
+fresh complete CI is still required before merging PR #126.
+
 ## Latest publication and device readiness - November 15
 
 [PR #124](https://github.com/builtbysai/Beacon-Remote/pull/124) merged as `008a5bb`.
