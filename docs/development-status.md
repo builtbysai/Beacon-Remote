@@ -64,13 +64,28 @@ complete. Revocation/repair remain reachable. The sharing helper uses
 `CREATE_NO_WINDOW`; a real console-child regression passes without suppressing
 consent/sharing windows. The test fixture also launches its bounded PowerShell
 wrapper through the inbox windowless script host because an early console can
-otherwise trigger Windows Terminal. Signing and on-device UI/terminal review of
-this follow-up passed: ordinary candidate `d3bd11c` is signed, hash/signer/
+otherwise trigger Windows Terminal. Signing passed: ordinary candidate `d3bd11c` is signed, hash/signer/
 timestamp-verified and running as the limited user in Surfiena session 1 with
 the same private profile. Both native configurations and all four GitHub jobs
 passed (run `43925818548`). Source and ordinary signed ZIP/installer are also
-checksum-verified on the VM, outside public feeds. Owner review of the new
-toggle/layout and blank-window behavior is pending; no new media result is claimed.
+checksum-verified on the VM, outside public feeds. The owner confirmed Start
+changed to Stop and no new blank terminal appeared. Its first acknowledgement
+was 252 ms. A second real view-only session decoded advancing video, stopped and
+cleaned its browser profile. It used relay/relay, measured 92-247 ms RTT and
+11800 ms approval-to-first-frame. Native timing showed a 99 ms offer setup,
+3033 ms peer connection and 4706 ms first outgoing packet. These are separate
+clock/stage measurements, not a proof of the remaining delay's cause. Media
+startup performance remains open. No input or pixels were retained by this view test.
+
+The owner saw connection-time window blinking once, then none on the repeat;
+its source is unresolved. Per the owner, defer further design choices until
+core acceptance. An initial control attempt never became input-ready and ended
+without injecting input. The harmless input-test window also encountered a
+state-file sharing violation; its snapshot writer now preserves the previous
+complete snapshot and retries after a reader releases it. A real held-reader
+regression verifies refusal without damage and subsequent recovery. This was
+a test-fixture failure, not evidence that actual control works. A visible isolated
+viewer is open for an owner handoff; control and key-release acceptance remain open.
 
 After a deliberately bounded acceptance-backend restart, the earlier candidate
 logged a 15410 ms recovery sample including network retry/backoff. Do not treat

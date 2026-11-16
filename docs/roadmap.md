@@ -18,8 +18,10 @@ What remains:
   its data; Pixel-host and wider device acceptance remain open.
 - Startup-speed comparison passed on Surfiena: signed `9d377c6` acknowledged in
   208 ms and the owner confirmed Online was quick. Finish the follow-up native
-  UI review (single Start/Stop, applicable actions, hidden background consoles),
-  signed candidate/device check and publication. Measure media startup separately.
+  UI publication: the owner confirmed the signed `d3bd11c` toggle and absence of
+  a new terminal. Defer further layout choices until core acceptance as requested.
+  Repeat view/Stop passed, but media startup still took 11.8 seconds on relay;
+  diagnose that separately. Connection-time blinking was seen once, not on repeat.
 - Complete Windows cold boot/sign-in/secure attention/handoff/restart, Stop/
   Disable/input release, service recovery and installation/upgrade/rollback/
   removal acceptance. Complete Android real sharing, permissions, lock/revoke,

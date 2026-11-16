@@ -23,7 +23,9 @@ was found; source fixes startup/recovery acknowledgement and the gap before the
 first active waiter. Focused real-HTTP/state regressions passed. The updated
 signed `9d377c6` candidate acknowledged in 208 ms on Surfiena, and the owner
 confirmed Online was quick. Follow-up native UI/blank-console changes still need
-owner review on Surfiena. Signed `d3bd11c` passed both native configurations and
+publication. The owner confirmed the toggle and no new terminal on Surfiena.
+Its repeat view/Stop passed; media startup, control/key release and intermittent
+blinking remain open. Signed `d3bd11c` passed both native configurations and
 all four GitHub jobs; source/artifacts are checksum-verified on the VM and PR
 #126 tracks publication. Production sign-in gates
 and public native feeds remain unchanged.

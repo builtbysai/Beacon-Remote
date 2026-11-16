@@ -24,9 +24,11 @@ regressions now avoid that wait and the following idle gap. Full native checks,
 signing and an actual-device comparison passed: the signed `9d377c6` candidate
 acknowledged in 208 ms and the owner confirmed Online was quick. The follow-up
 native UI/blank-console candidate `d3bd11c` passed both native configurations and
-all four GitHub jobs and is open on Surfiena for owner review. Its source and
+all four GitHub jobs. The owner confirmed its Start/Stop toggle and no new terminal;
+repeat viewing/Stop passed, while media startup and control remain open. Its source and
 signed ordinary artifacts are checksum-verified on the VM; media startup and
-physical UI review remain separate.
+remaining physical acceptance remain separate. The owner requested core testing
+before further layout choices; use the visible isolated viewer for that handoff.
 See development status and the completion
 checklist; the paused legacy local fixture/identity were not started or moved.
 

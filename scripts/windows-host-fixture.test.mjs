@@ -33,6 +33,10 @@ $source = $env:BEACON_FIXTURE_TEST_SOURCE
 $tokens = $null; $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile($source, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw 'Fixture parsing failed' }
+$probeSource = Join-Path (Split-Path $source) 'Windows-InputProbe.ps1'
+$probeTokens = $null; $probeErrors = $null
+$probeAst = [Management.Automation.Language.Parser]::ParseFile($probeSource, [ref]$probeTokens, [ref]$probeErrors)
+if ($probeErrors.Count) { throw 'Input probe parsing failed' }
 $assignment = $ast.Find({ param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left.Extent.Text -eq '$code' }, $true)
 if (-not $assignment) { throw 'Generated launcher missing' }
 $root = Join-Path ([IO.Path]::GetTempPath()) 'SyntheticFixture'
@@ -46,6 +50,23 @@ if ($errors.Count) { throw 'Generated launcher parsing failed' }
 if ($launcher -notmatch [regex]::Escape((Join-Path $bin 'beacon-remote-host.exe'))) { throw 'Launcher lost the pinned binary path' }
 if ($launcher -notmatch 'Presence ready in') { throw 'Safe timing collector missing' }
 if ($env:OS -eq 'Windows_NT') {
+  $writer = $probeAst.Find({ param($item) $item -is [Management.Automation.Language.FunctionDefinitionAst] -and $item.Name -eq 'Write-ProbeSnapshot' }, $true)
+  if (-not $writer) { throw 'Atomic probe writer missing' }
+  Invoke-Expression $writer.Extent.Text
+  $snapshot = Join-Path ([IO.Path]::GetTempPath()) ('Beacon-probe-lock-' + [guid]::NewGuid().ToString('N') + '.json')
+  $reader = $null
+  try {
+    if (-not (Write-ProbeSnapshot $snapshot '{"revision":1}')) { throw 'Initial snapshot failed' }
+    $reader = [IO.File]::Open($snapshot, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    if (Write-ProbeSnapshot $snapshot '{"revision":2}') { throw 'Locked snapshot unexpectedly replaced' }
+    if (([IO.File]::ReadAllText($snapshot) | ConvertFrom-Json).revision -ne 1) { throw 'Snapshot was damaged while a reader held it' }
+    $reader.Dispose(); $reader = $null
+    if (-not (Write-ProbeSnapshot $snapshot '{"revision":2}')) { throw 'Snapshot did not recover after reader released it' }
+    if (([IO.File]::ReadAllText($snapshot) | ConvertFrom-Json).revision -ne 2) { throw 'Recovered snapshot invalid' }
+  } finally {
+    if ($reader) { $reader.Dispose() }
+    foreach ($file in @($snapshot, ($snapshot + '.pending'))) { if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file } }
+  }
   # Exercise the actual bootstrap expression with a real console child, a path
   # containing spaces and a completion marker. No device/profile/task is used.
   $probeRoot = Join-Path ([IO.Path]::GetTempPath()) ('Beacon hidden launch ' + [guid]::NewGuid().ToString('N'))
@@ -79,6 +100,9 @@ if ($env:COMPUTERNAME -ieq 'SURFIENA') { throw 'Do not run the refusal test on t
 $refused = $false
 try { & $source -Action Prepare -Run 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' } catch { $refused = $_.Exception.Message -like '*restricted to the designated Surfiena*' }
 if (-not $refused) { throw 'Wrong-device setup was not refused' }
+$refused = $false
+try { & $probeSource -Run 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' -Probe 'bbbbbbbb' } catch { $refused = $_.Exception.Message -like '*restricted to the designated Surfiena*' }
+if (-not $refused) { throw 'Wrong-device input probe was not refused' }
 Write-Output 'PASS: launcher syntax and wrong-device refusal'
 `);
   assert.match(result, /PASS: launcher syntax and wrong-device refusal/);
