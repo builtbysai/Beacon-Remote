@@ -2,7 +2,37 @@
 
 Beacon Remote is the remote access product. This checkout is D:/Dev/Beacon-Remote. Continue the unattended-access work on its current feature branch; source publication does not establish release acceptance.
 
-## Current checkpoint - November 15, 2026
+## Current checkpoint - November 16, 2026
+
+Continue on `codex/device-acceptance-preparation`. The owner resumed actual tests
+with the Pixel and Surfiena available and approved the first local view request.
+The isolated backend/web now use `5e8d5c5` with the current schema and a fresh
+random test account under the external private preparation directory. Independent
+encrypted backup/recovery passed before schema changes. Both production products
+were checked unchanged. Acceptance remains bounded to one hour per backend run;
+ordinary control is enabled there, while sign-in authority/media stay off.
+
+Surfiena's signed ordinary candidate `a6d114d` is paired in a separate private
+on-device profile and runs as the limited signed-in user in session 1. Actual
+view-only decoded video, relay connectivity, browser Stop and cleanup passed;
+no pixels were saved or input injected. The Pixel update preserved its existing
+app identity/data. Wider Windows/Pixel/unattended/lifecycle acceptance stays open.
+
+The owner reported slow initial Online status. First-request long polling was
+found to hold that acknowledgement. Startup/recovery source and focused wire
+regressions now avoid that wait and the following idle gap. Full native checks,
+signing and an actual-device comparison are in progress. No performance result
+for the new candidate is claimed yet. See development status and the completion
+checklist; the paused legacy local fixture/identity were not started or moved.
+
+The private state root's `active-acceptance-preparation.txt` locates the current
+protected receipts/account. Never print that account's password/session/code.
+The maintained `Windows-HostFixture.ps1` uses only Surfiena, pinned artifacts,
+versioned binaries, an unchanged on-device profile and limited bounded tasks.
+Local approval remains manual. Native public feeds and production gates stay
+unchanged. The earlier release checkpoints below are historical.
+
+## Earlier checkpoint - November 15, 2026
 
 Use [completion-checklist.md](completion-checklist.md) and [roadmap.md](roadmap.md).
 PRs #115-#117 and #124 are merged. The VM runs tested application source

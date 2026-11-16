@@ -1,9 +1,65 @@
 # Development status
 
-Current checkpoint: November 15, 2026. PRs #115-#117 and #124 are merged; VM application
+Current checkpoint: November 16, 2026. PRs #115-#117 and #124 are merged; VM application
 source `5e8d5c5` is deployed. The [completion checklist](completion-checklist.md) records
 publication, encrypted recovery, migration and browser/MCP verification. Older
 dated entries below are historical, including their local-only release statements.
+
+## November 16 isolated device acceptance and startup latency
+
+The paused acceptance environment now uses verified backend/web application
+source `5e8d5c5`, the existing separate acceptance database/role and protected
+session/relay configuration. Its old empty account baseline was encrypted to the
+independent C: repository, restored and checksum-checked, then recovered into a
+new local disposable database before migration. Production databases were not
+used for tests. Current schema/role verification passed; only the acceptance
+services were started, with the existing one-hour backend lifetime. Remote/View
+production container IDs, images and start times stayed unchanged. Ordinary view/
+control is enabled only in acceptance; sign-in authority/media remain disabled.
+
+A fresh random temporary acceptance account and browser session are stored under
+the existing external private root. The password and prior Pixel APK were also
+independently encrypted/recovered. Actual sign-in, secure HTTP-only SameSite
+cookie, empty account scope, wrong-password refusal, cross-Origin refusal and
+anonymous enrollment refusal passed. No actual password, cookie or pairing code
+is recorded here. Rotate/delete this account and retained sessions at full completion.
+
+The Pixel 7a (API 37) candidate update used the same verified APK signer and
+preserved installed app data/identity. Surfiena's signed default candidate
+`a6d114d` was hash/signer/timestamp verified in a separate private fixture; its
+Ed25519 key was generated/sealed on Surfiena. An explicitly limited interactive
+task launched the host in signed-in session 1. No installed identity, service,
+certificate store, Windows startup entry or system permission was changed.
+The old local acceptance STOP marker/identity remained untouched. The owner
+started the host locally, reported Online was slow, and approved a real view-only
+request; the owner reported that approval prompt appeared promptly.
+
+Actual native WebRTC viewing and browser Stop passed. Decoded frames advanced
+from 2 to 134 over the 15-second sample; the adaptive picture changed from
+1280x720 to 960x540. Selected candidates were relay/relay, with measured RTT
+124-191 ms. Approval-to-first-presented-frame was 5209 ms. Approval timing includes
+the person's response and is not prompt arrival latency. This mostly static,
+brief desktop sample is not sustained-FPS or subjective-picture acceptance.
+No pixels were saved, recording started or input injected. Backend session end
+and owned browser-profile cleanup were verified (`windows-view-result.json` in
+the private preparation directory).
+
+The first host request currently uses a 15-second long poll before publishing
+Online. Follow-up source now requests an immediate signed acknowledgement for
+startup/recovery, then opens the long poll without an intervening 15-second idle
+sleep. Established connections preserve server backoff and existing authorization.
+A real loopback HTTP regression verifies readiness before work arrives and that
+the following request is already listening. Recovery/idle-backoff regressions
+also pass. A timing-only log line supports the next actual-device measurement;
+it contains no identity, grant, screen or input data. Full native checks, signing
+and the on-device comparison are pending before claiming a latency improvement.
+
+The maintained Windows fixture refuses other devices, checks pinned archives/
+signers, retains versioned binaries, preserves its on-device profile and never
+approves local consent. Its generated limited launcher and wrong-device guard
+have a separate regression. It uses bounded owned processes/tasks and requires
+explicit resume of its own STOP guard. Existing broad automated consent actions
+in the older temporary-support fixture were not used.
 
 ## Latest publication and device readiness - November 15
 

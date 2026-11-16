@@ -1,10 +1,28 @@
 # Beacon Remote completion checklist
 
-Current checkpoint: November 15, 2026. This is the single current completion
+Current checkpoint: November 16, 2026. This is the single current completion
 tracker for the owner's full-roadmap goal. The [roadmap](roadmap.md) defines
 scope; [development status](development-status.md) retains dated validation
 records. Historical entries do not override this tracker or grant new release
 authorization. No percentage is inferred from passing builds.
+
+## November 16 acceptance update
+
+The matching isolated acceptance backend/schema and fresh private temporary
+account are prepared and authenticated. Independent encrypted recovery and
+production isolation passed. Pixel's same-signer update preserved its data.
+Surfiena's separate limited-user fixture is paired and running in session 1.
+The owner confirmed local approval; actual view-only decoded video, relay route,
+browser Stop, backend end and browser-profile cleanup passed. No pixels were
+saved or input injected. This is a short ordinary Windows viewing result, not
+full unattended or Pixel-host acceptance. Details/measurements are in
+[development status](development-status.md).
+
+The owner reported slow initial Online status. A first-request long-poll delay
+was found; source fixes startup/recovery acknowledgement and the gap before the
+first active waiter. Focused real-HTTP/state regressions passed. The updated
+signed candidate and device comparison remain pending. Production sign-in gates
+and public native feeds remain unchanged.
 
 ## Latest publication and device readiness - November 15
 

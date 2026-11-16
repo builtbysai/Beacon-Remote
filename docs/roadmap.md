@@ -12,9 +12,13 @@ checks passed. Native feeds remain unchanged and Windows sign-in gates are off.
 
 What remains:
 
-- Prepare the matching isolated acceptance backend/schema and retained test
-  identity. It remains stopped with its STOP marker present; the Pixel and
-  Surfiena are reachable, but connectivity does not close device acceptance.
+- Continue from the matching isolated acceptance backend/schema and fresh private
+  test account prepared November 16. A limited Surfiena fixture passed actual
+  view-only video and browser Stop with owner approval. The Pixel update preserved
+  its data; Pixel-host and wider device acceptance remain open.
+- Verify the startup-speed fix on Surfiena: initial/recovery acknowledgements
+  now avoid the first idle long poll and the following 15-second gap in source.
+  Focused regressions pass; full native checks, signing and device timing remain.
 - Complete Windows cold boot/sign-in/secure attention/handoff/restart, Stop/
   Disable/input release, service recovery and installation/upgrade/rollback/
   removal acceptance. Complete Android real sharing, permissions, lock/revoke,
