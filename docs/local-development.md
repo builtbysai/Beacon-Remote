@@ -238,3 +238,16 @@ The [per-user development installer](development-host-package.md) bundles the
 validated agent and interactive helper with Pair/Run shortcuts and explicit
 uninstall. It requires no elevation or automatic startup. Service, tray and
 reboot recovery remain unimplemented; this is not a signed consumer release.
+
+## Optional real browser zoom review
+
+After entering the Remote workspace, set `REMOTE_UI_ZOOM_REVIEW=1` and run
+`node apps/web/test-browser/workspace.mjs`. Clear that environment variable to
+run the ordinary viewport/workspace journeys. The zoom mode uses Chromium's
+actual page-zoom preference at 200%, a new temporary profile and only a dummy
+loopback API/manifest. It checks five routes, inspector/theme/download control
+reachability and browser accessibility names; it does not use retained accounts,
+devices or the personal browser profile. Results are under the private state
+root's `workspace-zoom-browser-2026-11-15` folder. Final success requires confirmed
+owned profile cleanup. Ports are dynamically selected and strictly bound; the
+fixture does not reclaim View's or another process's listener.

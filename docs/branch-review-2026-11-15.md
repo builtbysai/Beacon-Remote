@@ -114,3 +114,12 @@ and staged root-only on the VM. #118-#123 are closed as included. Fresh open-PR
 inventory was empty; branches remain preserved. Sign-in gates and native feeds
 remain unchanged. The completion tracker records the remaining physical and
 implementation gaps; these publication receipts do not claim full completion.
+
+The source-only publication follow-up also verifies real Chromium 200% page zoom
+for five workspace screens, with bounded use of Chromium's zoom preference in a
+disposable profile. Menu bounds, scrolled inspector/details, executable/APK action
+hit tests and browser accessibility names passed. Its final run confirms profile
+cleanup before success. An earlier retained dummy profile could not be removed:
+automatic approval review stated "blocked by policy". A private receipt records
+its exact path; unrelated historical profiles were not removed. These changes
+are test fixture/documentation only; deployed application source remains `5e8d5c5`.

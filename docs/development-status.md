@@ -43,6 +43,28 @@ unauthenticated `/api/machines` return 502, and its private STOP marker remains.
 A matching isolated backend/schema and current retained test identity must be
 prepared deliberately before resuming actual tests; production is not the test DB.
 
+## Real browser zoom review - November 15
+
+Computers, Sessions, Activity, Settings/security and Downloads passed at actual
+Chromium 200% page zoom in a fresh synthetic profile. The browser's own zoom
+preference changed CSS viewport width from 1258 to 629 and DPR from 1 to 2 while
+visualViewport.scale stayed 1; no emulated viewport was active. The review checks
+route headings, native browser accessibility names, appearance-menu bounds,
+inspector scrolling, expanded download details and hit-tested Windows/Android
+download actions. Dummy screenshots were reviewed. It does not prove real screen-
+reader announcements, every public/auth/viewer route or physical-device usability.
+
+The optional `REMOTE_UI_ZOOM_REVIEW=1` workspace fixture uses a separate result
+folder, chooses an ephemeral loopback port with strict binding and verifies its
+own browser-profile cleanup before reporting overall success. Existing headless
+launch defaults and MCP authorization did not change. Final evidence is
+`workspace-zoom-browser-2026-11-15/result.json`, with profileCleanupConfirmed true.
+One earlier synthetic profile was retained when browser exit confirmation timed
+out; explicit removal was rejected by automatic approval review ("blocked by
+policy"). Its ownership was checked read-only; the private cleanup receipt
+`zoom-cleanup-retained-2026-11-15.json` identifies it for manual cleanup. No actual
+account credential or physical screen content was used in that profile.
+
 ## November 15 Android design and lifecycle review
 
 Native setup now has persistent form labels, captured submitted values, explicit

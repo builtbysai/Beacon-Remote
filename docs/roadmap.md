@@ -20,9 +20,12 @@ What remains:
   removal acceptance. Complete Android real sharing, permissions, lock/revoke,
   rotation and network acceptance. Verify direct/relay and actual files/audio/
   displays/Wake-on-LAN/reconnect behavior.
-- Finish ordinary viewer/native journey review, actual browser zoom and screen-
-  reader checks. Paired/error/narrow/DPI native states remain unverified; the
+- Finish ordinary viewer/native journey review and actual screen-reader checks.
+  Five workspace screens, theme/inspector and download actions now pass real
+  200% browser zoom; extend that review to remaining public/auth/viewer routes. Paired/error/narrow/DPI native states remain unverified; the
   attempted unpaired resize did not establish changed bounds.
+- Remove the earlier retained dummy browser profile identified in the private
+  cleanup receipt; automatic approval review denied explicit deletion.
 - Resolve historical-copy/provider retention and retired-device rejection/
   re-enrollment evidence; rotate/delete the retained temporary account after
   full completion. Do not repeat the completed account reset.
