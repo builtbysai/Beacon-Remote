@@ -45,7 +45,7 @@ export async function openViewer({ origin, cookie, port = 9555, headless = true 
       "--window-size=1280,900",
       "about:blank",
     ],
-    { stdio: "ignore", windowsHide: true },
+    { stdio: "ignore", windowsHide: headless },
   );
   let socket,
     closing,
