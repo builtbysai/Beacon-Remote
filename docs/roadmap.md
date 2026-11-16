@@ -3,6 +3,43 @@
 The [completion checklist](completion-checklist.md) is the current tracker for
 the full-roadmap goal; dated sections below preserve scope and historical evidence.
 
+Updated November 15, 2026. [PR #124](https://github.com/builtbysai/Beacon-Remote/pull/124)
+is merged (`008a5bb`); tested application revision `5e8d5c5` is deployed to the VM.
+Android UI/lifecycle, reviewed dependency updates and prior-password-hash
+compatibility passed. Signed Windows/Android candidates are staged privately.
+Backup/integrity/isolated restore/schema, ARM64 runtime and Remote/View health
+checks passed. Native feeds remain unchanged and Windows sign-in gates are off.
+
+What remains:
+
+- Prepare the matching isolated acceptance backend/schema and retained test
+  identity. It remains stopped with its STOP marker present; the Pixel and
+  Surfiena are reachable, but connectivity does not close device acceptance.
+- Complete Windows cold boot/sign-in/secure attention/handoff/restart, Stop/
+  Disable/input release, service recovery and installation/upgrade/rollback/
+  removal acceptance. Complete Android real sharing, permissions, lock/revoke,
+  rotation and network acceptance. Verify direct/relay and actual files/audio/
+  displays/Wake-on-LAN/reconnect behavior.
+- Finish ordinary viewer/native journey review, actual browser zoom and screen-
+  reader checks. Paired/error/narrow/DPI native states remain unverified; the
+  attempted unpaired resize did not establish changed bounds.
+- Resolve historical-copy/provider retention and retired-device rejection/
+  re-enrollment evidence; rotate/delete the retained temporary account after
+  full completion. Do not repeat the completed account reset.
+- Finish measured diagnostics/performance evidence and the explicitly tracked
+  Android feature gaps (multi-touch, audio, outbound files and TV/tablet scope).
+- Later implementation milestones remain full scoped computer use/semantic UI
+  trees/automation tokens/Motive integration, Linux/Raspberry Pi hosting and
+  organization administration/policy/audit. Stage-one view-only MCP is published;
+  these larger capabilities are not delivered by it.
+- Advance native downloads/update feeds only after the matching signed candidates
+  pass the required physical acceptance. Full unattended access is not yet accepted.
+
+The single [completion checklist](completion-checklist.md) records the evidence
+and publication receipts. The sections below are earlier dated checkpoints.
+
+### Earlier November 15 publication records
+
 Updated November 15, 2026. [PR #115](https://github.com/builtbysai/Beacon-Remote/pull/115)
 is merged and its verified head `79e2532` was deployed to the VM. Web/backend UI,
 account mail, pairing, guarded sign-in source and verified download-resume source
@@ -18,7 +55,7 @@ scheduled recovery selects exact release images. Signed Windows default/sign-in
 and Android candidates were built without advancing native feeds.
 
 [PR #117](https://github.com/builtbysai/Beacon-Remote/pull/117) is merged as
-`713f58c`; its verified head `96f64ec` is the current VM release. The original
+`713f58c`; its verified head `96f64ec` was deployed before #124. The original
 view-only MCP #105 is closed; bounded live screenshot/Stop/profile-cleanup
 integration is published. All four CI jobs and the VM recovery/schema/health
 checks passed again. This does not add automated input or Motive integration.
@@ -27,7 +64,7 @@ Android's follow-up native UI and delayed-response fixes passed a guarded dummy
 API/emulator review, including large text, dark mode, consent expiry across
 configuration changes, queued pairing completion, cancelled late enable and a
 stale presence rejection after Stop/restart. Real device/capture/input acceptance
-and signed publication of this follow-up are separate steps.
+remains open; signed candidates and source publication passed in #124.
 
 The current follow-up is the remaining viewer/native/Android design review,
 diagnostics and reset follow-through. Included dependency PRs and the superseded

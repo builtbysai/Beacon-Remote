@@ -1,5 +1,12 @@
 # Unattended owner access
 
+Current November 15 checkpoint: matching guarded sign-in/handoff source is
+published in #124 and the web/backend is deployed. Windows sign-in authority/
+media remain disabled; signed native candidates await real device, boot, handoff
+and lifecycle acceptance. The [completion tracker](completion-checklist.md)
+supersedes the historical implementation statements below. The October 29 setup
+record describes the original presence-only slice, not current source readiness.
+
 Development on `codex/unattended-access`, October 29, 2026. Not deployed. Real
 Windows service/reboot and physical-phone acceptance are release gates.
 Current evidence is in [the October 29 validation record](validation-2026-10-29.md).

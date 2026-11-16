@@ -102,3 +102,15 @@ native labels/buttons to accessibility. Attempted resize did not confirm changed
 bounds, so narrow/DPI/paired/error review remains open. The window was closed;
 no service action or installed identity was used. Final GitHub and VM receipts
 are recorded in the completion tracker after publication.
+
+Final #124 receipt: merge `008a5bb`, tested/deployed application head `5e8d5c5`.
+All four GitHub jobs passed in run `43781869285`. ARM64 actual compiled imports,
+old/new password hashes and production-only dependencies passed. Quiesced VM
+backup/integrity/strict isolated restore/schema and both products' health passed.
+The source-only protocol import error was in the custom probe, not the actual
+compiled app; the corrected runtime probe passed without a source change.
+Existing-key candidates from `a6d114d` were checksum/provenance/signature-verified
+and staged root-only on the VM. #118-#123 are closed as included. Fresh open-PR
+inventory was empty; branches remain preserved. Sign-in gates and native feeds
+remain unchanged. The completion tracker records the remaining physical and
+implementation gaps; these publication receipts do not claim full completion.

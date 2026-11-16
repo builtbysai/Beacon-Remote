@@ -6,6 +6,44 @@ scope; [development status](development-status.md) retains dated validation
 records. Historical entries do not override this tracker or grant new release
 authorization. No percentage is inferred from passing builds.
 
+## Latest publication and device readiness - November 15
+
+[PR #124](https://github.com/builtbysai/Beacon-Remote/pull/124) merged as `008a5bb`.
+Its tested head `5e8d5c511fa3ba542a3f2d79d78a0534ce5837b9` is the current VM
+application release. All four GitHub jobs passed (run `43781869285`). ARM64
+backend/web/backup images built; actual compiled backend/protocol imports,
+patched Fastify, prior/new Argon2 hashes and production-only dependencies passed.
+The first custom probe incorrectly imported the development TypeScript package
+entry; checking the actual compiled application passed without a source change.
+
+Before deployment, there were no live Remote sessions. Prior application images
+were retained. Remote-only quiesced encrypted backup, repository integrity,
+strict separate-database restore and schema verification passed. After replacement,
+Remote and View health/readiness passed, sign-in authority/media stayed disabled,
+and all three Remote operations timers were active. A transient 502 during web
+replacement recovered on retry; this was not a zero-interruption deployment.
+View services and shared Caddy/Coturn configuration were not changed.
+
+Existing-key Android and timestamped private-alpha Windows default/sign-in
+candidates from `a6d114d784d8a9dc253c9dc459d2f511a5a5e2cf` are verified and
+staged root-only (directory 0700, files 0600) under the VM's private candidates
+area. Archive payload hashes, source/features and native signer/timestamps were
+checked. The Windows self-signed certificate is not publicly trusted. Public
+download/update feeds were not advanced. No physical endpoint was installed or
+reconfigured. Dependency PRs #118-#123 were closed after their reviewed updates
+were included; no open PR remained at this checkpoint. Branches were preserved.
+One moderate lint-only npm advisory remains; no high/critical npm findings or
+RustSec warnings were reported. Development tools are absent from the runtime.
+
+The owner's Pixel 7a is ADB-authorized. Pinned-key SSH reaches Surfiena and a
+read-only query confirms a signed-in Explorer session (session 1). This establishes
+management reachability only. Windows Home lacks `quser`; the fallback query
+succeeded. Neither device's capture/input/boot permissions were exercised.
+The isolated acceptance backend is still deliberately stopped: `/ready` and
+unauthenticated `/api/machines` return 502, and its private STOP marker remains.
+A matching isolated backend/schema and current retained test identity must be
+prepared deliberately before resuming actual tests; production is not the test DB.
+
 November 15 publication: accumulated development was merged in
 [PR #115](https://github.com/builtbysai/Beacon-Remote/pull/115), merge `849c636`.
 All four CI jobs passed for deployed revision `79e2532`. Image-build fixes populate the injected protocol
@@ -43,7 +81,7 @@ a replacement until retried. Stdio/core regressions (8), browser transport tests
 Stop journey passed. Dummy image/profile cleanup evidence is
 `mcp-browser-2026-11-15/result.json`; no real account/device/provider upload occurred.
 This view-only integration is published in #117 (merge `713f58c`); its verified
-head `96f64ec` is the current VM release, with all four CI jobs and another
+head `96f64ec` was deployed before #124, with all four CI jobs and another
 backup/integrity/isolated restore/schema/health cycle passing. Full computer use,
 semantic trees, automation tokens and Motive remain unimplemented milestones.
 
@@ -55,8 +93,8 @@ key. The isolated installer test passed install/reinstall/uninstall, identity an
 shortcut cleanup, and preservation of unrelated files. Its cleanup now refuses
 pre-existing registry state and validates its owned temporary directory before
 removal. Packaging checks include build inputs and require APK verification.
-No physical endpoint or public update feed was changed. Candidate VM staging and
-real installation/lifecycle acceptance remain separate work.
+No physical endpoint or public update feed was changed. Candidate VM staging passed in the latest publication;
+real installation/lifecycle acceptance remains separate work.
 
 November 15 Android follow-up: native setup/access/approval UI has light/dark,
 portrait/landscape and 200% text emulator evidence. Approval actions and the
@@ -69,7 +107,7 @@ physical phone/account/capture/input was used. Actual IME/screen-reader and devi
 review, multi-touch/audio/outbound-file/TV scope and real unattended acceptance
 remain open; emulator evidence does not close them.
 
-The Android follow-up is published for review in [PR #124](https://github.com/builtbysai/Beacon-Remote/pull/124).
+The Android follow-up was published and merged in [PR #124](https://github.com/builtbysai/Beacon-Remote/pull/124).
 Signed Android and Windows default/sign-in candidates were rebuilt from
 `a6d114d` with the existing keys. Android SHA-256 is
 `4c0b68776ffb744e5deedd2f8854091aa6f303d3642021f231e24868878af073`.
@@ -83,7 +121,7 @@ MCP SDK, aligned WebSocket packages, WASAPI API adaptation and Argon2. A stored
 hash made with the previous Argon2 version remains usable with the new backend;
 wrong passwords are rejected. Full updated backend checks passed. Final CI,
 ARM64 runtime verification, merge, private VM candidate staging and deployment
-are publication gates for #124; no native feed is advanced by building candidates.
+passed as recorded above; no native feed was advanced.
 
 November 15 workspace follow-up: Computers/details, Sessions and Activity were
 reviewed in real Chromium with a local synthetic API at eleven width/height
@@ -139,7 +177,7 @@ and USB Pixel; reconfirm their identities before acting.
 | Diagnostics and performance advice                         | Partial baseline                                                                                                          | Complete measured encoder/relay/reconnect evidence and useful poor-session guidance                                                                                                                                                                       | Pending                                  |
 | Android requirements                                       | Baseline host exists                                                                                                      | Resolve/finish approved control, multi-touch, audio, outbound files, rotation and TV/tablet scope; physical Pixel/TV acceptance                                                                                                                           | Pending                                  |
 | Account reset follow-through                               | Old database accounts/data reset; new local temporary identity retained privately                                         | Historical-copy/provider retention and retired-device rejection/re-enrollment evidence; rotate/delete temporary identity at full completion                                                                                                               | Partial                                  |
-| Branches, PRs and dependency/security review               | Current review recorded; #115 merged; included dependency/direction PRs closed                                            | #105 integrated/closed; #118-#123 included for review in #124; previous-hash compatibility passes; runtime excludes dev packages                                                                                                                          | Published; refreshed review in progress  |
+| Branches, PRs and dependency/security review               | PRs #115-#117/#124 merged; included dependency/direction PRs closed                                                       | #105 integrated/closed; #118-#123 included/closed after #124; prior-hash compatibility passes; one moderate lint-only advisory remains                                                                                                                    | Published; no open PR at checkpoint      |
 | Real acceptance                                            | Incomplete                                                                                                                | Cold boot/sign-in/handoff/restart, Disable/expiry/input release, installation lifecycle, direct/relay/separate networks, files/audio/displays and recovery                                                                                                | Pending                                  |
 | Verified release                                           | Verified web/backend release deployed; rollback images and recovery checks retained                                       | Signed candidate artifacts and physical acceptance remain before native feed advancement                                                                                                                                                                  | Web/backend deployed; native pending     |
 | MCP/computer-use and Motive                                | Later milestone                                                                                                           | Consent-preserving live session integration and revocable scope; view-only MCP is insufficient                                                                                                                                                            | Pending                                  |
