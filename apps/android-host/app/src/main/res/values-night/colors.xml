@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="beacon_background">#111820</color>
+    <color name="beacon_surface">#19222D</color>
+    <color name="beacon_text">#E8EEF7</color>
+    <color name="beacon_muted">#A1AEC0</color>
+    <color name="beacon_soft">#283543</color>
+    <color name="beacon_accent">#77A6F7</color>
+    <color name="beacon_on_accent">#111820</color>
+    <color name="beacon_danger">#FF838A</color>
+</resources>

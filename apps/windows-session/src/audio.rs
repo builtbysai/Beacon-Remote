@@ -55,12 +55,12 @@ pub fn run(
     initialize_mta().ok()?;
     let enumerator = DeviceEnumerator::new()?;
     // Capturing from a render device is loopback: what the speakers are playing.
-    let device = enumerator.get_default_device(&Direction::Render)?;
+    let device = enumerator.get_default_device(Direction::Render)?;
     let mut client = device.get_iaudioclient()?;
     let format = WaveFormat::new(
         16,
         16,
-        &SampleType::Int,
+        SampleType::Int,
         SAMPLE_RATE as usize,
         CHANNELS,
         None,
@@ -68,11 +68,12 @@ pub fn run(
     let (default_period, _) = client.get_device_period()?;
     client.initialize_client(
         &format,
-        &Direction::Capture,
-        &StreamMode::EventsShared {
+        Direction::Capture,
+        StreamMode::EventsShared {
             autoconvert: true,
             buffer_duration_hns: default_period,
         },
+        None,
     )?;
     let event = client.set_get_eventhandle()?;
     let capture = client.get_audiocaptureclient()?;

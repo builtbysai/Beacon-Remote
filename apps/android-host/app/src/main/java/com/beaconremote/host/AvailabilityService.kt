@@ -9,6 +9,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import kotlin.concurrent.thread
@@ -29,6 +31,8 @@ object HostState {
 class AvailabilityService : Service() {
     @Volatile private var running = false
     private var worker: Thread? = null
+    private val main = Handler(Looper.getMainLooper())
+    @Volatile private var generation = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -37,6 +41,8 @@ class AvailabilityService : Service() {
             Identity(this).wantsAvailable = false
             if (HostState.sharing) runCatching { startService(Intent(this, CaptureService::class.java).setAction(CaptureService.ACTION_STOP)) }
             running = false
+            generation++
+            worker?.interrupt()
             HostState.status = "Not available"
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -63,59 +69,83 @@ class AvailabilityService : Service() {
         ServiceCompat.startForeground(this, 1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         if (running) return START_STICKY
         running = true
-        worker = thread(name = "presence") { loop(identity) }
+        val run = ++generation
+        val binding = identity.accessBinding()
+        worker = thread(name = "presence") { loop(identity, run, binding) }
         return START_STICKY
     }
 
-    private fun loop(identity: Identity) {
+    private fun loop(identity: Identity, run: Long, binding: AccessBinding) {
+        fun active() = running && generation == run && identity.wantsAvailable && identity.accessBinding() == binding
+        // All effects run on the service lifecycle thread. Stop/restart and a
+        // queued old response therefore have a defined order, without holding
+        // a lifecycle lock across network I/O.
+        fun apply(action: () -> Unit) {
+            main.post {
+                if (!active()) return@post
+                try { action() } catch (_: Exception) {
+                    running = false
+                    generation++
+                    identity.wantsAvailable = false
+                    HostState.status = "Availability stopped. Open Beacon Remote to retry."
+                    runCatching { startService(Intent(this, CaptureService::class.java).setAction(CaptureService.ACTION_STOP)) }
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
+            }
+        }
         var handled: String? = null
         var delay = 2000L
-        while (running) {
+        while (active()) {
             try {
-                HostState.status = if (HostState.sharing) "Sharing your screen" else "Available"
+                apply { HostState.status = if (HostState.sharing) "Sharing your screen" else "Available" }
+                val accessRevision = AccessIntents.fence.revision()
                 val before = identity.unattended
-                val reply = Api.heartbeat(identity, wait = true, handled = handled)
-                if (!running || !identity.wantsAvailable) return
+                val reply = Api.heartbeat(identity, wait = true, handled = handled, expected = binding)
+                if (!active()) return
                 val access = reply.optJSONObject("access")
-                if (before == identity.unattended && access != null) {
-                    val trusted = access.optString("mode") == "trusted" && access.optBoolean("allowControl")
-                    if (before && !trusted) {
-                        identity.unattended = false
-                        startService(Intent(this, CaptureService::class.java).setAction(CaptureService.ACTION_STOP))
-                    } else if (!before && access.optString("mode") == "trusted") {
-                        // A local disable wins even if the network was down when it happened.
-                        Api.setAccess(identity, false)
-                    }
+                if (!before && access?.optString("mode") == "trusted") {
+                    // A local disable wins even if its earlier request failed.
+                    Api.setAccess(identity, false, expected = binding, onlyIfLocallyDisabled = true)
                 }
                 delay = 2000L
                 val sessions = reply.optJSONArray("sessions")
-                if (sessions != null && sessions.length() > 0 && !HostState.sharing) {
-                    val grant = sessions.getJSONObject(0)
-                    handled = grant.getString("id")
-                    if (UnattendedAccess.accepts(identity.unattended, grant.optString("approval") == "policy", grant.optBoolean("viaRelationship"), UnattendedAccess.ready(this))) {
-                        startForegroundService(Intent(this, CaptureService::class.java)
-                            .putExtra("grant", grant.toString()).putExtra("unattended", true))
-                    } else if (grant.optString("approval") == "policy") {
-                        // Never replace an unavailable standing permission with another surprise approval screen.
-                        ShareSession(applicationContext, Grant.from(grant), identity.server, null) {}.decline()
-                    } else {
-                        askForConsent(grant)
+                val grant = if (sessions != null && sessions.length() > 0) sessions.getJSONObject(0) else null
+                handled = grant?.getString("id")
+                apply {
+                    val trusted = access?.optString("mode") == "trusted" && access.optBoolean("allowControl")
+                    if (before && AccessIntents.fence.revision() == accessRevision && identity.unattended && access != null && !trusted) {
+                        identity.unattended = false
+                        startService(Intent(this, CaptureService::class.java).setAction(CaptureService.ACTION_STOP))
                     }
-                } else if (sessions == null || sessions.length() == 0) {
-                    handled = null
+                    if (grant != null && !HostState.sharing) {
+                        if (UnattendedAccess.accepts(identity.unattended, grant.optString("approval") == "policy", grant.optBoolean("viaRelationship"), UnattendedAccess.ready(this))) {
+                            startForegroundService(Intent(this, CaptureService::class.java)
+                                .putExtra("grant", grant.toString()).putExtra("unattended", true))
+                        } else if (grant.optString("approval") == "policy") {
+                            ShareSession(applicationContext, Grant.from(grant), binding.server, null) {}.decline()
+                        } else {
+                            askForConsent(grant)
+                        }
+                    }
                 }
                 val pause = reply.optLong("pollAfterMillis", 0)
                 if (pause > 0) Thread.sleep(pause)
             } catch (rejected: Api.Rejected) {
-                HostState.status = "This phone was removed from your account"
-                identity.wantsAvailable = false
-                running = false
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                apply {
+                    HostState.status = "This phone was removed from your account"
+                    identity.wantsAvailable = false
+                    running = false
+                    generation++
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
+                return
             } catch (error: InterruptedException) {
                 return
             } catch (error: Exception) {
-                HostState.status = "Offline, retrying"
+                if (!active()) return
+                apply { HostState.status = "Offline, retrying" }
                 runCatching { Thread.sleep(delay) }
                 delay = minOf(delay * 2, 30_000L)
             }
@@ -156,7 +186,9 @@ class AvailabilityService : Service() {
 
     override fun onDestroy() {
         running = false
+        generation++
         worker?.interrupt()
+        main.removeCallbacksAndMessages(null)
         super.onDestroy()
     }
 

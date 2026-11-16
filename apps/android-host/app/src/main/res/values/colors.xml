@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="launcher_background">#10264F</color>
+    <color name="beacon_background">#F5F7FA</color>
+    <color name="beacon_surface">#FFFFFF</color>
+    <color name="beacon_text">#192941</color>
+    <color name="beacon_muted">#566680</color>
+    <color name="beacon_soft">#E6EBF2</color>
+    <color name="beacon_accent">#2158BD</color>
+    <color name="beacon_on_accent">#FFFFFF</color>
+    <color name="beacon_danger">#B6373D</color>
 </resources>

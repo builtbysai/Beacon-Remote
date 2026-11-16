@@ -11,7 +11,7 @@ beacon-remote-core = { path = "../../crates/remote-core" }
 webrtc = "=0.21.1"
 rtc = "=0.21.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
-tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 async-trait = "0.1"
 futures-util = "0.3"
 serde.workspace = true
@@ -24,7 +24,7 @@ windows-capture = "=2.0.1"
 windows = { version = "=0.62.2", features = ["Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_System_Ole", "Win32_System_Variant"] }
 ctrlc = "3.5"
 opus = "0.4"
-wasapi = "0.26"
+wasapi = "0.27"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security", "Win32_Graphics_Dwm", "Win32_Graphics_GdiPlus", "Win32_System_DataExchange", "Win32_System_Registry", "Win32_UI_Accessibility", "Win32_UI_Controls", "Win32_UI_Controls_Dialogs", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_StationsAndDesktops", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(windows)'.build-dependencies]

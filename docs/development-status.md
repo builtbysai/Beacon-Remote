@@ -1,7 +1,37 @@
 # Development status
 
-Current local checkpoint: November 11, 2026. Source changes below are uncommitted
-on `codex/unattended-access`; no production release or PR mutation was made.
+Current checkpoint: November 15, 2026. PRs #115-#117 are merged; VM source
+`96f64ec` is deployed. The [completion checklist](completion-checklist.md) records
+publication, encrypted recovery, migration and browser/MCP verification. Older
+dated entries below are historical, including their local-only release statements.
+
+## November 15 Android design and lifecycle review
+
+Native setup now has persistent form labels, captured submitted values, explicit
+notification setup, light/dark colors, readable columns and system/keyboard inset
+handling. Availability and standing access have separate controls; disabling or
+removing the phone stops local capture. Delayed enable results are versioned and
+bound to the original pairing, so Disable, re-pairing and superseding requests
+win. Availability replies are also bound to the original pairing and service
+run; all response effects are dispatched on the lifecycle thread. A response from
+a stopped run cannot change status, lower new access or open an approval in a
+replacement run. Network I/O does not block the lifecycle thread.
+
+Approval keeps Decline/Allow and the selected permission summary outside the
+scrolling content. Optional control/files remain unchecked by default. Rotation,
+theme and text-size changes preserve the original monotonic deadline and choices;
+returning from Android's prompt rechecks expiry and the pairing binding.
+
+Unit tests, Android lint/debug builds and a real native emulator instrumentation
+review passed. The fixture verifies actual Ed25519 enrollment/policy/presence
+requests against a dummy loopback API, delayed UI completion, cancelled late
+enable, Stop/restart with an obsolete rejection, original consent deadline and
+Decline over WebSocket. Light/dark portrait/landscape and 200% text screenshots
+were reviewed; the runner refuses physical/paired targets and obstructed windows.
+Evidence: `android-ui-2026-11-15/result.json` and its dummy screenshots. No real
+account, Pixel, capture, input, system prompt approval or physical device was
+used. Actual keyboard/screen-reader, Android API/device breadth and real sharing
+remain acceptance work.
 
 ## November 11 public/support journey review
 

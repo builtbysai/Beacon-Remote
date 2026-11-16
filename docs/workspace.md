@@ -2,7 +2,30 @@
 
 Beacon Remote is the remote access product. This checkout is D:/Dev/Beacon-Remote. Continue the unattended-access work on its current feature branch; source publication does not establish release acceptance.
 
-## Current development boundary
+## Current checkpoint - November 15, 2026
+
+The authoritative tracker is [completion-checklist.md](completion-checklist.md).
+PRs #115-#117 are merged. The VM runs verified source `96f64ec` from #117;
+migrations 025-029, recovery drills, exact release images and both products'
+health/readiness passed. Web theme, Downloads, Settings, email, pairing and
+workspace changes are deployed. Stage-one view-only MCP is published; #105 is
+closed. Full automation/input/Motive integration is still a later milestone.
+
+Signed Windows default/sign-in and Android candidates exist; native update feeds
+have not advanced. Windows sign-in authority/media remain disabled pending actual
+SYSTEM, cold-boot, capture/input, handoff and installation lifecycle acceptance.
+Source and synthetic checks do not establish full unattended access.
+
+The current feature branch is `codex/android-host-ux`. Android native design,
+consent layout and delayed-response lifecycle fixes now have a guarded emulator
+review using only a dummy loopback API. No Pixel, SSH test PC, installed identity
+or real account was used. This is separate from physical Android acceptance.
+
+The sections below are historical implementation checkpoints. Their statements
+about unpublished work, pending migrations or missing browser integration are
+superseded by the current tracker and publication receipts above.
+
+## Historical development boundary
 
 Readiness now has explicit native `signin-media` and backend `SIGNIN_MEDIA_ENABLED`
 opt-ins, fresh private worker probes and passive display preflight. Both native
