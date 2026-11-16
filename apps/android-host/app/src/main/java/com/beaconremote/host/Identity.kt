@@ -39,7 +39,17 @@ class Identity(private val context: Context) {
     /** Raised only by the local setup screen. Server policy alone cannot enable capture. */
     var unattended: Boolean
         get() = prefs.getBoolean("unattended", false)
-        set(value) { check(prefs.edit().putBoolean("unattended", value).commit()) }
+        set(value) { AccessIntents.fence.invalidate { check(prefs.edit().putBoolean("unattended", value).commit()) } }
+
+    fun accessBinding() = AccessBinding(server, machineId)
+    fun applyAccessIntent(ticket: AccessIntentFence.Ticket, enabled: Boolean): Boolean =
+        AccessIntents.fence.apply(ticket, accessBinding()) {
+            check(paired)
+            if (!prefs.edit().putBoolean("unattended", enabled).commit()) {
+                prefs.edit().putBoolean("unattended", false).commit()
+                error("Could not save the local access setting")
+            }
+        }
 
     /** A new key pair for pairing. The seed is stored only once the server accepts the enrollment. */
     fun newKey(): Pair<ByteArray, String> {
@@ -55,7 +65,7 @@ class Identity(private val context: Context) {
     }
 
     fun clear() {
-        prefs.edit().clear().apply()
+        AccessIntents.fence.invalidate { prefs.edit().clear().apply() }
         runCatching { KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(ALIAS) }
     }
 

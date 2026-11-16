@@ -24,7 +24,7 @@
         android:label="Beacon Remote"
         android:usesCleartextTraffic="false"
         android:networkSecurityConfig="@xml/network_security"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        android:theme="@style/Theme.BeaconRemote">
 
         <activity
             android:name=".MainActivity"
