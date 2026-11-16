@@ -96,4 +96,8 @@ inform explicit view/control grants, and its audit concepts inform controller
 identity and access history. No vendor code or UI is copied.
 
 The native core has a single-controller monotonic lease and transport-independent
-screen/input interfaces. No automation, LLM, or MCP adapter is implemented.
+screen/input interfaces. A stage-one view-only MCP adapter opens the existing
+consent-preserving web viewer and returns bounded live-view screenshots. It
+cannot inject input, view paused/ended sessions or bypass account MFA. Scoped
+automation credentials, semantic UI trees and full computer-use/Motive integration
+remain unimplemented milestones.

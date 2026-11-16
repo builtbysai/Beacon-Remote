@@ -61,3 +61,44 @@ selects exact current-release images and preserved private configuration.
 Included dependency PRs #106/#107/#108/#110/#111/#112/#114 and the superseded
 direction PR #113 were closed; #105 remains separate. Current follow-up source is
 on `codex/workspace-polish`, preserving the published unattended branch.
+
+## Subsequent review and Android follow-up
+
+PR #117 merged as `713f58c`; verified head `96f64ec` was deployed with all four
+CI jobs passing, recovery/schema/health checks and unchanged sign-in gates.
+The original view-only MCP #105 was integrated and closed. New dependency PRs
+#118-#123 appeared after the previous review; they are included in #124 rather
+than treated as historical unpublished feature branches.
+
+Reviewed updates: Fastify 5.12.8 (upstream security release), MCP SDK 1.32.2,
+aligned Tungstenite/Tokio-Tungstenite 0.30 and WASAPI 0.27. The new WASAPI API
+takes Copy enums by value and an optional audio-session GUID; the existing
+loopback source uses None. Both native configurations passed full local checks.
+
+Argon2 2.2.2 changes its underlying implementation. A fixed dummy PHC hash made
+with the previously shipped 2.0.2 defaults verifies with the new version and
+rejects the wrong password; new hashes also verify/reject correctly. Full local
+backend account/MFA/recovery/policy tests, typecheck and build passed. No retained
+account credential was used or changed. ARM64 runtime packaging remains part of
+the VM verification before deployment.
+
+Android UI/lifecycle source is commit `cafe33f`; candidate source `a6d114d` adds
+the first reviewed dependency set. Android unit/lint/debug and actual guarded
+emulator review passed, followed by existing-key release signing/verification.
+Both Windows variants were rebuilt and signed from `a6d114d`; the existing
+private-alpha self-signed certificate remains untrusted by public Windows roots.
+No native feed, physical endpoint or system-service configuration changed.
+
+The initial local control-plane attempt failed because Docker/test PostgreSQL
+was stopped. A subsequent formatting-only failure followed documentation edits.
+After restarting only Remote's own local database and formatting the documents,
+full control-plane verification passed. The emulator's queued-completion fixture
+was made deterministic by releasing the held dummy response only after the UI
+queue is blocked; assertions are transferred back to the instrumentation thread
+so failure still runs owned fixture cleanup. Final emulator review passed.
+
+The read-only isolated unpaired Windows Settings window rendered and exposed
+native labels/buttons to accessibility. Attempted resize did not confirm changed
+bounds, so narrow/DPI/paired/error review remains open. The window was closed;
+no service action or installed identity was used. Final GitHub and VM receipts
+are recorded in the completion tracker after publication.

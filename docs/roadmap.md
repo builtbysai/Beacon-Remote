@@ -12,16 +12,27 @@ readiness passed. Sign-in access remains disabled; native update feeds were not
 advanced. Full unattended/device acceptance is still open.
 
 [PR #116](https://github.com/builtbysai/Beacon-Remote/pull/116) is also merged;
-its verified head `7d59941` is the current VM release. Computers/details, Sessions
+its verified head `7d59941` was deployed before #117. Computers/details, Sessions
 and Activity now have eleven-viewport browser interaction/render evidence and
 scheduled recovery selects exact release images. Signed Windows default/sign-in
 and Android candidates were built without advancing native feeds.
 
+[PR #117](https://github.com/builtbysai/Beacon-Remote/pull/117) is merged as
+`713f58c`; its verified head `96f64ec` is the current VM release. The original
+view-only MCP #105 is closed; bounded live screenshot/Stop/profile-cleanup
+integration is published. All four CI jobs and the VM recovery/schema/health
+checks passed again. This does not add automated input or Motive integration.
+
+Android's follow-up native UI and delayed-response fixes passed a guarded dummy
+API/emulator review, including large text, dark mode, consent expiry across
+configuration changes, queued pairing completion, cancelled late enable and a
+stale presence rejection after Stop/restart. Real device/capture/input acceptance
+and signed publication of this follow-up are separate steps.
+
 The current follow-up is the remaining viewer/native/Android design review,
 diagnostics and reset follow-through. Included dependency PRs and the superseded
-direction PR were closed. #105 view-only MCP is now integrated and hardened in
-local source with stdio/core and real local synthetic-RTC evidence, pending
-publication. Full computer-use/Motive, Linux/Raspberry Pi
+direction PR were closed. #105 view-only MCP is integrated and published with stdio/core and real local
+synthetic-RTC evidence. Full computer-use/Motive, Linux/Raspberry Pi
 and organization policy remain later implementation milestones, not delivered
 features. The checklist distinguishes those from physical acceptance. Earlier
 dated notes below retain historical evidence; the database reset must not be

@@ -19,7 +19,7 @@ rollback application images are retained. Native installer/update feeds were not
 advanced and sign-in authority/media remain disabled.
 
 PR #116 is subsequently merged as `6409209`; its head `7d59941` passed all four
-GitHub checks and is the current VM release. It includes the workspace pass and
+GitHub checks and was deployed before #117. It includes the workspace pass and
 guarded operations wrapper. A quiesced backup/integrity/strict isolated restore,
 schema verification and both products' health/readiness passed again. This
 supersedes the previous deployed revision without advancing native feeds.
@@ -30,7 +30,7 @@ Both systemd jobs passed after a fresh post-migration backup; all three Remote
 backup/restore/health timers remain active. No View services were recreated.
 Dependency PRs #106, #107, #108, #110, #111, #112 and #114 and superseded roadmap
 PR #113 were closed after their changes/direction were included. View-only MCP
-PR #105 remains open and is not claimed integrated.
+PR #105 was subsequently integrated and closed after #117 merged.
 
 MCP follow-up source now integrates the stage-one files from #105 with corrected
 Computers routing, reservation before asynchronous setup, cancellation/late-start
@@ -42,7 +42,9 @@ a replacement until retried. Stdio/core regressions (8), browser transport tests
 (3), full control-plane checks and a real local MCP→React→synthetic WebRTC picture→
 Stop journey passed. Dummy image/profile cleanup evidence is
 `mcp-browser-2026-11-15/result.json`; no real account/device/provider upload occurred.
-This is view-only source integration, pending publication. Full computer use,
+This view-only integration is published in #117 (merge `713f58c`); its verified
+head `96f64ec` is the current VM release, with all four CI jobs and another
+backup/integrity/isolated restore/schema/health cycle passing. Full computer use,
 semantic trees, automation tokens and Motive remain unimplemented milestones.
 
 Signed candidate preparation passed for Windows default (`849c636`) and separate
@@ -55,6 +57,33 @@ pre-existing registry state and validates its owned temporary directory before
 removal. Packaging checks include build inputs and require APK verification.
 No physical endpoint or public update feed was changed. Candidate VM staging and
 real installation/lifecycle acceptance remain separate work.
+
+November 15 Android follow-up: native setup/access/approval UI has light/dark,
+portrait/landscape and 200% text emulator evidence. Approval actions and the
+permission summary remain visible, with optional permissions off by default.
+Queued pairing completion is preserved; stale enable and old presence replies
+cannot override Disable, replacement pairing or a restarted availability run.
+Unit/lint/debug/instrumentation checks passed against a guarded fresh emulator
+and signed dummy loopback requests (`android-ui-2026-11-15/result.json`). No
+physical phone/account/capture/input was used. Actual IME/screen-reader and device
+review, multi-touch/audio/outbound-file/TV scope and real unattended acceptance
+remain open; emulator evidence does not close them.
+
+The Android follow-up is published for review in [PR #124](https://github.com/builtbysai/Beacon-Remote/pull/124).
+Signed Android and Windows default/sign-in candidates were rebuilt from
+`a6d114d` with the existing keys. Android SHA-256 is
+`4c0b68776ffb744e5deedd2f8854091aa6f303d3642021f231e24868878af073`.
+Both native configurations passed full local checks; complete control-plane
+verification passed after starting the stopped Remote-only test database.
+The final Android review uses a deterministic held pairing response and verifies
+old-run rejection after Stop/restart. It remains emulator evidence only.
+
+New dependency PRs #118-#123 are incorporated for review: Fastify security patch,
+MCP SDK, aligned WebSocket packages, WASAPI API adaptation and Argon2. A stored
+hash made with the previous Argon2 version remains usable with the new backend;
+wrong passwords are rejected. Full updated backend checks passed. Final CI,
+ARM64 runtime verification, merge, private VM candidate staging and deployment
+are publication gates for #124; no native feed is advanced by building candidates.
 
 November 15 workspace follow-up: Computers/details, Sessions and Activity were
 reviewed in real Chromium with a local synthetic API at eleven width/height
@@ -81,7 +110,7 @@ earlier download-resume entry is superseded by this checkpoint. Its browser half
 is deployed; the native helper remains an unreleased candidate.
 
 Source, automated verification, physical acceptance and deployment are separate.
-Follow-up workspace/operations work is on `codex/workspace-polish`. The owner now
+Current Android follow-up work is on `codex/android-host-ux`. The owner now
 authorizes GitHub publication and VM deployment of verified work, excluding
 physical-device acceptance. Publication/deployment receipts are recorded below;
 work is not marked shipped before those actions are observed.
@@ -110,7 +139,7 @@ and USB Pixel; reconfirm their identities before acting.
 | Diagnostics and performance advice                         | Partial baseline                                                                                                          | Complete measured encoder/relay/reconnect evidence and useful poor-session guidance                                                                                                                                                                       | Pending                                  |
 | Android requirements                                       | Baseline host exists                                                                                                      | Resolve/finish approved control, multi-touch, audio, outbound files, rotation and TV/tablet scope; physical Pixel/TV acceptance                                                                                                                           | Pending                                  |
 | Account reset follow-through                               | Old database accounts/data reset; new local temporary identity retained privately                                         | Historical-copy/provider retention and retired-device rejection/re-enrollment evidence; rotate/delete temporary identity at full completion                                                                                                               | Partial                                  |
-| Branches, PRs and dependency/security review               | Current review recorded; #115 merged; included dependency/direction PRs closed                                            | #105 MCP remains open; one moderate lint-only advisory recorded; runtime excludes development packages                                                                                                                                                    | Current review complete; MCP separate    |
+| Branches, PRs and dependency/security review               | Current review recorded; #115 merged; included dependency/direction PRs closed                                            | #105 integrated/closed; #118-#123 included for review in #124; previous-hash compatibility passes; runtime excludes dev packages                                                                                                                          | Published; refreshed review in progress  |
 | Real acceptance                                            | Incomplete                                                                                                                | Cold boot/sign-in/handoff/restart, Disable/expiry/input release, installation lifecycle, direct/relay/separate networks, files/audio/displays and recovery                                                                                                | Pending                                  |
 | Verified release                                           | Verified web/backend release deployed; rollback images and recovery checks retained                                       | Signed candidate artifacts and physical acceptance remain before native feed advancement                                                                                                                                                                  | Web/backend deployed; native pending     |
 | MCP/computer-use and Motive                                | Later milestone                                                                                                           | Consent-preserving live session integration and revocable scope; view-only MCP is insufficient                                                                                                                                                            | Pending                                  |
