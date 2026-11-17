@@ -16,6 +16,7 @@ function channelFixture(t: TestContext) {
     videoWidth: 324,
     videoHeight: 720,
     focus() {},
+    blur: () => video.dispatchEvent(new Event("blur")),
     setPointerCapture() {},
     getBoundingClientRect() {
       return {
@@ -28,9 +29,13 @@ function channelFixture(t: TestContext) {
   });
   const globals = {
     window: new EventTarget(),
-    document: Object.assign(new EventTarget(), { activeElement: video }),
+    document: Object.assign(new EventTarget(), {
+      activeElement: video,
+      hidden: false,
+    }),
     navigator: {
       clipboard: {
+        readText: async () => "test paste",
         writeText: async (text: string) => {
           copied.push(text);
         },
@@ -44,7 +49,7 @@ function channelFixture(t: TestContext) {
   );
   for (const [key, value] of Object.entries(globals))
     Object.defineProperty(globalThis, key, { configurable: true, value });
-  const detach = attachRemoteInput(
+  const dispose = attachRemoteInput(
     channel as unknown as RTCDataChannel,
     "test-session",
     video as unknown as HTMLVideoElement,
@@ -53,6 +58,11 @@ function channelFixture(t: TestContext) {
       failures++;
     },
   );
+  let detached = false;
+  const detach = () => {
+    if (!detached) dispose();
+    detached = true;
+  };
   t.after(() => {
     detach();
     for (const [key, descriptor] of previous) {
@@ -65,7 +75,30 @@ function channelFixture(t: TestContext) {
   const display = (width: number, height: number) =>
     message({ type: "display", id: "0", width, height, platform: "android" });
   display(1080, 2400);
-  return { video, sent, copied, message, display, failures: () => failures };
+  const key = (type: string, code: string, flags = {}) => {
+    video.dispatchEvent(
+      Object.assign(new Event(type, { cancelable: true }), {
+        code,
+        ctrlKey: false,
+        altKey: false,
+        shiftKey: false,
+        metaKey: false,
+        isComposing: false,
+        ...flags,
+      }),
+    );
+  };
+  return {
+    video,
+    sent,
+    copied,
+    message,
+    display,
+    key,
+    detach,
+    ...globals,
+    failures: () => failures,
+  };
 }
 
 test("a second display message keeps the input channel alive and remaps rotated pointer coordinates", async (t) => {
@@ -106,4 +139,97 @@ test("rotation preserves a pending clipboard reply while unsolicited replies sti
   await new Promise<void>((resolve) => setImmediate(resolve));
   assert.equal(f.failures(), 1);
   assert.deepEqual(f.copied, ["test text"]);
+});
+
+test("focus release clears remembered modifiers before the next shortcut", (t) => {
+  const f = channelFixture(t);
+  f.key("keydown", "ShiftLeft", { shiftKey: true });
+  f.window.dispatchEvent(new Event("blur"));
+  const start = f.sent.length;
+  // The viewer can regain focus while Shift is still physically held, without
+  // receiving another Shift keydown. It must restore it after release_all.
+  f.key("keydown", "KeyA", { shiftKey: true });
+  f.key("keyup", "KeyA", { shiftKey: true });
+  assert.deepEqual(
+    f.sent.slice(start).map(({ input }) => input),
+    [
+      { type: "key", scanCode: 0x2a, extended: false, down: true },
+      { type: "key", scanCode: 0x1e, extended: false, down: true },
+      { type: "key", scanCode: 0x1e, extended: false, down: false },
+      { type: "key", scanCode: 0x2a, extended: false, down: false },
+    ],
+  );
+});
+
+for (const reason of ["blur", "hidden", "escape", "stop"] as const) {
+  test(`a delayed clipboard permission result cannot type after ${reason}`, async (t) => {
+    t.mock.timers.enable({ apis: ["setInterval"] });
+    const f = channelFixture(t);
+    let resolve!: (text: string) => void;
+    f.navigator.clipboard.readText = () =>
+      new Promise<string>((done) => {
+        resolve = done;
+      });
+    f.key("keydown", "KeyV", { ctrlKey: true });
+    if (reason === "blur") f.window.dispatchEvent(new Event("blur"));
+    else if (reason === "hidden") {
+      f.document.hidden = true;
+      f.document.dispatchEvent(new Event("visibilitychange"));
+    } else if (reason === "escape") f.key("keydown", "Escape");
+    else f.detach();
+    const start = f.sent.length;
+    resolve("late clipboard text");
+    await new Promise<void>((done) => setImmediate(done));
+    t.mock.timers.tick(100);
+    assert.deepEqual(f.sent.slice(start), []);
+  });
+}
+
+test("a newer paste supersedes an older pending clipboard read", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const f = channelFixture(t);
+  const reads: ((text: string) => void)[] = [];
+  f.navigator.clipboard.readText = () =>
+    new Promise<string>((done) => reads.push(done));
+  f.key("keydown", "KeyV", { ctrlKey: true });
+  f.key("keydown", "KeyV", { ctrlKey: true });
+  reads[1]!("new paste");
+  await new Promise<void>((done) => setImmediate(done));
+  reads[0]!("old paste");
+  await new Promise<void>((done) => setImmediate(done));
+  t.mock.timers.tick(25);
+  assert.deepEqual(
+    f.sent
+      .filter(({ input }) => input.type === "type_text")
+      .map(({ input }) => input),
+    [{ type: "type_text", text: "new paste" }],
+  );
+});
+
+test("release cancels remaining paced paste steps and a fresh paste still works", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const f = channelFixture(t);
+  f.navigator.clipboard.readText = async () => "\nold text";
+  f.key("keydown", "KeyV", { ctrlKey: true });
+  await new Promise<void>((done) => setImmediate(done));
+  t.mock.timers.tick(25); // Enter is now held; its release is still queued.
+  assert.deepEqual(f.sent.at(-1)?.input, {
+    type: "key",
+    scanCode: 0x1c,
+    extended: false,
+    down: true,
+  });
+  f.window.dispatchEvent(new Event("blur"));
+  assert.deepEqual(f.sent.at(-1)?.input, { type: "release_all" });
+  const start = f.sent.length;
+  t.mock.timers.tick(100);
+  assert.deepEqual(f.sent.slice(start), []);
+  f.navigator.clipboard.readText = async () => "fresh text";
+  f.key("keydown", "KeyV", { ctrlKey: true });
+  await new Promise<void>((done) => setImmediate(done));
+  t.mock.timers.tick(25);
+  assert.deepEqual(f.sent.at(-1)?.input, {
+    type: "type_text",
+    text: "fresh text",
+  });
 });

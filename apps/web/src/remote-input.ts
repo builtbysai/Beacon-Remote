@@ -228,6 +228,7 @@ export function attachRemoteInput(
   const held = new Set<number>();
   const synthetic = new Set<number>();
   let pasting: PasteInput[] = [];
+  let pasteGeneration = 0;
   const pasteTimer = setInterval(() => {
     const step = pasting.shift();
     if (step) send(step);
@@ -237,22 +238,36 @@ export function attachRemoteInput(
       onNotice("Clipboard is unavailable during Windows sign-in.");
       return;
     }
+    const generation = ++pasteGeneration;
+    pasting = [];
+    const current = () =>
+      generation === pasteGeneration &&
+      !disposed &&
+      channel.readyState === "open" &&
+      !document.hidden;
     let text: string;
     try {
       text = await navigator.clipboard.readText();
     } catch {
+      if (!current()) return;
       onNotice(
         "Allow clipboard access in your browser to paste to the computer.",
       );
       return;
     }
+    // Browser permission UI can outlive focus, Stop or a later paste. Its
+    // eventual result must never restart input after that intent was released.
+    if (!current()) return;
     const { steps, truncated } = pasteSteps(text);
     if (!steps.length) return;
     if (truncated) onNotice("Only the first 4,000 characters were pasted.");
     pasting = steps;
   };
   const release = () => {
+    pasteGeneration++;
     pasting = [];
+    held.clear();
+    synthetic.clear();
     touchPad?.release();
     fingers.clear();
     pending = null;
