@@ -4,6 +4,20 @@ Checkpoint: November 17, 2026. Use with the [parity roadmap](rdp-vnc-parity-road
 and [next-agent handoff](next-agent-handoff.md). This ledger prevents repetition
 of completed tests and prevents source-only checks being called acceptance.
 
+## Latest source-only continuation
+
+The owner resumed development after the documentation checkpoint. `be832b2`
+fixes delayed clipboard input after release and stale viewer modifiers. `2fd40a3`
+also releases paced Enter/Tab when replacing a paste, including a denied clipboard
+read. Channel
+regressions failed before the fix and passed afterward; the full web suite/build,
+workspace typechecking, lint, formatting and frozen install passed. Add delayed
+clipboard permission/Escape/Stop and held-Shift focus loss to the next physical
+Surfiena unit; this does not close its acceptance row below. No device state was
+freshly inspected or changed. `754f585` removes the moderate minimatch advisory
+through TypeScript-ESLint 8.73.0; full audit still fails on high picomatch with no
+published patch, while production audit is clean. Keep PR #126 draft.
+
 ## Completed physical sequences: do not restart from zero
 
 - Surfiena: signed native startup acknowledgement 208 ms; owner confirmed quick
@@ -76,7 +90,8 @@ exhausted; do not launch a large undifferentiated suite without a bounded end st
   remove the legacy STOP marker. Its replacement bounded preparation is separate.
 - Pixel was observed unlocked with availability on, capture off and accessibility
   off at the documentation handoff. A restoration was not confirmed; inspect again.
-  No new device tests or OS changes are part of this documentation-only request.
+  That was the prior documentation checkpoint; no device tests or OS changes ran
+  in the subsequent source-development continuation either.
 - Real-device install/admin/firmware prompts, hardware audio observation and any
   unavailable reference hardware remain genuinely human-dependent where tools
   cannot complete the supported OS flow. The owner supplied a development Pixel

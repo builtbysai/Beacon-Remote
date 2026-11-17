@@ -6,7 +6,21 @@ scope; [development status](development-status.md) retains dated validation
 records. Historical entries do not override this tracker or grant new release
 authorization. No percentage is inferred from passing builds.
 
-## Latest continuation scope — November 17 evening
+## Latest development continuation — November 17
+
+- [x] Viewer release invalidates pending clipboard typing and clears stale modifier
+      state (`be832b2`, completed by `2fd40a3` for paced Enter/Tab replacement);
+      regressions reproduced the initial faults before the fix, then passed
+      alongside the full web suite/build, lint/typecheck/format and frozen install.
+- [x] Moderate minimatch advisory removed via supported TypeScript-ESLint 8.73.0
+      update (`754f585`); production dependency audit is clean.
+- [ ] Full audit remains blocked by high picomatch with no published patch.
+      PR #126 stays draft; no audit exception was added.
+- [ ] Physical Surfiena control/Stop/release remains the next P0-2 unit. Include
+      delayed clipboard permission followed by Escape/Stop and held-Shift focus loss.
+      No device/runtime state was inspected or changed in this source continuation.
+
+## Earlier continuation scope — November 17 evening
 
 The owner requested a full RDP/VNC gap audit and next-agent handoff. Use
 [the parity backlog](rdp-vnc-parity-roadmap.md), [remaining testing](testing-remaining.md)

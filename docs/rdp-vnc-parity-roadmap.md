@@ -61,6 +61,15 @@ was removed; benchmark supported contemporary graphics paths instead. References
 
 ## Ordered implementation backlog
 
+November 17 continuation: P0-1's moderate minimatch issue is resolved by the
+supported TypeScript-ESLint 8.73.0 update (`754f585`); high picomatch still blocks
+full audit with no published patch. Viewer input-release regressions and fixes
+(`be832b2`, `2fd40a3`) prevent delayed clipboard typing after release, stale
+modifiers and held Enter/Tab when replacing a paced paste.
+Local web checks pass; P0-2 still requires physical Surfiena control/Stop/release.
+See the updated handoff for the next complete test unit. No new runtime/device
+state was changed or inspected in this source continuation.
+
 Status: **acceptance** means source exists but the stated use case is not yet
 accepted; **partial** means material implementation remains; **missing** means no
 working implementation was identified. A later discovery changes the status,

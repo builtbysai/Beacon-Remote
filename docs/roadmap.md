@@ -2,6 +2,13 @@
 
 ## Current owner scope — November 17, 2026
 
+Latest development continuation: `be832b2` and `2fd40a3` fix stale viewer modifier state and
+delayed clipboard typing after release; channel regressions and web checks pass.
+`754f585` removes the moderate minimatch advisory through TypeScript-ESLint 8.73.0.
+The unpatched high picomatch advisory still blocks full audit. P0-1 is partial;
+P0-2 physical Surfiena control/release remains next. See the handoff for source
+and historical runtime/device distinctions; no hosted/device changes ran here.
+
 The owner now requests modern RDP/VNC feature parity and additional agent/support
 capabilities. The complete audited implementation plan is
 [RDP/VNC parity and beyond](rdp-vnc-parity-roadmap.md), with every supplied gap
@@ -9,7 +16,7 @@ corrected against current code/evidence and additional missing feature families
 explicitly queued. Use [remaining testing](testing-remaining.md) to avoid repeating
 completed tests, and [the next-chat handoff](next-agent-handoff.md) to resume.
 
-Latest application source is `1afcc9e`: `c22dc2f` fixes rotation-triggered input
+Prior physical checkpoint used Android `1afcc9e`: `c22dc2f` fixes rotation-triggered input
 disconnects; actual Pixel landscape/portrait video, typing and remapped touch
 passed using locally compiled viewer assets against the isolated backend.
 Accessibility revoke/recovery and a real 3 MiB hash-verified file transfer passed.

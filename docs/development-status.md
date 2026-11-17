@@ -1,6 +1,32 @@
 # Development status
 
-## Latest handoff — November 17, 2026, evening
+## Latest development continuation — November 17, 2026
+
+The owner resumed development from the handoff. Application source `2fd40a3`
+invalidates delayed clipboard typing on focus release/Escape/Stop, clears stale
+modifier bookkeeping and makes the latest paste supersede an older pending read.
+Focused channel regressions reproduced stale typing/missing Shift before the fix
+and passed afterward. Queued paste cancellation and a fresh paste after release
+also passed, as did the full web suite/build, workspace typechecking, lint,
+formatting and frozen dependency installation. Physical Windows input/release
+acceptance remains open; no new device or server actions ran. The follow-up also
+releases a paced Enter/Tab before replacing a paste, even if clipboard permission
+is then denied; its regression and the same local web checks passed.
+
+CI [44196184046](https://github.com/builtbysai/Beacon-Remote/actions/runs/44196184046)
+at initial fix `be832b2` passed native/Android/security and full `pnpm check`;
+only high dependency audit failed. Check latest PR-head CI independently for the
+follow-up and documentation commit.
+
+Dependency revision `754f585` updates TypeScript-ESLint to 8.73.0 and removes
+vulnerable minimatch 10.2.6 without an override. Production audit is clean; full
+audit still fails on high picomatch GHSA-fc5q-39xc-vjpf. Registry latest remains
+4.0.7 with no published patch. The audit gate is unchanged and PR #126 stays draft.
+See [the handoff](next-agent-handoff.md) for the next bounded P0-2 unit and the
+historical runtime/device map. Production, native feeds and sign-in gates are
+unchanged. These source changes are pushed on `codex/device-acceptance-preparation`.
+
+## Earlier handoff — November 17, 2026, evening
 
 Use the [RDP/VNC parity plan](rdp-vnc-parity-roadmap.md),
 [remaining-test ledger](testing-remaining.md) and [next-chat handoff](next-agent-handoff.md).

@@ -2,10 +2,48 @@
 
 November 17, 2026. Read the workspace instructions, then this file, the
 [parity roadmap](rdp-vnc-parity-roadmap.md), [test ledger](testing-remaining.md)
-and [development status](development-status.md). The owner explicitly requested
-this handoff and an RDP/VNC feature audit instead of further tests in this chat.
+and [development status](development-status.md). The preceding chat ended with
+this handoff and an RDP/VNC feature audit; development has since resumed below.
 No new chat was created automatically. This document records scope and evidence;
 it is not an independent grant of privileged/destructive authority.
+
+## Resumed development checkpoint — November 17, 2026
+
+The owner resumed development from this handoff and requested GitHub sync and a
+durable continuation record. Continue on the same branch and draft PR #126.
+
+- `754f585` updates TypeScript-ESLint 8.65.0 -> 8.73.0 through its supported
+  dependency ranges, removing vulnerable minimatch 10.2.6. Frozen install, lint
+  and workspace typechecking passed. Production dependency audit is clean.
+- `be832b2` fixes viewer input release: blur/hidden/Escape/Stop invalidate pending
+  clipboard reads, release clears remembered modifiers, and a newer paste wins
+  over an older delayed read. Regressions reproduced stale typing and missing
+  Shift before the fix, then passed; queued-paste cancellation/fresh-paste recovery,
+  the full web suite, web build and formatting also passed. This is source-level
+  evidence, not physical Windows acceptance or clipboard synchronization.
+- `2fd40a3` completes that release fix: replacing a paced paste releases Enter/Tab
+  before opening another clipboard request, including when permission is denied.
+  Its regression, full web suite/build, lint, typecheck and formatting passed.
+- CI [44196184046](https://github.com/builtbysai/Beacon-Remote/actions/runs/44196184046)
+  at `be832b2` passed native/Android/security and full functional `pnpm check`;
+  only the unchanged high dependency audit failed. The follow-up `2fd40a3` has
+  local checks above; inspect latest PR-head CI separately after this handoff push.
+- Full dependency audit still fails on high picomatch GHSA-fc5q-39xc-vjpf. Official
+  registry latest is still 4.0.7; the [GitHub advisory](https://github.com/advisories/GHSA-fc5q-39xc-vjpf)
+  says no patched version.
+  The audit service suggests >=4.0.8, but it is unpublished. No audit exception,
+  dependency override or gate reduction was introduced. The moderate advisory is
+  resolved on this branch; do not confuse default-branch alerts with branch audit.
+- No phone/Surfiena/runtime state was changed or freshly inspected during this
+  continuation. Device inventory and runtime rows below remain the prior physical
+  checkpoint. Production/native feeds/sign-in gates and denied actions are unchanged.
+
+Next bounded unit remains P0-2 normal Surfiena control and physical Stop/key/mouse
+release, now including focus loss while holding Shift and delayed clipboard
+permission followed by Escape/Stop. Use freshly built local viewer assets for
+this source; `PIXEL_LOCAL_VIEWER=c22dc2f` is historical rotation evidence, not the
+current viewer build. P0-1 remains blocked by the high advisory and acceptance
+runtime alignment. Keep #126 draft and do not merge a failing gate.
 
 ## First actions: resume rather than rediscover
 
@@ -30,7 +68,7 @@ it is not an independent grant of privileged/destructive authority.
 
 | Item                        | Verified checkpoint                                                                                                                                                                                                  |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Application branch          | `codex/device-acceptance-preparation`; application source `1afcc9e3cfbade3523f03f7abd941946728c53b0`; subsequent handoff commit contains documentation                                                               |
+| Application branch          | `codex/device-acceptance-preparation`; application source `2fd40a31c0375428c64c56898380182a02997eae`; dependency update `754f585`; subsequent handoff changes are documentation                                      |
 | PR                          | Draft [#126](https://github.com/builtbysai/Beacon-Remote/pull/126), only open PR at audit; do not delete retained branches                                                                                           |
 | Recent fixes                | `c22dc2f`: allow later display geometry messages instead of treating them as clipboard replies; real rotation/input passed. `1afcc9e`: stale enabled status becomes off on accessibility revoke; physically verified |
 | Production VM               | Application `5e8d5c511fa3ba542a3f2d79d78a0534ce5837b9`; Windows sign-in gates off; public native feeds unchanged                                                                                                     |
@@ -40,13 +78,14 @@ it is not an independent grant of privileged/destructive authority.
 | Pixel installed APK         | `dist/BeaconRemoteHost-1afcc9e3.apk`; SHA256 `7985f06318ed409c1b0a1cd0872d2bd3b9aa0f6e6087f08fe900f5c459fd9912`; existing signer, pairing preserved                                                                  |
 | Earlier VM Android artifact | `d3290665056ada1417bbc8d4563ed55a4d377cce`, root-only candidate; newer `1afcc9e` APK still needs private VM staging                                                                                                  |
 | Surfiena candidate          | Signed ordinary `d3bd11c`, bounded limited-user fixture; source and artifacts staged privately. Startup/toggle/blank-console checks passed; physical control still open                                              |
-| Exact CI                    | `44144389550` at `1afcc9e`: Android/native/security passed; functional control-plane passed; audit failed. Same audit-only failure at `c22dc2f` run `44142823589`                                                    |
+| Exact CI                    | `44196184046` at `be832b2`: Android/native/security and full functional `pnpm check` passed; only high dependency audit failed. `2fd40a3` follow-up passed local web checks; inspect latest PR-head CI separately    |
 
 The high picomatch advisory GHSA-fc5q-39xc-vjpf had no patched registry release
 when checked (registry latest 4.0.7, requested 4.0.8 absent). A recursive update
 changed no lockfile. Recheck upstream before choosing a reviewed remediation;
-do not invent a version or blindly override unrelated dependency majors. There
-is also the previously recorded moderate TypeScript-ESLint/minimatch advisory.
+do not invent a version or blindly override unrelated dependency majors. The
+previously recorded moderate TypeScript-ESLint/minimatch advisory is resolved
+by `754f585`; historical CI before that revision still includes it.
 
 Read-only production inspection during this audit confirmed ordinary control is
 configured true, ordinary media has its session configuration, and both sign-in

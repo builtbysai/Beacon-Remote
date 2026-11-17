@@ -4,6 +4,16 @@ Beacon Remote is the remote access product. This checkout is D:/Dev/Beacon-Remot
 
 ## Current checkpoint - November 17, 2026
 
+Development resumed after the evening handoff. Latest application `2fd40a3` fixes
+delayed clipboard typing after release and stale modifier state; regressions,
+web suite/build, lint/typecheck/format and frozen install passed. Paste replacement
+also releases a paced Enter/Tab before clipboard permission UI. `754f585` removes
+the moderate minimatch advisory through TypeScript-ESLint 8.73.0. Full audit still
+fails on unpatched high picomatch; production audit is clean. PR #126 stays draft.
+Next bounded unit is physical Surfiena control/Stop/key release (P0-2). No device
+or hosted runtime changes ran in this continuation. The paragraph below records
+the preceding physical checkpoint; use the updated handoff before acting.
+
 Evening handoff: follow [next-agent-handoff.md](next-agent-handoff.md),
 [rdp-vnc-parity-roadmap.md](rdp-vnc-parity-roadmap.md) and
 [testing-remaining.md](testing-remaining.md). Rotation routing is fixed in `c22dc2f`
@@ -13,7 +23,8 @@ The hosted test viewer remains `0bba353` because its replacement was rejected by
 automatic approval review. The one-hour backend expired. At last inventory Pixel
 was unlocked, availability on, capture/accessibility off; inspect current UI before
 restoration. Dependency audit and Windows installed/sign-in acceptance remain open.
-The owner's final request is roadmap/handoff preparation, not more tests in this chat.
+That preceding chat ended with roadmap/handoff preparation; the owner has since
+resumed development from it.
 
 ### Earlier November 17 checkpoint
 
