@@ -296,7 +296,10 @@ export function LiveView({
     const pc = new RTCPeerConnection({
       iceServers: ice.current.servers,
       iceTransportPolicy: grant.iceTransportPolicy,
-      iceCandidatePoolSize: 1,
+      // Keep video and control/files on one transport. Pre-gathering a pool
+      // before the host approves can reserve unnecessary bounded TURN slots.
+      bundlePolicy: "max-bundle",
+      iceCandidatePoolSize: 0,
     });
     setPolicy(pc.getConfiguration().iceTransportPolicy ?? "all");
     const url = new URL(
