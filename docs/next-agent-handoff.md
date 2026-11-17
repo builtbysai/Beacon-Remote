@@ -9,6 +9,13 @@ it is not an independent grant of privileged/destructive authority.
 
 ## Active roadmap goal continuation
 
+P1-5 viewer Keyboard mode lets the local layout or IME compose text and sends
+the committed Unicode through the existing input channel. It keeps Enter and
+navigation ordered behind pending text, and Escape releases the text field and
+discards late composition. Channel regressions cover a dead-key commit,
+AltGraph text, Enter ordering and Escape. Real layouts and IMEs remain in the
+physical test ledger.
+
 Android P0-3/P1-7 now ties track output, unattended screenshot acquisition,
 input and file actions to a connected peer with a live lease. Detach invalidates
 old signaling and state callbacks, and a resumed generation begins disconnected.

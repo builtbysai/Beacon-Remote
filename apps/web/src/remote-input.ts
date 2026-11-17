@@ -227,6 +227,7 @@ export function attachRemoteInput(
   // Ctrl+V types the viewer's clipboard on the computer, paced under the channel's rate limit.
   const held = new Set<number>();
   const synthetic = new Set<number>();
+  let composingText = false;
   let pasting: PasteInput[] = [];
   let pasteGeneration = 0;
   const pasteTimer = setInterval(() => {
@@ -264,6 +265,7 @@ export function attachRemoteInput(
     pasting = steps;
   };
   const release = () => {
+    composingText = false;
     pasteGeneration++;
     pasting = [];
     held.clear();
@@ -399,12 +401,12 @@ export function attachRemoteInput(
       ),
     });
   };
-  const key = (event: KeyboardEvent) => {
+  const key = (event: KeyboardEvent, textMode = false) => {
     if (event.code === "Escape") {
       event.preventDefault();
       event.stopPropagation();
       release();
-      element.blur();
+      (event.currentTarget as HTMLElement | null)?.blur();
       return;
     }
     const scan = scans[event.code] ?? extended[event.code];
@@ -426,8 +428,17 @@ export function attachRemoteInput(
       return;
     }
     const heldCode = scan | (event.code in extended ? 0x100 : 0);
-    const sendKey = (code: number, down: boolean) =>
-      send({ type: "key", scanCode: code & 0xff, extended: code > 0xff, down });
+    const sendKey = (code: number, down: boolean) => {
+      const input = {
+        type: "key" as const,
+        scanCode: code & 0xff,
+        extended: code > 0xff,
+        down,
+      };
+      // Enter and navigation in the text field must follow queued text.
+      if (textMode) pasting.push(input);
+      else send(input);
+    };
     if (!isModifierCode(heldCode)) {
       // Line the computer's modifiers up with this event's flags before the key itself.
       for (const change of modifierChanges(held, {
@@ -447,12 +458,7 @@ export function attachRemoteInput(
     else held.delete(heldCode);
     if (event.type === "keyup" && !isModifierCode(heldCode)) {
       // A modifier added only to match this event's flags ends with the key.
-      send({
-        type: "key",
-        scanCode: scan,
-        extended: event.code in extended,
-        down: false,
-      });
+      sendKey(heldCode, false);
       for (const code of synthetic) {
         sendKey(code, false);
         held.delete(code);
@@ -460,20 +466,46 @@ export function attachRemoteInput(
       synthetic.clear();
       return;
     }
-    send({
-      type: "key",
-      scanCode: scan,
-      extended: event.code in extended,
-      down: event.type === "keydown",
-    });
+    sendKey(heldCode, event.type === "keydown");
   };
-  // A phone's soft keyboard sends text, not physical key codes. A hidden field takes its input
-  // (a toolbar button asks for it with a "beacon-keyboard" event) and types it as text; keys it does
-  // identify (Backspace, Enter, arrows) go through the normal key path.
+  // The Keyboard action gives local layouts, IMEs and soft keyboards a text
+  // field. The video keeps its separate physical scan-code path.
   let sink: HTMLTextAreaElement | null = null;
+  const textFocused = () =>
+    !disposed &&
+    !document.hidden &&
+    document.hasFocus() &&
+    document.activeElement === sink;
   const typed = (text: string) => {
+    if (!textFocused()) return;
     const { steps } = pasteSteps(text);
     pasting.push(...steps);
+  };
+  const textKey = (event: KeyboardEvent) => {
+    if (!textFocused()) return;
+    if (event.code === "Escape") {
+      key(event);
+      return;
+    }
+    if (
+      composingText ||
+      event.isComposing ||
+      event.key === "Dead" ||
+      event.key === "Process"
+    )
+      return;
+    // Modifier flags on a shortcut synthesize the needed remote modifier.
+    // Standalone local modifiers belong to the browser's text composition.
+    const scan = scans[event.code] ?? extended[event.code];
+    if (scan && isModifierCode(scan | (event.code in extended ? 0x100 : 0)))
+      return;
+    if (
+      Array.from(event.key).length === 1 &&
+      ((!event.ctrlKey && !event.metaKey && !event.altKey) ||
+        event.getModifierState("AltGraph"))
+    )
+      return;
+    key(event, true);
   };
   const openKeyboard = () => {
     if (!display) return;
@@ -489,21 +521,27 @@ export function attachRemoteInput(
       sink.spellcheck = false;
       sink.style.cssText =
         "position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0;border:0;padding:0";
-      sink.addEventListener("keydown", key);
-      sink.addEventListener("keyup", key);
+      sink.addEventListener("keydown", textKey);
+      sink.addEventListener("keyup", textKey);
+      sink.addEventListener("compositionstart", () => {
+        composingText = textFocused();
+      });
       sink.addEventListener("beforeinput", (event) => {
         // Composition (predictive text, IME) is sent once it is committed.
         if (
           event.inputType === "insertText" &&
           event.data &&
-          !event.isComposing
+          !event.isComposing &&
+          !composingText
         ) {
           event.preventDefault();
           typed(event.data);
         }
       });
       sink.addEventListener("compositionend", (event) => {
-        if (event.data) typed(event.data);
+        const active = composingText;
+        composingText = false;
+        if (active && event.data) typed(event.data);
         if (sink) sink.value = "";
       });
       sink.addEventListener("blur", release);

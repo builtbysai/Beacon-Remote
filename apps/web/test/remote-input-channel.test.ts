@@ -32,6 +32,9 @@ function channelFixture(t: TestContext) {
     document: Object.assign(new EventTarget(), {
       activeElement: video,
       hidden: false,
+      hasFocus: () => true,
+      createElement: () => sink,
+      body: { appendChild() {} },
     }),
     navigator: {
       clipboard: {
@@ -44,6 +47,19 @@ function channelFixture(t: TestContext) {
     requestAnimationFrame: (callback: () => void) => setTimeout(callback, 0),
     cancelAnimationFrame: clearTimeout,
   };
+  const sink = Object.assign(new EventTarget(), {
+    value: "",
+    style: {},
+    setAttribute() {},
+    focus() {
+      globals.document.activeElement = sink as unknown as typeof video;
+    },
+    blur() {
+      globals.document.activeElement = video;
+      sink.dispatchEvent(new Event("blur"));
+    },
+    remove() {},
+  });
   const previous = Object.keys(globals).map(
     (key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const,
   );
@@ -96,10 +112,85 @@ function channelFixture(t: TestContext) {
     display,
     key,
     detach,
+    sink,
     ...globals,
     failures: () => failures,
   };
 }
+
+test("Keyboard mode emits the local composition once before the next Enter", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const f = channelFixture(t);
+  f.video.dispatchEvent(new Event("beacon-keyboard"));
+  const dispatch = (name: string, properties = {}) => {
+    const event = Object.assign(
+      new Event(name, { cancelable: true }),
+      properties,
+    );
+    f.sink.dispatchEvent(event);
+    return event;
+  };
+  assert.equal(
+    dispatch("keydown", { code: "Quote", key: "Dead" }).defaultPrevented,
+    false,
+  );
+  dispatch("compositionstart");
+  dispatch("beforeinput", {
+    inputType: "insertCompositionText",
+    isComposing: true,
+    data: "´",
+  });
+  dispatch("compositionend", { data: "é" });
+  dispatch("keydown", { code: "Enter", key: "Enter" });
+  dispatch("keyup", { code: "Enter", key: "Enter" });
+  const start = f.sent.length;
+  for (let i = 0; i < 3; i++) t.mock.timers.tick(25);
+  assert.deepEqual(
+    f.sent.slice(start).map(({ input }) => input),
+    [
+      { type: "type_text", text: "é" },
+      { type: "key", scanCode: 0x1c, extended: false, down: true },
+      { type: "key", scanCode: 0x1c, extended: false, down: false },
+    ],
+  );
+});
+
+test("Keyboard mode uses local AltGraph text and Escape discards a late composition", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const f = channelFixture(t);
+  f.video.dispatchEvent(new Event("beacon-keyboard"));
+  const altGraph = Object.assign(new Event("keydown", { cancelable: true }), {
+    code: "KeyE",
+    key: "€",
+    ctrlKey: true,
+    altKey: true,
+    getModifierState: (key: string) => key === "AltGraph",
+  });
+  f.sink.dispatchEvent(altGraph);
+  assert.equal(altGraph.defaultPrevented, false);
+  f.sink.dispatchEvent(
+    Object.assign(new Event("beforeinput", { cancelable: true }), {
+      inputType: "insertText",
+      data: "€",
+    }),
+  );
+  t.mock.timers.tick(25);
+  assert.deepEqual(f.sent.at(-1)?.input, { type: "type_text", text: "€" });
+  f.sink.dispatchEvent(new Event("compositionstart"));
+  f.sink.dispatchEvent(
+    Object.assign(new Event("keydown", { cancelable: true }), {
+      code: "Escape",
+      key: "Escape",
+    }),
+  );
+  assert.equal(f.document.activeElement, f.video);
+  const start = f.sent.length;
+  f.sink.dispatchEvent(
+    Object.assign(new Event("compositionend"), { data: "late text" }),
+  );
+  t.mock.timers.tick(25);
+  assert.deepEqual(f.sent.slice(start), []);
+});
 
 test("a second display message keeps the input channel alive and remaps rotated pointer coordinates", async (t) => {
   const f = channelFixture(t);

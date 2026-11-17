@@ -4,6 +4,12 @@ Checkpoint: November 17, 2026. Use with the [parity roadmap](rdp-vnc-parity-road
 and [next-agent handoff](next-agent-handoff.md). This ledger prevents repetition
 of completed tests and prevents source-only checks being called acceptance.
 
+For P1-5, use the viewer's **Keyboard** button with a real dead-key layout,
+AltGr and an IME. Verify composed text reaches Windows and Android once, Enter
+follows the final committed text, and Escape or focus loss cancels unfinished
+composition. Check shortcuts separately in the normal video input mode and
+verify the mobile soft keyboard still works.
+
 For the Android reconnect gate, test initial negotiation, a temporary network
 loss, viewer reload within the original authorization, and reconnect after
 Stop or expiry. Confirm screenshots and remote actions wait for the connected
