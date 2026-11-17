@@ -1,6 +1,48 @@
 # Development status
 
-## November 17 Pixel automated acceptance
+## Latest handoff — November 17, 2026, evening
+
+Use the [RDP/VNC parity plan](rdp-vnc-parity-roadmap.md),
+[remaining-test ledger](testing-remaining.md) and [next-chat handoff](next-agent-handoff.md).
+The owner changed this chat to a documentation/handoff task; no additional feature
+implementation or device testing is required by that final request.
+
+Rotation's cause is now established: ordinary input routed any later channel
+message to clipboard handling, rejecting updated display geometry and closing
+the viewer. `c22dc2f` discriminates clipboard replies before allowing geometry
+validation/remapping. Regressions reproduced the failure before the fix and
+passed afterward; web typecheck/lint/suite/build/format passed. A real Pixel
+unattended session stayed live across portrait/landscape/portrait, with observed
+324x720/720x324/324x720 frames, exact landscape typing and a remapped far-right tap.
+The test used owned-browser local compiled static assets against the actual
+isolated backend; API/authorization responses were not replaced.
+
+Accessibility revocation during that session ended control/video and removed
+capture. Re-enabling accessibility did not enable standing access; a fresh request
+required approval and was declined, with terminal/profile cleanup confirmed.
+The stale earlier enabled notice was separately corrected in Android `1afcc9e`;
+unit/lint/signing passed and repeated real revoke displayed the new off message.
+The same-signer update preserved pairing. A later real Beacon 3 MiB transfer
+reported Sent and matched the Pixel file's SHA256; the benign test file remains.
+All completed connected runs were ended and their owned profiles closed.
+
+Application HEAD before this documentation update is `1afcc9e`. Its exact CI run
+`44144389550` passed Android/native/security and functional control-plane checks,
+but failed dependency audit. Production remains `5e8d5c5`. The isolated backend's
+one-hour run has expired; its image is `8af1c43`, web remains `0bba353`. Automatic
+approval review rejected replacement by the built `c22dc2f` image with only
+“blocked by policy”; the denied command was not retried by another route.
+Newer APK `dist/BeaconRemoteHost-1afcc9e3.apk` SHA256 is
+`7985f06318ed409c1b0a1cd0872d2bd3b9aa0f6e6087f08fe900f5c459fd9912`.
+It is installed locally but still needs private VM staging. No public feed changed.
+
+At the evening documentation inventory the Pixel was unlocked, availability on,
+capture off and accessibility off. Restoration had not been confirmed; the owner
+may use the phone between calls, so never replay old coordinates without observing
+the current screen. The owner-supplied development unlock credential is sealed
+outside Git; its location and bounded continuation steps are in the handoff.
+
+## Earlier November 17 Pixel automated acceptance
 
 The Pixel 7a is paired to the isolated account using the new readable invitation.
 The installed same-signer Android candidate is `d329066`; the isolated backend

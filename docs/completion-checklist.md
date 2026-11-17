@@ -6,7 +6,23 @@ scope; [development status](development-status.md) retains dated validation
 records. Historical entries do not override this tracker or grant new release
 authorization. No percentage is inferred from passing builds.
 
-## November 17 Pixel acceptance update
+## Latest continuation scope — November 17 evening
+
+The owner requested a full RDP/VNC gap audit and next-agent handoff. Use
+[the parity backlog](rdp-vnc-parity-roadmap.md), [remaining testing](testing-remaining.md)
+and [the handoff](next-agent-handoff.md) as the detailed current queues.
+Pixel rotation/input now passed with local viewer `c22dc2f`; accessibility revoke/
+recovery and 3 MiB hash-verified file receipt also passed. Signed Android `1afcc9e`
+fixes the stale access notice and is installed. These supersede the earlier
+rotation-unknown and locked-phone statements below. Latest device inventory:
+unlocked, availability on, capture/accessibility off; inspect before restoring.
+
+VM test-viewer activation was rejected by automatic approval review, and the
+bounded backend has expired. Dependency audit remains a release gate. Production
+and public native feeds remain unchanged. Windows input/installed boot/sign-in/
+handoff, network/lifecycle cases and new parity features remain unfinished.
+
+## Earlier November 17 Pixel acceptance update
 
 Readable pairing and same-signer updates preserved the Pixel's data. The Android
 consent fix passed an actual 41.399-second wait at the OS capture dialog. Android

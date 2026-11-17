@@ -1,5 +1,32 @@
 # Beacon Remote delivery roadmap
 
+## Current owner scope — November 17, 2026
+
+The owner now requests modern RDP/VNC feature parity and additional agent/support
+capabilities. The complete audited implementation plan is
+[RDP/VNC parity and beyond](rdp-vnc-parity-roadmap.md), with every supplied gap
+corrected against current code/evidence and additional missing feature families
+explicitly queued. Use [remaining testing](testing-remaining.md) to avoid repeating
+completed tests, and [the next-chat handoff](next-agent-handoff.md) to resume.
+
+Latest application source is `1afcc9e`: `c22dc2f` fixes rotation-triggered input
+disconnects; actual Pixel landscape/portrait video, typing and remapped touch
+passed using locally compiled viewer assets against the isolated backend.
+Accessibility revoke/recovery and a real 3 MiB hash-verified file transfer passed.
+The signed Android status correction is installed. The VM test viewer remains
+`0bba353`; automatic approval review rejected its replacement. The one-hour
+isolated backend has expired. Production remains `5e8d5c5`, sign-in gates and
+native feeds are unchanged; dependency audit still blocks release. These results
+do not close Windows installed/sign-in lifecycle or full parity acceptance.
+
+Immediate priorities are release/runtime consistency, normal Windows input and
+installed unattended acceptance, in-session permission requests, and scoped agent
+control. Rich clipboard/files/drive mapping, input/display/reconnect fidelity,
+audio, peripherals/printing, independent sessions/RemoteApp, platform/fleet and
+trust improvements are all tracked explicitly in the detailed plan.
+
+## Earlier November 17 checkpoint
+
 The [completion checklist](completion-checklist.md) is the current tracker for
 the full-roadmap goal; dated sections below preserve scope and historical evidence.
 
@@ -18,9 +45,10 @@ What remains:
   owner connection/control/local Disable now have physical evidence. After Disable,
   a fresh request required approval and was refused without video/control.
   Repeated unattended connections, competing-controller rejection, paused-input
-  blocking/Resume and real phone-lock teardown also passed. Rotation failed twice
-  with a signaling/lease interruption; diagnose it, then continue permission revoke,
-  network recovery, files and wider lifecycle tests. These short results do not
+  blocking/Resume and real phone-lock teardown also passed. Rotation failures were
+  fixed and verified with local viewer `c22dc2f`; accessibility revoke/recovery and
+  one real file transfer passed. Continue network recovery, negative file cases
+  and wider lifecycle tests. These short results do not
   establish full unattended release acceptance.
 - Startup-speed comparison passed on Surfiena: signed `9d377c6` acknowledged in
   208 ms and the owner confirmed Online was quick. Finish the follow-up native
@@ -38,7 +66,7 @@ What remains:
   and actual Pixel pairing. The same-signer `d329066` Android candidate and isolated
   `0bba353` viewer passed real control after the earlier relay failure. The tested
   Android artifact and acceptance source are hash-verified and staged privately
-  on the VM; finish rotation diagnosis and publication review. The current release
+  on the VM; finish hosted fix activation, latest candidate staging and publication review. The current release
   gate is blocked by high picomatch advisory GHSA-fc5q-39xc-vjpf; the registry has
   no patched release as of November 17. Do not waive that audit. The mixed-case
   dummy emulator regression did not run because cold boot exceeded its bound.
