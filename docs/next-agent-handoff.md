@@ -9,6 +9,15 @@ it is not an independent grant of privileged/destructive authority.
 
 ## Active roadmap goal continuation
 
+P0-4 has backend signaling for host-advertised control, files, audio and
+recording requests. The relay correlates one request at a time, accepts only
+machine decisions, and cancels on timeout, Stop or viewer replacement.
+Control requests require the server setting and existing owner or helper
+entitlement. A relay result leaves the current session grant unchanged.
+The next P0-4 implementation work is the browser request UI, native local
+prompt and scope enforcement, then real approval and revoke tests. A host
+that has not advertised support cannot receive permission prompts.
+
 P0-3 Android consent now carries the delivering pairing and a monotonic
 deadline from delivery to approval. Duplicate delivery keeps the current
 prompt and its deadline. A different live request closes the prior Activity

@@ -7,11 +7,13 @@ import { z } from "zod";
 import type { Config } from "./config.js";
 import {
   displayInfo,
+  sessionPermissionSignal,
   supportCode,
 } from "../../../packages/protocol/src/index.js";
 import { relayCredentials, relayExpiry } from "./relay.js";
 import { interactiveReadySql } from "./machine-readiness.js";
 import { signinLeaseJoins, signinLiveHandoff } from "./signin-shared.js";
+import { SessionPermissionRequests } from "./session-permissions.js";
 
 type Session = {
   id: string;
@@ -33,6 +35,7 @@ type Session = {
 type Role = "viewer" | "machine";
 type Authorization = { session: Session; role: Role; request: FastifyRequest };
 type Entry = {
+  permissions: SessionPermissionRequests;
   viewer?: WebSocket;
   machine?: WebSocket;
   timer?: ReturnType<typeof setInterval>;
@@ -63,6 +66,7 @@ const digest = (token: string) =>
   createHash("sha256").update(token).digest("hex");
 const params = z.object({ id: z.uuid() });
 const signal = z.discriminatedUnion("type", [
+  ...sessionPermissionSignal.options,
   z
     .object({
       type: z.literal("retry"),
@@ -307,6 +311,7 @@ export async function registerSessions(
     if (entry.closed || entry.viewer !== socket) return;
     entry.viewer = undefined;
     entry.detachedUntil = performance.now() + entry.reconnectMs;
+    entry.permissions.detach();
     send(entry.machine, { type: "viewer-detached" });
   }
   async function finish(id: string, status: "ended" | "denied" = "ended") {
@@ -315,6 +320,7 @@ export async function registerSessions(
     if (entry) {
       entry.closed = true;
       clearInterval(entry.timer);
+      entry.permissions.detach();
     }
     try {
       await pool.query(
@@ -1142,7 +1148,11 @@ export async function registerSessions(
       const { session, role } = auth;
       let entry = entries.get(session.id);
       if (!entry) {
+        const permissions = new SessionPermissionRequests((target, message) =>
+          send(entry?.[target], message),
+        );
         entry = {
+          permissions,
           closed: false,
           serial: Promise.resolve(),
           frames: 0,
@@ -1155,6 +1165,7 @@ export async function registerSessions(
         let checking = false;
         entry.timer = setInterval(() => {
           if (checking || live.closed) return;
+          live.permissions.expire();
           checking = true;
           void (async () => {
             const valid = await pool.query(
@@ -1205,7 +1216,10 @@ export async function registerSessions(
       entry[role] = socket;
       const resuming = role === "viewer" && entry.detachedUntil !== undefined;
       if (role === "viewer") {
-        if (resuming) entry.generation += 1;
+        if (resuming) {
+          entry.generation += 1;
+          entry.permissions.resume(entry.generation);
+        }
         entry.viewerRequest = request;
         entry.viewerTokenHash = browserHash(request);
         entry.detachedUntil = undefined;
@@ -1268,6 +1282,51 @@ export async function registerSessions(
               return;
             }
             const body = message.data;
+            if (
+              body.type === "permission-options" ||
+              body.type === "permission-request" ||
+              body.type === "permission-cancel" ||
+              body.type === "permission-decision"
+            ) {
+              if (
+                session.source !== "desktop" ||
+                current.rows[0].status !== "active" ||
+                body.generation !== live.generation ||
+                live.machine?.readyState !== 1 ||
+                live.viewer?.readyState !== 1 ||
+                !live.viewerRequest ||
+                (await owner(live.viewerRequest)) !== session.account_id
+              )
+                return;
+              // A view-only invitation does not imply control. An owner or a
+              // helper whose existing grant/relationship permits control can ask.
+              const canRequestControl =
+                controlEnabled &&
+                (session.capability === "desktop:control" ||
+                  (
+                    await pool.query(
+                      `SELECT 1 FROM machines m WHERE m.id=$1 AND m.revoked_at IS NULL
+                     AND (m.account_id=$2 OR EXISTS (
+                       SELECT 1 FROM support_relationships r WHERE r.id=$3 AND r.machine_id=m.id
+                       AND r.helper_account_id=$2 AND r.capability='desktop:control'
+                       AND r.revoked_at IS NULL AND r.expires_at>now()
+                     ))`,
+                      [
+                        session.machine_id,
+                        session.account_id,
+                        session.relationship_id,
+                      ],
+                    )
+                  ).rowCount === 1);
+              if (
+                live.closed ||
+                live[role] !== socket ||
+                live.viewer?.readyState !== 1
+              )
+                return;
+              live.permissions.receive(role, body, canRequestControl);
+              return;
+            }
             if (
               (body.type === "offer" ||
                 body.type === "answer" ||
