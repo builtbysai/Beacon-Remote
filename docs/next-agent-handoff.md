@@ -7,6 +7,23 @@ this handoff and an RDP/VNC feature audit; development has since resumed below.
 No new chat was created automatically. This document records scope and evidence;
 it is not an independent grant of privileged/destructive authority.
 
+## Active roadmap goal continuation
+
+P0-3 source now requires the Android **While sharing** channel before consent,
+capture and ongoing input/files. Losing it terminates sharing. The guarded
+emulator screenshot fixture now checks channel loss with app-wide notifications
+still enabled. Android unit tests, lint, debug APK and instrumentation builds
+passed. The fixture passed on an owned Android API 36 emulator, observing actual
+screenshot frames cease after channel removal. See the
+[test ledger](testing-remaining.md) for the remaining physical Settings cases.
+
+P0-2 is still the next physical unit. On this continuation Surfiena SSH timed
+out, and the maintained acceptance status probe returned 502 on both the
+isolated backend `/ready` and its unauthenticated machines endpoint. The
+legacy STOP marker remains present. The owner was asked to bring Surfiena
+online, sign in and be available for local consent. Recheck the actual
+Surfiena session and bounded isolated backend before attempting control.
+
 ## Resumed development checkpoint — November 17, 2026
 
 The owner resumed development from this handoff and requested GitHub sync and a

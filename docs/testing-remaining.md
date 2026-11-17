@@ -4,6 +4,19 @@ Checkpoint: November 17, 2026. Use with the [parity roadmap](rdp-vnc-parity-road
 and [next-agent handoff](next-agent-handoff.md). This ledger prevents repetition
 of completed tests and prevents source-only checks being called acceptance.
 
+Android P0-3 now checks the dedicated **While sharing** notification channel as
+well as the app-wide notification setting. Android unit/lint/build checks passed.
+The guarded Android API 36 emulator test removed the channel while app-wide
+notifications remained enabled and verified that real screenshot frames stopped.
+The physical acceptance matrix should
+exercise both switches independently. With general notifications still enabled,
+turn off **While sharing** in Android Settings before an attended request, during
+the capture prompt, and during live attended and unattended sharing. Verify
+refusal or teardown as applicable, disabled remote input and files, a terminal
+backend session, and no continued capture. Restore the channel through Settings
+and verify the ended session cannot resume. Use a separate fresh consent request
+to verify attended recovery.
+
 ## Latest source-only continuation
 
 The owner resumed development after the documentation checkpoint. `be832b2`

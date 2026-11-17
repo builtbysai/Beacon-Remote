@@ -156,9 +156,9 @@ class ShareSession(
                 object : WebSocketListener() {
                     override fun onOpen(webSocket: WebSocket, response: Response) {
                         post {
-                            if (!accepted) {
+                            if (!accepted || !SharingNotifications.ready(context)) {
                                 webSocket.send(JSONObject().put("type", "consent").put("accepted", false).toString())
-                                end("Declined")
+                                end(if (accepted) "Sharing notifications are unavailable" else "Declined")
                                 return@post
                             }
                             val consent = JSONObject().put("type", "consent").put("accepted", true).put("resumable", true)
@@ -191,6 +191,11 @@ class ShareSession(
 
     private fun tick() {
         if (ended) return
+        if (!SharingNotifications.ready(context)) {
+            socket?.send(JSONObject().put("type", "stop").toString())
+            end("Sharing notifications are unavailable")
+            return
+        }
         val now = SystemClock.elapsedRealtime()
         if (unattended && now - maxOf(started, control?.lastActivity ?: 0L, files?.lastActivity ?: 0L) >= 30 * 60 * 1000L) {
             end("Unattended session ended after 30 minutes without input")
@@ -374,7 +379,7 @@ class ShareSession(
                 control =
                     RemoteControl(channel, grant.id, screenWidth, screenHeight, {
                         !paused && !ended && lastLease != 0L && SystemClock.elapsedRealtime() - lastLease < MAX_AGE &&
-                            Identity(context).wantsAvailable && (!unattended || (Identity(context).unattended && UnattendedAccess.ready(context)))
+                            localActionsAllowed()
                     }) { active -> onControl(active) }
                         .also { it.start() }
             }
@@ -383,7 +388,7 @@ class ShareSession(
             connection.createDataChannel("beacon-files-v1", DataChannel.Init().apply { ordered = true })?.let { channel ->
                 files = FileReceiver(context, channel) {
                     !paused && !ended && lastLease != 0L && SystemClock.elapsedRealtime() - lastLease < MAX_AGE &&
-                        Identity(context).wantsAvailable && (!unattended || (Identity(context).unattended && UnattendedAccess.ready(context)))
+                        localActionsAllowed()
                 }.also { it.start() }
             }
         }
@@ -411,6 +416,14 @@ class ShareSession(
             },
             MediaConstraints(),
         )
+    }
+
+    private fun localActionsAllowed(): Boolean = Identity(context).let { identity ->
+        identity.wantsAvailable && if (unattended) {
+            identity.unattended && UnattendedAccess.ready(context)
+        } else {
+            SharingNotifications.ready(context)
+        }
     }
 
     private fun closePeer() {

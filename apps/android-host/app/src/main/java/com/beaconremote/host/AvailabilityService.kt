@@ -180,7 +180,7 @@ class AvailabilityService : Service() {
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel(AVAILABLE, "Availability", NotificationManager.IMPORTANCE_LOW))
         manager.createNotificationChannel(NotificationChannel(REQUEST, "Requests to see your screen", NotificationManager.IMPORTANCE_HIGH))
-        manager.createNotificationChannel(NotificationChannel(SHARING, "While sharing", NotificationManager.IMPORTANCE_LOW))
+        SharingNotifications.register(this)
     }
 
     override fun onDestroy() {
@@ -195,7 +195,6 @@ class AvailabilityService : Service() {
         const val ACTION_STOP = "com.beaconremote.host.STOP_AVAILABILITY"
         const val AVAILABLE = "available"
         const val REQUEST = "request"
-        const val SHARING = "sharing"
 
         fun start(context: Context) {
             context.startForegroundService(Intent(context, AvailabilityService::class.java))

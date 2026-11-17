@@ -42,6 +42,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        SharingNotifications.register(this)
         identity = Identity(this)
         root = HostUi.column(this)
         HostUi.screen(this, root)
@@ -149,7 +150,7 @@ class MainActivity : Activity() {
     private fun notificationSettings() {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
-        } else startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, packageName))
+        } else startActivity(SharingNotifications.settings(this))
     }
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, results: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, results)
@@ -200,7 +201,7 @@ class MainActivity : Activity() {
     private fun changeAccess() {
         val binding = identity.accessBinding()
         val enable = !identity.unattended && !AccessIntents.fence.pending(binding)
-        if (enable && !notificationsReady()) { notificationSettings(); return }
+        if (enable && !SharingNotifications.ready(this)) { notificationSettings(); return }
         if (enable && !UnattendedAccess.ready(this)) { startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)); return }
         if (!enable) {
             stopCapture()
@@ -250,7 +251,7 @@ class MainActivity : Activity() {
         }
         root.findViewWithTag<TextView>("status")?.let { if (it.text.toString() != HostState.status) it.text = HostState.status }
         root.findViewWithTag<Button>("availability-toggle")?.text = if (identity.wantsAvailable) "Go offline" else "Make available"
-        root.findViewWithTag<Button>("notification-settings")?.visibility = if (notificationsReady()) View.GONE else View.VISIBLE
+        root.findViewWithTag<Button>("notification-settings")?.visibility = if (SharingNotifications.ready(this)) View.GONE else View.VISIBLE
         root.findViewWithTag<Button>("accessibility-settings")?.visibility = if (Build.VERSION.SDK_INT >= 30 && (!ControlService.enabled(this) || ControlService.instance == null)) View.VISIBLE else View.GONE
         root.findViewWithTag<Button>("access-toggle")?.apply {
             text = if (AccessIntents.fence.pending(identity.accessBinding())) "Cancel pending change" else if (identity.unattended) "Turn off unattended access" else "Enable unattended access"

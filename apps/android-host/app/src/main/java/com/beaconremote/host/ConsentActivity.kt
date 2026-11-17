@@ -16,7 +16,6 @@ import android.widget.Button
 import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.core.app.NotificationManagerCompat
 import org.json.JSONObject
 
 /**
@@ -129,7 +128,7 @@ class ConsentActivity : Activity() {
         )
         notificationNote = HostUi.text(this, "", 14f).apply { accessibilityLiveRegion = android.view.View.ACCESSIBILITY_LIVE_REGION_POLITE }
         notificationSettings = HostUi.button(this, "Enable sharing notifications").apply {
-            setOnClickListener { startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName)) }
+            setOnClickListener { startActivity(SharingNotifications.settings(this@ConsentActivity)) }
         }
         layout.addView(notificationNote)
         layout.addView(notificationSettings)
@@ -192,7 +191,7 @@ class ConsentActivity : Activity() {
 
     /** Control needs the accessibility service the person turns on in Settings; until then the box stays off. */
     private fun refreshControl() {
-        val notifications = NotificationManagerCompat.from(this).areNotificationsEnabled()
+        val notifications = SharingNotifications.ready(this)
         notificationNote.text = if (!notifications) "Enable notifications so Pause and Stop stay available while sharing." else if (awaitingCapture) "Waiting for Android’s screen-capture permission…" else ""
         notificationNote.visibility = if (notificationNote.text.isEmpty()) android.view.View.GONE else android.view.View.VISIBLE
         notificationSettings.visibility = if (notifications) android.view.View.GONE else android.view.View.VISIBLE
@@ -220,7 +219,7 @@ class ConsentActivity : Activity() {
     private fun allow() {
         if (answered || awaitingCapture) return
         if (SystemClock.elapsedRealtime() >= expiresAt || Identity(this).accessBinding() != binding) { decline(); return }
-        if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) { refreshControl(); return }
+        if (!SharingNotifications.ready(this)) { refreshControl(); return }
         val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
         if (manager == null) { notificationNote.text = "Screen sharing is unavailable on this device."; notificationNote.visibility = android.view.View.VISIBLE; return }
         selectedControl = control?.isChecked == true
@@ -243,7 +242,7 @@ class ConsentActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != REQUEST_CAPTURE) return
         awaitingCapture = false
-        if (resultCode == RESULT_OK && data != null && !answered && SystemClock.elapsedRealtime() < expiresAt && Identity(this).accessBinding() == binding && NotificationManagerCompat.from(this).areNotificationsEnabled()) {
+        if (resultCode == RESULT_OK && data != null && !answered && SystemClock.elapsedRealtime() < expiresAt && Identity(this).accessBinding() == binding && SharingNotifications.ready(this)) {
             answered = true
             handler.removeCallbacksAndMessages(null)
             startForegroundService(

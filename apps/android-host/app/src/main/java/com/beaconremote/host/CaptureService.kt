@@ -39,13 +39,20 @@ class CaptureService : Service() {
         if (session != null) return START_NOT_STICKY
         val unattended = intent?.getBooleanExtra("unattended", false) == true
         val rawGrant = raw?.let { runCatching { JSONObject(it) }.getOrNull() }
-        if (!Identity(this).wantsAvailable || rawGrant == null || (!unattended && data == null) ||
-            (unattended && !UnattendedAccess.accepts(Identity(this).unattended,
-                rawGrant.optString("approval") == "policy", rawGrant.optBoolean("viaRelationship"), UnattendedAccess.ready(this)))) {
+        val identity = Identity(this)
+        if (rawGrant == null) {
             stopSelf()
             return START_NOT_STICKY
         }
         val grant = Grant.from(rawGrant)
+        if (!identity.wantsAvailable || !SharingNotifications.ready(this) || (!unattended && data == null) ||
+            (unattended && !UnattendedAccess.accepts(identity.unattended,
+                rawGrant.optString("approval") == "policy", rawGrant.optBoolean("viaRelationship"), UnattendedAccess.ready(this)))) {
+            // Local settings can change after consent and before service startup.
+            ShareSession(applicationContext, grant, identity.server, null) {}.decline()
+            stopSelf()
+            return START_NOT_STICKY
+        }
         controller = grant.controller
         ServiceCompat.startForeground(
             this,
@@ -63,7 +70,7 @@ class CaptureService : Service() {
             ShareSession(
                 applicationContext,
                 grant,
-                Identity(this).server,
+                identity.server,
                 data,
                 control,
                 files,
@@ -94,7 +101,7 @@ class CaptureService : Service() {
                 Intent(this, CaptureService::class.java).setAction(name),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
-        return NotificationCompat.Builder(this, AvailabilityService.SHARING)
+        return NotificationCompat.Builder(this, SharingNotifications.CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_beacon)
             .setContentTitle(
                 when {
