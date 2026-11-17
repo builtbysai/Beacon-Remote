@@ -419,15 +419,9 @@ export function attachRemoteInput(
       !event.altKey &&
       !event.shiftKey
     ) {
-      // Lift held modifiers on the computer first, so the typed text is not read as shortcuts.
-      for (const code of held)
-        send({
-          type: "key",
-          scanCode: code & 0xff,
-          extended: code > 0xff,
-          down: false,
-        });
-      held.clear();
+      // A replaced paste may have Enter/Tab held between paced steps. Release
+      // those too, so cancelled clipboard UI cannot strand a key or modifier.
+      release();
       void paste();
       return;
     }

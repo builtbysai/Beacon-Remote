@@ -233,3 +233,22 @@ test("release cancels remaining paced paste steps and a fresh paste still works"
     text: "fresh text",
   });
 });
+
+test("replacing a paced paste releases its Enter even if the next clipboard read fails", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const f = channelFixture(t);
+  f.navigator.clipboard.readText = async () => "\nold text";
+  f.key("keydown", "KeyV", { ctrlKey: true });
+  await new Promise<void>((done) => setImmediate(done));
+  t.mock.timers.tick(25);
+  assert.equal(f.sent.at(-1)?.input.down, true);
+  f.navigator.clipboard.readText = async () => {
+    throw new Error("permission denied");
+  };
+  f.key("keydown", "KeyV", { ctrlKey: true });
+  assert.deepEqual(f.sent.at(-1)?.input, { type: "release_all" });
+  const start = f.sent.length;
+  await new Promise<void>((done) => setImmediate(done));
+  t.mock.timers.tick(100);
+  assert.deepEqual(f.sent.slice(start), []);
+});
