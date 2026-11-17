@@ -9,6 +9,13 @@ it is not an independent grant of privileged/destructive authority.
 
 ## Active roadmap goal continuation
 
+P1-3 web upload now releases a stalled send-buffer wait on viewer Cancel,
+host Pause, or disconnect. It also stops after 30 seconds without buffer drain.
+The viewer stops the remaining selection and keeps its existing reconnect retry
+path for the interrupted file. Web regressions exercise cancellation, pause,
+disconnect, timeout and successful drain. Add the same cases to physical file
+acceptance and verify cleanup on the receiving endpoint.
+
 P0-3 source now requires the Android **While sharing** channel before consent,
 capture and ongoing input/files. Losing it terminates sharing. The guarded
 emulator screenshot fixture now checks channel loss with app-wide notifications

@@ -158,6 +158,7 @@ export function LiveView({
         // Lost with the connection: send it again, from where it stopped, once the channel is back.
         interrupted.current =
           status === "failed" && !current.ready ? file : null;
+        if (status !== "done") break;
       }
     } finally {
       sending.current = false;

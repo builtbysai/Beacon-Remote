@@ -4,6 +4,13 @@ Checkpoint: November 17, 2026. Use with the [parity roadmap](rdp-vnc-parity-road
 and [next-agent handoff](next-agent-handoff.md). This ledger prevents repetition
 of completed tests and prevents source-only checks being called acceptance.
 
+For P1-3, exercise a backpressured upload on real devices. Check viewer Cancel,
+host Pause, disconnect and an unresponsive send buffer independently. Confirm
+the viewer settles promptly on interruption or after the 30-second drain
+timeout, that subsequent selected files do not start, and that the receiving
+endpoint discards or retains its partial file as appropriate. Verify interrupted
+Windows uploads still resume when the receiver retained matching bytes.
+
 Android P0-3 now checks the dedicated **While sharing** notification channel as
 well as the app-wide notification setting. Android unit/lint/build checks passed.
 The guarded Android API 36 emulator test removed the channel while app-wide
