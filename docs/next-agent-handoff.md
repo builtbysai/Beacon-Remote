@@ -14,9 +14,12 @@ recording requests. The relay correlates one request at a time, accepts only
 machine decisions, and cancels on timeout, Stop or viewer replacement.
 Control requests require the server setting and existing owner or helper
 entitlement. A relay result leaves the current session grant unchanged.
-The next P0-4 implementation work is the browser request UI, native local
-prompt and scope enforcement, then real approval and revoke tests. A host
-that has not advertised support cannot receive permission prompts.
+The viewer now offers only advertised choices and shows pending, cancelled,
+expired, declined or approved states. Per-attempt IDs prevent an old
+acknowledgement from being associated with a later request for the same scope.
+The next P0-4 work is the Android and Windows local prompts and endpoint
+scope enforcement, then live approval and revoke tests. Existing hosts do
+not advertise support, so they do not display this viewer control.
 
 P0-3 Android consent now carries the delivering pairing and a monotonic
 deadline from delivery to approval. Duplicate delivery keeps the current

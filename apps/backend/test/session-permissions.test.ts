@@ -17,6 +17,7 @@ test("permission prompts only accept decisions from the current machine before e
   const ask = {
     type: "permission-request",
     generation: 0,
+    attempt: "a2312159-e5e9-47ae-bce9-e3ba5657f4db",
     scope: "files",
   } as const;
   requests.receive("viewer", { ...offer, scopes: [...offer.scopes] }, true);

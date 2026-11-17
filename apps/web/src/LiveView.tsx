@@ -13,8 +13,13 @@ import { recoverTransport } from "./recover-transport.js";
 import { reconnectUntil } from "./reconnect.js";
 import { attachRemoteInput } from "./remote-input.js";
 import type { TouchMode } from "./touch-input.js";
-import type { DisplayInfo } from "@beacon-remote/protocol";
+import type { DisplayInfo, SessionPermission } from "@beacon-remote/protocol";
 import { api } from "./api.js";
+import {
+  permissionNames,
+  permissionRequests,
+  type PermissionRequestView,
+} from "./permission-requests.js";
 
 export type ViewGrant = {
   id: string;
@@ -82,6 +87,21 @@ export function LiveView({
   const shell = useRef<HTMLElement>(null);
   const stop = useRef<() => void>(() => {});
   const play = useRef<() => Promise<void>>(async () => {});
+  const permissions = useRef<ReturnType<typeof permissionRequests> | null>(
+    null,
+  );
+  const [permissionView, setPermissionView] = useState<PermissionRequestView>({
+    options: [],
+    status: "",
+    busy: false,
+    canCancel: false,
+  });
+  const [requestedScope, setRequestedScope] = useState<SessionPermission | "">(
+    "",
+  );
+  const selectedScope = permissionView.options.find(
+    (scope) => scope === requestedScope,
+  );
   const [scale, setScale] = useState<"fit" | "actual">("fit");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [needsPlay, setNeedsPlay] = useState(false);
@@ -334,6 +354,9 @@ export function LiveView({
     function closeTransport() {
       if (closed) return;
       closed = true;
+      permissions.current = null;
+      setRequestedScope("");
+      requestedPermissions.reset();
       detachInput?.();
       peer.dispose();
       pc.close();
@@ -449,6 +472,8 @@ export function LiveView({
       }
       ws.send(JSON.stringify({ ...body, generation }));
     };
+    const requestedPermissions = permissionRequests(send, setPermissionView);
+    permissions.current = requestedPermissions;
     pc.ondatachannel = (event) => {
       if (
         event.channel.label === "beacon-files-v1" &&
@@ -638,8 +663,16 @@ export function LiveView({
                 Number.isInteger(message.generation) &&
                 message.generation >= 0 &&
                 message.generation <= 1024
-              )
+              ) {
                 generation = message.generation;
+                requestedPermissions.reset(generation);
+              }
+              break;
+            case "permission-options":
+            case "permission-pending":
+            case "permission-result":
+            case "permission-unavailable":
+              requestedPermissions.receive(message);
               break;
             case "consent":
               if (message.accepted !== true)
@@ -894,6 +927,41 @@ export function LiveView({
               Keyboard
             </button>
           )}
+          {!ended && frames > 0 && permissionView.options.length > 0 && (
+            <div className="viewer-scale">
+              <select
+                aria-label="Access to request"
+                value={selectedScope ?? ""}
+                disabled={permissionView.busy || peerPaused}
+                onChange={(event) => {
+                  const scope = permissionView.options.find(
+                    (option) => option === event.target.value,
+                  );
+                  setRequestedScope(scope ?? "");
+                }}
+              >
+                <option value="" disabled>
+                  Choose access
+                </option>
+                {permissionView.options.map((scope) => (
+                  <option key={scope} value={scope}>
+                    {permissionNames[scope]}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="viewer-control"
+                disabled={!selectedScope || permissionView.busy || peerPaused}
+                onClick={() => {
+                  if (selectedScope)
+                    permissions.current?.request(selectedScope);
+                  setRequestedScope("");
+                }}
+              >
+                Request access
+              </button>
+            </div>
+          )}
           {controlReady &&
             phoneHost &&
             (
@@ -1104,6 +1172,15 @@ export function LiveView({
         <span role="status" data-decoded-frames={frames}>
           {status}
         </span>
+        <span role="status">{permissionView.status}</span>
+        {permissionView.canCancel && (
+          <button
+            className="viewer-control"
+            onClick={() => permissions.current?.cancel()}
+          >
+            Cancel access request
+          </button>
+        )}
         {recordingSince !== null && (
           <span role="status" className="viewer-recording">
             ● Recording{" "}

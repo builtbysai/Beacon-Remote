@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   SessionPermission,
   SessionPermissionSignal,
+  ViewerPermissionSignal,
 } from "../../../packages/protocol/src/session-permissions.js";
 
 const REQUEST_MS = 30_000;
@@ -9,30 +10,15 @@ const REQUEST_GAP_MS = 5_000;
 type Request = { id: string; scope: SessionPermission; expires: number };
 
 type Outbound =
+  | ViewerPermissionSignal
   | {
-      type: "permission-options";
-      generation: number;
-      scopes: SessionPermission[];
-    }
-  | {
-      type: "permission-prompt" | "permission-pending";
+      type: "permission-prompt";
       generation: number;
       id: string;
       scope: SessionPermission;
       timeoutMs: number;
     }
-  | { type: "permission-dismiss"; generation: number; id: string }
-  | {
-      type: "permission-result";
-      generation: number;
-      id: string;
-      outcome: "approved" | "denied" | "cancelled" | "expired";
-    }
-  | {
-      type: "permission-unavailable";
-      generation: number;
-      scope: SessionPermission;
-    };
+  | { type: "permission-dismiss"; generation: number; id: string };
 
 type Role = "machine" | "viewer";
 
@@ -75,7 +61,7 @@ export class SessionPermissionRequests {
       case "permission-request": {
         if (role !== "viewer") return;
         const now = this.now();
-        const { scope } = message;
+        const { scope, attempt } = message;
         if (
           this.pending ||
           now < this.nextRequest ||
@@ -86,6 +72,7 @@ export class SessionPermissionRequests {
             type: "permission-unavailable",
             generation,
             scope,
+            attempt,
           });
           return;
         }
@@ -93,7 +80,11 @@ export class SessionPermissionRequests {
         this.pending = { id, scope, expires: now + REQUEST_MS };
         this.nextRequest = now + REQUEST_GAP_MS;
         const details = { generation, id, scope, timeoutMs: REQUEST_MS };
-        this.send("viewer", { type: "permission-pending", ...details });
+        this.send("viewer", {
+          type: "permission-pending",
+          attempt,
+          ...details,
+        });
         this.send("machine", { type: "permission-prompt", ...details });
         return;
       }

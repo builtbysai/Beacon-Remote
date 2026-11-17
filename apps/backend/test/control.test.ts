@@ -192,10 +192,12 @@ test(
       const pending = once(viewer, "message", {
         signal: AbortSignal.timeout(3000),
       });
+      const attempt = randomUUID();
       viewer.send(
         JSON.stringify({
           type: "permission-request",
           generation: 0,
+          attempt,
           scope: "files",
         }),
       );
@@ -205,6 +207,7 @@ test(
       assert.deepEqual(JSON.parse((await pending)[0].toString()), {
         ...prompt,
         type: "permission-pending",
+        attempt,
       });
       const duplicate = once(viewer, "message", {
         signal: AbortSignal.timeout(3000),
@@ -217,16 +220,19 @@ test(
           approved: true,
         }),
       );
+      const nextAttempt = randomUUID();
       viewer.send(
         JSON.stringify({
           type: "permission-request",
           generation: 0,
+          attempt: nextAttempt,
           scope: "files",
         }),
       );
       assert.deepEqual(JSON.parse((await duplicate)[0].toString()), {
         type: "permission-unavailable",
         generation: 0,
+        attempt: nextAttempt,
         scope: "files",
       });
       const result = once(viewer, "message", {
