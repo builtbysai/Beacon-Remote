@@ -319,6 +319,9 @@ class ShareSession(
         val configuration =
             PeerConnection.RTCConfiguration(servers).apply {
                 sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+                // Video and optional control/files share one ICE transport;
+                // gathering each separately can exhaust a bounded TURN session.
+                bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
                 if (grant.relayOnly) iceTransportsType = PeerConnection.IceTransportsType.RELAY
             }
         val thisGeneration = generation
