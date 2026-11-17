@@ -9,6 +9,14 @@ it is not an independent grant of privileged/destructive authority.
 
 ## Active roadmap goal continuation
 
+Android P0-3/P1-7 now ties track output, unattended screenshot acquisition,
+input and file actions to a connected peer with a live lease. Detach invalidates
+old signaling and state callbacks, and a resumed generation begins disconnected.
+Capture under Android's attended MediaProjection prompt can stay active for
+reconnect while its outgoing track is disabled. The Android receiver rechecks
+authorization before publishing an upload, including after flushing to storage.
+The remaining live reconnect checks are in the test ledger.
+
 P1-3 web upload now releases a stalled send-buffer wait on viewer Cancel,
 host Pause, or disconnect. It also stops after 30 seconds without buffer drain.
 The viewer stops the remaining selection and keeps its existing reconnect retry

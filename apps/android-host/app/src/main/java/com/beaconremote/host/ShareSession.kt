@@ -61,9 +61,8 @@ class ShareSession(
     private val worker = Executors.newSingleThreadScheduledExecutor()
     private var socket: WebSocket? = null
     @Volatile private var ended = false
-    private var generation = 0L
+    private val viewer = ViewerConnection()
     @Volatile private var paused = false
-    @Volatile private var viewerAttached = false
 
     // Lease bookkeeping, in SystemClock.elapsedRealtime milliseconds.
     private val started = SystemClock.elapsedRealtime()
@@ -142,7 +141,7 @@ class ShareSession(
         post {
             paused = value
             if (value) control?.release()
-            track?.setEnabled(!value)
+            refreshVideo()
             socket?.send(JSONObject().put("type", "paused").put("paused", value).toString())
         }
     }
@@ -224,17 +223,20 @@ class ShareSession(
                 val nonce = message.optString("nonce")
                 val entry = challenges.firstOrNull { it.first == nonce } ?: return
                 challenges.remove(entry)
-                if (SystemClock.elapsedRealtime() - entry.second < MAX_AGE) lastLease = maxOf(lastLease, entry.second)
+                if (SystemClock.elapsedRealtime() - entry.second < MAX_AGE) {
+                    lastLease = maxOf(lastLease, entry.second)
+                    refreshVideo()
+                }
             }
             "answer" -> {
-                if (message.optLong("generation", 0) != generation) return
+                if (!viewer.owns(message.optLong("generation", 0))) return
                 peer?.setRemoteDescription(
                     object : SimpleSdpObserver() {},
                     SessionDescription(SessionDescription.Type.ANSWER, message.getString("sdp")),
                 )
             }
             "candidate" -> {
-                if (message.optLong("generation", 0) != generation) return
+                if (!viewer.owns(message.optLong("generation", 0))) return
                 peer?.addIceCandidate(
                     IceCandidate(
                         if (message.isNull("sdpMid")) "" else message.getString("sdpMid"),
@@ -245,11 +247,11 @@ class ShareSession(
             }
             "viewer-detached" -> {
                 // Nothing is sent while nobody is watching; the capture keeps its place for a quick return.
+                viewer.detach()
                 closePeer()
             }
             "viewer-resumed" -> {
-                generation = message.optLong("generation", generation + 1)
-                openPeer()
+                if (viewer.resume(message.optLong("generation", -1))) openPeer()
             }
             "ended" -> end("Ended")
         }
@@ -267,11 +269,11 @@ class ShareSession(
                 .createPeerConnectionFactory()
                 .also { factory = it }
         val videoSource = peerFactory.createVideoSource(true).also { source = it }
-        track = peerFactory.createVideoTrack("beacon-screen", videoSource)
+        track = peerFactory.createVideoTrack("beacon-screen", videoSource).also { it.setEnabled(false) }
         val surfaces = SurfaceTextureHelper.create("screen-capture", eglBase.eglBaseContext).also { helper = it }
         val projection = if (unattended && android.os.Build.VERSION.SDK_INT >= 30) {
             AccessibilityCapturer(context, {
-                !ended && !paused && viewerAttached && lastLease != 0L && SystemClock.elapsedRealtime() - lastLease < MAX_AGE
+                canShare(viewer.generation)
             }, { reason -> post { end(reason) } })
         } else {
             ScreenCapturerAndroid(
@@ -329,14 +331,14 @@ class ShareSession(
                 bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
                 if (grant.relayOnly) iceTransportsType = PeerConnection.IceTransportsType.RELAY
             }
-        val thisGeneration = generation
+        val thisGeneration = viewer.generation
         val connection =
             peerFactory.createPeerConnection(
                 configuration,
                 object : PeerConnection.Observer {
                     override fun onIceCandidate(candidate: IceCandidate) {
                         post {
-                            if (thisGeneration != generation) return@post
+                            if (!viewer.owns(thisGeneration)) return@post
                             socket?.send(
                                 JSONObject()
                                     .put("type", "candidate")
@@ -350,6 +352,14 @@ class ShareSession(
                     }
 
                     override fun onSignalingChange(state: PeerConnection.SignalingState) {}
+                    override fun onConnectionChange(state: PeerConnection.PeerConnectionState) {
+                        post {
+                            val connected = state == PeerConnection.PeerConnectionState.CONNECTED
+                            if (!viewer.connectionChanged(thisGeneration, connected)) return@post
+                            if (!connected) control?.release()
+                            refreshVideo()
+                        }
+                    }
                     override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {}
                     override fun onIceConnectionReceivingChange(receiving: Boolean) {}
                     override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {}
@@ -362,9 +372,7 @@ class ShareSession(
                 },
             ) ?: return
         peer = connection
-        viewerAttached = true
         val screen = track ?: return
-        screen.setEnabled(!paused)
         val sender = connection.addTrack(screen, listOf("beacon-screen"))
         connection.transceivers.firstOrNull { it.sender == sender }?.direction = RtpTransceiver.RtpTransceiverDirection.SEND_ONLY
         // Hardware H.264 first where the phone has it; the browser picks what both sides support.
@@ -378,40 +386,42 @@ class ShareSession(
             connection.createDataChannel("beacon-input-v1", DataChannel.Init().apply { ordered = true })?.let { channel ->
                 control =
                     RemoteControl(channel, grant.id, screenWidth, screenHeight, {
-                        !paused && !ended && lastLease != 0L && SystemClock.elapsedRealtime() - lastLease < MAX_AGE &&
-                            localActionsAllowed()
-                    }) { active -> onControl(active) }
+                        canShare(thisGeneration) && localActionsAllowed()
+                    }) { active -> post { if (viewer.owns(thisGeneration)) onControl(active) } }
                         .also { it.start() }
             }
         }
         if (filesAllowed && FileReceiver.supported) {
             connection.createDataChannel("beacon-files-v1", DataChannel.Init().apply { ordered = true })?.let { channel ->
                 files = FileReceiver(context, channel) {
-                    !paused && !ended && lastLease != 0L && SystemClock.elapsedRealtime() - lastLease < MAX_AGE &&
-                        localActionsAllowed()
+                    canShare(thisGeneration) && localActionsAllowed()
                 }.also { it.start() }
             }
         }
         connection.createOffer(
             object : SimpleSdpObserver() {
                 override fun onCreateSuccess(description: SessionDescription) {
-                    connection.setLocalDescription(
-                        object : SimpleSdpObserver() {
-                            override fun onSetSuccess() {
-                                post {
-                                    if (thisGeneration != generation) return@post
-                                    socket?.send(
-                                        JSONObject()
-                                            .put("type", "offer")
-                                            .put("sdp", description.description)
-                                            .put("generation", thisGeneration)
-                                            .toString(),
-                                    )
+                    post {
+                        if (!viewer.owns(thisGeneration)) return@post
+                        connection.setLocalDescription(
+                            object : SimpleSdpObserver() {
+                                override fun onSetSuccess() {
+                                    post {
+                                        if (viewer.owns(thisGeneration)) {
+                                            socket?.send(
+                                                JSONObject()
+                                                    .put("type", "offer")
+                                                    .put("sdp", description.description)
+                                                    .put("generation", thisGeneration)
+                                                    .toString(),
+                                            )
+                                        }
+                                    }
                                 }
-                            }
-                        },
-                        description,
-                    )
+                            },
+                            description,
+                        )
+                    }
                 }
             },
             MediaConstraints(),
@@ -426,10 +436,19 @@ class ShareSession(
         }
     }
 
+    private fun canShare(generation: Long): Boolean =
+        !paused && !ended && viewer.connected(generation) &&
+            lastLease != 0L && SystemClock.elapsedRealtime() - lastLease < MAX_AGE
+
+    private fun refreshVideo() {
+        track?.setEnabled(canShare(viewer.generation) && localActionsAllowed())
+    }
+
     private fun closePeer() {
-        viewerAttached = false
+        track?.setEnabled(false)
         control?.stop()
         control = null
+        onControl(false)
         files?.stop()
         files = null
         peer?.let {
@@ -443,6 +462,7 @@ class ShareSession(
         if (ended) return
         Log.i(TAG, "Session ended: $reason")
         ended = true
+        viewer.detach()
         displayListener?.let { runCatching { context.getSystemService(DisplayManager::class.java).unregisterDisplayListener(it) } }
         ticker?.cancel(false)
         runCatching { socket?.close(1000, null) }

@@ -4,6 +4,14 @@ Checkpoint: November 17, 2026. Use with the [parity roadmap](rdp-vnc-parity-road
 and [next-agent handoff](next-agent-handoff.md). This ledger prevents repetition
 of completed tests and prevents source-only checks being called acceptance.
 
+For the Android reconnect gate, test initial negotiation, a temporary network
+loss, viewer reload within the original authorization, and reconnect after
+Stop or expiry. Confirm screenshots and remote actions wait for the connected
+generation and live lease. Verify a delayed callback from the previous peer
+cannot resume sharing or restore its control indicator. Interrupt an incoming
+file after the last data chunk and before publication, then verify the pending
+file is discarded when authority is lost.
+
 For P1-3, exercise a backpressured upload on real devices. Check viewer Cancel,
 host Pause, disconnect and an unresponsive send buffer independently. Confirm
 the viewer settles promptly on interruption or after the 30-second drain

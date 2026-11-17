@@ -141,12 +141,15 @@ class FileReceiver(
     private fun finish(id: Int, sha256: String) {
         val incoming = current ?: return
         if (incoming.id != id) return
+        if (!allowed()) return fail(incoming, "paused")
         val digest = incoming.digest.digest().joinToString("") { "%02x".format(it) }
         val intact = incoming.written == incoming.size && digest.equals(sha256, ignoreCase = true)
         if (!intact) return fail(incoming, "incomplete")
         runCatching {
             incoming.stream.flush()
             incoming.stream.close()
+            // Flushing storage can outlast the current connection or its lease.
+            if (!allowed()) return fail(incoming, "paused")
             context.contentResolver.update(incoming.uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
         }.onFailure { return fail(incoming, "write") }
         current = null
