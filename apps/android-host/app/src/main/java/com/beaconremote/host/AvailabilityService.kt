@@ -94,14 +94,14 @@ class AvailabilityService : Service() {
                 }
             }
         }
-        var handled: String? = null
+        val delivery = ConsentRequestDelivery()
         var delay = 2000L
         while (active()) {
             try {
                 apply { HostState.status = if (HostState.sharing) "Sharing your screen" else "Available" }
                 val accessRevision = AccessIntents.fence.revision()
                 val before = identity.unattended
-                val reply = Api.heartbeat(identity, wait = true, handled = handled, expected = binding)
+                val reply = Api.heartbeat(identity, wait = true, handled = delivery.handled, expected = binding)
                 if (!active()) return
                 val access = reply.optJSONObject("access")
                 if (!before && access?.optString("mode") == "trusted") {
@@ -111,14 +111,13 @@ class AvailabilityService : Service() {
                 delay = 2000L
                 val sessions = reply.optJSONArray("sessions")
                 val grant = if (sessions != null && sessions.length() > 0) sessions.getJSONObject(0) else null
-                handled = grant?.getString("id")
                 apply {
                     val trusted = access?.optString("mode") == "trusted" && access.optBoolean("allowControl")
                     if (before && AccessIntents.fence.revision() == accessRevision && identity.unattended && access != null && !trusted) {
                         identity.unattended = false
                         startService(Intent(this, CaptureService::class.java).setAction(CaptureService.ACTION_STOP))
                     }
-                    if (grant != null && !HostState.sharing) {
+                    if (grant != null && delivery.claim(grant.getString("id"), HostState.sharing)) {
                         if (UnattendedAccess.accepts(identity.unattended, grant.optString("approval") == "policy", grant.optBoolean("viaRelationship"), UnattendedAccess.ready(this))) {
                             startForegroundService(Intent(this, CaptureService::class.java)
                                 .putExtra("grant", grant.toString()).putExtra("unattended", true))

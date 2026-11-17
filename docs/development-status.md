@@ -1,5 +1,31 @@
 # Development status
 
+## November 17 Pixel automated acceptance
+
+The Pixel 7a is paired to the isolated account using the new readable invitation.
+The installed same-signer Android candidate is `b17549a`; the isolated backend
+runs `8af1c43` and production remains `5e8d5c5`. Actual Pixel view-only video and
+viewer Stop passed on November 16: 576x1280 decoded video, relay/relay, 65 ms RTT,
+1467 ms approval-to-first-frame; capture stopped while availability remained on.
+This was a short sample, not sustained performance acceptance. No viewer input
+was injected in that view-only test.
+
+The owner explicitly authorized unattended ADB testing and ordinary Android UI
+permission setup. Beacon accessibility is enabled; no other service was changed.
+Physical control testing exposed a duplicate-delivery bug: idle responses cleared
+`handled`, causing a pending request to reopen and dismiss Android's capture
+dialog. The fix retains the delivered request across idle polls and defers a new
+request while an earlier capture is stopping. Unit regressions and Android lint
+passed; signing and physical verification of the fix are in progress.
+
+Do not use stock `uiautomator dump` during accessibility/capture acceptance: its
+automation connection can suppress services and contaminate the result. Use ADB
+screen snapshots for physical observation. Existing guarded emulator runners use
+`FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES`; never run those emulator-only setup
+runners on the owner's phone. Two setup attempts ended denied before video;
+they are not successful control evidence. Keep automatic test runs bounded and
+rotate/delete temporary credentials only after full completion.
+
 Current checkpoint: November 16, 2026. PRs #115-#117 and #124 are merged; VM application
 source `5e8d5c5` is deployed. The [completion checklist](completion-checklist.md) records
 publication, encrypted recovery, migration and browser/MCP verification. Older
