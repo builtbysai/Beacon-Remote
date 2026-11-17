@@ -614,11 +614,23 @@ export function attachRemoteInput(
       event.data.length <= 120_000
     ) {
       try {
-        void receiveClipboard(JSON.parse(event.data)).catch(onFailure);
+        const reply: unknown = JSON.parse(event.data);
+        // Display geometry can change during a live session. Only clipboard
+        // replies belong to the pending clipboard request; later display
+        // messages must reach the validation and remapping below.
+        if (
+          reply !== null &&
+          typeof reply === "object" &&
+          "type" in reply &&
+          reply.type === "clipboard"
+        ) {
+          void receiveClipboard(reply).catch(onFailure);
+          return;
+        }
       } catch {
         onFailure();
+        return;
       }
-      return;
     }
     if (disposed || typeof event.data !== "string" || event.data.length > 512) {
       onFailure();
