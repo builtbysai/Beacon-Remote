@@ -28,7 +28,9 @@ class ControlService : AccessibilityService() {
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
         if (instance === this) instance = null
-        Identity(this).unattended = false
+        val identity = Identity(this)
+        identity.unattended = false
+        AccessIntents.notice = identity.accessBinding() to "Unattended access is off. Accessibility permission was removed."
         if (HostState.sharing) runCatching { startService(android.content.Intent(this, CaptureService::class.java).setAction(CaptureService.ACTION_STOP)) }
         return super.onUnbind(intent)
     }
