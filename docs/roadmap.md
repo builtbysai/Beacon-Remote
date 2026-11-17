@@ -3,7 +3,7 @@
 The [completion checklist](completion-checklist.md) is the current tracker for
 the full-roadmap goal; dated sections below preserve scope and historical evidence.
 
-Updated November 15, 2026. [PR #124](https://github.com/builtbysai/Beacon-Remote/pull/124)
+Updated November 17, 2026. [PR #124](https://github.com/builtbysai/Beacon-Remote/pull/124)
 is merged (`008a5bb`); tested application revision `5e8d5c5` is deployed to the VM.
 Android UI/lifecycle, reviewed dependency updates and prior-password-hash
 compatibility passed. Signed Windows/Android candidates are staged privately.
@@ -13,9 +13,15 @@ checks passed. Native feeds remain unchanged and Windows sign-in gates are off.
 What remains:
 
 - Continue from the matching isolated acceptance backend/schema and fresh private
-  test account prepared November 16. A limited Surfiena fixture passed actual
-  view-only video and browser Stop with owner approval. The Pixel update preserved
-  its data; Pixel-host and wider device acceptance remain open.
+  test account prepared November 16. Surfiena view-only/Stop passed. Pixel pairing,
+  attended video/touch/typing, local Pause/Resume/Stop and the first unattended
+  owner connection/control/local Disable now have physical evidence. After Disable,
+  a fresh request required approval and was refused without video/control.
+  Repeated unattended connections, competing-controller rejection, paused-input
+  blocking/Resume and real phone-lock teardown also passed. Rotation failed twice
+  with a signaling/lease interruption; diagnose it, then continue permission revoke,
+  network recovery, files and wider lifecycle tests. These short results do not
+  establish full unattended release acceptance.
 - Startup-speed comparison passed on Surfiena: signed `9d377c6` acknowledged in
   208 ms and the owner confirmed Online was quick. Finish the follow-up native
   UI publication: the owner confirmed the signed `d3bd11c` toggle and absence of
@@ -27,13 +33,14 @@ What remains:
   approval for files/audio/recording. Preserve one controller, release existing
   input and require fresh local approval for increased access; never expand an
   existing grant silently. This flow is unimplemented.
-- Fix Android's case-sensitive enrollment: its pairing screen uppercased the
-  server's mixed-case base64url code. Signed `b17549a` preserves case and is
-  installed on the Pixel without clearing data; actual pairing remains pending.
-  The owner requested shorter codes: readable 12-symbol grouped codes now pass
-  real-database regression; finish full checks, the isolated service update,
-  actual Pixel pairing and publication. The dummy emulator regression did not
-  run because cold boot exceeded its readiness bound.
+- Publish PR #126's tested startup, native controls, readable pairing and Android
+  consent/transport fixes. Readable 12-symbol pairing passed real-database checks
+  and actual Pixel pairing. The same-signer `d329066` Android candidate and isolated
+  `0bba353` viewer passed real control after the earlier relay failure. Finish
+  staging the latest Android artifact and publication review. The current release
+  gate is blocked by high picomatch advisory GHSA-fc5q-39xc-vjpf; the registry has
+  no patched release as of November 17. Do not waive that audit. The mixed-case
+  dummy emulator regression did not run because cold boot exceeded its bound.
 - Complete Windows cold boot/sign-in/secure attention/handoff/restart, Stop/
   Disable/input release, service recovery and installation/upgrade/rollback/
   removal acceptance. Complete Android real sharing, permissions, lock/revoke,

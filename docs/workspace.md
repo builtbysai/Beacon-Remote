@@ -2,7 +2,23 @@
 
 Beacon Remote is the remote access product. This checkout is D:/Dev/Beacon-Remote. Continue the unattended-access work on its current feature branch; source publication does not establish release acceptance.
 
-## Current checkpoint - November 16, 2026
+## Current checkpoint - November 17, 2026
+
+Pixel attended video/touch/typing and local Pause/Resume/Stop now passed with
+Android `d329066` and isolated viewer `0bba353`. The first unattended owner
+connection and remote tap passed; local Disable ended sharing and restored fresh
+approval for later requests. Later runs passed competing-controller refusal,
+paused-input rejection/Resume and real phone-lock teardown. Rotation failed twice
+with signaling/lease interruptions and remains open. Standing access was enabled
+for the later tests; the Pixel is now locked and needs owner unlock to continue.
+The original automatic rotation setting was restored. The isolated
+backend remains `8af1c43`; production remains `5e8d5c5`. Full lifecycle acceptance
+is still open. PR #126 is draft with a high dependency-audit gate: the new
+picomatch advisory currently has no published patched version. See the current
+development status/checklist before continuing; older checkpoints below retain
+their historical results.
+
+## November 16 setup checkpoint
 
 Continue on `codex/device-acceptance-preparation`. The owner resumed actual tests
 with the Pixel and Surfiena available and approved the first local view request.

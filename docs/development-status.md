@@ -3,8 +3,9 @@
 ## November 17 Pixel automated acceptance
 
 The Pixel 7a is paired to the isolated account using the new readable invitation.
-The installed same-signer Android candidate is `b17549a`; the isolated backend
-runs `8af1c43` and production remains `5e8d5c5`. Actual Pixel view-only video and
+The installed same-signer Android candidate is `d329066`; the isolated backend
+runs `8af1c43`, the isolated viewer runs `0bba353`, and production remains
+`5e8d5c5`. Actual Pixel view-only video and
 viewer Stop passed on November 16: 576x1280 decoded video, relay/relay, 65 ms RTT,
 1467 ms approval-to-first-frame; capture stopped while availability remained on.
 This was a short sample, not sustained performance acceptance. No viewer input
@@ -15,8 +16,64 @@ permission setup. Beacon accessibility is enabled; no other service was changed.
 Physical control testing exposed a duplicate-delivery bug: idle responses cleared
 `handled`, causing a pending request to reopen and dismiss Android's capture
 dialog. The fix retains the delivered request across idle polls and defers a new
-request while an earlier capture is stopping. Unit regressions and Android lint
-passed; signing and physical verification of the fix are in progress.
+request while an earlier capture is stopping. Unit regressions, Android lint and
+same-key signing passed. On the actual Pixel, the Android screen-sharing dialog
+remained open for 41.399 seconds across idle polls and could then be approved.
+
+Control acceptance initially failed with TURN error 486 before the viewer gathered
+a relay candidate. A single diagnostic allocation using the actual session's
+credentials succeeded and was released; this did not establish the root cause.
+Android now bundles media/control on one ICE transport; the viewer also bundles
+and no longer gathers eagerly before approval. With both candidates installed,
+actual attended control passed: 576x1280 video, relay/relay, first presented frame
+853 ms after approval, and observed RTT 50–65 ms in the short sample. Browser
+mouse events toggled Connection details on the phone; browser key events typed
+the exact test word into Android Settings search. ADB only arranged/observed those
+targets, rather than supplying the tested input. Local notification Pause reached
+the viewer, Resume restored viewing, and local Stop ended the session and removed
+CaptureService while AvailabilityService remained. This does not establish
+paused-input rejection, sustained frame rate or all keyboard/gesture mappings.
+
+The first real unattended owner test also passed without another Beacon or
+MediaProjection prompt: 324x720 accessibility video, relay/relay, first picture
+2032 ms after viewer setup (971 ms after automatic approval), and a verified remote
+tap. Turning unattended access off locally ended that live connection, removed
+capture and left availability on. A subsequent request required fresh local
+approval with optional permissions off; Decline ended it with no video/control.
+The private fixture's cleanup assertion expected `ended` and rejected the valid
+`denied` terminal status in this refusal test; that assertion is not a product
+failure or a successful control test. Successful connected runs confirmed backend
+end and owned browser-profile cleanup.
+
+Repeated unattended connections passed; a competing controller was refused with
+HTTP 409. A later unattended Pause test kept the decoded-frame count at 141 and
+blocked the test word in a focused empty Settings field. After local Resume,
+frames advanced and the same browser key sequence produced the exact word.
+Locking the real phone ended the session with the local locked/permission reason;
+the viewer ended with input disabled and CaptureService absent, while availability
+remained on. The device reported keyguard showing and input restricted. No unlock
+or lock-screen input was attempted; owner PIN/fingerprint is needed to continue.
+Standing access was re-enabled for these tests and currently remains enabled on
+the locked isolated-test pairing. Restore the intended local setting after unlock.
+
+Rotation acceptance failed twice: after the real display changed to landscape,
+the viewer ended, once with local `Authorization lapsed` and once `Connection lost`;
+the Android signaling log reported Broken pipe. Automatic rotation was restored
+to its original `free` mode. Fresh portrait connections passed again, including
+the longer paused/resumed test. Do not infer a rotation root cause or change lease
+limits from this evidence. Diagnose display-change timing and signaling/network
+lifetime before marking rotation accepted. Permission revocation, network recovery,
+files and wider lifecycle acceptance remain open. Full unattended release acceptance
+is not complete.
+
+Exact-head CI run `44135128255` passed the functional control-plane checks,
+Android, native and security jobs, but its dependency audit failed on the newly
+updated high-severity picomatch advisory GHSA-fc5q-39xc-vjpf. On November 17 the
+official registry still publishes 4.0.7 and rejects 4.0.8; GitHub lists no patched
+version. A normal recursive update made no lockfile change. Keep the release gate
+open; no audit exception was added. The isolated viewer image was checksum-verified
+and deployed for these tests, with protected production container IDs/images
+unchanged and all three readiness endpoints returning 200.
 
 Do not use stock `uiautomator dump` during accessibility/capture acceptance: its
 automation connection can suppress services and contaminate the result. Use ADB

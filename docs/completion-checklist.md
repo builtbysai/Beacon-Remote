@@ -1,10 +1,36 @@
 # Beacon Remote completion checklist
 
-Current checkpoint: November 16, 2026. This is the single current completion
+Current checkpoint: November 17, 2026. This is the single current completion
 tracker for the owner's full-roadmap goal. The [roadmap](roadmap.md) defines
 scope; [development status](development-status.md) retains dated validation
 records. Historical entries do not override this tracker or grant new release
 authorization. No percentage is inferred from passing builds.
+
+## November 17 Pixel acceptance update
+
+Readable pairing and same-signer updates preserved the Pixel's data. The Android
+consent fix passed an actual 41.399-second wait at the OS capture dialog. Android
+`d329066` plus isolated viewer `0bba353` then passed attended video, real browser
+touch/typing, local notification Pause/Resume/Stop and capture teardown. The first
+unattended owner connection passed without a new prompt and accepted a remote tap.
+Local Disable ended that connection; a fresh request required local approval and
+Decline supplied no video/control. Repeated unattended connections and rejection
+of a competing controller (409) passed. Unattended Pause blocked typing and held
+the decoded-frame count steady; Resume restored frames and exact typing. Real
+phone lock ended sharing and removed capture. Standing access was re-enabled for
+these later tests; the phone is locked and requires owner unlock to continue.
+Rotation failed twice with a signaling/lease interruption; the original automatic
+rotation setting was restored. This remains an open failure, with cause unproven.
+Connected runs
+confirmed backend end and owned browser-profile cleanup. The refusal run exposed
+an overly strict private-fixture terminal-state assertion (`denied` versus
+`ended`), recorded separately from product results.
+
+See [development status](development-status.md) for measurements and limits.
+Permission revoke, rotation diagnosis, network/files and wider unattended lifecycle remain open.
+Production and native feeds are unchanged. PR #126 remains draft: functional
+checks pass, but the new high picomatch advisory has no published patch on the
+official registry as of this checkpoint. No audit exception was added.
 
 ## November 16 acceptance update
 
