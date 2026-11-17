@@ -75,6 +75,13 @@ open; no audit exception was added. The isolated viewer image was checksum-verif
 and deployed for these tests, with protected production container IDs/images
 unchanged and all three readiness endpoints returning 200.
 
+The tested `d329066` APK (SHA256
+`0649b3e2a75098d5198506a76f344e92431c80a22b48bd94f4c62fb5c589f084`)
+is hash-verified on the VM in a root-only candidate directory (0700; APK 0600).
+The `aff4f34` source archive and extracted acceptance documentation are also
+verified there. Neither staging operation advanced a native feed or production
+release. Temporary test credentials remain protected for the unfinished tests.
+
 Do not use stock `uiautomator dump` during accessibility/capture acceptance: its
 automation connection can suppress services and contaminate the result. Use ADB
 screen snapshots for physical observation. Existing guarded emulator runners use

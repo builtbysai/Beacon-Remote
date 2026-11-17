@@ -36,8 +36,9 @@ What remains:
 - Publish PR #126's tested startup, native controls, readable pairing and Android
   consent/transport fixes. Readable 12-symbol pairing passed real-database checks
   and actual Pixel pairing. The same-signer `d329066` Android candidate and isolated
-  `0bba353` viewer passed real control after the earlier relay failure. Finish
-  staging the latest Android artifact and publication review. The current release
+  `0bba353` viewer passed real control after the earlier relay failure. The tested
+  Android artifact and acceptance source are hash-verified and staged privately
+  on the VM; finish rotation diagnosis and publication review. The current release
   gate is blocked by high picomatch advisory GHSA-fc5q-39xc-vjpf; the registry has
   no patched release as of November 17. Do not waive that audit. The mixed-case
   dummy emulator regression did not run because cold boot exceeded its bound.
