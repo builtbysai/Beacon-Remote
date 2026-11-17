@@ -4,6 +4,11 @@ Checkpoint: November 17, 2026. Use with the [parity roadmap](rdp-vnc-parity-road
 and [next-agent handoff](next-agent-handoff.md). This ledger prevents repetition
 of completed tests and prevents source-only checks being called acceptance.
 
+For P0-3 Android consent on device, leave the OS capture picker open while the
+viewer cancels and requests again. Verify a fresh local prompt is required,
+and the old picker or notification cannot approve the replacement. Repeat with
+rotation, late notification delivery and Go offline while consent is pending.
+
 For P1-5, use the viewer's **Keyboard** button with a real dead-key layout,
 AltGr and an IME. Verify composed text reaches Windows and Android once, Enter
 follows the final committed text, and Escape or focus loss cancels unfinished

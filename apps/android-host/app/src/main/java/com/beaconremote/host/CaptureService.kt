@@ -40,7 +40,7 @@ class CaptureService : Service() {
         val unattended = intent?.getBooleanExtra("unattended", false) == true
         val rawGrant = raw?.let { runCatching { JSONObject(it) }.getOrNull() }
         val identity = Identity(this)
-        if (rawGrant == null) {
+        if (rawGrant == null || !identity.paired || intent?.accessBinding() != identity.accessBinding()) {
             stopSelf()
             return START_NOT_STICKY
         }

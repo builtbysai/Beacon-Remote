@@ -256,7 +256,7 @@ try {
   assert.equal(enrollments, 1);
   assert.equal(enables, 1);
   assert.ok(disables > 0);
-  assert.equal(declines, 1);
+  assert.equal(declines, 3);
   assert.equal(staleHeartbeats, 1);
   assert.deepEqual(failures, []);
   await writeFile(
@@ -272,6 +272,9 @@ try {
         stalePresenceRejected: true,
         policySignatures: true,
         configurationDeadline: true,
+        duplicateDelivery: true,
+        replacedApproval: true,
+        expiredApproval: true,
         lightDark: true,
         largeText: true,
         enrollments,

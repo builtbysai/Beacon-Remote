@@ -9,6 +9,16 @@ it is not an independent grant of privileged/destructive authority.
 
 ## Active roadmap goal continuation
 
+P0-3 Android consent now carries the delivering pairing and a monotonic
+deadline from delivery to approval. Duplicate delivery keeps the current
+prompt and its deadline. A different live request closes the prior Activity
+and opens a fresh prompt, so the prior MediaProjection result cannot approve
+the replacement. The capture service rechecks the pairing at startup.
+Android unit tests, lint and both debug APK builds passed. The guarded UI
+emulator verified duplicate delivery, replacement, expiry and deadline
+preservation across rotation against a dummy API. Physical picker and
+end-to-end device cases remain in the test ledger.
+
 P1-5 viewer Keyboard mode lets the local layout or IME compose text and sends
 the committed Unicode through the existing input channel. It keeps Enter and
 navigation ordered behind pending text, and Escape releases the text field and

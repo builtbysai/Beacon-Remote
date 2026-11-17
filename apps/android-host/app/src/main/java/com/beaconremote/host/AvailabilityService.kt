@@ -120,11 +120,12 @@ class AvailabilityService : Service() {
                     if (grant != null && delivery.claim(grant.getString("id"), HostState.sharing)) {
                         if (UnattendedAccess.accepts(identity.unattended, grant.optString("approval") == "policy", grant.optBoolean("viaRelationship"), UnattendedAccess.ready(this))) {
                             startForegroundService(Intent(this, CaptureService::class.java)
+                                .withAccessBinding(binding)
                                 .putExtra("grant", grant.toString()).putExtra("unattended", true))
                         } else if (grant.optString("approval") == "policy") {
                             ShareSession(applicationContext, Grant.from(grant), binding.server, null) {}.decline()
                         } else {
-                            askForConsent(grant)
+                            askForConsent(grant, binding)
                         }
                     }
                 }
@@ -151,11 +152,8 @@ class AvailabilityService : Service() {
         }
     }
 
-    private fun askForConsent(grant: JSONObject) {
-        val consent =
-            Intent(this, ConsentActivity::class.java)
-                .putExtra("grant", grant.toString())
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+    private fun askForConsent(grant: JSONObject, binding: AccessBinding) {
+        val consent = ConsentActivity.requestIntent(this, grant, binding)
         val pending = PendingIntent.getActivity(this, 2, consent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val manager = getSystemService(NotificationManager::class.java)
         manager.notify(

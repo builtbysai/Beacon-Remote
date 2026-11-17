@@ -42,23 +42,20 @@ class ConsentActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val raw = intent.getStringExtra("grant")
-        val identity = Identity(this)
-        if (raw == null || !identity.paired) {
+        val request = currentRequest(intent) ?: run { finish(); return }
+        grant = request.first
+        binding = request.second
+        if (savedInstanceState != null && savedInstanceState.getString("requestId") != grant.id) {
             finish()
             return
         }
-        val parsed = runCatching { Grant.from(JSONObject(raw)) }.getOrNull()
-        if (parsed == null) { finish(); return }
-        grant = parsed
-        binding = savedInstanceState?.let { AccessBinding(it.getString("server").orEmpty(), it.getString("machine").orEmpty()) } ?: identity.accessBinding()
-        if (binding != identity.accessBinding()) { finish(); return }
         answered = savedInstanceState?.getBoolean("answered") == true
         if (answered) { finish(); return }
         awaitingCapture = savedInstanceState?.getBoolean("awaiting") == true
         selectedControl = savedInstanceState?.getBoolean("selectedControl") == true
         selectedFiles = savedInstanceState?.getBoolean("selectedFiles") == true
-        expiresAt = savedInstanceState?.getLong("deadline") ?: (SystemClock.elapsedRealtime() + 110_000)
+        expiresAt = intent.getLongExtra("deadline", 0)
+        if (SystemClock.elapsedRealtime() >= expiresAt) { decline(); return }
         getSystemService(NotificationManager::class.java).cancel(2)
         val density = resources.displayMetrics.density
         fun dp(value: Int) = (value * density).toInt()
@@ -170,11 +167,31 @@ class ConsentActivity : Activity() {
         if (::allowButton.isInitialized) refreshControl()
     }
 
+    private fun currentRequest(delivered: Intent): Pair<Grant, AccessBinding>? {
+        val identity = Identity(this)
+        val binding = delivered.accessBinding() ?: return null
+        if (!identity.paired || identity.accessBinding() != binding) return null
+        val raw = delivered.getStringExtra("grant") ?: return null
+        val grant = runCatching { Grant.from(JSONObject(raw)) }.getOrNull() ?: return null
+        return grant to binding
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val replacement = currentRequest(intent) ?: return
+        if (::grant.isInitialized && replacement.first.id == grant.id) return
+        if (SystemClock.elapsedRealtime() >= intent.getLongExtra("deadline", 0)) return
+        // Finish the old Activity before launching the new approval. Android's
+        // capture result belongs to the old Activity and cannot approve this request.
+        decline()
+        finish()
+        startActivity(intent)
+    }
+
     override fun onSaveInstanceState(state: Bundle) {
         super.onSaveInstanceState(state)
         if (!::binding.isInitialized) return
-        state.putString("server", binding.server)
-        state.putString("machine", binding.machineId)
+        state.putString("requestId", grant.id)
         state.putLong("deadline", expiresAt)
         state.putBoolean("answered", answered)
         state.putBoolean("awaiting", awaitingCapture)
@@ -213,12 +230,12 @@ class ConsentActivity : Activity() {
         if (!::scopeSummary.isInitialized) return
         val withControl = if (awaitingCapture) selectedControl else control?.isChecked == true
         val withFiles = if (awaitingCapture) selectedFiles else files?.isChecked == true
-        scopeSummary.text = (if (withControl) "View and control" else "View only") + (if (withFiles) " · Receive files" else "")
+        scopeSummary.text = (if (withControl) "View and control" else "View only") + (if (withFiles) " Â· Receive files" else "")
     }
 
     private fun allow() {
         if (answered || awaitingCapture) return
-        if (SystemClock.elapsedRealtime() >= expiresAt || Identity(this).accessBinding() != binding) { decline(); return }
+        if (SystemClock.elapsedRealtime() >= expiresAt || !mayShare()) { decline(); return }
         if (!SharingNotifications.ready(this)) { refreshControl(); return }
         val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
         if (manager == null) { notificationNote.text = "Screen sharing is unavailable on this device."; notificationNote.visibility = android.view.View.VISIBLE; return }
@@ -240,13 +257,14 @@ class ConsentActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_CAPTURE) return
+        if (requestCode != REQUEST_CAPTURE || !awaitingCapture || answered) return
         awaitingCapture = false
-        if (resultCode == RESULT_OK && data != null && !answered && SystemClock.elapsedRealtime() < expiresAt && Identity(this).accessBinding() == binding && SharingNotifications.ready(this)) {
+        if (resultCode == RESULT_OK && data != null && SystemClock.elapsedRealtime() < expiresAt && mayShare() && SharingNotifications.ready(this)) {
             answered = true
             handler.removeCallbacksAndMessages(null)
             startForegroundService(
                 Intent(this, CaptureService::class.java)
+                    .withAccessBinding(binding)
                     .putExtra("grant", intent.getStringExtra("grant"))
                     .putExtra("data", data)
                     .putExtra("control", selectedControl)
@@ -258,9 +276,17 @@ class ConsentActivity : Activity() {
         }
     }
 
+    private fun mayShare(): Boolean = Identity(this).let {
+        it.paired && it.wantsAvailable && it.accessBinding() == binding
+    }
+
     private fun decline() {
         if (answered) return
         answered = true
+        if (awaitingCapture) {
+            awaitingCapture = false
+            finishActivity(REQUEST_CAPTURE)
+        }
         handler.removeCallbacksAndMessages(null)
         if (::grant.isInitialized && ::binding.isInitialized) runCatching { ShareSession(applicationContext, grant, binding.server, null) {}.decline() }
         finish()
@@ -271,7 +297,19 @@ class ConsentActivity : Activity() {
         decline()
     }
 
-    private companion object {
-        const val REQUEST_CAPTURE = 7
+    companion object {
+        private const val REQUEST_CAPTURE = 7
+
+        internal fun requestIntent(context: Context, grant: JSONObject, binding: AccessBinding): Intent {
+            val maximum = 110_000L
+            val now = System.currentTimeMillis()
+            val serverDeadline = grant.optLong("approvalExpiresAtMillis", now + maximum)
+            val remaining = serverDeadline.coerceIn(now, now + maximum) - now
+            return Intent(context, ConsentActivity::class.java)
+                .withAccessBinding(binding)
+                .putExtra("grant", grant.toString())
+                .putExtra("deadline", SystemClock.elapsedRealtime() + remaining)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
     }
 }
