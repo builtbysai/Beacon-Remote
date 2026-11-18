@@ -8,13 +8,17 @@ use crate::files_transport::PRINT_BIT;
 use crate::print_session::{Message, PrintSession, Reply};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use webrtc::data_channel::{DataChannel, DataChannelEvent};
 
 /// Largest single chunk message, matching the drive channel's bound.
 pub const MAX_MESSAGE: usize = 512 * 1024;
 const MAX_JOB: u64 = crate::print_submit::MAX_JOB_BYTES as u64;
+
+/// The printers this connection may use. Filled from a selection made in advance, or by the person at this
+/// computer choosing one in the Windows print dialog when they approve printing.
+pub type PrinterSlot = Arc<Mutex<Vec<String>>>;
 
 /// The printers the owner selected for remote printing. Empty when nothing is selected.
 pub fn selected_printers() -> Vec<String> {
@@ -71,6 +75,10 @@ pub fn answer(message: &[u8], flags: &AtomicU8, session: &mut PrintSession) -> V
     let Ok(value) = serde_json::from_slice::<Value>(message) else {
         return json!({"type": "refused", "reason": "invalid"});
     };
+    // Which printers may be used here, so the viewer never has to guess a name.
+    if value.get("op").and_then(Value::as_str) == Some("printers") {
+        return json!({"type": "printers", "names": session.selected()});
+    }
     let Some(parsed) = parse(&value) else {
         return json!({"type": "refused", "reason": "invalid"});
     };
@@ -86,10 +94,11 @@ pub fn start(
     channel: Arc<dyn DataChannel>,
     authority: crate::input_transport::Authority,
     flags: Arc<AtomicU8>,
+    slot: PrinterSlot,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let mut session = PrintSession::new(selected_printers(), MAX_JOB);
-        let result = run(channel.clone(), &authority, &flags, &mut session).await;
+        let mut session = PrintSession::new(Vec::new(), MAX_JOB);
+        let result = run(channel.clone(), &authority, &flags, &mut session, &slot).await;
         let _ = tokio::time::timeout(Duration::from_millis(500), channel.close()).await;
         if result.is_err() {
             println!("Print channel stopped: invalid message or expired authority.");
@@ -102,6 +111,7 @@ async fn run(
     authority: &crate::input_transport::Authority,
     flags: &AtomicU8,
     session: &mut PrintSession,
+    slot: &PrinterSlot,
 ) -> Result<(), ()> {
     let mut tick = tokio::time::interval(Duration::from_millis(250));
     // The channel is created before the connection is up, so authority is only judged once it has opened;
@@ -123,6 +133,9 @@ async fn run(
                     if !message.is_string || message.data.len() > MAX_MESSAGE {
                         return Err(());
                     }
+                    if let Ok(selected) = slot.lock() {
+                        session.set_selected(selected.clone());
+                    }
                     let reply = answer(&message.data[..], flags, session);
                     tokio::time::timeout(Duration::from_millis(500), channel.send_text(&reply.to_string()))
                         .await
@@ -140,6 +153,21 @@ async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_viewer_can_ask_which_printers_are_allowed() {
+        let flags = AtomicU8::new(PRINT_BIT);
+        let mut session = PrintSession::new(vec!["Office Laser".into()], MAX_JOB);
+        assert_eq!(
+            answer(br#"{"op":"printers"}"#, &flags, &mut session),
+            json!({"type": "printers", "names": ["Office Laser"]})
+        );
+        let off = AtomicU8::new(0);
+        assert_eq!(
+            answer(br#"{"op":"printers"}"#, &off, &mut session),
+            json!({"type": "refused", "reason": "not-permitted"})
+        );
+    }
 
     #[test]
     fn nothing_is_accepted_without_print_permission() {

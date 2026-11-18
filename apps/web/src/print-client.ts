@@ -70,6 +70,16 @@ export class PrintClient {
     });
   }
 
+  /** The printers the person at the computer allowed for this connection; usually exactly one. */
+  async printers(): Promise<string[]> {
+    const reply = await this.run({ op: "printers" });
+    if (reply.type !== "printers" || !Array.isArray(reply.names))
+      throw new Error("The computer sent an unreadable printer list.");
+    return reply.names.filter(
+      (name): name is string => typeof name === "string" && name.length > 0,
+    );
+  }
+
   /** Sends one whole file to a printer and resolves only when the computer reports it printed. */
   async printFile(
     id: number,

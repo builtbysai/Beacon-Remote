@@ -13,6 +13,10 @@ function computer(options: { permitted?: boolean; refuseBegin?: string } = {}) {
           return client.receive(
             JSON.stringify({ type: "refused", reason: "not-permitted" }),
           );
+        if (message.op === "printers")
+          return client.receive(
+            JSON.stringify({ type: "printers", names: ["Office Laser"] }),
+          );
         if (message.op === "begin") {
           received.push({ op: "begin", size: message.size });
           if (options.refuseBegin)
@@ -83,5 +87,15 @@ test("empty files and a closed channel are refused before anything is sent", asy
   await assert.rejects(
     closed.printFile(5, "Office Laser", new Uint8Array(1)),
     /not connected/,
+  );
+});
+
+test("the allowed printers are asked for, not guessed", async () => {
+  const { client } = computer();
+  assert.deepEqual(await client.printers(), ["Office Laser"]);
+  const { client: refused } = computer({ permitted: false });
+  await assert.rejects(
+    refused.printers(),
+    (error) => error instanceof PrintRefused,
   );
 });

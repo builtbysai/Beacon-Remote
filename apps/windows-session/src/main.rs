@@ -61,6 +61,13 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             Err(error) => Err(error.to_string().into()),
         };
     }
+    #[cfg(windows)]
+    if std::env::args().any(|arg| arg == "--pick-printer") {
+        if let Some(name) = folder_picker::pick_printer() {
+            println!("{name}");
+        }
+        return Ok(());
+    }
     if std::env::args().any(|arg| arg == "--choose-drive-folder") {
         let write = std::env::args().any(|arg| arg == "--write");
         return folder_picker::run_chooser(write).map_err(

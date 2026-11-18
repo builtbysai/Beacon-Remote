@@ -97,6 +97,62 @@ pub fn pick_in_child() -> Option<PathBuf> {
     (!line.is_empty()).then(|| PathBuf::from(line))
 }
 
+/// Shows the standard Windows print dialog and returns the printer the person picked, if any.
+#[cfg(windows)]
+pub fn pick_printer() -> Option<String> {
+    use windows_sys::Win32::Foundation::GlobalFree;
+    use windows_sys::Win32::System::Memory::{GlobalLock, GlobalUnlock};
+    use windows_sys::Win32::UI::Controls::Dialogs::{
+        PrintDlgW, DEVNAMES, PD_HIDEPRINTTOFILE, PD_NOCURRENTPAGE, PD_NOPAGENUMS, PD_NOSELECTION,
+        PRINTDLGW,
+    };
+    unsafe {
+        let mut dialog: PRINTDLGW = std::mem::zeroed();
+        dialog.lStructSize = std::mem::size_of::<PRINTDLGW>() as u32;
+        dialog.Flags = PD_NOSELECTION | PD_NOPAGENUMS | PD_NOCURRENTPAGE | PD_HIDEPRINTTOFILE;
+        if PrintDlgW(&mut dialog) == 0 {
+            return None;
+        }
+        let mut name = None;
+        if !dialog.hDevNames.is_null() {
+            let names = GlobalLock(dialog.hDevNames) as *const DEVNAMES;
+            if !names.is_null() {
+                let base = names as *const u16;
+                let start = base.add((*names).wDeviceOffset as usize);
+                let mut length = 0;
+                while *start.add(length) != 0 && length < 256 {
+                    length += 1;
+                }
+                name = String::from_utf16(std::slice::from_raw_parts(start, length)).ok();
+                GlobalUnlock(dialog.hDevNames);
+            }
+            GlobalFree(dialog.hDevNames);
+        }
+        if !dialog.hDevMode.is_null() {
+            GlobalFree(dialog.hDevMode);
+        }
+        name.filter(|name| !name.trim().is_empty())
+    }
+}
+
+/// Asks which printer to use through a short-lived copy of this program (`--pick-printer`), like the folder pick.
+#[cfg(windows)]
+pub fn pick_printer_in_child() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    let output = std::process::Command::new(exe)
+        .arg("--pick-printer")
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(output.stdout).ok()?;
+    let line = text.lines().next()?.trim();
+    (!line.is_empty()).then(|| line.to_string())
+}
+
 /// The command-line entry: `beacon-remote-session --choose-drive-folder [--write]`.
 #[cfg(windows)]
 pub fn run_chooser(write: bool) -> Result<(), Box<dyn std::error::Error>> {

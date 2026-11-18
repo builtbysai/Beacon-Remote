@@ -45,6 +45,14 @@ impl PrintSession {
         }
     }
 
+    pub fn set_selected(&mut self, selected: Vec<String>) {
+        self.jobs.set_selected(selected);
+    }
+
+    pub fn selected(&self) -> &[String] {
+        self.jobs.selected()
+    }
+
     /// Handles one message. `submit(printer, bytes)` runs only for a job that is complete and queued.
     pub fn handle<F>(&mut self, message: Message, submit: F) -> Reply
     where

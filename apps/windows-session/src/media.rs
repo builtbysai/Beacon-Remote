@@ -1179,6 +1179,10 @@ async fn media_cycle(
     } else {
         None
     };
+    // The printers this connection may use: ones chosen in advance, or the one the person picks when they approve.
+    let print_slot: crate::print_transport::PrinterSlot = Arc::new(std::sync::Mutex::new(
+        crate::print_transport::selected_printers(),
+    ));
     // Printing (P2-1) gets its own channel, answered only while the print permission is granted.
     let print_worker = if desktop {
         let channel = pc
@@ -1194,6 +1198,7 @@ async fn media_cycle(
             channel,
             input_authority(false),
             extras.clone(),
+            print_slot.clone(),
         ))
     } else {
         None
@@ -1607,9 +1612,29 @@ async fn media_cycle(
                                             upgraded_control = true;
                                         }
                                         LiveScope::Print => {
+                                            // With no printer chosen in advance, the person picks one in the Windows print dialog,
+                                            // in a process and task of their own so the connection keeps renewing meanwhile.
                                             if Instant::now() < expires {
-                                                extras.fetch_or(crate::files_transport::PRINT_BIT, Ordering::AcqRel);
-                                                println!("Viewer {} permission added for this connection.", scope.wire());
+                                                let has_printer = print_slot.lock().map(|slot| !slot.is_empty()).unwrap_or(false);
+                                                if has_printer {
+                                                    extras.fetch_or(crate::files_transport::PRINT_BIT, Ordering::AcqRel);
+                                                    println!("Viewer {} permission added for this connection.", scope.wire());
+                                                } else {
+                                                    let slot = print_slot.clone();
+                                                    let flags = extras.clone();
+                                                    tokio::spawn(async move {
+                                                        if let Ok(Some(name)) = tokio::task::spawn_blocking(crate::folder_picker::pick_printer_in_child).await {
+                                                            let installed = beacon_remote_session::printers::installed().unwrap_or_default();
+                                                            if installed.iter().any(|printer| printer == &name) {
+                                                                if let Ok(mut slot) = slot.lock() {
+                                                                    *slot = vec![name];
+                                                                    flags.fetch_or(crate::files_transport::PRINT_BIT, Ordering::AcqRel);
+                                                                    println!("Viewer print permission added for this connection.");
+                                                                }
+                                                            }
+                                                        }
+                                                    });
+                                                }
                                             }
                                         }
                                         LiveScope::Drive => {

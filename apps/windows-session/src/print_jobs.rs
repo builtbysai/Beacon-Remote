@@ -56,6 +56,15 @@ impl Jobs {
         }
     }
 
+    /// Replaces the printers a job may use; jobs already accepted keep going.
+    pub fn set_selected(&mut self, selected: Vec<String>) {
+        self.selected = selected;
+    }
+
+    pub fn selected(&self) -> &[String] {
+        &self.selected
+    }
+
     pub fn begin(&mut self, id: u32, printer: &str, declared: u64) -> Result<(), Refusal> {
         if !self.selected.iter().any(|p| p == printer) {
             return Err(Refusal::PrinterNotSelected);

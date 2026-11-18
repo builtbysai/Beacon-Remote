@@ -1123,32 +1123,43 @@ export function LiveView({
           {printReady && (
             <button
               className="viewer-control"
-              title="Send a file to a printer the owner allowed for remote printing"
+              title="Send a file to the printer chosen on the computer"
               onClick={() => {
-                const name = window
-                  .prompt("Printer name, exactly as the owner allowed it")
-                  ?.trim();
-                if (!name) return;
-                const picker = document.createElement("input");
-                picker.type = "file";
-                picker.onchange = () => {
-                  const file = picker.files?.[0];
-                  const client = printer.current;
-                  if (!file || !client) return;
-                  setPrintStatus("Sending…");
-                  file
-                    .arrayBuffer()
-                    .then((buffer) =>
-                      client.printFile(
-                        Date.now() % 4_000_000_000,
-                        name,
-                        new Uint8Array(buffer),
-                      ),
-                    )
-                    .then(() => setPrintStatus("Printed."))
-                    .catch((error: Error) => setPrintStatus(error.message));
-                };
-                picker.click();
+                // The person at the computer chose the printer when they approved; use it, no name to type.
+                const client = printer.current;
+                if (!client) return;
+                setPrintStatus("");
+                client
+                  .printers()
+                  .then((names) => {
+                    const name = names[0];
+                    if (!name) {
+                      setPrintStatus(
+                        "No printer was chosen on the computer. Ask for Printing access again.",
+                      );
+                      return;
+                    }
+                    const picker = document.createElement("input");
+                    picker.type = "file";
+                    picker.onchange = () => {
+                      const file = picker.files?.[0];
+                      if (!file) return;
+                      setPrintStatus(`Sending to ${name}…`);
+                      file
+                        .arrayBuffer()
+                        .then((buffer) =>
+                          client.printFile(
+                            Date.now() % 4_000_000_000,
+                            name,
+                            new Uint8Array(buffer),
+                          ),
+                        )
+                        .then(() => setPrintStatus(`Printed on ${name}.`))
+                        .catch((error: Error) => setPrintStatus(error.message));
+                    };
+                    picker.click();
+                  })
+                  .catch((error: Error) => setPrintStatus(error.message));
               }}
             >
               Print a file
