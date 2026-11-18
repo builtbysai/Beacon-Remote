@@ -17,7 +17,7 @@ import org.webrtc.DataChannel
 
 /**
  * Receiving files from the helper on the `beacon-files-v1` channel (ADR 0031, as the Windows host does it). The
- * channel exists only when the person ticked "Also allow receiving files" for this session. A file lands in
+ * channel advertises readiness only with local permission. A file lands in
  * Downloads/Beacon Remote, never replaces anything (Android adds " (1)" to a repeated name), appears only once its
  * length and SHA-256 match, and an unfinished or failed one is deleted. One file at a time; 2 GiB each, 4 GiB a session.
  * Sending files from the phone to the helper is not supported.
@@ -25,6 +25,7 @@ import org.webrtc.DataChannel
 class FileReceiver(
     private val context: Context,
     private val channel: DataChannel,
+    private val permitted: () -> Boolean,
     /** False while sharing is paused or the session is over: offers are refused and a file in flight is dropped. */
     private val allowed: () -> Boolean,
 ) : DataChannel.Observer {
@@ -46,6 +47,15 @@ class FileReceiver(
     }
 
     fun start() = channel.registerObserver(this)
+
+    fun isOpen(): Boolean = channel.state() == DataChannel.State.OPEN
+
+    fun publishReady() {
+        post {
+            if (channel.state() == DataChannel.State.OPEN && permitted())
+                send(JSONObject().put("t", "ready").put("maxFile", MAX_FILE).put("chunk", MAX_CHUNK).put("files", true).put("recording", false))
+        }
+    }
 
     fun stop() {
         post { discard() }
@@ -69,10 +79,7 @@ class FileReceiver(
 
     override fun onStateChange() {
         when (channel.state()) {
-            DataChannel.State.OPEN ->
-                post {
-                    send(JSONObject().put("t", "ready").put("maxFile", MAX_FILE).put("chunk", MAX_CHUNK).put("files", true).put("recording", false))
-                }
+            DataChannel.State.OPEN -> publishReady()
             DataChannel.State.CLOSED, DataChannel.State.CLOSING -> post { discard() }
             else -> {}
         }

@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.Uri
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -22,6 +23,15 @@ class CaptureService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
+            ACTION_ALLOW_FILES, ACTION_DECLINE_FILES -> {
+                session?.decideFilePermission(
+                    intent.getStringExtra("session").orEmpty(),
+                    intent.getStringExtra("request").orEmpty(),
+                    intent.getLongExtra("generation", -1),
+                    intent.action == ACTION_ALLOW_FILES,
+                )
+                return START_NOT_STICKY
+            }
             ACTION_STOP -> {
                 session?.stop() ?: stopSelf()
                 return START_NOT_STICKY
@@ -80,6 +90,7 @@ class CaptureService : Service() {
                     HostState.controlling = active
                     refresh()
                 },
+                ::showFilePrompt,
             ) { _ ->
                 HostState.sharing = false
                 HostState.controlling = false
@@ -92,6 +103,31 @@ class CaptureService : Service() {
     }
 
     private fun refresh() = getSystemService(NotificationManager::class.java).notify(3, build())
+
+    private fun showFilePrompt(prompt: FilePermissionPrompt?) {
+        val manager = getSystemService(NotificationManager::class.java)
+        if (prompt == null) {
+            manager.cancel(FILE_PROMPT_NOTIFICATION)
+            return
+        }
+        fun action(name: String): PendingIntent {
+            val decision = Intent(this, CaptureService::class.java).setAction(name)
+                .setData(Uri.Builder().scheme("beacon-remote").authority("file-permission").appendPath(prompt.id).build())
+                .putExtra("session", prompt.sessionId)
+                .putExtra("request", prompt.id)
+                .putExtra("generation", prompt.generation)
+            return PendingIntent.getService(this, 0, decision, PendingIntent.FLAG_IMMUTABLE)
+        }
+        manager.notify(FILE_PROMPT_NOTIFICATION, NotificationCompat.Builder(this, SharingNotifications.CHANNEL)
+            .setSmallIcon(R.drawable.ic_stat_beacon)
+            .setContentTitle("Allow this viewer to send files?")
+            .setContentText("Files are saved in Downloads/Beacon Remote during this connection.")
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setTimeoutAfter(prompt.timeoutMs)
+            .addAction(0, "Decline", action(ACTION_DECLINE_FILES))
+            .addAction(0, "Allow files", action(ACTION_ALLOW_FILES))
+            .build())
+    }
 
     private fun build(): Notification {
         fun action(name: String) =
@@ -120,11 +156,15 @@ class CaptureService : Service() {
     }
 
     override fun onDestroy() {
+        showFilePrompt(null)
         session?.stop()
         super.onDestroy()
     }
 
     companion object {
+        private const val FILE_PROMPT_NOTIFICATION = 4
+        private const val ACTION_ALLOW_FILES = "com.beaconremote.host.ALLOW_FILES"
+        private const val ACTION_DECLINE_FILES = "com.beaconremote.host.DECLINE_FILES"
         const val ACTION_STOP = "com.beaconremote.host.STOP_SHARING"
         const val ACTION_PAUSE = "com.beaconremote.host.PAUSE_SHARING"
     }

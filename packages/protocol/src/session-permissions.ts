@@ -16,6 +16,7 @@ const options = z.strictObject({
 });
 export const sessionPermissionSignal = z.discriminatedUnion("type", [
   options,
+  z.strictObject({ type: z.literal("permission-hello"), generation }),
   z.strictObject({
     type: z.literal("permission-request"),
     generation,

@@ -1284,6 +1284,7 @@ export async function registerSessions(
             const body = message.data;
             if (
               body.type === "permission-options" ||
+              body.type === "permission-hello" ||
               body.type === "permission-request" ||
               body.type === "permission-cancel" ||
               body.type === "permission-decision"
@@ -1464,6 +1465,7 @@ export async function registerSessions(
         source: session.source,
         capability: session.capability,
         generation: live.generation,
+        permissionsVersion: 1,
       });
       if (resuming) {
         send(socket, { type: "consent", accepted: true, resumable: true });

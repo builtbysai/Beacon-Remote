@@ -17,9 +17,14 @@ entitlement. A relay result leaves the current session grant unchanged.
 The viewer now offers only advertised choices and shows pending, cancelled,
 expired, declined or approved states. Per-attempt IDs prevent an old
 acknowledgement from being associated with a later request for the same scope.
-The next P0-4 work is the Android and Windows local prompts and endpoint
-scope enforcement, then live approval and revoke tests. Existing hosts do
-not advertise support, so they do not display this viewer control.
+Android now offers incoming files during an eligible connection. The phone's
+notification supplies Allow files and Decline. The receiver enables files
+only after a matching local approval and relay confirmation on the same
+live viewer generation. Detach clears added file access. The version
+handshake leaves older viewers and servers on the existing consent flow.
+Android control requests and Windows control, files, audio and recording
+still need local prompts and endpoint enforcement. See the test ledger for
+live Android file approval and reconnect cases.
 
 P0-3 Android consent now carries the delivering pairing and a monotonic
 deadline from delivery to approval. Duplicate delivery keeps the current

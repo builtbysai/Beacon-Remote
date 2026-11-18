@@ -4,6 +4,14 @@ Checkpoint: November 17, 2026. Use with the [parity roadmap](rdp-vnc-parity-road
 and [next-agent handoff](next-agent-handoff.md). This ledger prevents repetition
 of completed tests and prevents source-only checks being called acceptance.
 
+For P0-4 Android incoming files, start a view-only session without files.
+Request file transfer while video plays. Confirm the upload control stays
+hidden until the phone's Allow files action and the relay confirmation.
+Repeat with Decline, Cancel, timeout, lock, Pause and Stop. Check unauthorised
+offers are refused and that an approval during one viewer connection cannot
+be reused after reconnect. Verify the delivered file hash and receiver
+cleanup on interruption. Include a mixed-version viewer and backend check.
+
 For P0-3 Android consent on device, leave the OS capture picker open while the
 viewer cancels and requests again. Verify a fresh local prompt is required,
 and the old picker or notification cannot approve the replacement. Repeat with

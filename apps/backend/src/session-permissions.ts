@@ -18,7 +18,11 @@ type Outbound =
       scope: SessionPermission;
       timeoutMs: number;
     }
-  | { type: "permission-dismiss"; generation: number; id: string };
+  | {
+      type: "permission-dismiss" | "permission-commit";
+      generation: number;
+      id: string;
+    };
 
 type Role = "machine" | "viewer";
 
@@ -28,6 +32,7 @@ export class SessionPermissionRequests {
   private pending: Request | undefined;
   private nextRequest = 0;
   private generation = 0;
+  private viewerReady = false;
 
   constructor(
     private readonly send: (role: Role, message: Outbound) => void,
@@ -43,6 +48,15 @@ export class SessionPermissionRequests {
     this.expire();
     const generation = this.generation;
     switch (message.type) {
+      case "permission-hello":
+        if (role !== "viewer") return;
+        this.viewerReady = true;
+        this.send("viewer", {
+          type: "permission-options",
+          generation,
+          scopes: [...this.options],
+        });
+        return;
       case "permission-options":
         if (role !== "machine") return;
         this.options = new Set(
@@ -52,14 +66,15 @@ export class SessionPermissionRequests {
         );
         if (this.pending && !this.options.has(this.pending.scope))
           this.settle("cancelled");
-        this.send("viewer", {
-          type: "permission-options",
-          generation,
-          scopes: [...this.options],
-        });
+        if (this.viewerReady)
+          this.send("viewer", {
+            type: "permission-options",
+            generation,
+            scopes: [...this.options],
+          });
         return;
       case "permission-request": {
-        if (role !== "viewer") return;
+        if (role !== "viewer" || !this.viewerReady) return;
         const now = this.now();
         const { scope, attempt } = message;
         if (
@@ -112,6 +127,7 @@ export class SessionPermissionRequests {
   detach() {
     this.options.clear();
     this.settle("cancelled");
+    this.viewerReady = false;
   }
 
   resume(generation: number) {
@@ -126,8 +142,11 @@ export class SessionPermissionRequests {
     const { id } = this.pending;
     this.pending = undefined;
     const generation = this.generation;
-    if (outcome === "cancelled" || outcome === "expired")
-      this.send("machine", { type: "permission-dismiss", generation, id });
+    this.send("machine", {
+      type: outcome === "approved" ? "permission-commit" : "permission-dismiss",
+      generation,
+      id,
+    });
     this.send("viewer", { type: "permission-result", generation, id, outcome });
   }
 }

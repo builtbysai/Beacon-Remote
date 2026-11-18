@@ -2,6 +2,7 @@ package com.beaconremote.host
 
 import android.content.Context
 import android.content.Intent
+import android.app.KeyguardManager
 import android.hardware.display.DisplayManager
 import android.os.Handler
 import android.os.Looper
@@ -11,6 +12,7 @@ import android.media.projection.MediaProjection
 import android.os.SystemClock
 import android.util.Log
 import java.util.ArrayDeque
+import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ScheduledFuture
@@ -56,12 +58,16 @@ class ShareSession(
     private val filesAllowed: Boolean = false,
     private val unattended: Boolean = false,
     private val onControl: (Boolean) -> Unit = {},
+    private val onFilePrompt: ((FilePermissionPrompt?) -> Unit)? = null,
     private val onEnded: (String) -> Unit,
 ) {
     private val worker = Executors.newSingleThreadScheduledExecutor()
     private var socket: WebSocket? = null
     @Volatile private var ended = false
     private val viewer = ViewerConnection()
+    private val filePermission = FilePermissionRequest()
+    private var permissionsVersion = 0
+    private var filesAdvertised = false
     @Volatile private var paused = false
 
     // Lease bookkeeping, in SystemClock.elapsedRealtime milliseconds.
@@ -142,8 +148,44 @@ class ShareSession(
             paused = value
             if (value) control?.release()
             refreshVideo()
+            refreshFileOptions()
             socket?.send(JSONObject().put("type", "paused").put("paused", value).toString())
         }
+    }
+
+    fun decideFilePermission(sessionId: String, id: String, generation: Long, allow: Boolean) {
+        post {
+            if (sessionId != grant.id) return@post
+            val approved = allow && canAskForFiles(generation)
+            val prompt = filePermission.respond(id, generation, approved, SystemClock.elapsedRealtime()) ?: return@post
+            onFilePrompt?.invoke(null)
+            sendFileDecision(prompt, approved)
+            refreshFileOptions()
+        }
+    }
+
+    private fun canAskForFiles(generation: Long): Boolean =
+        permissionsVersion == 1 && onFilePrompt != null && files?.isOpen() == true &&
+            !filesAllowed && !filePermission.allowed(generation) &&
+            canShare(generation) && localActionsAllowed() &&
+            context.getSystemService(KeyguardManager::class.java).let { !it.isDeviceLocked && !it.isKeyguardLocked }
+
+    private fun refreshFileOptions() {
+        val available = canAskForFiles(viewer.generation)
+        filePermission.cancelIfUnavailable(SystemClock.elapsedRealtime(), available)?.let {
+            onFilePrompt?.invoke(null)
+            sendFileDecision(it, false)
+        }
+        if (!viewer.owns(viewer.generation) || available == filesAdvertised) return
+        filesAdvertised = available
+        socket?.send(JSONObject().put("type", "permission-options")
+            .put("generation", viewer.generation)
+            .put("scopes", org.json.JSONArray(if (available) listOf("files") else emptyList<String>())).toString())
+    }
+
+    private fun sendFileDecision(prompt: FilePermissionPrompt, approved: Boolean) {
+        socket?.send(JSONObject().put("type", "permission-decision")
+            .put("generation", prompt.generation).put("id", prompt.id).put("approved", approved).toString())
     }
 
     private fun connect(accepted: Boolean) {
@@ -210,6 +252,7 @@ class ShareSession(
             return
         }
         control?.quietCheck()
+        refreshFileOptions()
         sequence += 1
         challenges.addLast(sequence.toString() to now)
         while (challenges.size > 4) challenges.removeFirst()
@@ -219,6 +262,30 @@ class ShareSession(
     private fun handle(message: JSONObject) {
         if (ended) return
         when (message.optString("type")) {
+            "joined" -> permissionsVersion = message.optInt("permissionsVersion")
+            "permission-prompt" -> {
+                if (permissionsVersion != 1 || message.optString("scope") != "files") return
+                val generation = message.optLong("generation", -1)
+                val id = message.optString("id")
+                if (runCatching { UUID.fromString(id).toString() }.getOrNull() != id) return
+                val prompt = FilePermissionPrompt(grant.id, id, generation, message.optLong("timeoutMs"))
+                if (!canAskForFiles(generation) || !filePermission.begin(prompt, SystemClock.elapsedRealtime())) {
+                    sendFileDecision(prompt, false)
+                    return
+                }
+                onFilePrompt?.invoke(prompt)
+            }
+            "permission-dismiss" -> {
+                if (filePermission.cancel(message.optString("id"), message.optLong("generation", -1))) onFilePrompt?.invoke(null)
+            }
+            "permission-commit" -> {
+                val generation = message.optLong("generation", -1)
+                if (canAskForFiles(generation) &&
+                    filePermission.commit(message.optString("id"), generation, SystemClock.elapsedRealtime())) {
+                    files?.publishReady()
+                    refreshFileOptions()
+                }
+            }
             "lease" -> {
                 val nonce = message.optString("nonce")
                 val entry = challenges.firstOrNull { it.first == nonce } ?: return
@@ -226,6 +293,7 @@ class ShareSession(
                 if (SystemClock.elapsedRealtime() - entry.second < MAX_AGE) {
                     lastLease = maxOf(lastLease, entry.second)
                     refreshVideo()
+                    refreshFileOptions()
                 }
             }
             "answer" -> {
@@ -358,6 +426,7 @@ class ShareSession(
                             if (!viewer.connectionChanged(thisGeneration, connected)) return@post
                             if (!connected) control?.release()
                             refreshVideo()
+                            refreshFileOptions()
                         }
                     }
                     override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {}
@@ -391,10 +460,11 @@ class ShareSession(
                         .also { it.start() }
             }
         }
-        if (filesAllowed && FileReceiver.supported) {
+        if ((filesAllowed || onFilePrompt != null) && FileReceiver.supported) {
             connection.createDataChannel("beacon-files-v1", DataChannel.Init().apply { ordered = true })?.let { channel ->
-                files = FileReceiver(context, channel) {
-                    canShare(thisGeneration) && localActionsAllowed()
+                val permitted = { filesAllowed || filePermission.allowed(thisGeneration) }
+                files = FileReceiver(context, channel, permitted) {
+                    permitted() && canShare(thisGeneration) && localActionsAllowed()
                 }.also { it.start() }
             }
         }
@@ -445,6 +515,9 @@ class ShareSession(
     }
 
     private fun closePeer() {
+        filePermission.detach()
+        filesAdvertised = false
+        onFilePrompt?.invoke(null)
         track?.setEnabled(false)
         control?.stop()
         control = null

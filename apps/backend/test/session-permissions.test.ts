@@ -23,6 +23,12 @@ test("permission prompts only accept decisions from the current machine before e
   requests.receive("viewer", { ...offer, scopes: [...offer.scopes] }, true);
   assert.equal(events.length, 0);
   requests.receive("machine", { ...offer, scopes: [...offer.scopes] }, false);
+  assert.equal(events.length, 0);
+  requests.receive(
+    "viewer",
+    { type: "permission-hello", generation: 0 },
+    false,
+  );
   assert.deepEqual(events.pop()?.message.scopes, [
     "files",
     "audio",
@@ -77,6 +83,12 @@ test("permission prompts only accept decisions from the current machine before e
   requests.receive("machine", { ...decision, id: laterId }, false);
   requests.receive("viewer", ask, false);
   assert.equal(events.length, 0);
+  requests.receive(
+    "viewer",
+    { type: "permission-hello", generation: 1 },
+    false,
+  );
+  assert.deepEqual(events.pop()?.message.scopes, []);
   requests.receive("viewer", { ...ask, generation: 1 }, false);
   assert.equal(events.pop()?.message.type, "permission-unavailable");
   now += 5_000;
@@ -106,4 +118,28 @@ test("permission prompts only accept decisions from the current machine before e
     false,
   );
   assert.equal(events.pop()?.message.outcome, "denied");
+  assert.equal(events.pop()?.message.type, "permission-dismiss");
+  now += 5_000;
+  requests.receive("viewer", { ...ask, generation: 1, scope: "control" }, true);
+  const approvedId = events.pop()?.message.id as string;
+  events.pop();
+  requests.receive(
+    "machine",
+    { ...decision, generation: 1, id: approvedId },
+    true,
+  );
+  assert.deepEqual(
+    events
+      .splice(0)
+      .map(({ role, message }) => [
+        role,
+        message.type,
+        message.id,
+        message.outcome,
+      ]),
+    [
+      ["machine", "permission-commit", approvedId, undefined],
+      ["viewer", "permission-result", approvedId, "approved"],
+    ],
+  );
 });

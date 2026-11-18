@@ -174,6 +174,11 @@ test(
       const options = once(viewer, "message", {
         signal: AbortSignal.timeout(3000),
       });
+      viewer.send(JSON.stringify({ type: "permission-hello", generation: 0 }));
+      await options;
+      const offered = once(viewer, "message", {
+        signal: AbortSignal.timeout(3000),
+      });
       native.send(
         JSON.stringify({
           type: "permission-options",
@@ -181,7 +186,7 @@ test(
           scopes: ["files"],
         }),
       );
-      assert.deepEqual(JSON.parse((await options)[0].toString()), {
+      assert.deepEqual(JSON.parse((await offered)[0].toString()), {
         type: "permission-options",
         generation: 0,
         scopes: ["files"],
@@ -238,6 +243,9 @@ test(
       const result = once(viewer, "message", {
         signal: AbortSignal.timeout(3000),
       });
+      const dismissed = once(native, "message", {
+        signal: AbortSignal.timeout(3000),
+      });
       native.send(
         JSON.stringify({
           type: "permission-decision",
@@ -251,6 +259,11 @@ test(
         generation: 0,
         id: prompt.id,
         outcome: "denied",
+      });
+      assert.deepEqual(JSON.parse((await dismissed)[0].toString()), {
+        type: "permission-dismiss",
+        generation: 0,
+        id: prompt.id,
       });
       assert.equal(
         (

@@ -340,6 +340,7 @@ export function LiveView({
     let resumable = false;
     let controlGranted = true;
     let generation = 0;
+    let permissionsVersion = 0;
     let messages = 0;
     let serial = Promise.resolve();
     const candidates: RTCIceCandidateInit[] = [];
@@ -665,6 +666,7 @@ export function LiveView({
                 message.generation <= 1024
               ) {
                 generation = message.generation;
+                permissionsVersion = message.permissionsVersion === 1 ? 1 : 0;
                 requestedPermissions.reset(generation);
               }
               break;
@@ -678,6 +680,8 @@ export function LiveView({
               if (message.accepted !== true)
                 finish("Sharing was declined on the device.");
               else {
+                if (permissionsVersion === 1)
+                  send({ type: "permission-hello" });
                 resumable = message.resumable === true;
                 // The person at the computer may allow viewing but not the control that was asked for.
                 if (message.control === false) controlGranted = false;
