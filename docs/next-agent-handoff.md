@@ -7,6 +7,50 @@ this handoff and an RDP/VNC feature audit; development has since resumed below.
 No new chat was created automatically. This document records scope and evidence;
 it is not an independent grant of privileged/destructive authority.
 
+## Checkpoint — November 18, 2026
+
+Branch `codex/device-acceptance-preparation`, draft PR 126; everything below is
+pushed. The acceptance project on the VM (not production) runs a backend and web
+image built from the pushed source; its backend self-expires after one hour, so
+restart it through the compose chain in `/etc/beacon-remote` (see the
+`acceptance-images-*.override.yaml` files) before a test session.
+
+Done and checked on real devices:
+
+- Android: permission prompts on the high-importance channel and the ongoing
+  sharing notification, Files approval and a 3 MiB transfer with matching SHA-256,
+  control approval (fixed: the phone missed the input channel's open event), remote
+  tap and typing, Pause, and Wi-Fi loss ending the session.
+- Windows (Surfiena, paired fixture, signed development package): view-only video,
+  one-click connect with control, file upload with matching SHA-256, host online
+  by itself on open, and a shared folder listed from the viewer (the person picks
+  the folder in the Windows dialog when approving; it runs in its own process).
+- Server and host bug fixed: a host sending the handled-grant option without a
+  long poll got 400 forever after one failed heartbeat. The host and backend were
+  both changed.
+- Backend now ends a session whose host went silent for 15 seconds.
+
+Changed but not yet run on a device: Printing now asks for the printer in the
+Windows print dialog and the viewer asks which printer is allowed (the first
+attempt on Surfiena timed out unanswered), the simpler host window with
+More options (layout never seen), and the Android whole-screen-only capture
+prompt with control preselected (the second half was seen).
+
+Not done: Pixel control expiry, lock, accessibility loss, Stop during a transfer
+(a 120 MB test file and driver exist in the private preparation folder; the phone
+locked itself while waiting and only the owner can unlock it), and Pause then a
+fresh offer; Windows mute button, session listing, monitor changes and printing;
+the measured RDP/VNC comparison (see [the comparison record](rdp-vnc-comparison.md));
+USB forwarding, native session attach and trusted sound/microphone.
+
+Device notes: never enter the Pixel passcode; ask the owner to unlock. A
+connection request waits two minutes for local approval on either device, so ask
+the owner to watch the screen before sending one. The Surfiena fixture host needs
+`Windows-HostFixture.ps1` (Stop, Stage, Show) and drops console output other than
+timing lines, so helper crashes are not visible; add logging if a session ends
+without a clear reason. A UI and design pass is planned after every feature works
+on both platforms.
+
 ## Active roadmap goal continuation
 
 P0-4 has backend signaling for host-advertised control, files, audio and
