@@ -1,3 +1,4 @@
+import { classifyConnectionRoute } from "./connection-route";
 import {
   FileSender,
   DownloadResume,
@@ -856,20 +857,13 @@ export function LiveView({
           const remote =
             reports.get(pair.remoteCandidateId ?? "")?.candidateType ?? "";
           setCandidateTypes(`${local || "unknown"} / ${remote || "unknown"}`);
-          // Chrome can report a peer-reflexive selected candidate even when
-          // relay-only policy is enforced. Do not label that path as direct.
-          if (
-            pc.getConfiguration().iceTransportPolicy === "relay" ||
-            local === "relay" ||
-            remote === "relay"
-          )
-            setRoute("Relayed");
-          else if (
-            ["host", "srflx"].includes(local) &&
-            ["host", "srflx"].includes(remote)
-          )
-            setRoute("Direct");
-          else setRoute("Unavailable");
+          setRoute(
+            classifyConnectionRoute(
+              local,
+              remote,
+              pc.getConfiguration().iceTransportPolicy,
+            ),
+          );
         })
         .catch(() => {
           if (!closed) setRoute("Unavailable");
