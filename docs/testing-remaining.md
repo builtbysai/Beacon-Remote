@@ -4,6 +4,13 @@ Checkpoint: November 17, 2026. Use with the [parity roadmap](rdp-vnc-parity-road
 and [next-agent handoff](next-agent-handoff.md). This ledger prevents repetition
 of completed tests and prevents source-only checks being called acceptance.
 
+For P0-4 Windows files and recording, request each from a connected view-only
+session. Confirm the local prompt names only that scope, defaults to Decline, and
+that approval shows the sharing card entry. Verify the viewer enables files only
+after approval, delivered bytes match, and Turn off file and recording access stops
+an in-flight transfer while control and video continue. Repeat with Decline, cancel,
+expiry, Pause and Stop, and confirm a reconnect restores view-only consent.
+
 For P0-4 Windows control on Surfiena, request control from a connected
 view-only session. Confirm the local prompt offers only mouse and keyboard,
 defaults to Decline, and closes on cancellation, expiry, lock, Pause or Stop.

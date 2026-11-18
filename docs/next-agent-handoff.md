@@ -28,9 +28,12 @@ open one input channel tied to the exact approved request. The browser waits for
 that matching result and reconnect discards the upgrade. Windows control now
 uses a local scope-specific prompt while viewing continues. The host opens an
 input lane after relay confirmation, updates its visible sharing card, and
-releases added input when that viewer or channel is gone. Windows files,
-audio and recording still need local prompts and endpoint enforcement. See
-the test ledger for live approval and reconnect cases on both platforms.
+releases added input when that viewer or channel is gone. Windows files and
+recording now use the same local prompt: the grant is added only after relay confirmation,
+reconnect restores the original consent, and the sharing window has a Turn off file and
+recording access control that stops any transfer at once. Live audio is not requested
+mid-session (it needs a new media track) and remains open. Source checks passed; device
+acceptance is still open. See the test ledger for live approval and reconnect cases on both platforms.
 
 P0-3 Android consent now carries the delivering pairing and a monotonic
 deadline from delivery to approval. Duplicate delivery keeps the current

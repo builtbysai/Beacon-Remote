@@ -20,7 +20,7 @@ use serde_json::{json, Value};
 use std::{
     io::{self, BufRead, BufReader, Read},
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering},
         Arc,
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -538,6 +538,13 @@ async fn stream(
     let indicator_control = Arc::new(AtomicBool::new(control_allowed));
     let _stop = StopOnDrop(active.clone());
     // Refuse media if a visible local Stop control cannot be created.
+    let extras = Arc::new(AtomicU8::new(
+        crate::files_transport::Permissions {
+            files: files_allowed,
+            recording: recording_allowed,
+        }
+        .bits(),
+    ));
     let _indicator = crate::indicator::Indicator::start_access(
         active.clone(),
         connected.clone(),
@@ -545,8 +552,7 @@ async fn stream(
         grant.controller.clone(),
         deadline,
         indicator_control.clone(),
-        files_allowed,
-        recording_allowed,
+        extras.clone(),
         audio_allowed && desktop,
         format!(
             "S-{}",
@@ -574,6 +580,7 @@ async fn stream(
         files_allowed,
         recording_allowed,
         audio_allowed: audio_allowed && desktop,
+        extras,
         epoch: Instant::now(),
         lease: Arc::new(AtomicU64::new(0)),
         ice: Arc::new(std::sync::Mutex::new(grant.ice_servers.clone())),
@@ -645,23 +652,88 @@ struct MediaAuthorization {
     recording_allowed: bool,
     // Whether they also allowed the helper to hear what this computer plays.
     audio_allowed: bool,
+    // Live file/recording permission for the current viewer connection. It starts as the consent
+    // above on every connection and is shared with the sharing window's status and revoke controls.
+    extras: Arc<AtomicU8>,
 }
 
-struct ControlPrompt {
+/// Access the viewer can ask for while connected. Audio is not requested live: it needs a new media track.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LiveScope {
+    Control,
+    Files,
+    Recording,
+}
+
+impl LiveScope {
+    fn parse(value: &Value) -> Option<Self> {
+        match value.as_str()? {
+            "control" => Some(Self::Control),
+            "files" => Some(Self::Files),
+            "recording" => Some(Self::Recording),
+            _ => None,
+        }
+    }
+    fn wire(self) -> &'static str {
+        match self {
+            Self::Control => "control",
+            Self::Files => "files",
+            Self::Recording => "recording",
+        }
+    }
+    fn consent(self) -> crate::consent::LivePermission {
+        match self {
+            Self::Control => crate::consent::LivePermission::Control,
+            Self::Files => crate::consent::LivePermission::Files,
+            Self::Recording => crate::consent::LivePermission::Recording,
+        }
+    }
+}
+
+/// Snapshot used by every step of one live request: prompt, local approval and commit.
+#[derive(Clone, Copy)]
+struct LiveState {
+    desktop: bool,
+    paused: bool,
+    live: bool,
+    input_busy: bool,
+    files_channel: bool,
+    extras: u8,
+}
+
+impl LiveState {
+    fn allows(self, scope: LiveScope) -> bool {
+        if !self.desktop || self.paused || !self.live {
+            return false;
+        }
+        match scope {
+            LiveScope::Control => !self.input_busy,
+            LiveScope::Files => {
+                self.files_channel && self.extras & crate::files_transport::FILES_BIT == 0
+            }
+            LiveScope::Recording => {
+                self.files_channel && self.extras & crate::files_transport::RECORDING_BIT == 0
+            }
+        }
+    }
+}
+
+struct PermissionPrompt {
     id: uuid::Uuid,
+    scope: LiveScope,
     deadline: Instant,
     open: Arc<AtomicBool>,
     dialog: Option<tokio::task::JoinHandle<Result<bool, Error>>>,
     locally_approved: bool,
 }
 
-impl ControlPrompt {
+impl PermissionPrompt {
     fn accepts_commit(&self, id: uuid::Uuid, now: Instant) -> bool {
         self.id == id && self.locally_approved && now < self.deadline
     }
 }
 
-impl Drop for ControlPrompt {
+impl Drop for PermissionPrompt {
     fn drop(&mut self) {
         self.open.store(false, Ordering::Release);
     }
@@ -883,6 +955,13 @@ async fn media_cycle(
     let files_allowed = authorization.files_allowed;
     let recording_allowed = authorization.recording_allowed;
     let audio_allowed = authorization.audio_allowed;
+    // A new viewer connection starts from the original consent only: anything added live is cleared.
+    let extras = authorization.extras.clone();
+    crate::files_transport::Permissions {
+        files: files_allowed,
+        recording: recording_allowed,
+    }
+    .publish(&extras);
     let setup_started = Instant::now();
     indicator_connected.store(false, Ordering::Release);
     let connected = Arc::new(AtomicBool::new(false));
@@ -1037,7 +1116,8 @@ async fn media_cycle(
     } else {
         None
     };
-    let mut _reserved_files = None;
+    // The channel always serves the viewer. File and recording permissions are read from the shared
+    // flags, so a later local approval takes effect without renegotiating the connection.
     let files_worker = if desktop {
         let channel = pc
             .create_data_channel(
@@ -1048,21 +1128,13 @@ async fn media_cycle(
                 }),
             )
             .await?;
-        if files_allowed || recording_allowed {
-            Some(crate::files_transport::start(
-                channel,
-                input_authority(false),
-                crate::files_transport::Permissions {
-                    files: files_allowed,
-                    recording: recording_allowed,
-                },
-                authorization.downloads.clone(),
-            ))
-        } else {
-            // Keep SCTP negotiated for a later, locally approved input lane.
-            _reserved_files = Some(channel);
-            None
-        }
+        Some(crate::files_transport::start(
+            channel,
+            input_authority(false),
+            extras.clone(),
+            true,
+            authorization.downloads.clone(),
+        ))
     } else {
         None
     };
@@ -1245,12 +1317,14 @@ async fn media_cycle(
     });
     let mut audio_on = audio_track.is_some();
     let mut detached = false;
-    let mut control_prompt: Option<ControlPrompt> = None;
-    let can_request_control = || {
-        desktop
-            && permission_version.load(Ordering::Acquire)
-            && !crate::pause::is_paused()
-            && input_authority(false).live()
+    let mut permission_prompt: Option<PermissionPrompt> = None;
+    let live_state = |input_busy: bool, files_channel: bool| LiveState {
+        desktop,
+        paused: crate::pause::is_paused(),
+        live: permission_version.load(Ordering::Acquire) && input_authority(false).live(),
+        input_busy,
+        files_channel,
+        extras: extras.load(Ordering::Acquire),
     };
     let result:Result<(),Error> = async {
         let mut tick=tokio::time::interval(Duration::from_millis(100));
@@ -1260,7 +1334,7 @@ async fn media_cycle(
         let mut reported_first_packet=false;
         let mut requested_retry=false;
         let mut remote_candidates=Vec::<RTCIceCandidateInit>::new();
-        let mut control_advertised = false;
+        let mut control_advertised: Vec<&'static str> = Vec::new();
         let mut upgraded_control = false;
 
         let mut disconnected_at=None::<Instant>;
@@ -1310,28 +1384,33 @@ async fn media_cycle(
                         upgraded_control = false;
                         indicator_control.store(false, Ordering::Release);
                     }
-                    let available = input_worker.is_none() && can_request_control();
-                    if available != control_advertised && permission_version.load(Ordering::Acquire) {
-                        control_advertised = available;
-                        let scopes = if available { &["control"][..] } else { &[] };
+                    let files_channel = files_worker.as_ref().is_some_and(|worker| !worker.is_finished());
+                    let state = live_state(input_worker.is_some(), files_channel);
+                    let offered: Vec<&'static str> = [LiveScope::Control, LiveScope::Files, LiveScope::Recording]
+                        .into_iter()
+                        .filter(|scope| state.allows(*scope))
+                        .map(LiveScope::wire)
+                        .collect();
+                    if offered != control_advertised && permission_version.load(Ordering::Acquire) {
                         timeout(Duration::from_millis(500), socket.send(Message::Text(
-                            json!({"type":"permission-options","generation":generation,"scopes":scopes}).to_string().into(),
+                            json!({"type":"permission-options","generation":generation,"scopes":offered}).to_string().into(),
                         ))).await??;
+                        control_advertised = offered;
                     }
-                    if control_prompt.as_ref().is_some_and(|prompt| !available || Instant::now() >= prompt.deadline) {
-                        if let Some(prompt) = control_prompt.take() {
+                    if permission_prompt.as_ref().is_some_and(|prompt| !state.allows(prompt.scope) || Instant::now() >= prompt.deadline) {
+                        if let Some(prompt) = permission_prompt.take() {
                             let id = prompt.id;
                             drop(prompt);
                             send_control_decision(socket, generation, id, false).await?;
                         }
                     }
-                    if let Some(prompt) = control_prompt.as_mut() {
+                    if let Some(prompt) = permission_prompt.as_mut() {
                         if prompt.dialog.as_ref().is_some_and(|dialog| dialog.is_finished()) {
                             let approved = matches!(prompt.dialog.take().expect("completed prompt").await, Ok(Ok(true)))
-                                && can_request_control() && Instant::now() < prompt.deadline;
+                                && state.allows(prompt.scope) && Instant::now() < prompt.deadline;
                             prompt.locally_approved = approved;
                             send_control_decision(socket, generation, prompt.id, approved).await?;
-                            if !approved { control_prompt = None; }
+                            if !approved { permission_prompt = None; }
                         }
                     }
                     if failed.load(Ordering::Acquire) && !requested_retry {
@@ -1399,9 +1478,11 @@ async fn media_cycle(
                             if !permission_version.load(Ordering::Acquire) || body["generation"].as_u64() != Some(generation) {continue;}
                             let Some(id) = body["id"].as_str().and_then(|id| uuid::Uuid::parse_str(id).ok()) else {continue;};
                             match body["type"].as_str() {
-                                Some("permission-prompt") if body["scope"] == "control" => {
+                                Some("permission-prompt") => {
+                                    let Some(scope) = LiveScope::parse(&body["scope"]) else {continue;};
                                     let Some(timeout_ms) = body["timeoutMs"].as_u64().filter(|ms| (1..=30_000).contains(ms)) else {continue;};
-                                    if input_worker.is_some() || control_prompt.is_some() || !can_request_control() {
+                                    let now_state = live_state(input_worker.is_some(), files_worker.as_ref().is_some_and(|worker| !worker.is_finished()));
+                                    if permission_prompt.is_some() || !now_state.allows(scope) {
                                         send_control_decision(socket, generation, id, false).await?;
                                         continue;
                                     }
@@ -1412,31 +1493,47 @@ async fn media_cycle(
                                     let display = crate::capture::display_label(grant.display_id.as_deref());
                                     let session = format!("S-{}", grant.id.chars().take(4).collect::<String>().to_uppercase());
                                     let dialog = tokio::task::spawn_blocking(move ||
-                                        crate::consent::request_live_control(&controller, dialog_open, expires, &display, &session)
+                                        crate::consent::request_live_permission(&controller, dialog_open, expires, &display, &session, scope.consent())
                                     );
-                                    control_prompt = Some(ControlPrompt { id, deadline: expires, open, dialog: Some(dialog), locally_approved: false });
+                                    permission_prompt = Some(PermissionPrompt { id, scope, deadline: expires, open, dialog: Some(dialog), locally_approved: false });
                                 }
-                                Some("permission-dismiss") if control_prompt.as_ref().is_some_and(|prompt| prompt.id == id) => {
-                                    control_prompt = None;
+                                Some("permission-dismiss") if permission_prompt.as_ref().is_some_and(|prompt| prompt.id == id) => {
+                                    permission_prompt = None;
                                 }
-                                Some("permission-commit") if control_prompt.as_ref().is_some_and(|prompt|
+                                Some("permission-commit") if permission_prompt.as_ref().is_some_and(|prompt|
                                     prompt.accepts_commit(id, Instant::now())
-                                ) && input_worker.is_none() && can_request_control() => {
-                                    let Some(prompt) = control_prompt.take() else {continue;};
+                                    && live_state(input_worker.is_some(), files_worker.as_ref().is_some_and(|worker| !worker.is_finished())).allows(prompt.scope)
+                                ) => {
+                                    let Some(prompt) = permission_prompt.take() else {continue;};
                                     let expires = prompt.deadline;
+                                    let scope = prompt.scope;
                                     drop(prompt);
-                                    let label = format!("beacon-approved-input-v1:{id}");
-                                    let created = timeout(Duration::from_millis(500), pc.create_data_channel(&label, Some(webrtc::data_channel::RTCDataChannelInit {
-                                        ordered: true, ..Default::default()
-                                    }))).await;
-                                    let Ok(Ok(channel)) = created else {continue;};
-                                    if Instant::now() >= expires || !can_request_control() {
-                                        let _ = timeout(Duration::from_millis(500), channel.close()).await;
-                                        continue;
+                                    match scope {
+                                        LiveScope::Control => {
+                                            let label = format!("beacon-approved-input-v1:{id}");
+                                            let created = timeout(Duration::from_millis(500), pc.create_data_channel(&label, Some(webrtc::data_channel::RTCDataChannelInit {
+                                                ordered: true, ..Default::default()
+                                            }))).await;
+                                            let Ok(Ok(channel)) = created else {continue;};
+                                            let still_allowed = live_state(input_worker.is_some(), files_worker.as_ref().is_some_and(|worker| !worker.is_finished())).allows(LiveScope::Control);
+                                            if Instant::now() >= expires || !still_allowed {
+                                                let _ = timeout(Duration::from_millis(500), channel.close()).await;
+                                                continue;
+                                            }
+                                            indicator_control.store(true, Ordering::Release);
+                                            input_worker = Some(crate::input_transport::start(channel, input_authority(false)));
+                                            upgraded_control = true;
+                                        }
+                                        LiveScope::Files | LiveScope::Recording => {
+                                            // Only this approved scope is added; the transport reports it to the viewer.
+                                            if Instant::now() < expires {
+                                                let mut granted = crate::files_transport::Permissions::read(&extras);
+                                                if scope == LiveScope::Files { granted.files = true; } else { granted.recording = true; }
+                                                granted.publish(&extras);
+                                                println!("Viewer {} permission added for this connection.", scope.wire());
+                                            }
+                                        }
                                     }
-                                    indicator_control.store(true, Ordering::Release);
-                                    input_worker = Some(crate::input_transport::start(channel, input_authority(false)));
-                                    upgraded_control = true;
                                 }
                                 _ => {}
                             }
@@ -1450,7 +1547,7 @@ async fn media_cycle(
             }
         } Ok(())
     }.await;
-    drop(control_prompt);
+    drop(permission_prompt);
     indicator_control.store(false, Ordering::Release);
     active.store(false, Ordering::Release);
     if let Some(input_worker) = input_worker {
@@ -1497,13 +1594,91 @@ mod tests {
     use super::*;
 
     #[test]
+    fn live_scopes_are_granted_independently_and_never_while_paused_or_detached() {
+        use crate::files_transport::{FILES_BIT, RECORDING_BIT};
+        let open = LiveState {
+            desktop: true,
+            paused: false,
+            live: true,
+            input_busy: false,
+            files_channel: true,
+            extras: 0,
+        };
+        assert!(open.allows(LiveScope::Control));
+        assert!(open.allows(LiveScope::Files));
+        assert!(open.allows(LiveScope::Recording));
+
+        // Control already in use does not block files, and a granted file permission does not add recording.
+        let busy = LiveState {
+            input_busy: true,
+            extras: FILES_BIT,
+            ..open
+        };
+        assert!(!busy.allows(LiveScope::Control));
+        assert!(!busy.allows(LiveScope::Files));
+        assert!(busy.allows(LiveScope::Recording));
+
+        let recording_only = LiveState {
+            extras: RECORDING_BIT,
+            ..open
+        };
+        assert!(recording_only.allows(LiveScope::Files));
+        assert!(!recording_only.allows(LiveScope::Recording));
+
+        // No file channel means nothing that depends on it can be offered.
+        let no_channel = LiveState {
+            files_channel: false,
+            ..open
+        };
+        assert!(!no_channel.allows(LiveScope::Files));
+        assert!(!no_channel.allows(LiveScope::Recording));
+        assert!(no_channel.allows(LiveScope::Control));
+
+        for blocked in [
+            LiveState {
+                paused: true,
+                ..open
+            },
+            LiveState {
+                live: false,
+                ..open
+            },
+            LiveState {
+                desktop: false,
+                ..open
+            },
+        ] {
+            for scope in [LiveScope::Control, LiveScope::Files, LiveScope::Recording] {
+                assert!(!blocked.allows(scope), "{scope:?} must wait");
+            }
+        }
+    }
+
+    #[test]
+    fn live_scope_names_match_the_wire_protocol() {
+        assert_eq!(
+            LiveScope::parse(&json!("control")),
+            Some(LiveScope::Control)
+        );
+        assert_eq!(LiveScope::parse(&json!("files")), Some(LiveScope::Files));
+        assert_eq!(
+            LiveScope::parse(&json!("recording")),
+            Some(LiveScope::Recording)
+        );
+        // Audio is never requested live; it is only granted in the initial consent.
+        assert_eq!(LiveScope::parse(&json!("audio")), None);
+        assert_eq!(LiveScope::parse(&json!(null)), None);
+    }
+
+    #[test]
     fn control_commit_requires_matching_live_local_approval_and_drop_cancels_the_prompt() {
         let id = uuid::Uuid::new_v4();
         let open = Arc::new(AtomicBool::new(true));
         let now = Instant::now();
         let deadline = now + Duration::from_secs(30);
-        let mut prompt = ControlPrompt {
+        let mut prompt = PermissionPrompt {
             id,
+            scope: LiveScope::Control,
             deadline,
             open: open.clone(),
             dialog: None,
@@ -1827,6 +2002,7 @@ mod tests {
                 files_allowed: false,
                 recording_allowed: false,
                 audio_allowed: false,
+                extras: Arc::default(),
                 epoch: Instant::now()
                     - Duration::from_millis(if mode == "lease" { MAX_AGE_MS + 1 } else { 10 }),
                 lease: Arc::new(AtomicU64::new(1)),

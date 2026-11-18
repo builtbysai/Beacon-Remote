@@ -495,36 +495,54 @@ pub fn request_access(
         controller,
         pending,
         deadline,
-        (control, unlimited, false),
+        (control, unlimited, None),
         display,
         session,
     )
 }
 
-pub fn request_live_control(
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LivePermission {
+    Control,
+    Files,
+    Recording,
+}
+
+impl LivePermission {
+    fn detail(self) -> &'static str {
+        match self {
+            Self::Control => "Allow mouse and keyboard for this connection",
+            Self::Files => "Allow sending and receiving files for this connection",
+            Self::Recording => "Allow the viewer to record the shared stream",
+        }
+    }
+}
+
+pub fn request_live_permission(
     controller: &str,
     pending: Arc<AtomicBool>,
     deadline: Instant,
     display: &str,
     session: &str,
+    scope: LivePermission,
 ) -> Result<bool, Error> {
     Ok(request_access_inner(
         controller,
         pending,
         deadline,
-        (true, false, true),
+        (scope == LivePermission::Control, false, Some(scope)),
         display,
         session,
     )?
     .decision
-        == Decision::Control)
+        != Decision::Declined)
 }
 
 fn request_access_inner(
     controller: &str,
     pending: Arc<AtomicBool>,
     deadline: Instant,
-    (control, unlimited, upgrade): (bool, bool, bool),
+    (control, unlimited, upgrade): (bool, bool, Option<LivePermission>),
     display: &str,
     session: &str,
 ) -> Result<Access, Error> {
@@ -539,7 +557,7 @@ fn request_access_inner(
         .collect();
     state.session = session.to_owned();
     state.control_requested = control;
-    state.control_chosen = upgrade;
+    state.control_chosen = upgrade == Some(LivePermission::Control);
     unsafe {
         let instance = GetModuleHandleW(std::ptr::null());
         if instance.is_null() {
@@ -575,8 +593,8 @@ fn request_access_inner(
             if AdjustWindowRectEx(&mut bounds, style, 0, WS_EX_TOPMOST) == 0 {
                 return Err(io::Error::last_os_error().into());
             }
-            let title = wide(if upgrade {
-                "Beacon Remote — control request"
+            let title = wide(if upgrade.is_some() {
+                "Beacon Remote — additional access request"
             } else {
                 "Beacon Remote — incoming connection request"
             });
@@ -618,7 +636,7 @@ fn request_access_inner(
                         )
                     };
                 let session_line = format!("Session {} · {}", state.session, display);
-                let lifetime = if upgrade {
+                let lifetime = if upgrade.is_some() {
                     "This connection only"
                 } else if unlimited {
                     "Until stopped"
@@ -627,8 +645,8 @@ fn request_access_inner(
                 };
                 let heading = make_text(
                     HEADING,
-                    if upgrade {
-                        "Request to control this desktop"
+                    if upgrade.is_some() {
+                        "Request for additional access"
                     } else {
                         "Incoming connection request"
                     },
@@ -640,8 +658,8 @@ fn request_access_inner(
                 );
                 let subtitle = make_text(
                     SUBTITLE,
-                    if upgrade {
-                        "The current viewer is asking for mouse and keyboard control."
+                    if upgrade.is_some() {
+                        "The current viewer is asking for additional permission."
                     } else {
                         "Someone is requesting access to this computer."
                     },
@@ -681,7 +699,7 @@ fn request_access_inner(
                 let panel_title = make_text(PANEL_TITLE, "Access requested", 44, 190, 300, 20, 0);
                 let row_view = make_text(
                     ROW_ACTIVE,
-                    if upgrade {
+                    if upgrade.is_some() {
                         "The existing screen view stays open"
                     } else {
                         "View this desktop"
@@ -694,8 +712,8 @@ fn request_access_inner(
                 );
                 let row_control = make_text(
                     if control { ROW_ACTIVE } else { ROW_FAINT },
-                    if upgrade {
-                        "Allow mouse and keyboard for this connection"
+                    if let Some(scope) = upgrade {
+                        scope.detail()
                     } else if control {
                         "Mouse and keyboard control (you choose below)"
                     } else {
@@ -774,7 +792,7 @@ fn request_access_inner(
                 {
                     return Err(io::Error::last_os_error().into());
                 }
-                if upgrade {
+                if upgrade.is_some() {
                     for unused in [view_card, control_card, files_box, record_box, audio_box] {
                         ShowWindow(unused, SW_HIDE);
                     }

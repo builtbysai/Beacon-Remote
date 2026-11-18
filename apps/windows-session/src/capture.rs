@@ -537,8 +537,7 @@ mod tests {
                     "guard-test@example.invalid".into(),
                     Some(Instant::now() + Duration::from_secs(1)),
                     Arc::new(AtomicBool::new(false)),
-                    false,
-                    false,
+                    Arc::default(),
                     false,
                     "S-0000".into(),
                 )
