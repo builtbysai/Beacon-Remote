@@ -64,6 +64,16 @@ class ControlService : AccessibilityService() {
     /** Appends to the focused text field. */
     fun type(text: String): Boolean = edit { current -> current + text }
 
+    /**
+     * The text on the phone's clipboard, or null when Android will not give it to this service. Android 10 and later
+     * limit background clipboard reads, so a null here is an honest "unavailable", never an empty copy.
+     */
+    fun readClipboardText(): String? = runCatching {
+        val clip = getSystemService(android.content.ClipboardManager::class.java).primaryClip ?: return null
+        if (clip.itemCount == 0) return null
+        clip.getItemAt(0).coerceToText(this)?.toString()
+    }.getOrNull()
+
     /** Deletes the last character of the focused text field. */
     fun backspace(): Boolean = edit { current -> if (current.isEmpty()) current else current.substring(0, current.offsetByCodePoints(current.length, -1)) }
 

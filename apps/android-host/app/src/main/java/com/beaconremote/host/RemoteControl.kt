@@ -163,8 +163,15 @@ class RemoteControl(
             "type_text" -> service.type(input.getString("text"))
             "nav" -> service.system(input.getString("action"))
             "clipboard_read" -> {
-                // Android does not let a background service read the clipboard.
-                val reply = JSONObject().put("type", "clipboard").put("text", "").put("truncated", false).put("unavailable", true)
+                // The viewer accepts at most 32768 characters; a longer copy is sent from its start and marked truncated.
+                val text = service.readClipboardText()
+                val reply =
+                    if (text.isNullOrEmpty()) {
+                        JSONObject().put("type", "clipboard").put("text", "").put("truncated", false).put("unavailable", true)
+                    } else {
+                        JSONObject().put("type", "clipboard").put("text", text.take(MAX_CLIPBOARD_CHARS))
+                            .put("truncated", text.length > MAX_CLIPBOARD_CHARS).put("unavailable", false)
+                    }
                 channel.send(DataChannel.Buffer(ByteBuffer.wrap(reply.toString().toByteArray()), false))
             }
             "release_all" -> release()
@@ -232,6 +239,7 @@ class RemoteControl(
         const val TAG = "BeaconHost"
         const val MAX_MESSAGE = 2048
         const val MAX_PER_SECOND = 500
+        const val MAX_CLIPBOARD_CHARS = 32768
         val LETTER_ROWS = listOf(0x10 to "qwertyuiop", 0x1e to "asdfghjkl", 0x2c to "zxcvbnm")
         val DIGITS = (2..11).toList()
         const val SHIFTED_DIGITS = "!@#$%^&*()"
