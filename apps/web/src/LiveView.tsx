@@ -1106,7 +1106,9 @@ export function LiveView({
                         setDriveError("");
                         readFile(client, [entry.name], entry.size)
                           .then((bytes) => {
-                            const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>]));
+                            const url = URL.createObjectURL(
+                              new Blob([bytes as Uint8Array<ArrayBuffer>]),
+                            );
                             const link = document.createElement("a");
                             link.href = url;
                             link.download = entry.name;
