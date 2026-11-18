@@ -24,7 +24,7 @@ fn segments(value: &Value) -> Option<Vec<String>> {
 }
 
 fn number(value: &Value, key: &str) -> Option<u64> {
-    value.get(key)?.as_u64().filter(|n| *n <= (1u64 << 53) - 1)
+    value.get(key)?.as_u64().filter(|n| *n < (1u64 << 53))
 }
 
 /// Parses one command message. `None` means the message is not a valid command and must end the exchange.
@@ -142,7 +142,7 @@ fn encode_base64(bytes: &[u8]) -> String {
 
 fn decode_base64(text: &str) -> Option<Vec<u8>> {
     let bytes = text.as_bytes();
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         return None;
     }
     let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
