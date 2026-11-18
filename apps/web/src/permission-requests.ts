@@ -10,6 +10,7 @@ export const permissionNames: Record<SessionPermission, string> = {
   audio: "Device sound",
   recording: "Recording",
   drive: "Shared folder",
+  print: "Printing",
 };
 
 export type PermissionRequestView = {

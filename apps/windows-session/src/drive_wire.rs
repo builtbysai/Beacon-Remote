@@ -140,7 +140,7 @@ fn encode_base64(bytes: &[u8]) -> String {
     out
 }
 
-fn decode_base64(text: &str) -> Option<Vec<u8>> {
+pub fn decode_base64(text: &str) -> Option<Vec<u8>> {
     let bytes = text.as_bytes();
     if !bytes.len().is_multiple_of(4) {
         return None;

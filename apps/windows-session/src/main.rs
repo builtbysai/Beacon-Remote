@@ -8,7 +8,9 @@ mod clipboard;
 #[cfg(windows)]
 mod consent;
 #[cfg(windows)]
-use beacon_remote_session::{drive_exec, drive_map, drive_wire, encoder, pixels};
+use beacon_remote_session::{
+    drive_exec, drive_map, drive_wire, encoder, pixels, print_session, print_submit,
+};
 #[cfg(windows)]
 mod drive_transport;
 #[cfg(windows)]
@@ -29,6 +31,8 @@ mod media;
 mod native_ui;
 #[cfg(windows)]
 mod pause;
+#[cfg(windows)]
+mod print_transport;
 #[cfg(any(windows, test))]
 mod renewal;
 

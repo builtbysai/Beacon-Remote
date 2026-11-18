@@ -664,6 +664,7 @@ enum LiveScope {
     Files,
     Recording,
     Drive,
+    Print,
 }
 
 impl LiveScope {
@@ -673,6 +674,7 @@ impl LiveScope {
             "files" => Some(Self::Files),
             "recording" => Some(Self::Recording),
             "drive" => Some(Self::Drive),
+            "print" => Some(Self::Print),
             _ => None,
         }
     }
@@ -682,6 +684,7 @@ impl LiveScope {
             Self::Files => "files",
             Self::Recording => "recording",
             Self::Drive => "drive",
+            Self::Print => "print",
         }
     }
     fn consent(self) -> crate::consent::LivePermission {
@@ -690,6 +693,7 @@ impl LiveScope {
             Self::Files => crate::consent::LivePermission::Files,
             Self::Recording => crate::consent::LivePermission::Recording,
             Self::Drive => crate::consent::LivePermission::Drive,
+            Self::Print => crate::consent::LivePermission::Print,
         }
     }
 }
@@ -703,6 +707,7 @@ struct LiveState {
     input_busy: bool,
     files_channel: bool,
     drive_channel: bool,
+    print_channel: bool,
     extras: u8,
 }
 
@@ -721,6 +726,9 @@ impl LiveState {
             }
             LiveScope::Drive => {
                 self.drive_channel && self.extras & crate::files_transport::DRIVE_BIT == 0
+            }
+            LiveScope::Print => {
+                self.print_channel && self.extras & crate::files_transport::PRINT_BIT == 0
             }
         }
     }
@@ -1166,6 +1174,25 @@ async fn media_cycle(
     } else {
         None
     };
+    // Printing (P2-1) gets its own channel, answered only while the print permission is granted.
+    let print_worker = if desktop {
+        let channel = pc
+            .create_data_channel(
+                "beacon-print-v1",
+                Some(webrtc::data_channel::RTCDataChannelInit {
+                    ordered: true,
+                    ..Default::default()
+                }),
+            )
+            .await?;
+        Some(crate::print_transport::start(
+            channel,
+            input_authority(false),
+            extras.clone(),
+        ))
+    } else {
+        None
+    };
     pc.set_local_description(pc.create_offer(None).await?)
         .await?;
     let description = pc
@@ -1348,13 +1375,17 @@ async fn media_cycle(
     let mut audio_on = audio_track.is_some();
     let mut detached = false;
     let mut permission_prompt: Option<PermissionPrompt> = None;
-    let live_state = |input_busy: bool, files_channel: bool, drive_channel: bool| LiveState {
+    let live_state = |input_busy: bool,
+                      files_channel: bool,
+                      drive_channel: bool,
+                      print_channel: bool| LiveState {
         desktop,
         paused: crate::pause::is_paused(),
         live: permission_version.load(Ordering::Acquire) && input_authority(false).live(),
         input_busy,
         files_channel,
         drive_channel,
+        print_channel,
         extras: extras.load(Ordering::Acquire),
     };
     let result:Result<(),Error> = async {
@@ -1417,8 +1448,9 @@ async fn media_cycle(
                     }
                     let files_channel = files_worker.as_ref().is_some_and(|worker| !worker.is_finished());
                     let drive_channel = drive_worker.as_ref().is_some_and(|worker| !worker.is_finished());
-                    let state = live_state(input_worker.is_some(), files_channel, drive_channel);
-                    let offered: Vec<&'static str> = [LiveScope::Control, LiveScope::Files, LiveScope::Recording, LiveScope::Drive]
+                    let print_channel = print_worker.as_ref().is_some_and(|worker| !worker.is_finished());
+                    let state = live_state(input_worker.is_some(), files_channel, drive_channel, print_channel);
+                    let offered: Vec<&'static str> = [LiveScope::Control, LiveScope::Files, LiveScope::Recording, LiveScope::Drive, LiveScope::Print]
                         .into_iter()
                         .filter(|scope| state.allows(*scope))
                         .map(LiveScope::wire)
@@ -1513,7 +1545,7 @@ async fn media_cycle(
                                 Some("permission-prompt") => {
                                     let Some(scope) = LiveScope::parse(&body["scope"]) else {continue;};
                                     let Some(timeout_ms) = body["timeoutMs"].as_u64().filter(|ms| (1..=30_000).contains(ms)) else {continue;};
-                                    let now_state = live_state(input_worker.is_some(), files_worker.as_ref().is_some_and(|worker| !worker.is_finished()), drive_worker.as_ref().is_some_and(|worker| !worker.is_finished()));
+                                    let now_state = live_state(input_worker.is_some(), files_worker.as_ref().is_some_and(|worker| !worker.is_finished()), drive_worker.as_ref().is_some_and(|worker| !worker.is_finished()), print_worker.as_ref().is_some_and(|worker| !worker.is_finished()));
                                     if permission_prompt.is_some() || !now_state.allows(scope) {
                                         send_control_decision(socket, generation, id, false).await?;
                                         continue;
@@ -1534,7 +1566,7 @@ async fn media_cycle(
                                 }
                                 Some("permission-commit") if permission_prompt.as_ref().is_some_and(|prompt|
                                     prompt.accepts_commit(id, Instant::now())
-                                    && live_state(input_worker.is_some(), files_worker.as_ref().is_some_and(|worker| !worker.is_finished()), drive_worker.as_ref().is_some_and(|worker| !worker.is_finished())).allows(prompt.scope)
+                                    && live_state(input_worker.is_some(), files_worker.as_ref().is_some_and(|worker| !worker.is_finished()), drive_worker.as_ref().is_some_and(|worker| !worker.is_finished()), print_worker.as_ref().is_some_and(|worker| !worker.is_finished())).allows(prompt.scope)
                                 ) => {
                                     let Some(prompt) = permission_prompt.take() else {continue;};
                                     let expires = prompt.deadline;
@@ -1547,7 +1579,7 @@ async fn media_cycle(
                                                 ordered: true, ..Default::default()
                                             }))).await;
                                             let Ok(Ok(channel)) = created else {continue;};
-                                            let still_allowed = live_state(input_worker.is_some(), files_worker.as_ref().is_some_and(|worker| !worker.is_finished()), drive_worker.as_ref().is_some_and(|worker| !worker.is_finished())).allows(LiveScope::Control);
+                                            let still_allowed = live_state(input_worker.is_some(), files_worker.as_ref().is_some_and(|worker| !worker.is_finished()), drive_worker.as_ref().is_some_and(|worker| !worker.is_finished()), print_worker.as_ref().is_some_and(|worker| !worker.is_finished())).allows(LiveScope::Control);
                                             if Instant::now() >= expires || !still_allowed {
                                                 let _ = timeout(Duration::from_millis(500), channel.close()).await;
                                                 continue;
@@ -1555,6 +1587,12 @@ async fn media_cycle(
                                             indicator_control.store(true, Ordering::Release);
                                             input_worker = Some(crate::input_transport::start(channel, input_authority(false)));
                                             upgraded_control = true;
+                                        }
+                                        LiveScope::Print => {
+                                            if Instant::now() < expires {
+                                                extras.fetch_or(crate::files_transport::PRINT_BIT, Ordering::AcqRel);
+                                                println!("Viewer {} permission added for this connection.", scope.wire());
+                                            }
                                         }
                                         LiveScope::Drive => {
                                             // Drive mapping only adds its own bit; file and recording permissions are untouched.
@@ -1642,6 +1680,7 @@ mod tests {
             input_busy: false,
             files_channel: true,
             drive_channel: true,
+            print_channel: true,
             extras: 0,
         };
         assert!(open.allows(LiveScope::Control));
@@ -1660,6 +1699,11 @@ mod tests {
         };
         assert!(!drive_granted.allows(LiveScope::Drive));
         assert!(drive_granted.allows(LiveScope::Files));
+        let no_print = LiveState {
+            print_channel: false,
+            ..open
+        };
+        assert!(!no_print.allows(LiveScope::Print));
         let no_drive = LiveState {
             drive_channel: false,
             ..open

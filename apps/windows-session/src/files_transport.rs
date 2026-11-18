@@ -442,6 +442,8 @@ pub const FILES_BIT: u8 = 1;
 pub const RECORDING_BIT: u8 = 2;
 /// Drive mapping approved for this connection (P1-4); it sits beside the file and recording bits.
 pub const DRIVE_BIT: u8 = 4;
+/// Printing approved for this connection (P2-1), its own bit like drive.
+pub const PRINT_BIT: u8 = 8;
 
 impl Permissions {
     pub fn from_bits(bits: u8) -> Self {
