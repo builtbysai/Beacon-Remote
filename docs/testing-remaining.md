@@ -164,3 +164,17 @@ exhausted; do not launch a large undifferentiated suite without a bounded end st
   unavailable reference hardware remain genuinely human-dependent where tools
   cannot complete the supported OS flow. The owner supplied a development Pixel
   unlock credential, so do not repeatedly call its ordinary PIN entry a blocker.
+
+## Phone-to-viewer file offer (November 17, 2026, evening)
+
+Pixel 7a `8e6ad65` (release, same signer) on the isolated acceptance backend with
+the 0bba353 viewer, relayed route. The owner's temporary passcode was used for the
+device unlock. Consent with "receive files" checked; the phone's Send file action
+opened the system picker; the 3,145,728-byte test file was offered as `send`, the
+viewer accepted and saved it, and the SHA-256 of the received copy matches the
+phone's source (80e8d42a…). Sharing was then stopped from the notification.
+Earlier attempts that failed are recorded in the commit history: the first run
+had no Send file action (notification built before the channel opened); a
+second run cancelled because the picker's read grant expired (fixed with a
+persistable grant released when the transfer ends). Still open: a
+mid-transfer Pause/Stop/cancel check on the phone and sending over a direct route.
