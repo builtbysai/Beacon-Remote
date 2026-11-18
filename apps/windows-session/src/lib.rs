@@ -6,4 +6,5 @@ pub mod drive_map;
 pub mod drive_wire;
 #[cfg(windows)]
 pub mod encoder;
+pub mod peripheral_policy;
 pub mod pixels;
