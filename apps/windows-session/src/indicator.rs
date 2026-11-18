@@ -48,7 +48,7 @@ struct WindowState {
     active: Arc<AtomicBool>,
     connected: Arc<AtomicBool>,
     desktop: bool,
-    control: bool,
+    control: Arc<AtomicBool>,
     // The helper may send files (chosen in the consent window); received files are announced here.
     files: bool,
     recording: bool,
@@ -69,7 +69,7 @@ impl WindowState {
         active: Arc<AtomicBool>,
         connected: Arc<AtomicBool>,
         desktop: bool,
-        control: bool,
+        control: Arc<AtomicBool>,
         deadline: Option<Instant>,
     ) -> Self {
         Self {
@@ -100,6 +100,7 @@ impl WindowState {
     fn mode(&self) -> u8 {
         u8::from(self.connected.load(Ordering::Acquire))
             | (u8::from(crate::pause::is_paused()) << 1)
+            | (u8::from(self.control.load(Ordering::Acquire)) << 2)
     }
 }
 pub struct Indicator {
@@ -162,7 +163,7 @@ unsafe fn paint(window: HWND, state: &WindowState) {
         canvas.fill(28.0, 178.0, 464.0, 120.0, 10.0, p.subtle);
         canvas.stroke(28.0, 178.0, 464.0, 120.0, 10.0, p.line, 1.0);
         let live_view = state.desktop && !paused;
-        let live_input = state.desktop && state.control && !paused;
+        let live_input = state.desktop && state.control.load(Ordering::Acquire) && !paused;
         ui::icon(
             &canvas,
             Icon::Eye,
@@ -419,7 +420,7 @@ unsafe extern "system" fn procedure(
             "Sharing is paused · Screen and input are off"
         } else if (*state).connected.load(Ordering::Acquire) {
             if (*state).desktop {
-                if (*state).control {
+                if (*state).control.load(Ordering::Acquire) {
                     "Sharing your screen · Mouse and keyboard control"
                 } else {
                     "Sharing your screen · View only"
@@ -467,7 +468,7 @@ unsafe extern "system" fn procedure(
             } else {
                 "Screen view enabled"
             });
-            let input = wide(if (*state).control && !paused_now {
+            let input = wide(if mode & 4 != 0 && !paused_now {
                 "Keyboard and mouse enabled"
             } else {
                 "Keyboard and mouse disabled"
@@ -505,14 +506,20 @@ impl Indicator {
         desktop: bool,
         controller: String,
         deadline: Option<Instant>,
-        control: bool,
+        control: Arc<AtomicBool>,
         files: bool,
         recording: bool,
         audio: bool,
         session: String,
     ) -> Result<Self, Error> {
         let (ready, received) = mpsc::channel();
-        let mut state = WindowState::new(active.clone(), connected, desktop, control, deadline);
+        let mut state = WindowState::new(
+            active.clone(),
+            connected,
+            desktop,
+            control.clone(),
+            deadline,
+        );
         state.files = files && desktop;
         state.recording = recording && desktop;
         state.audio = audio && desktop;
@@ -663,7 +670,7 @@ impl Indicator {
                     );
                     let row_input = make_text(
                         ROW_INPUT_ID,
-                        if control && desktop {
+                        if control.load(Ordering::Acquire) && desktop {
                             "Keyboard and mouse enabled"
                         } else {
                             "Keyboard and mouse disabled"
@@ -886,7 +893,7 @@ mod tests {
             Arc::new(AtomicBool::new(true)),
             Arc::new(AtomicBool::new(false)),
             desktop,
-            false,
+            Arc::new(AtomicBool::new(false)),
             deadline,
         ));
         let window = CreateWindowExW(

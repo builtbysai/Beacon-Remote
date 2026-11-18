@@ -491,6 +491,43 @@ pub fn request_access(
     display: &str,
     session: &str,
 ) -> Result<Access, Error> {
+    request_access_inner(
+        controller,
+        pending,
+        deadline,
+        (control, unlimited, false),
+        display,
+        session,
+    )
+}
+
+pub fn request_live_control(
+    controller: &str,
+    pending: Arc<AtomicBool>,
+    deadline: Instant,
+    display: &str,
+    session: &str,
+) -> Result<bool, Error> {
+    Ok(request_access_inner(
+        controller,
+        pending,
+        deadline,
+        (true, false, true),
+        display,
+        session,
+    )?
+    .decision
+        == Decision::Control)
+}
+
+fn request_access_inner(
+    controller: &str,
+    pending: Arc<AtomicBool>,
+    deadline: Instant,
+    (control, unlimited, upgrade): (bool, bool, bool),
+    display: &str,
+    session: &str,
+) -> Result<Access, Error> {
     let mut state = State::new(pending, deadline);
     if !state.live() {
         return Ok(Access::DECLINED);
@@ -502,6 +539,7 @@ pub fn request_access(
         .collect();
     state.session = session.to_owned();
     state.control_requested = control;
+    state.control_chosen = upgrade;
     unsafe {
         let instance = GetModuleHandleW(std::ptr::null());
         if instance.is_null() {
@@ -537,7 +575,11 @@ pub fn request_access(
             if AdjustWindowRectEx(&mut bounds, style, 0, WS_EX_TOPMOST) == 0 {
                 return Err(io::Error::last_os_error().into());
             }
-            let title = wide("Beacon Remote — incoming connection request");
+            let title = wide(if upgrade {
+                "Beacon Remote — control request"
+            } else {
+                "Beacon Remote — incoming connection request"
+            });
             let window = CreateWindowExW(
                 WS_EX_TOPMOST,
                 class.as_ptr(),
@@ -576,15 +618,33 @@ pub fn request_access(
                         )
                     };
                 let session_line = format!("Session {} · {}", state.session, display);
-                let lifetime = if unlimited {
+                let lifetime = if upgrade {
+                    "This connection only"
+                } else if unlimited {
                     "Until stopped"
                 } else {
                     "Up to two minutes"
                 };
-                let heading = make_text(HEADING, "Incoming connection request", 28, 26, 370, 30, 0);
+                let heading = make_text(
+                    HEADING,
+                    if upgrade {
+                        "Request to control this desktop"
+                    } else {
+                        "Incoming connection request"
+                    },
+                    28,
+                    26,
+                    370,
+                    30,
+                    0,
+                );
                 let subtitle = make_text(
                     SUBTITLE,
-                    "Someone is requesting access to this computer.",
+                    if upgrade {
+                        "The current viewer is asking for mouse and keyboard control."
+                    } else {
+                        "Someone is requesting access to this computer."
+                    },
                     28,
                     58,
                     464,
@@ -619,10 +679,24 @@ pub fn request_access(
                 );
                 let tag = make_text(TAG, "REQUESTER", 388, 119, 92, 16, SS_RIGHT);
                 let panel_title = make_text(PANEL_TITLE, "Access requested", 44, 190, 300, 20, 0);
-                let row_view = make_text(ROW_ACTIVE, "View this desktop", 70, 220, 410, 20, 0);
+                let row_view = make_text(
+                    ROW_ACTIVE,
+                    if upgrade {
+                        "The existing screen view stays open"
+                    } else {
+                        "View this desktop"
+                    },
+                    70,
+                    220,
+                    410,
+                    20,
+                    0,
+                );
                 let row_control = make_text(
                     if control { ROW_ACTIVE } else { ROW_FAINT },
-                    if control {
+                    if upgrade {
+                        "Allow mouse and keyboard for this connection"
+                    } else if control {
                         "Mouse and keyboard control (you choose below)"
                     } else {
                         "Mouse and keyboard control not requested"
@@ -699,6 +773,11 @@ pub fn request_access(
                     || SetTimer(window, 1, 100, None) == 0
                 {
                     return Err(io::Error::last_os_error().into());
+                }
+                if upgrade {
+                    for unused in [view_card, control_card, files_box, record_box, audio_box] {
+                        ShowWindow(unused, SW_HIDE);
+                    }
                 }
                 // Fonts: a larger semibold heading, regular body text.
                 let px = move |value: i32| (value as f32 * factor).round() as i32;

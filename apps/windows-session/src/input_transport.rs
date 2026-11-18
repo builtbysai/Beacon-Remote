@@ -30,12 +30,22 @@ pub struct Authority {
     pub session_active: Arc<AtomicBool>,
     pub peer_active: Arc<AtomicBool>,
     pub connected: Arc<AtomicBool>,
+    pub viewer_generation: Arc<AtomicU64>,
+    pub generation: u64,
+    pub end_session_on_input_loss: bool,
 }
 impl Authority {
+    fn end_input(&self) {
+        if self.end_session_on_input_loss {
+            self.session_active.store(false, Ordering::Release);
+            self.peer_active.store(false, Ordering::Release);
+        }
+    }
     pub fn live(&self) -> bool {
         self.session_active.load(Ordering::Acquire)
             && self.peer_active.load(Ordering::Acquire)
             && self.connected.load(Ordering::Acquire)
+            && self.viewer_generation.load(Ordering::Acquire) == self.generation
             && self.deadline.is_none_or(|end| Instant::now() < end)
             && remaining(
                 self.lease.load(Ordering::Acquire),
@@ -48,17 +58,18 @@ impl Authority {
 struct EndAuthority<'a>(&'a Authority);
 impl Drop for EndAuthority<'_> {
     fn drop(&mut self) {
-        self.0.session_active.store(false, Ordering::Release);
-        self.0.peer_active.store(false, Ordering::Release);
+        self.0.end_input();
     }
 }
 pub fn start(channel: Arc<dyn DataChannel>, authority: Authority) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let result = run(channel, &authority).await;
+        let result = run(channel.clone(), &authority).await;
         // Control has no transport-recovery authority. Cleanup is owned by run's
         // ControlledDesktop drop; a lost peer always requires new local approval.
-        authority.session_active.store(false, Ordering::Release);
-        authority.peer_active.store(false, Ordering::Release);
+        authority.end_input();
+        if !authority.end_session_on_input_loss {
+            let _ = tokio::time::timeout(Duration::from_millis(500), channel.close()).await;
+        }
         if result.is_err() {
             println!("Control stopped: invalid input, expired authority or unavailable desktop.");
         }

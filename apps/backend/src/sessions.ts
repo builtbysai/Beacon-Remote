@@ -1234,6 +1234,7 @@ export async function registerSessions(
         type: "lease",
         nonce,
         maxAgeMs: 3000,
+        permissionsVersion: 1,
         expiresAtMillis: expiryMillis(),
         ...(config.TURN_URLS &&
         (!live.relayRefreshAt || performance.now() >= live.relayRefreshAt)

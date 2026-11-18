@@ -4,6 +4,13 @@ Checkpoint: November 17, 2026. Use with the [parity roadmap](rdp-vnc-parity-road
 and [next-agent handoff](next-agent-handoff.md). This ledger prevents repetition
 of completed tests and prevents source-only checks being called acceptance.
 
+For P0-4 Windows control on Surfiena, request control from a connected
+view-only session. Confirm the local prompt offers only mouse and keyboard,
+defaults to Decline, and closes on cancellation, expiry, lock, Pause or Stop.
+After approval verify the local indicator reports control, input works on the
+test target, and release occurs on channel loss. Verify the original view can
+recover without the added control, and a new control request needs consent.
+
 For P0-4 Android incoming files, start a view-only session without files.
 Request file transfer while video plays. Confirm the upload control stays
 hidden until the phone's Allow files action and the relay confirmation.

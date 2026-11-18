@@ -502,7 +502,18 @@ export function LiveView({
               "Connected — click the desktop to control. Escape releases input.",
             );
         },
-        () => finish("Control connection ended. Request control again."),
+        () => {
+          if (!upgraded) {
+            finish("Control connection ended. Request control again.");
+          } else if (!closed && inputChannel === channel) {
+            const dispose = detachInput;
+            detachInput = undefined;
+            inputChannel = undefined;
+            dispose?.();
+            channel.close();
+            setStatus("Connected — view only. Added control ended.");
+          }
+        },
         () => touchModeRef.current,
         setDisplayError,
         (platform) => {

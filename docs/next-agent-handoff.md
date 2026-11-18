@@ -25,9 +25,12 @@ handshake leaves older viewers and servers on the existing consent flow.
 Android also offers control when accessibility is enabled and the relay
 permits that viewer to request it. Local Allow control and relay confirmation
 open one input channel tied to the exact approved request. The browser waits for
-that matching result and reconnect discards the upgrade. Windows control,
-files, audio and recording still need local prompts and endpoint enforcement.
-See the test ledger for live Android approval and reconnect cases.
+that matching result and reconnect discards the upgrade. Windows control now
+uses a local scope-specific prompt while viewing continues. The host opens an
+input lane after relay confirmation, updates its visible sharing card, and
+releases added input when that viewer or channel is gone. Windows files,
+audio and recording still need local prompts and endpoint enforcement. See
+the test ledger for live approval and reconnect cases on both platforms.
 
 P0-3 Android consent now carries the delivering pairing and a monotonic
 deadline from delivery to approval. Duplicate delivery keeps the current
