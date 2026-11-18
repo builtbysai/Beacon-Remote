@@ -14,3 +14,5 @@ pub mod print_session;
 pub mod print_submit;
 #[cfg(windows)]
 pub mod printers;
+#[cfg(windows)]
+pub mod sessions;
