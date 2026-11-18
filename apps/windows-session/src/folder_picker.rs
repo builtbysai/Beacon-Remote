@@ -105,3 +105,60 @@ mod tests {
         assert!(store(&missing, false).is_err());
     }
 }
+
+/// Where the owner's printer selection is stored: one installed printer name per line.
+pub fn printer_selection_path() -> Option<PathBuf> {
+    let base = std::env::var_os("LOCALAPPDATA")?;
+    Some(
+        PathBuf::from(base)
+            .join("BeaconRemote")
+            .join("print-printers.txt"),
+    )
+}
+
+/// Stores the printers the owner chose. Every name must be installed on this computer; anything else is refused.
+pub fn store_printers(chosen: &[String], installed: &[String]) -> std::io::Result<()> {
+    if chosen.is_empty() {
+        return Err(std::io::Error::other("choose at least one printer"));
+    }
+    if let Some(unknown) = chosen.iter().find(|name| !installed.contains(name)) {
+        return Err(std::io::Error::other(format!(
+            "{unknown} is not installed here"
+        )));
+    }
+    let path =
+        printer_selection_path().ok_or_else(|| std::io::Error::other("LOCALAPPDATA is not set"))?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, chosen.join("\n") + "\n")
+}
+
+/// `--choose-printers`: with no names it lists the installed printers; with names it stores them.
+#[cfg(windows)]
+pub fn run_printer_chooser(names: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let installed = beacon_remote_session::printers::installed()?;
+    if names.is_empty() {
+        println!("Installed printers:");
+        for name in &installed {
+            println!("  {name}");
+        }
+        println!("Run again with the exact names to allow remote printing on them.");
+        return Ok(());
+    }
+    store_printers(names, &installed)?;
+    println!("Remote printing allowed on: {}", names.join(", "));
+    Ok(())
+}
+
+#[cfg(test)]
+mod printer_tests {
+    use super::*;
+
+    #[test]
+    fn only_installed_printers_can_be_stored() {
+        let installed = vec!["Office Laser".to_string()];
+        assert!(store_printers(&[], &installed).is_err());
+        assert!(store_printers(&["Unknown".to_string()], &installed).is_err());
+    }
+}

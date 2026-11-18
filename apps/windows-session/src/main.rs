@@ -39,6 +39,15 @@ mod renewal;
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // The owner's one-time folder choice for drive mapping runs on its own and exits.
     #[cfg(windows)]
+    if std::env::args().any(|arg| arg == "--choose-printers") {
+        let names: Vec<String> = std::env::args()
+            .skip(1)
+            .filter(|arg| !arg.starts_with("--"))
+            .collect();
+        return folder_picker::run_printer_chooser(&names).map_err(
+            |error| -> Box<dyn std::error::Error + Send + Sync> { error.to_string().into() },
+        );
+    }
     if std::env::args().any(|arg| arg == "--choose-drive-folder") {
         let write = std::env::args().any(|arg| arg == "--write");
         return folder_picker::run_chooser(write).map_err(

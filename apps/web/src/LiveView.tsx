@@ -22,6 +22,7 @@ import {
   readFile,
   type DriveEntry,
 } from "./drive-client.js";
+import { PrintClient } from "./print-client.js";
 import { approvedInput, approvedInputPrefix } from "./approved-input.js";
 import {
   permissionNames,
@@ -218,6 +219,10 @@ export function LiveView({
   const [driveReady, setDriveReady] = useState(false);
   const [driveEntries, setDriveEntries] = useState<DriveEntry[] | null>(null);
   const [driveError, setDriveError] = useState("");
+  // Printing (P2-1): the computer opens a print channel with each session and answers only while printing is allowed.
+  const printer = useRef<PrintClient | null>(null);
+  const [printReady, setPrintReady] = useState(false);
+  const [printStatus, setPrintStatus] = useState("");
   const [transfer, setTransfer] = useState<Transfer | null>(null);
   const [offer, setOffer] = useState<Offer | null>(null);
   const downloads = useRef(new DownloadResume());
@@ -548,6 +553,30 @@ export function LiveView({
         )
           event.channel.close();
         else upgradedInput.offer(event.channel);
+        return;
+      }
+      if (
+        event.channel.label === "beacon-print-v1" &&
+        grant.source === "desktop" &&
+        !printer.current &&
+        event.channel.ordered
+      ) {
+        const channel = event.channel;
+        const client = new PrintClient({
+          get open() {
+            return channel.readyState === "open";
+          },
+          send: (text) => channel.send(text),
+        });
+        printer.current = client;
+        channel.onmessage = (message) => client.receive(String(message.data));
+        channel.onopen = () => setPrintReady(true);
+        channel.onclose = () => {
+          client.close();
+          printer.current = null;
+          setPrintReady(false);
+        };
+        if (channel.readyState === "open") setPrintReady(true);
         return;
       }
       if (
@@ -1090,6 +1119,41 @@ export function LiveView({
               Browse shared folder
             </button>
           )}
+          {printReady && (
+            <button
+              className="viewer-control"
+              title="Send a file to a printer the owner allowed for remote printing"
+              onClick={() => {
+                const name = window
+                  .prompt("Printer name, exactly as the owner allowed it")
+                  ?.trim();
+                if (!name) return;
+                const picker = document.createElement("input");
+                picker.type = "file";
+                picker.onchange = () => {
+                  const file = picker.files?.[0];
+                  const client = printer.current;
+                  if (!file || !client) return;
+                  setPrintStatus("Sending…");
+                  file
+                    .arrayBuffer()
+                    .then((buffer) =>
+                      client.printFile(
+                        Date.now() % 4_000_000_000,
+                        name,
+                        new Uint8Array(buffer),
+                      ),
+                    )
+                    .then(() => setPrintStatus("Printed."))
+                    .catch((error: Error) => setPrintStatus(error.message));
+                };
+                picker.click();
+              }}
+            >
+              Print a file
+            </button>
+          )}
+          {printStatus && <p role="status">{printStatus}</p>}
           {driveError && <p role="status">{driveError}</p>}
           {driveEntries && (
             <ul aria-label="Shared folder">

@@ -36,6 +36,7 @@ const STATUS_ID: i32 = 1002;
 const PAUSE_ID: i32 = 1003;
 const SEND_ID: i32 = 1004;
 const REVOKE_ID: i32 = 1005;
+const MUTE_ID: i32 = 1019;
 const HEADING_ID: i32 = 1010;
 const NAME_ID: i32 = 1011;
 const SESSION_ID: i32 = 1012;
@@ -232,6 +233,20 @@ unsafe fn draw_item(state: &WindowState, item: &DRAWITEMSTRUCT) {
             Role::Secondary,
             flags,
         );
+    } else if id == MUTE_ID {
+        let label = if crate::audio::muted() {
+            "Unmute sound"
+        } else {
+            "Mute sound"
+        };
+        ui::button(
+            &canvas,
+            &state.palette,
+            (w, h),
+            label,
+            Role::Secondary,
+            flags,
+        );
     } else if id == SEND_ID {
         ui::button(
             &canvas,
@@ -324,13 +339,13 @@ unsafe fn track_hover(window: HWND, state: &WindowState) {
     } else {
         GetDlgCtrlID(over)
     };
-    let hot = if matches!(id, STOP_ID | PAUSE_ID | SEND_ID) {
+    let hot = if matches!(id, STOP_ID | PAUSE_ID | SEND_ID | MUTE_ID) {
         (id - 1000) as u8
     } else {
         0
     };
     if state.hot.swap(hot, Ordering::AcqRel) != hot {
-        for button in [STOP_ID, PAUSE_ID, SEND_ID] {
+        for button in [STOP_ID, PAUSE_ID, SEND_ID, MUTE_ID] {
             InvalidateRect(GetDlgItem(window, button), std::ptr::null(), 0);
         }
     }
@@ -411,6 +426,16 @@ unsafe extern "system" fn procedure(
         // stops any transfer and tells the viewer; screen and input continue as before.
         Permissions::default().publish(&(*state).extras);
         InvalidateRect(window, std::ptr::null(), 0);
+        return 0;
+    }
+    if message == WM_COMMAND
+        && wparam >> 16 == BN_CLICKED as usize
+        && (wparam & 0xffff) as i32 == MUTE_ID
+        && !state.is_null()
+    {
+        // Mute only stops sound toward the viewer; the picture, control and the session carry on.
+        crate::audio::set_muted(!crate::audio::muted());
+        InvalidateRect(GetDlgItem(window, MUTE_ID), std::ptr::null(), 0);
         return 0;
     }
     if message == WM_COMMAND
@@ -784,6 +809,22 @@ impl Indicator {
                         364,
                         300,
                     );
+                    // Mute stops sound toward the viewer only; video and control continue. Shown on the desktop sharing window.
+                    let mute = if desktop {
+                        make_button(
+                            MUTE_ID,
+                            if crate::audio::muted() {
+                                "Unmute sound"
+                            } else {
+                                "Mute sound"
+                            },
+                            340,
+                            364,
+                            152,
+                        )
+                    } else {
+                        std::ptr::null_mut()
+                    };
                     let controls = [
                         heading,
                         status_control,
@@ -800,7 +841,7 @@ impl Indicator {
                         revoke,
                     ];
                     if controls.iter().any(|handle| handle.is_null())
-                        || (desktop && send_file.is_null())
+                        || (desktop && (send_file.is_null() || mute.is_null()))
                         || SetTimer(window, 1, 100, None) == 0
                     {
                         DestroyWindow(window);
