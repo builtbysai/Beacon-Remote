@@ -18,12 +18,9 @@ const MAX_LIFETIME: Duration = Duration::from_secs(8 * 60 * 60);
 /// The folder this computer shares for drive mapping, if one is configured. Without one, every command is refused.
 /// `BEACON_DRIVE_FOLDER` names the folder; `BEACON_DRIVE_RIGHTS=write` allows changes, anything else is read-only.
 pub fn configured_grant(now: Instant) -> Option<Grant> {
-    let folder = std::env::var_os("BEACON_DRIVE_FOLDER")?;
-    let rights = match std::env::var("BEACON_DRIVE_RIGHTS").as_deref() {
-        Ok("write") => Rights::Write,
-        _ => Rights::Read,
-    };
-    Grant::new(std::path::PathBuf::from(folder), rights, MAX_LIFETIME, now)
+    let (folder, write) = crate::folder_picker::stored_choice()?;
+    let rights = if write { Rights::Write } else { Rights::Read };
+    Grant::new(folder, rights, MAX_LIFETIME, now)
 }
 
 /// The reply to one message. Permission is checked before the message is even parsed.

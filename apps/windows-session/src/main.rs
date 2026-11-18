@@ -16,6 +16,8 @@ mod files;
 #[cfg(windows)]
 mod files_transport;
 #[cfg(windows)]
+mod folder_picker;
+#[cfg(windows)]
 mod indicator;
 #[cfg(windows)]
 mod input;
@@ -31,6 +33,14 @@ mod pause;
 mod renewal;
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // The owner's one-time folder choice for drive mapping runs on its own and exits.
+    #[cfg(windows)]
+    if std::env::args().any(|arg| arg == "--choose-drive-folder") {
+        let write = std::env::args().any(|arg| arg == "--write");
+        return folder_picker::run_chooser(write).map_err(
+            |error| -> Box<dyn std::error::Error + Send + Sync> { error.to_string().into() },
+        );
+    }
     #[cfg(windows)]
     {
         // Whatever ends this helper, an interrupted file kept for resuming is deleted with it.
