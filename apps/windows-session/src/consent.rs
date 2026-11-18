@@ -561,7 +561,9 @@ fn request_access_inner(
         .collect();
     state.session = session.to_owned();
     state.control_requested = control;
-    state.control_chosen = upgrade == Some(LivePermission::Control);
+    // The access the viewer asked for is already selected, so one click on Allow once approves it. The
+    // person can still switch to View only, and nothing is granted until Allow once.
+    state.control_chosen = control && upgrade.is_none_or(|scope| scope == LivePermission::Control);
     unsafe {
         let instance = GetModuleHandleW(std::ptr::null());
         if instance.is_null() {

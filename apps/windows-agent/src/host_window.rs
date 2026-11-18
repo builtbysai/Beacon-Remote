@@ -1789,11 +1789,17 @@ pub fn show(background: bool) -> Result<(), io::Error> {
         place(window);
         // Started at sign-in: go straight to the tray and bring the host online. The owner chose
         // this above, and the tray icon and sharing indicator stay visible.
+        // Opened by hand on a paired computer: the host goes online at once, with the window showing
+        // its status, so there is no Start button to find. Stop host still stops it, and every
+        // connection still needs local approval.
         if background && state.paired && state.tray {
             ShowWindow(window, SW_HIDE);
             state.start();
         } else {
             ShowWindow(window, SW_SHOW);
+            if state.paired {
+                state.start();
+            }
         }
         SetFocus(if state.paired {
             state.action
