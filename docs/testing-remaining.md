@@ -66,9 +66,11 @@ viewer. Allow files delivered a 3 MiB file with a matching SHA-256. Allow contro
 first failed because the phone registered its channel observer after the input
 channel was already open, so the screen-size message was never sent and the viewer
 stayed view-only; the fix sends it when the channel is already open. After that, a
-remote tap opened the Google search box and typed text arrived. Not yet tested on
-the phone: control expiry, lock, accessibility loss, reconnect, mid-transfer
-Pause/Stop and Pause then a fresh offer.
+remote tap opened the Google search box and typed text arrived. Pause from the
+ongoing notification moved the viewer to "paused" while control was granted; the
+test driver stopped there, so a tap sent while paused was not tried. Not yet
+tested on the phone: control expiry, lock, accessibility loss, reconnect,
+mid-transfer Pause/Stop and Pause then a fresh offer.
 
 Android P0-3 now checks the dedicated **While sharing** notification channel as
 well as the app-wide notification setting. Android unit/lint/build checks passed.
