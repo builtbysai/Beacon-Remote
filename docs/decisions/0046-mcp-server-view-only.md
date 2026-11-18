@@ -23,3 +23,10 @@ Tools: `list_computers`, `request_session` (view only), `screenshot`, `session_s
 
 Pointer, keyboard, clipboard and file tools (each needs its own consent design and a per-tool allow list), more than one session, and any
 cloud-hosted use. Screenshots go to the assistant's provider, so the README says to use it only on computers whose owner accepts that.
+
+## Update: optional control tools
+
+`BEACON_MCP_CONTROL=enabled` adds `grant_control` and `control`. They are off by default, so the
+view-only contract above still holds for any server started without that setting. Control needs the
+owner's live grant on the computer first (see [0052](0052-agent-control-consent.md)), then the
+scope gate in `tools/mcp/src/agent-scope.mjs`. Nothing here has run against a live viewer yet.
