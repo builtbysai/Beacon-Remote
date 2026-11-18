@@ -1,3 +1,4 @@
+import { buildControlScript } from "./control-sender.mjs";
 const delay = (ms) => new Promise((done) => setTimeout(done, ms));
 const readState = `(() => {
   const panel=document.querySelector('.live-view');
@@ -26,6 +27,25 @@ export class RemoteSession {
       this.current === record && !record.ended && Date.now() < record.deadline
     );
   }
+  /**
+   * Runs one control command in the live viewer. The caller has already passed the scope gate; this only checks
+   * that the session is still live and that the page accepted the event. Stop is handled by ending the session.
+   */
+  async control(tool, args) {
+    const record = this.current;
+    if (!record || !this.live(record) || !record.viewer) {
+      return { ok: false, reason: "not-connected" };
+    }
+    if (tool === "stop") {
+      await this.end(record);
+      return { ok: true, result: null };
+    }
+    const script = buildControlScript(tool, args);
+    if (!script) return { ok: false, reason: "invalid" };
+    const accepted = await record.viewer.evaluate(script);
+    return accepted === true ? { ok: true, result: null } : { ok: false, reason: "not-ready" };
+  }
+
   async end(record = this.current) {
     if (!record) return false;
     record.ended = true;
