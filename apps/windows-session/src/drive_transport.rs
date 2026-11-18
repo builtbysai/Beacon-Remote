@@ -8,7 +8,7 @@ use crate::drive_map::{Grant, Rights};
 use crate::drive_wire;
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use webrtc::data_channel::{DataChannel, DataChannelEvent};
 
@@ -21,6 +21,15 @@ pub fn configured_grant(now: Instant) -> Option<Grant> {
     let (folder, write) = crate::folder_picker::stored_choice()?;
     let rights = if write { Rights::Write } else { Rights::Read };
     Grant::new(folder, rights, MAX_LIFETIME, now)
+}
+
+/// The folder grant for this connection. It is filled when the person approves drive access and picks the folder, so
+/// nothing needs setting up beforehand; a folder configured in advance is used without asking.
+pub type GrantSlot = Arc<Mutex<Option<Grant>>>;
+
+/// A read-only grant for a folder chosen while approving, lasting as long as one mapping may.
+pub fn grant_for_chosen_folder(folder: std::path::PathBuf, now: Instant) -> Option<Grant> {
+    Grant::new(folder, Rights::Read, MAX_LIFETIME, now)
 }
 
 /// The reply to one message. Permission is checked before the message is even parsed.
@@ -43,10 +52,10 @@ pub fn start(
     channel: Arc<dyn DataChannel>,
     authority: crate::input_transport::Authority,
     flags: Arc<AtomicU8>,
+    slot: GrantSlot,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let grant = configured_grant(Instant::now());
-        let result = run(channel.clone(), &authority, &flags, grant.as_ref()).await;
+        let result = run(channel.clone(), &authority, &flags, &slot).await;
         let _ = tokio::time::timeout(Duration::from_millis(500), channel.close()).await;
         if result.is_err() {
             println!("Drive channel stopped: invalid message or expired authority.");
@@ -58,7 +67,7 @@ async fn run(
     channel: Arc<dyn DataChannel>,
     authority: &crate::input_transport::Authority,
     flags: &AtomicU8,
-    grant: Option<&Grant>,
+    slot: &GrantSlot,
 ) -> Result<(), ()> {
     let mut tick = tokio::time::interval(Duration::from_millis(250));
     loop {
@@ -77,7 +86,8 @@ async fn run(
                     if !message.is_string || message.data.len() > drive_wire::MAX_MESSAGE {
                         return Err(());
                     }
-                    let reply = answer(&message.data[..], flags, grant, Instant::now());
+                    let grant = slot.lock().map_err(|_| ())?.clone();
+                    let reply = answer(&message.data[..], flags, grant.as_ref(), Instant::now());
                     tokio::time::timeout(Duration::from_millis(500), channel.send_text(&reply.to_string()))
                         .await
                         .map_err(|_| ())?
@@ -93,6 +103,23 @@ async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_folder_picked_at_approval_is_read_only_and_a_missing_one_is_refused() {
+        let root = std::env::temp_dir().join(format!("beacon-drive-picked-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.txt"), b"x").unwrap();
+        let now = Instant::now();
+        let grant = grant_for_chosen_folder(root.clone(), now).unwrap();
+        let flags = AtomicU8::new(DRIVE_BIT);
+        let write = br#"{\"op\":\"mkdir\",\"path\":[\"new\"]}"#;
+        let reply = answer(write, &flags, Some(&grant), now);
+        assert_eq!(reply["type"], "refused");
+        assert!(!root.join("new").exists());
+        assert!(grant_for_chosen_folder(root.join("missing"), now).is_none());
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn nothing_runs_without_drive_permission_or_a_folder() {

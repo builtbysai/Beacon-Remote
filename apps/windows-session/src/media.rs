@@ -1154,6 +1154,10 @@ async fn media_cycle(
     } else {
         None
     };
+    // The shared folder: one set up in advance is used as is; otherwise the person picks it when they approve.
+    let drive_slot: crate::drive_transport::GrantSlot = Arc::new(std::sync::Mutex::new(
+        crate::drive_transport::configured_grant(Instant::now()),
+    ));
     // Drive mapping (P1-4) gets its own channel, opened with the session and answered only while the drive
     // permission is granted for this connection.
     let drive_worker = if desktop {
@@ -1170,6 +1174,7 @@ async fn media_cycle(
             channel,
             input_authority(false),
             extras.clone(),
+            drive_slot.clone(),
         ))
     } else {
         None
@@ -1609,7 +1614,18 @@ async fn media_cycle(
                                         }
                                         LiveScope::Drive => {
                                             // Drive mapping only adds its own bit; file and recording permissions are untouched.
-                                            if Instant::now() < expires {
+                                            // With no folder set up in advance, the person picks the one to share now; cancelling
+                                            // the picker leaves drive access off.
+                                            let has_folder = drive_slot.lock().map(|slot| slot.is_some()).unwrap_or(false);
+                                            let mut chosen = has_folder;
+                                            if !has_folder {
+                                                if let Ok(Ok(Some(folder))) = tokio::task::spawn_blocking(crate::folder_picker::pick).await {
+                                                    if let Some(grant) = crate::drive_transport::grant_for_chosen_folder(folder, Instant::now()) {
+                                                        if let Ok(mut slot) = drive_slot.lock() { *slot = Some(grant); chosen = true; }
+                                                    }
+                                                }
+                                            }
+                                            if chosen && Instant::now() < expires + Duration::from_secs(120) {
                                                 extras.fetch_or(crate::files_transport::DRIVE_BIT, Ordering::AcqRel);
                                                 println!("Viewer {} permission added for this connection.", scope.wire());
                                             }
