@@ -173,7 +173,7 @@ class CaptureService : Service() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .addAction(0, if (paused) "Resume" else "Pause", action(ACTION_PAUSE))
             .apply {
-                if (session?.canSendFile() == true && !paused) {
+                if (session != null && !paused) {
                     addAction(0, "Send file", PendingIntent.getActivity(this@CaptureService, 2, Intent(this@CaptureService, SendFileActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
                 }
             }
