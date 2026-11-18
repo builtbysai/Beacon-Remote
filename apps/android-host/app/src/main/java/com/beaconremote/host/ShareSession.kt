@@ -300,8 +300,14 @@ class ShareSession(
             "permission-commit" -> {
                 val generation = message.optLong("generation", -1)
                 val id = message.optString("id")
-                val prompt = permissions.find(id, generation) ?: return
-                if (prompt.scope in availablePermissions(generation) &&
+                val prompt = permissions.find(id, generation)
+                if (prompt == null) {
+                    Log.w("BeaconHost", "Permission commit for an unknown or expired request")
+                    return
+                }
+                val stillAvailable = prompt.scope in availablePermissions(generation)
+                Log.i("BeaconHost", "Permission commit for ${prompt.scope.wire}: available=$stillAvailable")
+                if (stillAvailable &&
                     permissions.commit(id, generation, SystemClock.elapsedRealtime())) {
                     when (prompt.scope) {
                         LivePermission.FILES -> files?.publishReady()
@@ -523,8 +529,16 @@ class ShareSession(
     }
 
     private fun openInput(generation: Long, label: String, permitted: () -> Boolean) {
-        if (control != null) return
-        val channel = peer?.createDataChannel(label, DataChannel.Init().apply { ordered = true }) ?: return
+        if (control != null) {
+            Log.w("BeaconHost", "Input channel not opened: control is already active")
+            return
+        }
+        val channel = peer?.createDataChannel(label, DataChannel.Init().apply { ordered = true })
+        if (channel == null) {
+            Log.w("BeaconHost", "Input channel not opened: no peer connection")
+            return
+        }
+        Log.i("BeaconHost", "Input channel opened for an approved control request")
         control = RemoteControl(channel, grant.id, screenWidth, screenHeight, {
             permitted() && canShare(generation) && localActionsAllowed()
         }) { active -> post { if (viewer.owns(generation)) onControl(active) } }.also { it.start() }
