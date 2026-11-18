@@ -5,20 +5,35 @@
 // the person granted for that scope. Commands carry an idempotency key, so a retried command runs once, and a
 // per-minute bound stops a runaway agent. Nothing here grants a tool by default.
 
-export const CONTROL_TOOLS = Object.freeze(["pointer", "keyboard", "text", "clipboard_read", "stop"]);
+export const CONTROL_TOOLS = Object.freeze([
+  "pointer",
+  "keyboard",
+  "text",
+  "clipboard_read",
+  "stop",
+]);
 
 const MAX_COMMANDS_PER_MINUTE = 120;
 const MAX_LIFETIME_MS = 60 * 60 * 1000;
 
-export function createScope({ computerId, tools, expiresAt, now = Date.now() }) {
-  if (typeof computerId !== "string" || computerId.length === 0) throw new Error("A scope needs one computer.");
+export function createScope({
+  computerId,
+  tools,
+  expiresAt,
+  now = Date.now(),
+}) {
+  if (typeof computerId !== "string" || computerId.length === 0)
+    throw new Error("A scope needs one computer.");
   const granted = [...new Set(tools)];
-  if (granted.length === 0) throw new Error("A scope must grant at least one tool.");
+  if (granted.length === 0)
+    throw new Error("A scope must grant at least one tool.");
   for (const tool of granted) {
     if (!CONTROL_TOOLS.includes(tool)) throw new Error(`Unknown tool: ${tool}`);
   }
-  if (!Number.isFinite(expiresAt) || expiresAt <= now) throw new Error("The scope must expire in the future.");
-  if (expiresAt - now > MAX_LIFETIME_MS) throw new Error("A scope lasts at most one hour.");
+  if (!Number.isFinite(expiresAt) || expiresAt <= now)
+    throw new Error("The scope must expire in the future.");
+  if (expiresAt - now > MAX_LIFETIME_MS)
+    throw new Error("A scope lasts at most one hour.");
   return {
     computerId,
     tools: Object.freeze(granted),
@@ -43,15 +58,23 @@ export function revoke(scope) {
 export function authorize(scope, command, now = Date.now()) {
   if (scope.revoked) return { ok: false, reason: "revoked" };
   if (now >= scope.expiresAt) return { ok: false, reason: "expired" };
-  if (!command || typeof command !== "object") return { ok: false, reason: "invalid" };
-  if (command.computerId !== scope.computerId) return { ok: false, reason: "wrong-computer" };
-  if (!scope.tools.includes(command.tool)) return { ok: false, reason: "tool-not-granted" };
-  if (typeof command.key !== "string" || command.key.length < 8 || command.key.length > 64) {
+  if (!command || typeof command !== "object")
+    return { ok: false, reason: "invalid" };
+  if (command.computerId !== scope.computerId)
+    return { ok: false, reason: "wrong-computer" };
+  if (!scope.tools.includes(command.tool))
+    return { ok: false, reason: "tool-not-granted" };
+  if (
+    typeof command.key !== "string" ||
+    command.key.length < 8 ||
+    command.key.length > 64
+  ) {
     return { ok: false, reason: "invalid-key" };
   }
   if (scope.seenKeys.has(command.key)) return { ok: true, duplicate: true };
   scope.recent = scope.recent.filter((time) => now - time < 60_000);
-  if (scope.recent.length >= MAX_COMMANDS_PER_MINUTE) return { ok: false, reason: "rate-limited" };
+  if (scope.recent.length >= MAX_COMMANDS_PER_MINUTE)
+    return { ok: false, reason: "rate-limited" };
   scope.recent.push(now);
   scope.seenKeys.set(command.key, now);
   return { ok: true, duplicate: false };

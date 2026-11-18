@@ -4,7 +4,6 @@ import { PRINT_CHUNK, PrintClient, PrintRefused } from "../src/print-client.js";
 
 function computer(options: { permitted?: boolean; refuseBegin?: string } = {}) {
   const received: { op: string; size?: number; bytes?: number }[] = [];
-  let client: PrintClient;
   const transport = {
     open: true,
     send(text: string) {
@@ -34,7 +33,7 @@ function computer(options: { permitted?: boolean; refuseBegin?: string } = {}) {
       });
     },
   };
-  client = new PrintClient(transport);
+  const client = new PrintClient(transport);
   return { client, received };
 }
 

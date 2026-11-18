@@ -51,7 +51,8 @@ export class RemoteSession {
   /** Runs one control command in the live viewer through the scope gate. Stop ends the session. */
   async control(tool, args, key) {
     const record = this.current;
-    if (!record || !record.scope) return { ok: false, reason: "no-control-scope" };
+    if (!record || !record.scope)
+      return { ok: false, reason: "no-control-scope" };
     return runControl({
       scope: record.scope,
       command: { computerId: record.scope.computerId, tool, args, key },

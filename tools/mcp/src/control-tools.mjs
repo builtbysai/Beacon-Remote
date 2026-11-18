@@ -7,20 +7,35 @@ import { authorize, CONTROL_TOOLS } from "./agent-scope.mjs";
 
 const MAX_TEXT = 512;
 const MAX_CLIPBOARD = 32768;
-const screenPoint = (value) => Number.isInteger(value) && value >= 0 && value <= 16384;
+const screenPoint = (value) =>
+  Number.isInteger(value) && value >= 0 && value <= 16384;
 
 const validators = {
   pointer(args) {
     if (!screenPoint(args.x) || !screenPoint(args.y)) return "invalid-point";
-    if (args.button !== undefined && !["left", "right", "none"].includes(args.button)) return "invalid-button";
+    if (
+      args.button !== undefined &&
+      !["left", "right", "none"].includes(args.button)
+    )
+      return "invalid-button";
     return null;
   },
   keyboard(args) {
-    if (typeof args.key !== "string" || args.key.length === 0 || args.key.length > 32) return "invalid-key-name";
+    if (
+      typeof args.key !== "string" ||
+      args.key.length === 0 ||
+      args.key.length > 32
+    )
+      return "invalid-key-name";
     return null;
   },
   text(args) {
-    if (typeof args.text !== "string" || args.text.length === 0 || args.text.length > MAX_TEXT) return "invalid-text";
+    if (
+      typeof args.text !== "string" ||
+      args.text.length === 0 ||
+      args.text.length > MAX_TEXT
+    )
+      return "invalid-text";
     return null;
   },
   clipboard_read() {
@@ -33,8 +48,10 @@ const validators = {
 
 /** Runs one control command. Returns { ok, reason? } or { ok, result } and never throws on a refusal. */
 export async function runControl({ scope, command, send, now = Date.now() }) {
-  if (!command || typeof command !== "object") return { ok: false, reason: "invalid" };
-  if (!CONTROL_TOOLS.includes(command.tool)) return { ok: false, reason: "unknown-tool" };
+  if (!command || typeof command !== "object")
+    return { ok: false, reason: "invalid" };
+  if (!CONTROL_TOOLS.includes(command.tool))
+    return { ok: false, reason: "unknown-tool" };
   const verdict = authorize(scope, command, now);
   if (!verdict.ok) return verdict;
   if (verdict.duplicate) return { ok: true, duplicate: true };
@@ -46,7 +63,10 @@ export async function runControl({ scope, command, send, now = Date.now() }) {
     if (command.tool === "clipboard_read" && typeof result?.text === "string") {
       // The viewer's own limit: a longer copy is cut and marked, never sent whole.
       const text = result.text.slice(0, MAX_CLIPBOARD);
-      return { ok: true, result: { text, truncated: result.text.length > MAX_CLIPBOARD } };
+      return {
+        ok: true,
+        result: { text, truncated: result.text.length > MAX_CLIPBOARD },
+      };
     }
     return { ok: true, result: result ?? null };
   } catch {

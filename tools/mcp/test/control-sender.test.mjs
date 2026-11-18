@@ -18,8 +18,15 @@ test("commands the sender cannot build are refused, not guessed", () => {
 });
 
 test("a pointer click builds move, press and release on the viewer's video", () => {
-  const script = buildControlScript("pointer", { x: 10, y: 20, button: "left" });
-  assert.match(script, /document\.querySelector\('\[data-state="viewing"\] video'\)/);
+  const script = buildControlScript("pointer", {
+    x: 10,
+    y: 20,
+    button: "left",
+  });
+  assert.match(
+    script,
+    /document\.querySelector\('\[data-state="viewing"\] video'\)/,
+  );
   assert.match(script, /pointerdown/);
   assert.match(script, /pointerup/);
   assert.match(script, /10 \* scale/);

@@ -10,7 +10,11 @@ const segment = z
   .min(1)
   .max(255)
   .refine((name) => name !== "." && name !== "..", "relative traversal")
-  .refine((name) => !/[\\/:*?"<>|\u0000-\u001f]/.test(name), "unsafe character")
+  .refine(
+    (name) => ![...name].some((char) => char.charCodeAt(0) < 32),
+    "control character",
+  )
+  .refine((name) => !/[\\/:*?"<>|]/.test(name), "unsafe character")
   .refine((name) => !/[. ]$/.test(name), "Windows trailing dot or space")
   .refine(
     (name) => !/^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\.|$)/i.test(name),
