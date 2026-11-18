@@ -165,6 +165,7 @@ class RemoteControl(
             "clipboard_read" -> {
                 // The viewer accepts at most 32768 characters; a longer copy is sent from its start and marked truncated.
                 val text = service.readClipboardText()
+                Log.i(TAG, "Clipboard read requested: ${text?.length?.let { "returned $it characters" } ?: "unavailable"}")
                 val reply =
                     if (text.isNullOrEmpty()) {
                         JSONObject().put("type", "clipboard").put("text", "").put("truncated", false).put("unavailable", true)
