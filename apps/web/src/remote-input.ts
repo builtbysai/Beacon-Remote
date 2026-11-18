@@ -84,6 +84,21 @@ const extended: Record<string, number> = {
   },
 );
 
+/**
+ * Converts one browser wheel delta into Windows wheel units (WHEEL_DELTA = 120 is one notch). A typical
+ * mouse notch is 100 CSS pixels in Chrome, so pixel deltas are scaled by 120/100 instead of being sent raw,
+ * which under-scrolled ordinary wheels; line and page deltas map to notches directly.
+ */
+export function wheelUnits(delta: number, deltaMode: number): number {
+  const perPixel = 1.2;
+  const perLine = 120;
+  const perPage = 120 * 24;
+  const scale =
+    deltaMode === 1 ? perLine : deltaMode === 2 ? perPage : perPixel;
+  const units = Math.round(delta * scale);
+  return Math.max(-32767, Math.min(32767, units));
+}
+
 /** Validates the computer's description of what is being controlled; null if it is not one. */
 export function parseDisplay(raw: string): {
   id: string;
@@ -388,17 +403,10 @@ export function attachRemoteInput(
     if (!display || document.activeElement !== element) return;
     event.preventDefault();
     flush();
-    const unit = event.deltaMode === 1 ? 40 : event.deltaMode === 2 ? 800 : 1;
     send({
       type: "scroll",
-      horizontal: Math.max(
-        -32767,
-        Math.min(32767, Math.round(event.deltaX * unit)),
-      ),
-      vertical: Math.max(
-        -32767,
-        Math.min(32767, Math.round(-event.deltaY * unit)),
-      ),
+      horizontal: wheelUnits(event.deltaX, event.deltaMode),
+      vertical: wheelUnits(-event.deltaY, event.deltaMode),
     });
   };
   const key = (event: KeyboardEvent, textMode = false) => {
