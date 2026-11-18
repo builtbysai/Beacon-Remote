@@ -221,3 +221,13 @@ afterwards and the backend returned to `relay`). A Pixel 7a session (release
 57 to 67 across two samples. The viewer's route label showed "Unavailable" for
 this pair, which is a labelling gap to fix. Still open: a direct run on a second
 network, and Windows direct-route acceptance.
+
+### Clipboard copy from the phone, focused viewer (November 17, 2026)
+
+Pixel 7a `77673ca`, accessibility control on, isolated backend on relay policy,
+locally built viewer with its page brought to the front and clipboard
+permission granted for the test origin. The phone's clipboard held a 22-character
+probe. "Copy from computer" produced the viewer notice "Copied from the computer."
+and the browser clipboard read back the probe text exactly. The earlier refusal
+was the unfocused automated window, not a product fault. Viewer-to-phone paste
+remains typed input.
