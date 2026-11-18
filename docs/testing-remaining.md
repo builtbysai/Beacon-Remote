@@ -178,3 +178,12 @@ had no Send file action (notification built before the channel opened); a
 second run cancelled because the picker's read grant expired (fixed with a
 persistable grant released when the transfer ends). Still open: a
 mid-transfer Pause/Stop/cancel check on the phone and sending over a direct route.
+
+### Pause mid-transfer (November 17, 2026)
+
+Pixel 7a release `8e6ad65`, 150 MB test file (157,286,400 bytes) offered from
+the phone's sharing notification. The viewer accepted and streaming began; the
+phone's Pause action stopped the stream at once (sender log: stopped with
+allowed=false, cancel sent). The viewer showed "Cancelled" and its downloads
+folder held no partial copy. Still open: Stop mid-transfer, direct route, and a
+Pause that resumes into a fresh offer.
