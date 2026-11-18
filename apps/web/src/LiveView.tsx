@@ -953,6 +953,7 @@ export function LiveView({
       ref={shell}
       className="live-view"
       data-session-id={grant.id}
+      data-control={controlReady ? "granted" : "none"}
       data-state={
         ended
           ? "ended"
