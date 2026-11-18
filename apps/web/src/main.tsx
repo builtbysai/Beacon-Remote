@@ -1208,17 +1208,27 @@ function App() {
                           className="device-open"
                           disabled={!canView}
                           onClick={() => {
-                            void testVideo(machine);
+                            // One click: ask for viewing and control together. The person at the
+                            // computer sees both and can choose View only; nothing is granted until
+                            // they approve. Open the details for a view-only request.
+                            void testVideo(
+                              machine,
+                              controlEnabled
+                                ? "desktop:control"
+                                : "desktop:view",
+                            );
                           }}
                           title={
                             !mediaEnabled
                               ? "Desktop access is unavailable on this server"
-                              : machine.accessMode === "trusted"
-                                ? "View only; this computer is set to trusted access"
+                              : controlEnabled
+                                ? machine.accessMode === "trusted"
+                                  ? "View and control; this computer is set to trusted access"
+                                  : "View and control; requires approval on this device"
                                 : "View only; requires approval on this device"
                           }
                         >
-                          View
+                          Connect
                         </button>
                       ) : (
                         <span />
