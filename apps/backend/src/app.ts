@@ -689,7 +689,9 @@ export async function createApp(
       .object({ wait: z.literal("1").optional(), handled: z.uuid().optional() })
       .strict()
       .safeParse(request.query);
-    if (!query.success || (query.data.handled && !query.data.wait))
+    // `handled` only hides a grant the host already dealt with, so it is fine without a long poll. Older
+    // hosts send it alone after one failed request and must be able to recover.
+    if (!query.success)
       return reply.code(400).send({ error: "Invalid heartbeat options" });
     const parsed = heartbeat.safeParse(request.body);
     if (!parsed.success)

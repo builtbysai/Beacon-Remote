@@ -567,7 +567,9 @@ impl PresencePolling {
         failures: u32,
         handled: Option<&str>,
     ) -> Result<(bool, reqwest::blocking::RequestBuilder), HostError> {
-        let wait = self.established && failures == 0;
+        // A request that names a handled grant always waits: the server accepts that option only with a
+        // long poll, and sending it alone was rejected forever after one dropped request.
+        let wait = (self.established && failures == 0) || handled.is_some();
         let mut query = Vec::new();
         if wait {
             query.push(("wait", "1"));
@@ -1092,6 +1094,28 @@ mod presence_tests {
         assert!(waiting);
         assert_eq!(polling.acknowledge(waiting, Some(15000)), 15000);
         assert_eq!(polling.acknowledge(waiting, Some(123)), 15000);
+    }
+
+    #[test]
+    fn a_handled_grant_is_never_sent_without_waiting_even_after_failures() {
+        let client = reqwest::blocking::Client::new();
+        let origin = reqwest::Url::parse("http://127.0.0.1:1").unwrap();
+        let mut polling = PresencePolling::default();
+        polling.acknowledge(true, Some(15000));
+        for failures in [0, 1, 7] {
+            let (waiting, request) = polling
+                .request(
+                    &client,
+                    &origin,
+                    failures,
+                    Some("3499597e-d5ce-412d-8a94-d5f281d59e9a"),
+                )
+                .unwrap();
+            assert!(waiting);
+            let url = request.build().unwrap().url().clone();
+            let query: Vec<_> = url.query_pairs().map(|(key, _)| key.into_owned()).collect();
+            assert_eq!(query, ["wait", "handled"]);
+        }
     }
 
     #[test]
