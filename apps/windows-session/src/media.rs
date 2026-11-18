@@ -1326,6 +1326,7 @@ async fn media_cycle(
                     connected.load(Ordering::Acquire),
                     last != 0 && remaining(last, epoch.elapsed().as_millis() as u64).is_some(),
                     crate::pause::is_paused(),
+                    crate::audio::muted(),
                     viewer_generation.load(Ordering::Acquire) == generation,
                 )
             };
