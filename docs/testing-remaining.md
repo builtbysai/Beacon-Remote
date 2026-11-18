@@ -59,6 +59,17 @@ timeout, that subsequent selected files do not start, and that the receiving
 endpoint discards or retains its partial file as appropriate. Verify interrupted
 Windows uploads still resume when the receiver retained matching bytes.
 
+Pixel 7a live permission upgrades (November 18, 2026, acceptance backend,
+signed build `99d3739`): with Bedtime on, the prompt reaches the ongoing sharing
+notification as well as the request channel. Decline reported "declined" in the
+viewer. Allow files delivered a 3 MiB file with a matching SHA-256. Allow control
+first failed because the phone registered its channel observer after the input
+channel was already open, so the screen-size message was never sent and the viewer
+stayed view-only; the fix sends it when the channel is already open. After that, a
+remote tap opened the Google search box and typed text arrived. Not yet tested on
+the phone: control expiry, lock, accessibility loss, reconnect, mid-transfer
+Pause/Stop and Pause then a fresh offer.
+
 Android P0-3 now checks the dedicated **While sharing** notification channel as
 well as the app-wide notification setting. Android unit/lint/build checks passed.
 The guarded Android API 36 emulator test removed the channel while app-wide
