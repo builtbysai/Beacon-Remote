@@ -9,7 +9,7 @@ use crate::print_session::{Message, PrintSession, Reply};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use webrtc::data_channel::{DataChannel, DataChannelEvent};
 
 /// Largest single chunk message, matching the drive channel's bound.
@@ -104,10 +104,14 @@ async fn run(
     session: &mut PrintSession,
 ) -> Result<(), ()> {
     let mut tick = tokio::time::interval(Duration::from_millis(250));
+    // The channel is created before the connection is up, so authority is only judged once it has opened;
+    // a channel that never opens is given up on after a minute.
+    let mut opened = false;
+    let started = Instant::now();
     loop {
         tokio::select! {
             _ = tick.tick() => {
-                if !authority.live() {
+                if (opened && !authority.live()) || (!opened && started.elapsed() > Duration::from_secs(60)) {
                     return Ok(());
                 }
             }
@@ -126,6 +130,7 @@ async fn run(
                         .map_err(|_| ())?;
                 }
                 Some(DataChannelEvent::OnClose | DataChannelEvent::OnError) | None => return Ok(()),
+                Some(DataChannelEvent::OnOpen) => opened = true,
                 Some(_) => {}
             }
         }

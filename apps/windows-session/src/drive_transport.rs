@@ -70,10 +70,14 @@ async fn run(
     slot: &GrantSlot,
 ) -> Result<(), ()> {
     let mut tick = tokio::time::interval(Duration::from_millis(250));
+    // The channel is created before the connection is up, so authority is only judged once it has opened;
+    // a channel that never opens is given up on after a minute.
+    let mut opened = false;
+    let started = Instant::now();
     loop {
         tokio::select! {
             _ = tick.tick() => {
-                if !authority.live() {
+                if (opened && !authority.live()) || (!opened && started.elapsed() > Duration::from_secs(60)) {
                     return Ok(());
                 }
             }
@@ -94,6 +98,7 @@ async fn run(
                         .map_err(|_| ())?;
                 }
                 Some(DataChannelEvent::OnClose | DataChannelEvent::OnError) | None => return Ok(()),
+                Some(DataChannelEvent::OnOpen) => opened = true,
                 Some(_) => {}
             }
         }
