@@ -16,7 +16,12 @@ import { attachRemoteInput } from "./remote-input.js";
 import type { TouchMode } from "./touch-input.js";
 import type { DisplayInfo, SessionPermission } from "@beacon-remote/protocol";
 import { api } from "./api.js";
-import { DriveClient, type DriveEntry } from "./drive-client.js";
+import {
+  DriveClient,
+  driveOps,
+  readFile,
+  type DriveEntry,
+} from "./drive-client.js";
 import { approvedInput, approvedInputPrefix } from "./approved-input.js";
 import {
   permissionNames,
@@ -1091,7 +1096,52 @@ export function LiveView({
               {driveEntries.map((entry) => (
                 <li key={entry.name}>
                   {entry.name}
-                  {entry.isDir ? "/" : ""}
+                  {entry.isDir ? "/" : ""}{" "}
+                  {!entry.isDir && (
+                    <button
+                      className="viewer-control"
+                      onClick={() => {
+                        const client = drive.current;
+                        if (!client) return;
+                        setDriveError("");
+                        readFile(client, [entry.name], entry.size)
+                          .then((bytes) => {
+                            const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>]));
+                            const link = document.createElement("a");
+                            link.href = url;
+                            link.download = entry.name;
+                            link.click();
+                            setTimeout(() => URL.revokeObjectURL(url), 1000);
+                          })
+                          .catch((error: Error) =>
+                            setDriveError(error.message),
+                          );
+                      }}
+                    >
+                      Download {entry.name}
+                    </button>
+                  )}{" "}
+                  <button
+                    className="viewer-control"
+                    onClick={() => {
+                      const client = drive.current;
+                      if (!client) return;
+                      if (
+                        !window.confirm(
+                          `Delete ${entry.name} from the shared folder? This cannot be undone.`,
+                        )
+                      )
+                        return;
+                      setDriveError("");
+                      driveOps
+                        .remove(client, [entry.name])
+                        .then(() => client.list([]))
+                        .then((entries) => setDriveEntries(entries))
+                        .catch((error: Error) => setDriveError(error.message));
+                    }}
+                  >
+                    Delete {entry.name}
+                  </button>
                 </li>
               ))}
             </ul>

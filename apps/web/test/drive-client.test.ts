@@ -58,3 +58,69 @@ test("an unreadable or unknown reply rejects instead of answering the wrong comm
   client.receive(JSON.stringify({ type: "surprise" }));
   await assert.rejects(second, /unknown reply/);
 });
+
+import { readFile, writeFile, DRIVE_CHUNK } from "../src/drive-client.js";
+
+// A stand-in computer: answers reads and writes from one in-memory file, the way the host does.
+function fakeComputer(initial: Uint8Array) {
+  let content = initial;
+  const transport = {
+    open: true,
+    send(text: string) {
+      const command = JSON.parse(text);
+      queueMicrotask(() => {
+        if (command.op === "read") {
+          const slice = content.subarray(
+            command.offset,
+            command.offset + command.length,
+          );
+          client.receive(
+            JSON.stringify({
+              type: "data",
+              data: Buffer.from(slice).toString("base64"),
+            }),
+          );
+        } else if (command.op === "write") {
+          const data = Buffer.from(command.data, "base64");
+          const next = new Uint8Array(
+            Math.max(content.length, command.offset + data.length),
+          );
+          next.set(content);
+          next.set(data, command.offset);
+          content = next;
+          client.receive(JSON.stringify({ type: "done" }));
+        } else {
+          client.receive(JSON.stringify({ type: "done" }));
+        }
+      });
+    },
+  };
+  const client = new DriveClient(transport);
+  return {
+    client,
+    get content() {
+      return content;
+    },
+  };
+}
+
+test("files move in bounded steps and arrive byte for byte", async () => {
+  const original = new Uint8Array(DRIVE_CHUNK * 2 + 17).map(
+    (_, i) => (i * 31) & 255,
+  );
+  const computer = fakeComputer(original);
+  const read = await readFile(computer.client, ["a.bin"], original.length);
+  assert.deepEqual(read, original);
+  const upload = new Uint8Array(DRIVE_CHUNK + 5).map((_, i) => (i * 7) & 255);
+  const sink = fakeComputer(new Uint8Array(0));
+  await writeFile(sink.client, ["b.bin"], upload);
+  assert.deepEqual(sink.content, upload);
+});
+
+test("a file that shrinks while it is read is reported, not padded with zeros", async () => {
+  const computer = fakeComputer(new Uint8Array(10));
+  await assert.rejects(
+    readFile(computer.client, ["x"], 20),
+    /changed while it was read/,
+  );
+});

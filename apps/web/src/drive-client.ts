@@ -106,3 +106,71 @@ export class DriveClient {
     });
   }
 }
+
+/** Largest read or write one step asks for; matches the computer's bound. */
+export const DRIVE_CHUNK = 256 * 1024;
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function base64ToBytes(text: string): Uint8Array {
+  const binary = atob(text);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+/** Reads a whole file from the shared folder in bounded steps. `onProgress` gets bytes so far. */
+export async function readFile(
+  client: DriveClient,
+  path: string[],
+  size: number,
+  onProgress?: (done: number) => void,
+): Promise<Uint8Array> {
+  const out = new Uint8Array(new ArrayBuffer(size));
+  let offset = 0;
+  while (offset < size) {
+    const length = Math.min(DRIVE_CHUNK, size - offset);
+    const reply = await client.run({ op: "read", path, offset, length });
+    if (reply.type !== "data") throw new Error("Unexpected reply to read.");
+    const chunk = base64ToBytes(reply.data);
+    if (chunk.length === 0)
+      throw new Error("The file changed while it was read.");
+    out.set(chunk, offset);
+    offset += chunk.length;
+    onProgress?.(offset);
+  }
+  return out;
+}
+
+/** Writes a file into the shared folder in bounded steps, starting from an empty file. */
+export async function writeFile(
+  client: DriveClient,
+  path: string[],
+  bytes: Uint8Array,
+  onProgress?: (done: number) => void,
+): Promise<void> {
+  let offset = 0;
+  // An empty file is created by writing nothing useful; the computer rejects zero-length writes, so skip it.
+  if (bytes.length === 0) throw new Error("Empty files are not sent.");
+  while (offset < bytes.length) {
+    const chunk = bytes.subarray(offset, offset + DRIVE_CHUNK);
+    await client.run({ op: "write", path, offset, data: bytesToBase64(chunk) });
+    offset += chunk.length;
+    onProgress?.(offset);
+  }
+}
+
+export const driveOps = {
+  mkdir: (client: DriveClient, path: string[]) =>
+    client.run({ op: "mkdir", path }),
+  rename: (client: DriveClient, from: string[], to: string[]) =>
+    client.run({ op: "rename", from, to }),
+  remove: (client: DriveClient, path: string[]) =>
+    client.run({ op: "delete", path }),
+  stat: (client: DriveClient, path: string[]) =>
+    client.run({ op: "stat", path }),
+};
