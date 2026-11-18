@@ -49,6 +49,9 @@ type Entry = {
   viewerTokenHash?: string;
   detachedUntil?: number;
   relayRefreshAt?: number;
+  // When the computer or phone last asked to renew its lease. Hosts ask about once a second while
+  // sharing, so a long silence means the connection died without closing (Wi-Fi lost, battery pulled).
+  machineRenewedAt?: number;
   // How long a session waits for its viewer to come back after the connection drops.
   reconnectMs: number;
   generation: number;
@@ -59,6 +62,13 @@ const RECONNECT_ATTENDED_MS = 120_000;
 // Peers replaced within one session (each reconnect is one). Generous: a long session on a poor
 // network reconnects often, and each one is bounded by the lease and the reconnect window.
 const MAX_GENERATIONS = 1024;
+// A sharing host that has asked for a lease and then goes quiet this long is gone; end the session
+// so the viewer is told instead of waiting out its reconnect window.
+const MACHINE_SILENCE_MS = 15_000;
+// True once a host that had been renewing its lease has been quiet longer than the allowance.
+export function machineSilent(renewedAt: number | undefined, now: number) {
+  return renewedAt !== undefined && now - renewedAt > MACHINE_SILENCE_MS;
+}
 // A computer can be shared with a bounded number of helpers at once.
 const MAX_HELPERS_PER_MACHINE = 20;
 const RECONNECT_TRUSTED_MS = 300_000;
@@ -1178,6 +1188,7 @@ export async function registerSessions(
             if (
               !valid.rowCount ||
               (live.viewer && live.viewer.readyState !== 1) ||
+              machineSilent(live.machineRenewedAt, performance.now()) ||
               (live.detachedUntil !== undefined &&
                 performance.now() >= live.detachedUntil)
             ) {
@@ -1338,6 +1349,7 @@ export async function registerSessions(
             )
               return;
             if (body.type === "renew") {
+              if (role === "machine") live.machineRenewedAt = performance.now();
               const viewer = live.viewer as
                 (WebSocket & { accountRequest?: FastifyRequest }) | undefined;
               if (role !== "machine" || current.rows[0].status !== "active") {

@@ -84,6 +84,18 @@ the phone: control expiry, lock, accessibility loss, mid-transfer Pause/Stop and
 Pause then a fresh offer. Measured on the Pixel through the relay (one sample,
 view only): approval to first frame 689 ms, round trip 58 ms, 576x1280 video.
 
+Surfiena Windows host (November 18, 2026, acceptance backend, signed development
+package for `03d649a` staged into the existing isolated fixture; you clicked
+Start host and Allow once on the laptop): view-only video and Stop passed through
+the relay. 406 frames decoded in 15 seconds, 27.6 FPS, 57 ms round trip, 1280x720.
+Approval to first frame was 11.8 seconds, which includes the person's response.
+The host needed "Start host" to be clicked after the fixture launched it. Input,
+printing, the mute button, session listing, monitor changes and the drive folder
+picker were not run in this pass. The backend now also ends a session whose host
+has gone silent for 15 seconds after it was renewing its lease (it was not
+deployed to the acceptance VM); before this, a phone that lost its connection left
+the viewer on "Reconnecting" until the reconnect window ran out.
+
 Android P0-3 now checks the dedicated **While sharing** notification channel as
 well as the app-wide notification setting. Android unit/lint/build checks passed.
 The guarded Android API 36 emulator test removed the channel while app-wide
