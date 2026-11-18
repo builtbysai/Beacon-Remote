@@ -124,20 +124,28 @@ class CaptureService : Service() {
 
     private fun refresh() = getSystemService(NotificationManager::class.java).notify(3, build())
 
+    // The request waiting for the person's answer. It is also shown on the ongoing sharing notification, because
+    // Do Not Disturb / Bedtime can hide an ordinary notification from the shade while an ongoing one stays visible.
+    @Volatile private var prompting: LivePermissionPrompt? = null
+
+    private fun permissionAction(prompt: LivePermissionPrompt, name: String): PendingIntent {
+        val decision = Intent(this, CaptureService::class.java).setAction(name)
+            .setData(Uri.Builder().scheme("beacon-remote").authority("permission").appendPath(prompt.id).build())
+            .putExtra("session", prompt.sessionId)
+            .putExtra("request", prompt.id)
+            .putExtra("generation", prompt.generation)
+        return PendingIntent.getService(this, 0, decision, PendingIntent.FLAG_IMMUTABLE)
+    }
+
     private fun showPermissionPrompt(prompt: LivePermissionPrompt?) {
         val manager = getSystemService(NotificationManager::class.java)
+        prompting = prompt
         if (prompt == null) {
             manager.cancel(PERMISSION_NOTIFICATION)
+            if (session != null) refresh()
             return
         }
-        fun action(name: String): PendingIntent {
-            val decision = Intent(this, CaptureService::class.java).setAction(name)
-                .setData(Uri.Builder().scheme("beacon-remote").authority("permission").appendPath(prompt.id).build())
-                .putExtra("session", prompt.sessionId)
-                .putExtra("request", prompt.id)
-                .putExtra("generation", prompt.generation)
-            return PendingIntent.getService(this, 0, decision, PendingIntent.FLAG_IMMUTABLE)
-        }
+        fun action(name: String) = permissionAction(prompt, name)
         val input = prompt.scope == LivePermission.CONTROL
         // A request the person must answer is posted on the high-importance request channel, not the silent
         // "While sharing" one, so it appears as a heads-up and cannot sit unseen in the shade until it expires.
@@ -156,6 +164,7 @@ class CaptureService : Service() {
             .addAction(0, "Decline", action(ACTION_DECLINE_PERMISSION))
             .addAction(0, if (input) "Allow control" else "Allow files", action(ACTION_ALLOW_PERMISSION))
             .build())
+        refresh()
     }
 
     private fun build(): Notification {
@@ -166,6 +175,21 @@ class CaptureService : Service() {
                 Intent(this, CaptureService::class.java).setAction(name),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
+        val waiting = prompting
+        if (waiting != null) {
+            val input = waiting.scope == LivePermission.CONTROL
+            return NotificationCompat.Builder(this, SharingNotifications.CHANNEL)
+                .setSmallIcon(R.drawable.ic_stat_beacon)
+                .setContentTitle(if (input) "Allow this viewer to control the phone?" else "Allow this viewer to send files?")
+                .setContentText(if (input) "They can touch and type until this connection ends."
+                    else "Files are saved in Downloads/Beacon Remote during this connection.")
+                .setOngoing(true)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .addAction(0, "Decline", permissionAction(waiting, ACTION_DECLINE_PERMISSION))
+                .addAction(0, if (input) "Allow control" else "Allow files", permissionAction(waiting, ACTION_ALLOW_PERMISSION))
+                .addAction(0, "Stop", action(ACTION_STOP))
+                .build()
+        }
         return NotificationCompat.Builder(this, SharingNotifications.CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_beacon)
             .setContentTitle(
