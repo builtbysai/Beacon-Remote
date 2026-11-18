@@ -58,16 +58,17 @@ class ShareSession(
     private val filesAllowed: Boolean = false,
     private val unattended: Boolean = false,
     private val onControl: (Boolean) -> Unit = {},
-    private val onFilePrompt: ((FilePermissionPrompt?) -> Unit)? = null,
+    private val onPermissionPrompt: ((LivePermissionPrompt?) -> Unit)? = null,
     private val onEnded: (String) -> Unit,
 ) {
     private val worker = Executors.newSingleThreadScheduledExecutor()
     private var socket: WebSocket? = null
     @Volatile private var ended = false
     private val viewer = ViewerConnection()
-    private val filePermission = FilePermissionRequest()
+    private val permissions = LivePermissionRequest()
     private var permissionsVersion = 0
-    private var filesAdvertised = false
+    private var advertised = emptySet<LivePermission>()
+    private var dataTransportAvailable = false
     @Volatile private var paused = false
 
     // Lease bookkeeping, in SystemClock.elapsedRealtime milliseconds.
@@ -148,42 +149,50 @@ class ShareSession(
             paused = value
             if (value) control?.release()
             refreshVideo()
-            refreshFileOptions()
+            refreshPermissionOptions()
             socket?.send(JSONObject().put("type", "paused").put("paused", value).toString())
         }
     }
 
-    fun decideFilePermission(sessionId: String, id: String, generation: Long, allow: Boolean) {
+    fun decidePermission(sessionId: String, id: String, generation: Long, allow: Boolean) {
         post {
             if (sessionId != grant.id) return@post
-            val approved = allow && canAskForFiles(generation)
-            val prompt = filePermission.respond(id, generation, approved, SystemClock.elapsedRealtime()) ?: return@post
-            onFilePrompt?.invoke(null)
-            sendFileDecision(prompt, approved)
-            refreshFileOptions()
+            val request = permissions.find(id, generation) ?: return@post
+            val approved = allow && request.scope in availablePermissions(generation)
+            val prompt = permissions.respond(id, generation, approved, SystemClock.elapsedRealtime()) ?: return@post
+            onPermissionPrompt?.invoke(null)
+            sendPermissionDecision(prompt, approved)
+            refreshPermissionOptions()
         }
     }
 
-    private fun canAskForFiles(generation: Long): Boolean =
-        permissionsVersion == 1 && onFilePrompt != null && files?.isOpen() == true &&
-            !filesAllowed && !filePermission.allowed(generation) &&
-            canShare(generation) && localActionsAllowed() &&
-            context.getSystemService(KeyguardManager::class.java).let { !it.isDeviceLocked && !it.isKeyguardLocked }
-
-    private fun refreshFileOptions() {
-        val available = canAskForFiles(viewer.generation)
-        filePermission.cancelIfUnavailable(SystemClock.elapsedRealtime(), available)?.let {
-            onFilePrompt?.invoke(null)
-            sendFileDecision(it, false)
+    private fun availablePermissions(generation: Long): Set<LivePermission> {
+        if (permissionsVersion != 1 || onPermissionPrompt == null || !canShare(generation) || !localActionsAllowed()) return emptySet()
+        if (!deviceUnlocked()) return emptySet()
+        return buildSet {
+            if (!filesAllowed && files?.isOpen() == true && !permissions.allowed(generation, LivePermission.FILES)) add(LivePermission.FILES)
+            if (dataTransportAvailable && control == null && ControlService.enabled(context) && ControlService.instance != null &&
+                !permissions.allowed(generation, LivePermission.CONTROL)) add(LivePermission.CONTROL)
         }
-        if (!viewer.owns(viewer.generation) || available == filesAdvertised) return
-        filesAdvertised = available
+    }
+
+    private fun deviceUnlocked(): Boolean =
+        context.getSystemService(KeyguardManager::class.java).let { !it.isDeviceLocked && !it.isKeyguardLocked }
+
+    private fun refreshPermissionOptions() {
+        val available = availablePermissions(viewer.generation)
+        permissions.cancelIfUnavailable(SystemClock.elapsedRealtime(), available)?.let {
+            onPermissionPrompt?.invoke(null)
+            sendPermissionDecision(it, false)
+        }
+        if (!viewer.owns(viewer.generation) || available == advertised) return
+        advertised = available
         socket?.send(JSONObject().put("type", "permission-options")
             .put("generation", viewer.generation)
-            .put("scopes", org.json.JSONArray(if (available) listOf("files") else emptyList<String>())).toString())
+            .put("scopes", org.json.JSONArray(available.map { it.wire })).toString())
     }
 
-    private fun sendFileDecision(prompt: FilePermissionPrompt, approved: Boolean) {
+    private fun sendPermissionDecision(prompt: LivePermissionPrompt, approved: Boolean) {
         socket?.send(JSONObject().put("type", "permission-decision")
             .put("generation", prompt.generation).put("id", prompt.id).put("approved", approved).toString())
     }
@@ -252,7 +261,7 @@ class ShareSession(
             return
         }
         control?.quietCheck()
-        refreshFileOptions()
+        refreshPermissionOptions()
         sequence += 1
         challenges.addLast(sequence.toString() to now)
         while (challenges.size > 4) challenges.removeFirst()
@@ -264,26 +273,34 @@ class ShareSession(
         when (message.optString("type")) {
             "joined" -> permissionsVersion = message.optInt("permissionsVersion")
             "permission-prompt" -> {
-                if (permissionsVersion != 1 || message.optString("scope") != "files") return
+                if (permissionsVersion != 1) return
+                val scope = LivePermission.entries.firstOrNull { it.wire == message.optString("scope") } ?: return
                 val generation = message.optLong("generation", -1)
                 val id = message.optString("id")
                 if (runCatching { UUID.fromString(id).toString() }.getOrNull() != id) return
-                val prompt = FilePermissionPrompt(grant.id, id, generation, message.optLong("timeoutMs"))
-                if (!canAskForFiles(generation) || !filePermission.begin(prompt, SystemClock.elapsedRealtime())) {
-                    sendFileDecision(prompt, false)
+                val prompt = LivePermissionPrompt(grant.id, id, generation, message.optLong("timeoutMs"), scope)
+                if (scope !in availablePermissions(generation) || !permissions.begin(prompt, SystemClock.elapsedRealtime())) {
+                    sendPermissionDecision(prompt, false)
                     return
                 }
-                onFilePrompt?.invoke(prompt)
+                onPermissionPrompt?.invoke(prompt)
             }
             "permission-dismiss" -> {
-                if (filePermission.cancel(message.optString("id"), message.optLong("generation", -1))) onFilePrompt?.invoke(null)
+                if (permissions.cancel(message.optString("id"), message.optLong("generation", -1))) onPermissionPrompt?.invoke(null)
             }
             "permission-commit" -> {
                 val generation = message.optLong("generation", -1)
-                if (canAskForFiles(generation) &&
-                    filePermission.commit(message.optString("id"), generation, SystemClock.elapsedRealtime())) {
-                    files?.publishReady()
-                    refreshFileOptions()
+                val id = message.optString("id")
+                val prompt = permissions.find(id, generation) ?: return
+                if (prompt.scope in availablePermissions(generation) &&
+                    permissions.commit(id, generation, SystemClock.elapsedRealtime())) {
+                    when (prompt.scope) {
+                        LivePermission.FILES -> files?.publishReady()
+                        LivePermission.CONTROL -> openInput(generation, "beacon-approved-input-v1:$id") {
+                            permissions.allowed(generation, LivePermission.CONTROL) && deviceUnlocked()
+                        }
+                    }
+                    refreshPermissionOptions()
                 }
             }
             "lease" -> {
@@ -293,7 +310,7 @@ class ShareSession(
                 if (SystemClock.elapsedRealtime() - entry.second < MAX_AGE) {
                     lastLease = maxOf(lastLease, entry.second)
                     refreshVideo()
-                    refreshFileOptions()
+                    refreshPermissionOptions()
                 }
             }
             "answer" -> {
@@ -426,7 +443,7 @@ class ShareSession(
                             if (!viewer.connectionChanged(thisGeneration, connected)) return@post
                             if (!connected) control?.release()
                             refreshVideo()
-                            refreshFileOptions()
+                            refreshPermissionOptions()
                         }
                     }
                     override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {}
@@ -452,20 +469,18 @@ class ShareSession(
         }
         if (grant.capability == "desktop:control" && controlAllowed && ControlService.instance != null) {
             // The input channel is made here, before the offer, as the Windows host does.
-            connection.createDataChannel("beacon-input-v1", DataChannel.Init().apply { ordered = true })?.let { channel ->
-                control =
-                    RemoteControl(channel, grant.id, screenWidth, screenHeight, {
-                        canShare(thisGeneration) && localActionsAllowed()
-                    }) { active -> post { if (viewer.owns(thisGeneration)) onControl(active) } }
-                        .also { it.start() }
-            }
+            openInput(thisGeneration, "beacon-input-v1") { true }
         }
-        if ((filesAllowed || onFilePrompt != null) && FileReceiver.supported) {
+        // Negotiate SCTP with the first offer so an approved input lane can open later.
+        if (filesAllowed || onPermissionPrompt != null) {
             connection.createDataChannel("beacon-files-v1", DataChannel.Init().apply { ordered = true })?.let { channel ->
-                val permitted = { filesAllowed || filePermission.allowed(thisGeneration) }
-                files = FileReceiver(context, channel, permitted) {
-                    permitted() && canShare(thisGeneration) && localActionsAllowed()
-                }.also { it.start() }
+                dataTransportAvailable = true
+                if (FileReceiver.supported) {
+                    val permitted = { filesAllowed || permissions.allowed(thisGeneration, LivePermission.FILES) }
+                    files = FileReceiver(context, channel, permitted) {
+                        permitted() && canShare(thisGeneration) && localActionsAllowed()
+                    }.also { it.start() }
+                }
             }
         }
         connection.createOffer(
@@ -498,6 +513,14 @@ class ShareSession(
         )
     }
 
+    private fun openInput(generation: Long, label: String, permitted: () -> Boolean) {
+        if (control != null) return
+        val channel = peer?.createDataChannel(label, DataChannel.Init().apply { ordered = true }) ?: return
+        control = RemoteControl(channel, grant.id, screenWidth, screenHeight, {
+            permitted() && canShare(generation) && localActionsAllowed()
+        }) { active -> post { if (viewer.owns(generation)) onControl(active) } }.also { it.start() }
+    }
+
     private fun localActionsAllowed(): Boolean = Identity(context).let { identity ->
         identity.wantsAvailable && if (unattended) {
             identity.unattended && UnattendedAccess.ready(context)
@@ -515,9 +538,10 @@ class ShareSession(
     }
 
     private fun closePeer() {
-        filePermission.detach()
-        filesAdvertised = false
-        onFilePrompt?.invoke(null)
+        permissions.detach()
+        advertised = emptySet()
+        dataTransportAvailable = false
+        onPermissionPrompt?.invoke(null)
         track?.setEnabled(false)
         control?.stop()
         control = null

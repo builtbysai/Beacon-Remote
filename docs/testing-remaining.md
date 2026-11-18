@@ -12,6 +12,13 @@ offers are refused and that an approval during one viewer connection cannot
 be reused after reconnect. Verify the delivered file hash and receiver
 cleanup on interruption. Include a mixed-version viewer and backend check.
 
+For P0-4 Android control, begin a view-only session from an eligible viewer.
+Request control with accessibility enabled and confirm ignored input until
+local approval and the matching relay confirmation. Check one active input
+channel, tap and typing after approval, and immediate input release on Pause
+and Stop. Repeat with decline, expiry, lock, accessibility loss, reconnect
+and a helper whose original invitation permits viewing only.
+
 For P0-3 Android consent on device, leave the OS capture picker open while the
 viewer cancels and requests again. Verify a fresh local prompt is required,
 and the old picker or notification cannot approve the replacement. Repeat with

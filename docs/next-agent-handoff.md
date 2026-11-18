@@ -22,9 +22,12 @@ notification supplies Allow files and Decline. The receiver enables files
 only after a matching local approval and relay confirmation on the same
 live viewer generation. Detach clears added file access. The version
 handshake leaves older viewers and servers on the existing consent flow.
-Android control requests and Windows control, files, audio and recording
-still need local prompts and endpoint enforcement. See the test ledger for
-live Android file approval and reconnect cases.
+Android also offers control when accessibility is enabled and the relay
+permits that viewer to request it. Local Allow control and relay confirmation
+open one input channel tied to the exact approved request. The browser waits for
+that matching result and reconnect discards the upgrade. Windows control,
+files, audio and recording still need local prompts and endpoint enforcement.
+See the test ledger for live Android approval and reconnect cases.
 
 P0-3 Android consent now carries the delivering pairing and a monotonic
 deadline from delivery to approval. Duplicate delivery keeps the current

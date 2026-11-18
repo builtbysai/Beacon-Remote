@@ -86,6 +86,9 @@ export function permissionRequests(
       render();
       send({ type: "permission-cancel", generation, id: pending.id });
     },
+    hasPendingControl(id: string) {
+      return pending?.scope === "control" && pending.id === id;
+    },
     receive(raw: unknown) {
       const parsed = viewerPermissionSignal.safeParse(raw);
       if (!parsed.success || parsed.data.generation !== generation) return;
@@ -97,8 +100,14 @@ export function permissionRequests(
       }
       if (!pending) return;
       if (message.type === "permission-result") {
-        if (message.id === pending.id) settle(outcomes[message.outcome]);
-        return;
+        if (message.id !== pending.id) return;
+        const result = {
+          id: message.id,
+          scope: pending.scope,
+          outcome: message.outcome,
+        };
+        settle(outcomes[message.outcome]);
+        return result;
       }
       if (
         pending.id ||

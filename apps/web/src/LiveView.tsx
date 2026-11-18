@@ -15,6 +15,7 @@ import { attachRemoteInput } from "./remote-input.js";
 import type { TouchMode } from "./touch-input.js";
 import type { DisplayInfo, SessionPermission } from "@beacon-remote/protocol";
 import { api } from "./api.js";
+import { approvedInput, approvedInputPrefix } from "./approved-input.js";
 import {
   permissionNames,
   permissionRequests,
@@ -358,6 +359,7 @@ export function LiveView({
       permissions.current = null;
       setRequestedScope("");
       requestedPermissions.reset();
+      upgradedInput.dispose();
       detachInput?.();
       peer.dispose();
       pc.close();
@@ -475,7 +477,56 @@ export function LiveView({
     };
     const requestedPermissions = permissionRequests(send, setPermissionView);
     permissions.current = requestedPermissions;
+    const upgradedInput = approvedInput(
+      (id) => requestedPermissions.hasPendingControl(id),
+      (channel, geometry) => attachInput(channel, true, geometry),
+    );
+    function attachInput(
+      channel: RTCDataChannel,
+      upgraded = false,
+      geometry?: string,
+    ) {
+      if (!element || inputChannel) {
+        channel.close();
+        return;
+      }
+      inputChannel = channel;
+      detachInput = attachRemoteInput(
+        channel,
+        grant.id,
+        element,
+        (ready) => {
+          setControlReady(ready);
+          if (upgraded && ready)
+            setStatus(
+              "Connected — click the desktop to control. Escape releases input.",
+            );
+        },
+        () => finish("Control connection ended. Request control again."),
+        () => touchModeRef.current,
+        setDisplayError,
+        (platform) => {
+          setPhoneHost(platform === "android");
+          if (platform === "android") setTouchMode("direct");
+        },
+      );
+      if (geometry)
+        channel.onmessage?.(new MessageEvent("message", { data: geometry }));
+    }
     pc.ondatachannel = (event) => {
+      if (event.channel.label.startsWith(approvedInputPrefix)) {
+        if (
+          permissionsVersion !== 1 ||
+          grant.source !== "desktop" ||
+          inputChannel ||
+          !event.channel.ordered ||
+          event.channel.maxRetransmits !== null ||
+          event.channel.maxPacketLifeTime !== null
+        )
+          event.channel.close();
+        else upgradedInput.offer(event.channel);
+        return;
+      }
       if (
         event.channel.label === "beacon-files-v1" &&
         grant.source === "desktop" &&
@@ -504,6 +555,7 @@ export function LiveView({
       }
       if (
         !controlling ||
+        !controlGranted ||
         !element ||
         inputChannel ||
         event.channel.label !== "beacon-input-v1" ||
@@ -515,21 +567,7 @@ export function LiveView({
         finish("Unexpected input channel.");
         return;
       }
-      inputChannel = event.channel;
-      detachInput = attachRemoteInput(
-        event.channel,
-        grant.id,
-        element,
-        setControlReady,
-        () => finish("Control connection ended. Request control again."),
-        () => touchModeRef.current,
-        setDisplayError,
-        (platform) => {
-          setPhoneHost(platform === "android");
-          // A phone is touched where it is tapped; a cursor trackpad makes no sense there.
-          if (platform === "android") setTouchMode("direct");
-        },
-      );
+      attachInput(event.channel);
     };
     pc.onicecandidate = (event) => {
       if (closed) return;
@@ -672,10 +710,15 @@ export function LiveView({
               break;
             case "permission-options":
             case "permission-pending":
-            case "permission-result":
             case "permission-unavailable":
               requestedPermissions.receive(message);
               break;
+            case "permission-result": {
+              const result = requestedPermissions.receive(message);
+              if (result?.scope === "control")
+                upgradedInput.result(result.id, result.outcome === "approved");
+              break;
+            }
             case "consent":
               if (message.accepted !== true)
                 finish("Sharing was declined on the device.");
@@ -856,7 +899,7 @@ export function LiveView({
           <strong>{name}</strong>
           <span>
             {grant.source === "desktop"
-              ? controlling
+              ? controlling || controlReady
                 ? "Mouse and keyboard"
                 : "View only"
               : "Video test"}
@@ -1123,7 +1166,7 @@ export function LiveView({
             {ended
               ? "Close"
               : grant.source === "desktop"
-                ? controlling
+                ? controlling || controlReady
                   ? "Stop control"
                   : "Stop viewing"
                 : "Stop video test"}
