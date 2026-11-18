@@ -67,10 +67,14 @@ first failed because the phone registered its channel observer after the input
 channel was already open, so the screen-size message was never sent and the viewer
 stayed view-only; the fix sends it when the channel is already open. After that, a
 remote tap opened the Google search box and typed text arrived. Pause from the
-ongoing notification moved the viewer to "paused" while control was granted; the
-test driver stopped there, so a tap sent while paused was not tried. Not yet
-tested on the phone: control expiry, lock, accessibility loss, reconnect,
-mid-transfer Pause/Stop and Pause then a fresh offer.
+ongoing notification moved the viewer to "paused" with control still granted
+(twice). While paused, the test viewer could not place a click on the video
+(something covers it), so no tap reached the phone from the viewer; the phone's
+own refusal of input while paused was not exercised. One run ended with
+"Authorization lapsed" about 80 seconds in, right after the phone had moved from
+one Wi-Fi network to another; the lease needs a reply within 3 seconds. Not yet
+tested on the phone: control expiry, lock, accessibility loss, reconnect after a
+network change, mid-transfer Pause/Stop and Pause then a fresh offer.
 
 Android P0-3 now checks the dedicated **While sharing** notification channel as
 well as the app-wide notification setting. Android unit/lint/build checks passed.
