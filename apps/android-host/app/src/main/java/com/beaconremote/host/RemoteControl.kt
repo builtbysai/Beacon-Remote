@@ -39,13 +39,21 @@ class RemoteControl(
     private var modified = false
     private var open = false
 
-    fun start() = channel.registerObserver(this)
+    fun start() {
+        channel.registerObserver(this)
+        // The channel can already be open before the observer is registered; no change event follows then.
+        onStateChange()
+    }
 
     override fun onBufferedAmountChange(previous: Long) {}
 
+    @Synchronized
     override fun onStateChange() {
-        when (channel.state()) {
+        val state = channel.state()
+        Log.i("BeaconHost", "Input channel state: $state")
+        when (state) {
             DataChannel.State.OPEN -> {
+                if (open) return
                 open = true
                 lastMessage = SystemClock.elapsedRealtime()
                 sendGeometry()
