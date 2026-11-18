@@ -8,7 +8,9 @@ mod clipboard;
 #[cfg(windows)]
 mod consent;
 #[cfg(windows)]
-use beacon_remote_session::{encoder, pixels};
+use beacon_remote_session::{drive_exec, drive_map, drive_wire, encoder, pixels};
+#[cfg(windows)]
+mod drive_transport;
 #[cfg(windows)]
 mod files;
 #[cfg(windows)]

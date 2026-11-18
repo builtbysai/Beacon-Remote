@@ -9,6 +9,7 @@ export const permissionNames: Record<SessionPermission, string> = {
   files: "File transfer",
   audio: "Device sound",
   recording: "Recording",
+  drive: "Shared folder",
 };
 
 export type PermissionRequestView = {

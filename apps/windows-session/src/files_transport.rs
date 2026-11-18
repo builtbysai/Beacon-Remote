@@ -440,6 +440,8 @@ pub struct Permissions {
 /// Bit layout shared with the sharing window: file transfer is bit 0 and recording bit 1.
 pub const FILES_BIT: u8 = 1;
 pub const RECORDING_BIT: u8 = 2;
+/// Drive mapping approved for this connection (P1-4); it sits beside the file and recording bits.
+pub const DRIVE_BIT: u8 = 4;
 
 impl Permissions {
     pub fn from_bits(bits: u8) -> Self {

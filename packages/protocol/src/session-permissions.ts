@@ -5,6 +5,7 @@ export const sessionPermission = z.enum([
   "files",
   "audio",
   "recording",
+  "drive",
 ]);
 export type SessionPermission = z.infer<typeof sessionPermission>;
 
@@ -12,7 +13,7 @@ const generation = z.number().int().min(0).max(1024);
 const options = z.strictObject({
   type: z.literal("permission-options"),
   generation,
-  scopes: z.array(sessionPermission).max(4),
+  scopes: z.array(sessionPermission).max(5),
 });
 export const sessionPermissionSignal = z.discriminatedUnion("type", [
   options,

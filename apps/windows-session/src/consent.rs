@@ -506,6 +506,7 @@ pub enum LivePermission {
     Control,
     Files,
     Recording,
+    Drive,
 }
 
 impl LivePermission {
@@ -514,6 +515,7 @@ impl LivePermission {
             Self::Control => "Allow mouse and keyboard for this connection",
             Self::Files => "Allow sending and receiving files for this connection",
             Self::Recording => "Allow the viewer to record the shared stream",
+            Self::Drive => "Allow the viewer to use the shared folder for this connection",
         }
     }
 }

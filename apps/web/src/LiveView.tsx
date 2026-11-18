@@ -16,6 +16,7 @@ import { attachRemoteInput } from "./remote-input.js";
 import type { TouchMode } from "./touch-input.js";
 import type { DisplayInfo, SessionPermission } from "@beacon-remote/protocol";
 import { api } from "./api.js";
+import { DriveClient, type DriveEntry } from "./drive-client.js";
 import { approvedInput, approvedInputPrefix } from "./approved-input.js";
 import {
   permissionNames,
@@ -207,6 +208,11 @@ export function LiveView({
   const interrupted = useRef<File | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [fileReady, setFileReady] = useState(false);
+  // The shared-folder channel (P1-4): exists once the computer opened it; answers only when drive access is granted.
+  const drive = useRef<DriveClient | null>(null);
+  const [driveReady, setDriveReady] = useState(false);
+  const [driveEntries, setDriveEntries] = useState<DriveEntry[] | null>(null);
+  const [driveError, setDriveError] = useState("");
   const [transfer, setTransfer] = useState<Transfer | null>(null);
   const [offer, setOffer] = useState<Offer | null>(null);
   const downloads = useRef(new DownloadResume());
@@ -537,6 +543,31 @@ export function LiveView({
         )
           event.channel.close();
         else upgradedInput.offer(event.channel);
+        return;
+      }
+      if (
+        event.channel.label === "beacon-drive-v1" &&
+        grant.source === "desktop" &&
+        !drive.current &&
+        event.channel.ordered
+      ) {
+        const channel = event.channel;
+        const client = new DriveClient({
+          get open() {
+            return channel.readyState === "open";
+          },
+          send: (text) => channel.send(text),
+        });
+        drive.current = client;
+        channel.onmessage = (message) => client.receive(String(message.data));
+        channel.onopen = () => setDriveReady(true);
+        channel.onclose = () => {
+          client.close();
+          drive.current = null;
+          setDriveReady(false);
+          setDriveEntries(null);
+        };
+        if (channel.readyState === "open") setDriveReady(true);
         return;
       }
       if (
@@ -1036,6 +1067,35 @@ export function LiveView({
                 {label}
               </button>
             ))}
+          {driveReady && (
+            <button
+              className="viewer-control"
+              title="List the folder the owner shared. Asks for the Shared folder access first."
+              onClick={() => {
+                setDriveError("");
+                drive.current
+                  ?.list([])
+                  .then((entries) => setDriveEntries(entries))
+                  .catch((error: Error) => {
+                    setDriveEntries(null);
+                    setDriveError(error.message);
+                  });
+              }}
+            >
+              Browse shared folder
+            </button>
+          )}
+          {driveError && <p role="status">{driveError}</p>}
+          {driveEntries && (
+            <ul aria-label="Shared folder">
+              {driveEntries.map((entry) => (
+                <li key={entry.name}>
+                  {entry.name}
+                  {entry.isDir ? "/" : ""}
+                </li>
+              ))}
+            </ul>
+          )}
           {controlReady && (
             <button
               className="viewer-control"
