@@ -121,6 +121,7 @@ class FileReceiver(
     private fun noteOutgoingReply(bytes: ByteArray) {
         val body = runCatching { JSONObject(String(bytes)) }.getOrNull() ?: return
         val id = body.optInt("id", -1)
+        Log.i(TAG, "Viewer reply ${body.optString("t")} for offer $id")
         if (body.optString("t") in setOf("cancel", "reject", "failed") && outgoing?.id == id) outgoing?.abortRequested = true
     }
 
@@ -190,6 +191,7 @@ class FileReceiver(
         input.use { source ->
             while (true) {
                 if (out.abortRequested || !allowed() || channel.state() != DataChannel.State.OPEN) {
+                    Log.w(TAG, "Outgoing stopped: aborted=${out.abortRequested} allowed=${allowed()} open=${channel.state()}")
                     send(JSONObject().put("t", "cancel").put("id", out.id))
                     return finishOutgoing("Sending ${out.name} stopped")
                 }
