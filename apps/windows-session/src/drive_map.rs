@@ -36,6 +36,8 @@ pub enum Refusal {
     Expired,
     /// The root could not be opened as a directory.
     RootMissing,
+    /// A read or write asks for more than one transfer may carry.
+    TooLarge,
 }
 
 const MAX_DEPTH: usize = 32;
@@ -121,14 +123,14 @@ pub fn safe_segment(segment: &str) -> bool {
 }
 
 #[cfg(windows)]
-fn is_reparse(meta: &std::fs::Metadata) -> bool {
+pub(crate) fn is_reparse(meta: &std::fs::Metadata) -> bool {
     use std::os::windows::fs::MetadataExt;
     const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
     meta.file_type().is_symlink() || meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
 }
 
 #[cfg(not(windows))]
-fn is_reparse(meta: &std::fs::Metadata) -> bool {
+pub(crate) fn is_reparse(meta: &std::fs::Metadata) -> bool {
     meta.file_type().is_symlink()
 }
 
