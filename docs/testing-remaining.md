@@ -68,9 +68,11 @@ channel was already open, so the screen-size message was never sent and the view
 stayed view-only; the fix sends it when the channel is already open. After that, a
 remote tap opened the Google search box and typed text arrived. Pause from the
 ongoing notification moved the viewer to "paused" with control still granted
-(twice). While paused, the test viewer could not place a click on the video
-(something covers it), so no tap reached the phone from the viewer; the phone's
-own refusal of input while paused was not exercised. One run ended with
+(three times). While paused, a click dispatched straight onto the viewer's video
+element did not change anything on the phone (the viewer's own paused state also
+covers the video, so a real mouse click cannot reach it); this does not separate
+the viewer's block from the phone's own refusal of input while paused. One run
+ended with
 "Authorization lapsed" about 80 seconds in, right after the phone had moved from
 one Wi-Fi network to another; the lease needs a reply within 3 seconds. Not yet
 tested on the phone: control expiry, lock, accessibility loss, reconnect after a
