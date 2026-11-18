@@ -1614,20 +1614,29 @@ async fn media_cycle(
                                         }
                                         LiveScope::Drive => {
                                             // Drive mapping only adds its own bit; file and recording permissions are untouched.
-                                            // With no folder set up in advance, the person picks the one to share now; cancelling
-                                            // the picker leaves drive access off.
-                                            let has_folder = drive_slot.lock().map(|slot| slot.is_some()).unwrap_or(false);
-                                            let mut chosen = has_folder;
-                                            if !has_folder {
-                                                if let Ok(Ok(Some(folder))) = tokio::task::spawn_blocking(crate::folder_picker::pick).await {
-                                                    if let Some(grant) = crate::drive_transport::grant_for_chosen_folder(folder, Instant::now()) {
-                                                        if let Ok(mut slot) = drive_slot.lock() { *slot = Some(grant); chosen = true; }
-                                                    }
+                                            // With no folder set up in advance, the person picks the one to share now, in a task of its
+                                            // own: this loop must keep renewing the connection while the folder dialog is open.
+                                            // Cancelling the picker leaves drive access off.
+                                            if Instant::now() < expires {
+                                                let has_folder = drive_slot.lock().map(|slot| slot.is_some()).unwrap_or(false);
+                                                if has_folder {
+                                                    extras.fetch_or(crate::files_transport::DRIVE_BIT, Ordering::AcqRel);
+                                                    println!("Viewer {} permission added for this connection.", scope.wire());
+                                                } else {
+                                                    let slot = drive_slot.clone();
+                                                    let flags = extras.clone();
+                                                    tokio::spawn(async move {
+                                                        if let Ok(Ok(Some(folder))) = tokio::task::spawn_blocking(crate::folder_picker::pick).await {
+                                                            if let Some(grant) = crate::drive_transport::grant_for_chosen_folder(folder, Instant::now()) {
+                                                                if let Ok(mut slot) = slot.lock() {
+                                                                    *slot = Some(grant);
+                                                                    flags.fetch_or(crate::files_transport::DRIVE_BIT, Ordering::AcqRel);
+                                                                    println!("Viewer drive permission added for this connection.");
+                                                                }
+                                                            }
+                                                        }
+                                                    });
                                                 }
-                                            }
-                                            if chosen && Instant::now() < expires + Duration::from_secs(120) {
-                                                extras.fetch_or(crate::files_transport::DRIVE_BIT, Ordering::AcqRel);
-                                                println!("Viewer {} permission added for this connection.", scope.wire());
                                             }
                                         }
                                         LiveScope::Files | LiveScope::Recording => {
