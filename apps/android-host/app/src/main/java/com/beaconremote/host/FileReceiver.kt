@@ -222,6 +222,7 @@ class FileReceiver(
     }
 
     private fun finishOutgoing(status: String) {
+        outgoing?.let { runCatching { context.contentResolver.releasePersistableUriPermission(it.uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
         outgoing = null
         HostState.status = status
     }

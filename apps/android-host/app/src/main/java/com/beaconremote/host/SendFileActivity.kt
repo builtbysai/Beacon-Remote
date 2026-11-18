@@ -16,7 +16,8 @@ class SendFileActivity : Activity() {
         if (savedInstanceState != null) return
         @Suppress("DEPRECATION")
         startActivityForResult(
-            Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"),
+            Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION),
             REQUEST_PICK,
         )
     }
@@ -26,7 +27,8 @@ class SendFileActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         val uri = data?.data
         if (requestCode == REQUEST_PICK && resultCode == RESULT_OK && uri != null) {
-            // The picker grants read access to this app for the URI; the service reads it while sharing.
+            // The picker's read grant ends with this activity, so keep a persistable grant until the transfer finishes.
+            runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
             startService(Intent(this, CaptureService::class.java).setAction(CaptureService.ACTION_SEND_FILE).setData(uri))
         }
         finish()
