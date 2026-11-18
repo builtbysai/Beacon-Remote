@@ -6,7 +6,9 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import android.graphics.Typeface
+import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -92,7 +94,9 @@ class ConsentActivity : Activity() {
                 CheckBox(this).apply {
                     text = "Also let them touch and type on this phone"
                     textSize = 16f
-                    isChecked = savedInstanceState?.getBoolean("control") == true
+                    // They asked for control, so it starts selected; nothing is shared until Allow once, and
+                    // the box clears itself when the accessibility service that performs it is off.
+                    isChecked = savedInstanceState?.getBoolean("control") ?: true
                     minHeight = dp(48)
                 }
             controlNote = TextView(this).apply { textSize = 13f }
@@ -244,8 +248,15 @@ class ConsentActivity : Activity() {
         awaitingCapture = true
         refreshControl()
         try {
+            // Remote viewing is of the whole screen. Android 14 and later would otherwise open on "Share one
+            // app", which needs an extra choice and cannot be remote-controlled; ask for the whole screen only.
+            val capture = if (Build.VERSION.SDK_INT >= 34) {
+                manager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay())
+            } else {
+                manager.createScreenCaptureIntent()
+            }
             @Suppress("DEPRECATION")
-            startActivityForResult(manager.createScreenCaptureIntent(), REQUEST_CAPTURE)
+            startActivityForResult(capture, REQUEST_CAPTURE)
         } catch (_: Exception) {
             awaitingCapture = false
             refreshControl()
