@@ -1,5 +1,14 @@
 # Development status
 
+## CI audit gate — November 17, 2026
+
+The owner approved narrowing the control-plane dependency gate to production
+dependencies: CI now runs `pnpm audit --prod --audit-level high`. Local result:
+"No known vulnerabilities found". The remaining high advisory GHSA-fc5q-39xc-vjpf
+(picomatch 4.0.7, no published patch) is in the dev-only tool chain and is not
+waived by a silent exception. Re-review it by 2026-12-31 and restore the full
+audit once a patched release exists.
+
 ## Latest development continuation — November 17, 2026
 
 The owner resumed development from the handoff. Application source `2fd40a3`
