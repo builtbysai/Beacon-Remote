@@ -1144,9 +1144,47 @@ export function LiveView({
                   >
                     Delete {entry.name}
                   </button>
+                  <button
+                    className="viewer-control"
+                    onClick={() => {
+                      const client = drive.current;
+                      if (!client) return;
+                      const to = window
+                        .prompt(`Rename ${entry.name} to`, entry.name)
+                        ?.trim();
+                      if (!to || to === entry.name) return;
+                      setDriveError("");
+                      driveOps
+                        .rename(client, [entry.name], [to])
+                        .then(() => client.list([]))
+                        .then((entries) => setDriveEntries(entries))
+                        .catch((error: Error) => setDriveError(error.message));
+                    }}
+                  >
+                    Rename {entry.name}
+                  </button>
                 </li>
               ))}
             </ul>
+          )}
+          {driveEntries && (
+            <button
+              className="viewer-control"
+              onClick={() => {
+                const client = drive.current;
+                if (!client) return;
+                const name = window.prompt("New folder name")?.trim();
+                if (!name) return;
+                setDriveError("");
+                driveOps
+                  .mkdir(client, [name])
+                  .then(() => client.list([]))
+                  .then((entries) => setDriveEntries(entries))
+                  .catch((error: Error) => setDriveError(error.message));
+              }}
+            >
+              New folder
+            </button>
           )}
           {controlReady && (
             <button
