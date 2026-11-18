@@ -49,6 +49,7 @@ const UPDATE: usize = 150;
 const UNATTENDED: usize = 151;
 const UNATTENDED_OFF: usize = 152;
 const SIGNIN_SETTINGS: usize = 153;
+const MORE: usize = 160;
 const SUPPORT_VIEW: usize = 130;
 const SUPPORT_CONTROL: usize = 131;
 const HELPERS_OFF: usize = 140;
@@ -70,8 +71,12 @@ const H_INFO: i32 = 304;
 const H_LABEL: i32 = 305;
 const H_STATUS: i32 = 306;
 const H_INTRO: i32 = 307;
-const PAIRED_HEIGHT: i32 = 694;
+// With everything shown; the plain view needs only the computer, its status and the main button.
+const PAIRED_HEIGHT: i32 = 744;
+const SIMPLE_HEIGHT: i32 = 268;
 const UNPAIRED_HEIGHT: i32 = 436;
+// The first controls added to `paired_details` name this computer; they stay in the plain view.
+const IDENTITY_CONTROLS: usize = 3;
 
 struct Worker {
     handle: JoinHandle<Result<(), HostError>>,
@@ -92,6 +97,9 @@ struct State {
     last_status: Option<HostStatus>,
     enrollment: Vec<HWND>,
     paired_details: Vec<HWND>,
+    // Access choices, helpers, setup and support codes stay out of sight until asked for.
+    more: bool,
+    more_button: HWND,
     tray: bool,
     tray_status: String,
     incoming_seen: u64,
@@ -395,7 +403,7 @@ impl State {
             && self.autostart_on;
         ShowWindow(
             GetDlgItem(self.window, UNATTENDED as i32),
-            if self.paired && !configured {
+            if self.paired && self.more && !configured {
                 SW_SHOW
             } else {
                 SW_HIDE
@@ -404,6 +412,7 @@ impl State {
         ShowWindow(
             GetDlgItem(self.window, UNATTENDED_OFF as i32),
             if self.paired
+                && self.more
                 && (self.access.trusted
                     || self.autostart_on
                     || self.boot_on != Some(false)
@@ -435,7 +444,7 @@ impl State {
         if !self.files.is_null() {
             ShowWindow(
                 self.files,
-                if self.paired && self.access.trusted {
+                if self.paired && self.more && self.access.trusted {
                     SW_SHOW
                 } else {
                     SW_HIDE
@@ -636,23 +645,55 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
             px(if self.paired { 40 } else { 44 }),
             1,
         );
+        let expanded = self.paired && self.more;
         MoveWindow(
             self.action,
             px(28),
-            px(if self.paired { 498 } else { 322 }),
+            px(if !self.paired {
+                322
+            } else if expanded {
+                498
+            } else {
+                206
+            }),
             px(220),
             px(38),
             1,
         );
+        // "More options" sits where the sign-in button is while expanded, so open it from the header and
+        // close it from the foot; the plain view has just the computer, its status and the main button.
+        MoveWindow(
+            self.more_button,
+            px(if expanded { 28 } else { 324 }),
+            px(if expanded { 698 } else { 10 }),
+            px(if expanded { 220 } else { 168 }),
+            px(if expanded { 34 } else { 44 }),
+            1,
+        );
+        text(
+            self.more_button,
+            if expanded {
+                "Fewer options"
+            } else {
+                "More options"
+            },
+        );
+        ShowWindow(
+            self.more_button,
+            if self.paired { SW_SHOW } else { SW_HIDE },
+        );
+        InvalidateRect(self.more_button, null(), 1);
         // The window is as tall as its current view needs.
         let mut bounds = RECT {
             left: 0,
             top: 0,
             right: px(520),
-            bottom: px(if self.paired {
+            bottom: px(if !self.paired {
+                UNPAIRED_HEIGHT
+            } else if expanded {
                 PAIRED_HEIGHT
             } else {
-                UNPAIRED_HEIGHT
+                SIMPLE_HEIGHT
             }),
         };
         AdjustWindowRectEx(
@@ -677,8 +718,9 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
             ShowWindow(window, if self.paired { SW_HIDE } else { SW_SHOW });
             EnableWindow(window, i32::from(!busy && !self.closing));
         }
-        for &window in &self.paired_details {
-            ShowWindow(window, if self.paired { SW_SHOW } else { SW_HIDE });
+        for (index, &window) in self.paired_details.iter().enumerate() {
+            let shown = self.paired && (self.more || index < IDENTITY_CONTROLS);
+            ShowWindow(window, if shown { SW_SHOW } else { SW_HIDE });
         }
         let stopping = self
             .worker
@@ -1020,7 +1062,9 @@ unsafe fn paint(window: HWND, state: &State) {
             canvas.stroke(28.0, 104.0, 464.0, 84.0, 10.0, p.line, 1.0);
             ui::icon(&canvas, ui::Icon::Monitor, 44.0, 142.0, p.accent);
             ui::icon(&canvas, ui::Icon::Lock, 44.0, 166.0, p.accent);
-            canvas.line(28.0, 424.0, 492.0, 424.0, p.line, 1.0);
+            if state.more {
+                canvas.line(28.0, 424.0, 492.0, 424.0, p.line, 1.0);
+            }
         } else {
             for top in [124.0, 192.0, 260.0] {
                 canvas.fill(28.0, top, 464.0, 34.0, 8.0, p.surface);
@@ -1206,6 +1250,10 @@ unsafe extern "system" fn procedure(
                     }
                     InvalidateRect((*state).files, null(), 0);
                 }
+                MORE => {
+                    (*state).more = !(*state).more;
+                    (*state).controls();
+                }
                 SUPPORT_VIEW => (*state).ask_support(false),
                 SUPPORT_CONTROL => (*state).ask_support(true),
                 UPDATE => (*state).update_clicked(window),
@@ -1390,6 +1438,8 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             last_status: None,
             enrollment: Vec::new(),
             paired_details: Vec::new(),
+            more: false,
+            more_button: null_mut(),
             tray: false,
             tray_status: String::new(),
             incoming_seen: beacon_remote_agent::incoming::mark(),
@@ -1428,7 +1478,7 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             top: 0,
             right: scale(520),
             bottom: scale(if paired {
-                PAIRED_HEIGHT
+                SIMPLE_HEIGHT
             } else {
                 UNPAIRED_HEIGHT
             }),
@@ -1731,6 +1781,8 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                 UPDATE,
             )?;
             state.paired_details.push(state.update_button);
+            state.more_button =
+                child("BUTTON", "More options", 324, 10, 168, 44, owner_draw, MORE)?;
             for (index, (label, id, x, width)) in [
                 ("Support code: view only", SUPPORT_VIEW, 28, 236),
                 ("Support code: view and control", SUPPORT_CONTROL, 276, 216),
