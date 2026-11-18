@@ -209,3 +209,15 @@ in your browser", because the automated test window lacked focus and clipboard
 permission for that write. Still open: confirm the viewer copy in a focused
 browser tab, and the reverse direction (viewer to phone paste) is typed input
 only.
+
+### Direct route (November 17, 2026)
+
+The isolated acceptance backend normally forces relay-only ICE. For this run its
+ICE transport policy was set to `all` through a compose override (the acceptance
+container was recreated with the same compose layers; the override was removed
+afterwards and the backend returned to `relay`). A Pixel 7a session (release
+`77673ca`) with the locally built viewer reported the selected candidate pair as
+`prflx / srflx` (a direct path, not a relay), with decoded frames advancing from
+57 to 67 across two samples. The viewer's route label showed "Unavailable" for
+this pair, which is a labelling gap to fix. Still open: a direct run on a second
+network, and Windows direct-route acceptance.
