@@ -72,11 +72,17 @@ ongoing notification moved the viewer to "paused" with control still granted
 element did not change anything on the phone (the viewer's own paused state also
 covers the video, so a real mouse click cannot reach it); this does not separate
 the viewer's block from the phone's own refusal of input while paused. One run
-ended with
-"Authorization lapsed" about 80 seconds in, right after the phone had moved from
-one Wi-Fi network to another; the lease needs a reply within 3 seconds. Not yet
-tested on the phone: control expiry, lock, accessibility loss, reconnect after a
-network change, mid-transfer Pause/Stop and Pause then a fresh offer.
+ended with "Authorization lapsed" about 80 seconds in, right after the phone had
+moved from one Wi-Fi network to another; the lease needs a reply within 3 seconds.
+A deliberate test confirmed it: turning the phone's Wi-Fi off for 10 seconds
+(adb `svc wifi disable`, back on afterwards) ended the phone's session with
+"Authorization lapsed", and the viewer stayed on "connecting" for over 40 seconds
+and never recovered once Wi-Fi returned, because the phone had stopped sharing and
+needs a fresh approval. The viewer's reconnect window is 120 seconds, so it keeps
+saying "Reconnecting" instead of saying the device ended sharing. Not yet tested on
+the phone: control expiry, lock, accessibility loss, mid-transfer Pause/Stop and
+Pause then a fresh offer. Measured on the Pixel through the relay (one sample,
+view only): approval to first frame 689 ms, round trip 58 ms, 576x1280 video.
 
 Android P0-3 now checks the dedicated **While sharing** notification channel as
 well as the app-wide notification setting. Android unit/lint/build checks passed.
