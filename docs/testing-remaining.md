@@ -187,3 +187,12 @@ phone's Pause action stopped the stream at once (sender log: stopped with
 allowed=false, cancel sent). The viewer showed "Cancelled" and its downloads
 folder held no partial copy. Still open: Stop mid-transfer, direct route, and a
 Pause that resumes into a fresh offer.
+
+### Stop mid-transfer (November 17, 2026)
+
+Same 150 MB offer on `8e6ad65`. Stop from the sharing notification ended the
+session during the stream; the viewer reported that the file could not be
+received because the connection closed and the partial copy was discarded, and
+its downloads folder held no partial file. Pause and Stop mid-transfer now pass
+on this relayed route. Still open: direct-route runs and a Pause followed by a
+fresh offer.
