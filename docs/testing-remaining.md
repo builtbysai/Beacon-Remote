@@ -196,3 +196,16 @@ received because the connection closed and the partial copy was discarded, and
 its downloads folder held no partial file. Pause and Stop mid-transfer now pass
 on this relayed route. Still open: direct-route runs and a Pause followed by a
 fresh offer.
+
+### Clipboard copy from the phone (November 17, 2026)
+
+Pixel 7a `77673ca` (release, same signer), accessibility control enabled for
+Beacon Remote, isolated acceptance backend with the locally built viewer assets.
+The phone's clipboard held a 22-character probe. The viewer's "Copy from
+computer" request reached the phone; the phone log records "Clipboard read
+requested: returned 22 characters" and sends that text back on the input
+channel. The viewer's browser then refused the write with "Allow clipboard access
+in your browser", because the automated test window lacked focus and clipboard
+permission for that write. Still open: confirm the viewer copy in a focused
+browser tab, and the reverse direction (viewer to phone paste) is typed input
+only.
