@@ -96,6 +96,23 @@ has gone silent for 15 seconds after it was renewing its lease (it was not
 deployed to the acceptance VM); before this, a phone that lost its connection left
 the viewer on "Reconnecting" until the reconnect window ran out.
 
+Flow changes and a host bug found on Surfiena (November 18, 2026): the host
+goes online by itself when opened on a paired computer (317 ms, no Start click),
+the Windows approval window preselects control when the viewer asked for it, the
+viewer's computer row has one Connect button that asks for view and control, the
+Android approval screen preselects control and Android 14+ asks for the whole
+screen only, and the Windows host window shows only the computer, its status and
+the main button until More options is chosen. A connection that asks for control
+up front now reaches the input channel on Windows (it failed on November 16); the
+older control script then stopped only because its own test window was not
+clicked. The bug: after any failed heartbeat the host sent the handled-grant
+option without waiting, the server rejected that with 400, and the host showed
+"Connection interrupted · Retrying" forever even with the network fine (about 12
+minutes on Surfiena). The host now always waits when it names a handled grant, and
+the backend accepts the option alone so hosts already installed recover; the
+acceptance backend with that rule recovered Surfiena without touching the laptop.
+Device approval click counts were not measured exactly.
+
 Android P0-3 now checks the dedicated **While sharing** notification channel as
 well as the app-wide notification setting. Android unit/lint/build checks passed.
 The guarded Android API 36 emulator test removed the channel while app-wide
