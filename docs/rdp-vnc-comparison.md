@@ -16,7 +16,7 @@ show the system works at these figures, not typical or best-case performance.
 | Surfiena (Windows 11 Home, 2736x1824 panel) | `03d649a` | View only through the relay: 406 frames in 15 s, 27.6 FPS presented, 57 ms round trip, 1280x720 video.                                                                                       |
 | Surfiena                                    | `712b719` | Control request up front reached the input channel; 19.1 FPS and 111 ms round trip in the first seconds of a session.                                                                        |
 | Surfiena                                    | `712b719` | Host reported online 317 ms after launch (presence ready), no click needed.                                                                                                                  |
-| Pixel 7a (Android 16)                       | `99d3739` | View only: 576x1280 video, 58 ms round trip, approval to first frame 689 ms; 2 to 22 FPS depending on screen activity. Control session: 123 ms round trip, first frame 1.6 s after approval. |
+| Pixel 7a                                    | `99d3739` | View only: 576x1280 video, 58 ms round trip, approval to first frame 689 ms; 2 to 22 FPS depending on screen activity. Control session: 123 ms round trip, first frame 1.6 s after approval. |
 
 File transfer (the same 3 MiB test file, SHA-256 checked at the receiver): Pixel
 received it intact on November 18; Surfiena received it intact on November 18.
