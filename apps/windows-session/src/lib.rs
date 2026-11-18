@@ -1,5 +1,6 @@
 //! Shared in-memory video conversion/encoding. Desktop authority belongs to
 //! each caller; this library never captures a screen or injects input.
+pub mod display_layout;
 pub mod drive_exec;
 pub mod drive_map;
 #[cfg(windows)]
