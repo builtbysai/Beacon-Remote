@@ -1,6 +1,7 @@
 package com.beaconremote.host
 
 import android.app.Notification
+import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
@@ -138,7 +139,14 @@ class CaptureService : Service() {
             return PendingIntent.getService(this, 0, decision, PendingIntent.FLAG_IMMUTABLE)
         }
         val input = prompt.scope == LivePermission.CONTROL
-        manager.notify(PERMISSION_NOTIFICATION, NotificationCompat.Builder(this, SharingNotifications.CHANNEL)
+        // A request the person must answer is posted on the high-importance request channel, not the silent
+        // "While sharing" one, so it appears as a heads-up and cannot sit unseen in the shade until it expires.
+        manager.createNotificationChannel(
+            NotificationChannel(AvailabilityService.REQUEST, "Requests to see your screen", NotificationManager.IMPORTANCE_HIGH),
+        )
+        manager.notify(PERMISSION_NOTIFICATION, NotificationCompat.Builder(this, AvailabilityService.REQUEST)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setSmallIcon(R.drawable.ic_stat_beacon)
             .setContentTitle(if (input) "Allow this viewer to control the phone?" else "Allow this viewer to send files?")
             .setContentText(if (input) "They can touch and type until this connection ends. Pause or Stop at any time."
