@@ -162,9 +162,9 @@ try {
    `$value=`$line.Result
    if(`$null -ne `$value){
     if(`$value -match '^Presence ready in ([0-9]+) ms\.`$'){@{elapsedMillis=[long]`$Matches[1];at=[DateTime]::UtcNow.ToString('o');source='$($candidate.source)'}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path `$root 'presence-timing.json') -Encoding utf8}
-    # Only fixed numeric/state timing messages are retained. Drop every other
+    # Only fixed numeric/state timing messages and a short list of fixed stop and permission messages are retained. Drop every other
     # stdout/stderr line, including any controller, candidate, SDP or grant data.
-    if(`$value -match '^(Media offer ready: generation [0-9]+, setup [0-9]+ ms\.|First video packet sent: generation [0-9]+, [0-9]+ ms\.|Native (ICE state|ICE gathering|peer connection state): generation [0-9]+, [A-Za-z]+, [0-9]+ ms\.|Native ICE error: generation [0-9]+, code [0-9]+, [0-9]+ ms\.)`$'){@{at=[DateTime]::UtcNow.ToString('o');event=`$value}|ConvertTo-Json -Compress|Add-Content -LiteralPath (Join-Path `$root `$traceName) -Encoding utf8}
+    if(`$value -match '^(Media offer ready: generation [0-9]+, setup [0-9]+ ms\.|First video packet sent: generation [0-9]+, [0-9]+ ms\.|Native (ICE state|ICE gathering|peer connection state): generation [0-9]+, [A-Za-z]+, [0-9]+ ms\.|Native ICE error: generation [0-9]+, code [0-9]+, [0-9]+ ms\.|Signaling stopped: [a-z ]+\.|(Drive|Print) channel stopped: [a-z ]+\.|Viewer [a-z]+ permission added for this connection\.)`$'){@{at=[DateTime]::UtcNow.ToString('o');event=`$value}|ConvertTo-Json -Compress|Add-Content -LiteralPath (Join-Path `$root `$traceName) -Encoding utf8}
     `$line=`$child.StandardOutput.ReadLineAsync()
    }else{`$line=`$null}
   }
