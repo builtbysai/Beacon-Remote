@@ -177,3 +177,24 @@ mod tests {
         );
     }
 }
+
+/// Whether this computer may send its sound to the viewer right now (P1-9). Every condition must hold: the
+/// viewer is connected, its lease is still live, sharing is not paused, and the connection is still the current
+/// generation. Any one of them failing stops the sound at once, and nothing else can restart it.
+pub fn may_send(connected: bool, lease_live: bool, paused: bool, current_generation: bool) -> bool {
+    connected && lease_live && !paused && current_generation
+}
+
+#[cfg(test)]
+mod gate_tests {
+    use super::may_send;
+
+    #[test]
+    fn sound_is_sent_only_when_every_condition_holds() {
+        assert!(may_send(true, true, false, true));
+        assert!(!may_send(false, true, false, true), "viewer disconnected");
+        assert!(!may_send(true, false, false, true), "lease ended");
+        assert!(!may_send(true, true, true, true), "sharing paused");
+        assert!(!may_send(true, true, false, false), "an older connection");
+    }
+}

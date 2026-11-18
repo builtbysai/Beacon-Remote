@@ -1322,11 +1322,12 @@ async fn media_cycle(
             };
             let flowing = || {
                 let last = lease.load(Ordering::Acquire);
-                connected.load(Ordering::Acquire)
-                    && last != 0
-                    && remaining(last, epoch.elapsed().as_millis() as u64).is_some()
-                    && !crate::pause::is_paused()
-                    && viewer_generation.load(Ordering::Acquire) == generation
+                crate::audio::may_send(
+                    connected.load(Ordering::Acquire),
+                    last != 0 && remaining(last, epoch.elapsed().as_millis() as u64).is_some(),
+                    crate::pause::is_paused(),
+                    viewer_generation.load(Ordering::Acquire) == generation,
+                )
             };
             while live() {
                 if flowing() {
