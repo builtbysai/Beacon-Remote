@@ -1388,6 +1388,10 @@ async fn media_cycle(
         print_channel,
         extras: extras.load(Ordering::Acquire),
     };
+    // A monitor plugged in, moved or rescaled changes what the viewer sees. The check is every two seconds; a change
+    // ends this connection so the viewer reconnects and receives the new layout, rather than mapping input wrongly.
+    let layout_at_start = crate::capture::layout_snapshot();
+    let mut layout_ticks: u32 = 0;
     let result:Result<(),Error> = async {
         let mut tick=tokio::time::interval(Duration::from_millis(100));
         let mut quality_tick=tokio::time::interval(Duration::from_secs(2));
@@ -1441,6 +1445,15 @@ async fn media_cycle(
                 _=tick.tick()=>{
                     indicator_connected.store(connected.load(Ordering::Acquire), Ordering::Release);
                     if !active.load(Ordering::Acquire) || !session_active.load(Ordering::Acquire) || deadline.is_some_and(|end| Instant::now() >= end) {break;}
+                    layout_ticks = layout_ticks.wrapping_add(1);
+                    if layout_ticks.is_multiple_of(20) {
+                        if let (Some(before), Some(now)) = (&layout_at_start, crate::capture::layout_snapshot()) {
+                            if !beacon_remote_session::display_layout::diff(before, &now).is_empty() {
+                                println!("Display layout changed; ending this connection so the viewer reconnects with the new layout.");
+                                break;
+                            }
+                        }
+                    }
                     if upgraded_control && input_worker.as_ref().is_some_and(|worker| worker.is_finished()) {
                         input_worker = None;
                         upgraded_control = false;
