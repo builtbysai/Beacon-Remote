@@ -144,6 +144,15 @@ class ShareSession(
         }
     }
 
+    /** Offers a file the person picked on this phone. [onResult] receives a reason when nothing was offered. */
+    fun sendFile(uri: android.net.Uri, onResult: (String) -> Unit) = post {
+        val receiver = files
+        if (receiver == null) onResult("File sending is not available in this session.") else receiver.sendFile(uri, onResult)
+    }
+
+    /** Whether the notification should offer Send file now. Advisory: the transfer checks again when it starts. */
+    fun canSendFile(): Boolean = files?.canSend() == true
+
     fun setPaused(value: Boolean) {
         post {
             paused = value

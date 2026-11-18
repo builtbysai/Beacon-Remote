@@ -7,7 +7,10 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.Uri
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import org.json.JSONObject
@@ -30,6 +33,18 @@ class CaptureService : Service() {
                     intent.getLongExtra("generation", -1),
                     intent.action == ACTION_ALLOW_PERMISSION,
                 )
+                return START_NOT_STICKY
+            }
+            ACTION_SEND_FILE -> {
+                val uri = intent.data
+                val current = session
+                if (uri == null) return START_NOT_STICKY
+                if (current == null) {
+                    notice("Sharing has ended, so no file was sent.")
+                } else {
+                    current.sendFile(uri) { reason -> if (reason.isNotEmpty()) notice(reason) }
+                }
+                refresh()
                 return START_NOT_STICKY
             }
             ACTION_STOP -> {
@@ -102,6 +117,10 @@ class CaptureService : Service() {
         return START_NOT_STICKY
     }
 
+    private fun notice(text: String) {
+        Handler(Looper.getMainLooper()).post { Toast.makeText(this, text, Toast.LENGTH_LONG).show() }
+    }
+
     private fun refresh() = getSystemService(NotificationManager::class.java).notify(3, build())
 
     private fun showPermissionPrompt(prompt: LivePermissionPrompt?) {
@@ -153,6 +172,11 @@ class CaptureService : Service() {
             // Stop must stay reachable, and visible, even on a locked screen.
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .addAction(0, if (paused) "Resume" else "Pause", action(ACTION_PAUSE))
+            .apply {
+                if (session?.canSendFile() == true && !paused) {
+                    addAction(0, "Send file", PendingIntent.getActivity(this@CaptureService, 2, Intent(this@CaptureService, SendFileActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+                }
+            }
             .addAction(0, "Stop", action(ACTION_STOP))
             .build()
     }
@@ -169,5 +193,6 @@ class CaptureService : Service() {
         private const val ACTION_DECLINE_PERMISSION = "com.beaconremote.host.DECLINE_PERMISSION"
         const val ACTION_STOP = "com.beaconremote.host.STOP_SHARING"
         const val ACTION_PAUSE = "com.beaconremote.host.PAUSE_SHARING"
+        const val ACTION_SEND_FILE = "com.beaconremote.host.SEND_FILE"
     }
 }
