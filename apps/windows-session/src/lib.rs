@@ -3,5 +3,7 @@
 pub mod drive_exec;
 pub mod drive_map;
 #[cfg(windows)]
+pub mod drive_wire;
+#[cfg(windows)]
 pub mod encoder;
 pub mod pixels;
