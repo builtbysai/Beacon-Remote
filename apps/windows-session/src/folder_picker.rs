@@ -78,6 +78,25 @@ pub fn pick() -> windows::core::Result<Option<PathBuf>> {
     }
 }
 
+/// Asks the person for a folder through a short-lived copy of this program (`--pick-folder`), so the dialog runs in
+/// its own process. `None` means they cancelled or the dialog could not open.
+#[cfg(windows)]
+pub fn pick_in_child() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let output = std::process::Command::new(exe)
+        .arg("--pick-folder")
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(output.stdout).ok()?;
+    let line = text.lines().next()?.trim();
+    (!line.is_empty()).then(|| PathBuf::from(line))
+}
+
 /// The command-line entry: `beacon-remote-session --choose-drive-folder [--write]`.
 #[cfg(windows)]
 pub fn run_chooser(write: bool) -> Result<(), Box<dyn std::error::Error>> {

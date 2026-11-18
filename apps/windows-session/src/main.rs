@@ -48,6 +48,19 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             |error| -> Box<dyn std::error::Error + Send + Sync> { error.to_string().into() },
         );
     }
+    // One folder pick for a connection in progress: prints the chosen folder and exits, storing nothing. It runs
+    // in its own process so a problem in the dialog cannot take the sharing session down with it.
+    #[cfg(windows)]
+    if std::env::args().any(|arg| arg == "--pick-folder") {
+        return match folder_picker::pick() {
+            Ok(Some(folder)) => {
+                println!("{}", folder.display());
+                Ok(())
+            }
+            Ok(None) => Ok(()),
+            Err(error) => Err(error.to_string().into()),
+        };
+    }
     if std::env::args().any(|arg| arg == "--choose-drive-folder") {
         let write = std::env::args().any(|arg| arg == "--write");
         return folder_picker::run_chooser(write).map_err(

@@ -1626,7 +1626,7 @@ async fn media_cycle(
                                                     let slot = drive_slot.clone();
                                                     let flags = extras.clone();
                                                     tokio::spawn(async move {
-                                                        if let Ok(Ok(Some(folder))) = tokio::task::spawn_blocking(crate::folder_picker::pick).await {
+                                                        if let Ok(Some(folder)) = tokio::task::spawn_blocking(crate::folder_picker::pick_in_child).await {
                                                             if let Some(grant) = crate::drive_transport::grant_for_chosen_folder(folder, Instant::now()) {
                                                                 if let Ok(mut slot) = slot.lock() {
                                                                     *slot = Some(grant);
