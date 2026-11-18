@@ -1042,7 +1042,7 @@ export function LiveView({
                 {label}
               </button>
             ))}
-          {controlReady && !phoneHost && (
+          {controlReady && (
             <button
               className="viewer-control"
               title="Copy the computer's clipboard text to this device"
