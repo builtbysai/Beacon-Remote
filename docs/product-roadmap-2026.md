@@ -127,6 +127,12 @@ product requires.
   the viewer showed ended. The earlier failed attempt came with Beacon not in the foreground after
   Chrome clean-up; the rerun started with the Beacon app in front. Cause of the first failure is
   still a hypothesis. The phone is locked again and needs the owner's unlock.
+- Pixel reboot (19 Nov, ~18:20): passed. `adb reboot`; the owner unlocked the phone once after boot
+  (Android needs the credential after a restart; the agent did not enter it). With the launcher in
+  front and the Beacon app not opened, Beacon's service was running with accessibility still on,
+  and an unattended connect gave live relayed video (324x720, first frame 3.1 s, approval 744 ms)
+  with control ready. Stop ended it cleanly. Android unattended after reboot = done, with one
+  owner unlock per boot as the platform requires.
 - Pixel network drop (19 Nov, 17:58): Wi-Fi turned off over ADB for 20 s during a live control
   session. The session ended (it did not resume), consistent with the backend's 15 s silent-host
   rule; a new connection is needed after the network returns. Passed as a clean teardown;
