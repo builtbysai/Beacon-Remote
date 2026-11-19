@@ -177,6 +177,16 @@ product requires.
   follows the reconnect rules. Test `apps/backend/test/viewer-attach-grace.test.ts` (node:test, passes
   with the silence tests); backend typecheck passes. Needs deployment to the isolated acceptance
   backend and an alternating-run recheck before it counts as fixed.
+- Fix deployed to the isolated acceptance backend (19 Nov, ~18:55 local): commit a35029e exported
+  with `git archive`, unpacked under `/opt/beacon-remote/source-snapshots/<commit>`, image built from
+  `infrastructure/oracle/Dockerfile.backend` and tagged `beacon-remote-acceptance-backend:<commit>`, a new
+  last override `/etc/beacon-remote/acceptance-images-<commit>.override.yaml`, and only the
+  acceptance backend recreated (compose project `beacon-remote-acceptance`, existing config chain).
+  Nothing was pushed to GitHub; production and the web container were not touched. Verification is
+  incomplete: run 1 of 8 connected (video + control); the phone then locked itself at its 30-minute screen
+  timeout, so runs 2 to 8 (phone log "phone is locked", then "Declined") do not test the fix. The phone is
+  now set to stay awake while plugged in (`stay_on_while_plugged_in=3`, also in Setup-Pixel.ps1).
+  Repeat the alternating connects once the owner has unlocked the phone.
 - Pixel network drop (19 Nov, 17:58): Wi-Fi turned off over ADB for 20 s during a live control
   session. The session ended (it did not resume), consistent with the backend's 15 s silent-host
   rule; a new connection is needed after the network returns. Passed as a clean teardown;
