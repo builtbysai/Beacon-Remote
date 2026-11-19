@@ -138,6 +138,8 @@ class ShareSession(
     }
 
     fun stop() {
+        // Diagnostic: the stack shows which path asked the session to stop.
+        Log.w("BeaconHost", "Sharing stop requested", Throwable("stop caller"))
         post {
             socket?.send(JSONObject().put("type", "stop").toString())
             end("Sharing stopped")

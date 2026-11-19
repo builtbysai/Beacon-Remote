@@ -38,6 +38,7 @@ class AvailabilityService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            android.util.Log.w("BeaconHost", "Availability stop requested")
             Identity(this).wantsAvailable = false
             if (HostState.sharing) runCatching { startService(Intent(this, CaptureService::class.java).setAction(CaptureService.ACTION_STOP)) }
             running = false

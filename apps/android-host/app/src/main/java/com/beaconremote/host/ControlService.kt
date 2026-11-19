@@ -27,6 +27,7 @@ class ControlService : AccessibilityService() {
     override fun onInterrupt() {}
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
+        android.util.Log.w("BeaconHost", "Accessibility service unbound (sharing=${HostState.sharing})")
         if (instance === this) instance = null
         val identity = Identity(this)
         identity.unattended = false
