@@ -327,6 +327,18 @@ export async function registerSessions(
   async function finish(id: string, status: "ended" | "denied" = "ended") {
     const entry = entries.get(id);
     if (entry?.closed) return;
+    // Diagnostic: record which check ended a live session (the nearest callers) and the socket states.
+    app.log.warn(
+      {
+        session: id,
+        status,
+        callers: (new Error().stack ?? "").split("\n").slice(2, 4).map((line) => line.trim()).join(" | "),
+        viewerState: entry?.viewer?.readyState ?? null,
+        machineState: entry?.machine?.readyState ?? null,
+        machineSilentMs: entry ? Math.round(performance.now() - entry.machineRenewedAt) : null,
+      },
+      "live session ended",
+    );
     if (entry) {
       entry.closed = true;
       clearInterval(entry.timer);
