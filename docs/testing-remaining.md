@@ -312,3 +312,21 @@ lock, and resume after a dropped connection.
 Harness finding: `uiautomator dump` unbinds Beacon's accessibility service, which
 Beacon reads as permission removed and ends sharing. Acceptance tooling must not use
 UiAutomator while a control session is active.
+
+### Pixel re-pairing and control after factory reset (November 19, 2026, evening)
+
+Pixel 7a was factory reset and signed in again. The signed release build from
+`7c59256` was reinstalled, restricted settings was allowed, and accessibility was
+turned back on. A fresh one-use code was entered on the phone and the server address
+was set to the acceptance origin before pairing. Inventory then showed exactly one
+Pixel acceptance device.
+
+- Ordinary control passed again on the re-paired device: live relayed video, a remote
+  tap changed the phone's screen (checked by screenshots, not UiAutomator), and Stop
+  ended cleanly.
+- Remote typing did not pass yet. Keys sent through the viewer did not reach an
+  editable field in the Settings search row. The harness needs a text field that is
+  focused on the phone before typing starts.
+
+The phone screen was locked during the run, so the lock screen needed the temporary
+passcode before Beacon could be reached.
