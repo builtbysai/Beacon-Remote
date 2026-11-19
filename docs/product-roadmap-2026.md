@@ -111,6 +111,10 @@ product requires.
   switched off, and the app showed "Unattended access is off. Accessibility permission was
   removed." with an Enable accessibility button. Passed. The service was then restored and
   unattended access re-enabled by the agent.
+- Pixel network drop (19 Nov, 17:58): Wi-Fi turned off over ADB for 20 s during a live control
+  session. The session ended (it did not resume), consistent with the backend's 15 s silent-host
+  rule; a new connection is needed after the network returns. Passed as a clean teardown;
+  automatic resume stays a gap (capability matrix: resume after network change = partial).
 - Surfiena trusted access: in the host window press "More options", then choose "They can view
   and control without asking" (view-only: "They can view without asking"). Still needs the Beacon host window in session 1.
 - Acceptance backend: the one-hour expiry is an owner decision.
