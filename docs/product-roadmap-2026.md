@@ -1,135 +1,133 @@
-# Beacon Remote product roadmap (2026)
+# Beacon Remote product roadmap (2026, revision 2)
 
-This roadmap replaces the ordered backlog in [rdp-vnc-parity-roadmap.md](rdp-vnc-parity-roadmap.md)
-as the planning document. That file keeps the detailed capability notes and the
-evidence trail. Test results stay in [testing-remaining.md](testing-remaining.md).
+Revision 2 updates the November 2026 roadmap with the evidence from the Pixel
+re-pairing and control runs, the Surfiena blockers, and a competitor feature check.
+Detailed capability notes stay in [rdp-vnc-parity-roadmap.md](rdp-vnc-parity-roadmap.md).
+Test results stay in [testing-remaining.md](testing-remaining.md).
 
-## Goal
+## 1. Goal
 
-Beacon Remote is a browser-first remote access product for people who need to reach
-their own computers and Android phones, and for support teams that need to reach
-computers they manage. Done means:
+Beacon Remote lets people reach their own computers and Android phones from a browser,
+and lets support teams reach computers they manage. Done means:
 
-1. **Unattended trusted access** to the owner's own Windows and Android devices,
-   from a browser, with no local click per session when the owner has chosen trusted
-   access on that device, and an immediate local Stop and revoke on the device.
-2. **Attended support** with explicit local approval, visible Pause/Stop, and the same
-   consent model for view, control, files, clipboard, printing, audio and recording.
-3. **Daily-use parity** with RDP, VNC and mainstream support tools for the everyday
-   tasks: control, clipboard, files, multi-monitor, audio, reconnect, performance.
-4. **Operator features** for teams: accounts with MFA, access policy, audit,
-   session ownership, fleet inventory and a supportable release process.
+1. **Unattended trusted access** to the owner's Windows and Android devices. Once the
+   owner has enabled trusted access on a device, a browser connects with no local click per
+   session. The device can Stop and revoke at any time, and the revoke takes effect at once.
+2. **Attended support** with explicit local approval, visible Pause and Stop, and separate
+   grants for view, control, files, clipboard, printing, audio and recording.
+3. **Daily-use parity** with RDP, VNC and support tools for everyday work: control,
+   clipboard, files, multi-monitor, audio, reconnect and performance.
+4. **Operator features** for teams: accounts with MFA, policy, audit, session ownership,
+   fleet inventory, and a supportable release process.
 
-We do not claim to be better than another product until a published, repeatable
-measurement shows it on a named task. See the comparison rules in section 6.
+Beacon may say "better than" a competitor only for a named task with published,
+repeatable measurements (section 7).
 
-## 1. Competitive baseline
+## 2. Competitor feature check
 
-Sources are vendor pages and review sites. The unattended and clipboard claims are
-the vendors' own statements unless noted, and need checking against current documentation
-before any product decision.
+Sources are vendor pages and reviews found on 19 November 2026. Vendor claims are
+marked as such. Entries marked *unconfirmed* need the current vendor documentation.
 
-- **Microsoft RDP:** file and clipboard redirection between local and remote machines,
-  multi-monitor layouts and saved connections ([Helpwire](https://www.helpwire.app/blog/microsoft-remote-desktop-vs-vnc/),
-  [ZipDo](https://zipdo.co/best/remote-access-desktop-software/)). Needs a reachable Windows
-  host; RDP is not available on Windows Home (Microsoft product documentation, from our own testing notes).
-- **RealVNC:** two-way file transfer and multi-monitor support, and a managed-device
-  tier for unattended access ([RealVNC guide](https://www.realvnc.com/en/blog/best-remote-access-software-for-windows/),
-  [G2 comparison](https://www.g2.com/compare/realvnc-vs-remotepc-vs-anydesk)).
-- **TeamViewer:** unattended access, file transfer, clipboard sync and chat; vendor
-  claims a single license covers unattended access ([TeamViewer comparison](https://www.teamviewer.com/ams/special/teamviewer-vs-beyondtrust/)).
-- **AnyDesk:** clipboard redirection, keyboard mapping and multi-monitor span; file
-  transfer tied to an active session ([ZipDo](https://zipdo.co/best/remote-access-desktop-software/),
-  [G2](https://www.g2.com/compare/anydesk-vs-realvnc-vs-remotepc)).
-- **BeyondTrust Remote Support (formerly Bomgar):** session policies with explicit
-  view and control grants, controller identity and access history, and support-team
-  workflows ([BeyondTrust](https://www.beyondtrust.com/products/remote-support/features/session-policies),
-  [Splashtop comparison](https://www.splashtop.com/blog/programs-like-beyondtrust-remote-support)).
-- **Splashtop, ConnectWise ScreenConnect:** support-team and unattended access, with
-  reporting and multi-user administration ([G2 comparison](https://www.g2.com/compare/beyondtrust-remote-support-vs-screenconnect-vs-splashtop-remote-access)).
+| Product | Confirmed features (source) | Notes for Beacon |
+| --- | --- | --- |
+| Microsoft RDP | Clipboard and drive/printer redirection, multi-monitor, RemoteApp (publishes single apps) | Needs a Windows Pro, Enterprise or Server host. Not available on Windows Home (our test). |
+| RealVNC Connect | Unattended access (managed devices tier), two-way file transfer, multi-monitor windows, control of Android devices through its server app; iOS view-only ([RealVNC](https://www.realvnc.com/en/connect/), [RealVNC features](https://www.g2.com/products/realvnc/features)) | Clipboard sharing *unconfirmed*. |
+| TeamViewer | Unattended access that starts with the OS, Wake-on-LAN, file transfer (box and side-by-side), remote management policies ([TeamViewer forum](https://community.teamviewer.com/English/discussion/6611/unattended-access-vs-wake-on-lan), [TeamViewer KB](https://www.teamviewer.com/en/global/support/knowledge-base)) | Remote Management feature list *unconfirmed*. Licensing claims not checked. |
+| BeyondTrust Remote Support (Bomgar) | Session policies per portal or endpoint, separate attended and unattended policies, elevation to protected windows and UAC (Windows and Mac), chat log with permissions granted, session recording and reports ([BeyondTrust features](https://www.beyondtrust.com/products/remote-support/features), [session policies](https://beyondtrust.com/remote-support/features/session-policies), [docs](https://docs.beyondtrust.com/rs/v24.3/docs/web-collaboration)) | Strongest on support-team workflow and audit. |
+| AnyDesk, Splashtop, ConnectWise ScreenConnect | Unattended access, clipboard, reporting and multi-user administration (vendor claims from comparison sites) | Used as secondary references only. |
 
-What Beacon can credibly offer that the list above does not emphasize:
+Where Beacon can be different by design (not measured as better):
 - No client install: the viewer is a web page.
-- Local approval and visible Stop by design, with separate grants for files, printing and recording.
+- Local approval, a visible indicator and a Stop on the device for every attended session.
+- Separate grants for files, printing and recording that end with the connection.
 - Android phones as hosts, with local approval and Pause/Stop.
-- A single, inspectable permission model in the browser.
+- One inspectable permission model in the browser.
 
-Where Beacon is behind today: unattended Windows at sign-in, file workflows, clipboard,
-multi-monitor, audio, printing, reconnect, performance, fleet administration, and
-independent Windows sessions.
+## 3. Capability matrix (status on 19 November 2026)
 
-## 2. Capability matrix
+Status: **done** means implemented and tested on real hardware. **partial** means implemented
+with known gaps. **missing** means not built. Hardware items need a device.
 
-Status: **done** means implemented and tested on real hardware; **partial** means
-implemented with known gaps; **missing** means not built. "Hardware" items need a
-device in hand.
-
-| Capability | Windows | Android | Status |
+| Capability | Windows (Surfiena) | Android (Pixel 7a) | Evidence |
 | --- | --- | --- | --- |
-| Attended view with local approval | Yes | Yes | done (device-tested) |
-| Attended control with local approval | Yes | Yes | partial (Pixel control passes; Surfiena control blocked on test box) |
-| Unattended trusted access (no local click per session) | Not tested | Pixel: enabled by owner, not yet tested end to end | partial |
-| Visible Pause and Stop, local revoke | Yes | Yes | done (Pixel Pause and Stop tested) |
-| File send from device to viewer | Yes | Yes | partial |
-| File send from viewer to device | Yes (download) | Partial | partial |
-| Clipboard: device to viewer | Yes | Yes | done (Windows and Pixel) |
-| Clipboard: viewer to device | Not built | Not built | missing (ADR 0021 forbids; decision approved) |
-| Remote typing (viewer to device) | Partial | Not reaching a field yet | partial |
-| Multi-monitor selection | Partial | n/a | partial |
-| Audio output | Not built | Not built | missing |
-| Microphone redirection | Not built | Not built | missing (approved decision) |
-| USB redirection | Not built | Not built | missing (approved decision) |
-| Printing redirection | Partial (code, not tested on device) | n/a | partial |
-| Reconnect after network change | Partial | Partial | partial |
-| Session recording | Not built | Not built | missing |
-| Windows sign-in screen control | Source only | n/a | missing (hardware) |
-| Independent user sessions (RemoteApp, multiple users) | Not built | n/a | missing |
+| Attended view with local approval | done | done | Pixel and Surfiena view runs |
+| Attended control with local approval | blocked (input test box did not show) | done (ordinary control re-run after factory reset) | testing-remaining.md, 19 Nov |
+| Unattended trusted access (no local click) | not enabled | not tested end to end | owner decision pending |
+| Visible Pause, Stop and local revoke | done (Stop) | done (Pause, Stop) | earlier runs |
+| Remote typing into an editable field | not tested | not reaching a field | Settings search row is not editable; test app needed |
+| Control expiry and lease loss | not tested | not tested | — |
+| Accessibility loss detected and shown | n/a | not tested (the app shows a notice) | — |
+| Lock screen behaviour | not tested | not tested | — |
+| Resume after network change | partial | partial | — |
+| File send device to viewer | partial | partial | — |
+| File send viewer to device | partial (download) | partial | — |
+| Clipboard device to viewer | done (Windows), done (Pixel) | done | — |
+| Clipboard viewer to device | missing (ADR 0021 forbids; approved decision) | missing | needs ADR change |
+| Multi-monitor selection | partial | n/a | — |
+| Audio output | missing | missing | — |
+| Microphone input | missing (approved decision) | missing | needs hardware |
+| USB forwarding | missing (approved decision) | missing | needs hardware |
+| Printing redirection | partial (code, not tested) | n/a | — |
+| Wake-on-LAN and boot-to-online | missing | missing | competitor parity |
+| Sign-in screen control | source only | n/a | needs hardware |
+| Session recording with consent | missing | missing | competitor parity |
+| Chat during a session | partial (handoff baseline) | partial | not tested on devices |
+| Session policy per device and per portal | partial (per device) | partial (per device) | — |
+| Elevation to protected windows and UAC | missing | n/a | competitor parity |
+| Independent sessions and RemoteApp | missing | n/a | needs Windows Pro or Server |
 
-## 3. Milestones
+## 4. Milestones
 
-Work the milestones in order. Each one has an exit gate that must be met with
-evidence in [testing-remaining.md](testing-remaining.md) before the next one starts.
+Each milestone has an exit gate. Evidence goes into [testing-remaining.md](testing-remaining.md).
 
-### M0. Environment without blockers (now)
+### M0. Environment with no blockers (now)
 
-Exit gate: both devices can run the next test with no owner click except the
-explicit consent the product requires.
+Exit gate: both devices run the next test with no owner click except the consent the
+product requires.
 
-- Pixel: unattended access turned on for the owner's account; accessibility and
-  restricted settings allowed; screen timeout 30 minutes; a debug-only text field
-  screen for remote typing tests (not in release builds).
-- Surfiena: trusted access turned on by the owner in the Beacon host window (one click,
-  because the device-side policy change is made on the device); the input test window
-  starts visibly in the signed-in session from one command.
-- Acceptance backend: a bounded but reusable test backend (the one-hour expiry in the
-  current runbook slows every run). Changing the expiry is an owner decision.
-- One runbook: the owner's one-time steps and every run's command in one file.
+- Pixel: screen timeout 30 minutes (done 19 Nov). Accessibility and restricted settings
+  allowed (done). Unattended access for the owner's account: owner decision.
+- Surfiena: trusted access on the Beacon host window (owner click, device-side).
+  Input test box must open visibly in the signed-in session from one command. The launcher
+  is hidden and non-interactive, so this is a fix to make.
+- Acceptance backend: the one-hour expiry is an owner decision.
+- One runbook: owner one-time steps and each run's command in one file.
 
-### M1. Unattended trusted access (Windows and Android)
+### M1. Unattended trusted access
 
 Exit gate: with trusted access on, the owner opens a machine from the browser and gets
-video and control with no local click; Stop and revoke on the device end the session at once;
-audit shows who connected and when.
+video and control with no local click. Stop and revoke on the device end the session at once.
+Audit records who connected and when.
 
-- Windows: trusted access survives reboot and sign-in; the host starts in the
-  signed-in session; standing permission is checked against the server policy each session.
-- Android: unattended control works after a Pixel reboot; accessibility loss is detected and shown.
-- Both: expiry and revoke tests; control expiry; lock screen behavior; resume after a dropped network.
-- Sign-in screen control on Windows (source exists; needs hardware) stays a separate gate.
+- Windows: trusted access survives reboot and sign-in; host starts in the signed-in session;
+  each session checks server policy.
+- Android: unattended control after a Pixel reboot; accessibility loss detected and shown.
+- Both: control expiry, lock screen behaviour, resume after a dropped network.
+- Wake-on-LAN and boot-to-online (competitor parity, TeamViewer) start here.
 
-### M2. Daily-use features (parity with RDP and VNC)
+### M2. Daily-use features
 
 Exit gate: each feature passes a scripted task on both platforms, with timings.
 
-- Remote typing and shortcuts on both platforms, including the Settings search field and the Surfiena test window.
+- Remote typing and shortcuts, tested in a debug-only text field on Android and in the
+  Surfiena test window.
 - File transfer both directions with resume and integrity checks.
-- Clipboard viewer-to-device: first a plain-text path behind a device approval, then rich formats.
-- Multi-monitor selection and layout changes; resize; DPI.
-- Audio output; then microphone (approved decision, with its own consent).
+- Clipboard viewer-to-device: plain text behind a device approval first, then rich formats.
+- Multi-monitor selection, resize and DPI.
+- Audio output; then microphone (its own consent).
 - Printing on Windows.
-- Session recording with consent.
 
-### M3. Reliability and performance
+### M3. Support-team features (Bomgar and TeamViewer parity)
+
+Exit gate: an admin sets policy for a group, sees every session, and exports the audit log.
+
+- Session policies by device, group and portal, with separate attended and unattended rules.
+- Elevation to protected windows and UAC on Windows, with its own consent.
+- Session chat with a log of permissions granted and revoked.
+- Session recording with consent and playback.
+- File box and side-by-side file transfer.
+
+### M4. Reliability and performance
 
 Exit gate: measured latency, frame rate and reconnect time against a published task list.
 
@@ -137,56 +135,57 @@ Exit gate: measured latency, frame rate and reconnect time against a published t
 - Frame-rate and latency measurement with a fixed test pattern.
 - Clear error reasons on the device and in the browser.
 
-### M4. Team operator features (Bomgar-style support)
-
-Exit gate: an admin can set policy for a group, see every session, and export the audit log.
+### M5. Team operator features
 
 - Accounts with MFA and single sign-on; roles; per-machine policy; session ownership.
-- Audit export and retention.
-- Fleet inventory with device health.
+- Audit export and retention; fleet inventory with device health.
 
-### M5. Platform reach
+### M6. Platform reach
 
-- Windows Pro/Enterprise/Server test host for the RDP and VNC comparison (hardware).
+- Windows Pro, Enterprise or Server test host for the RDP and VNC comparison (hardware).
+- Independent sessions and RemoteApp (decide: native or RDS gateway interoperability).
+- Native Windows session attach for a session with no logged-in console user: only after a
+  security review of a SYSTEM service (approved decision; review first).
 - Linux and macOS hosts (not started).
-- Native Windows session attach for a session without a logged-in console user: only after a security review of a SYSTEM service (approved decision; review first).
 
-### M6. Automation and handoff
+### M7. Automation and handoff
 
-- Scoped automation credentials for an AI agent, with a view-only MCP adapter already in source.
+- Scoped, revocable automation credentials for an AI agent, with a view-only adapter already in source.
 - Semantic UI trees and computer-use input, with the same consent model.
 
-## 4. Known blockers and how this roadmap handles them
+## 5. Blockers and how this roadmap handles them
 
 | Blocker | Why | Handling |
 | --- | --- | --- |
-| Surfiena local click for each approval | Product consent model; fixture forbids clicking consent | Owner turns on trusted access once (M0); per-session approvals stay for attended tests |
-| Probe window does not show | Launcher runs hidden and non-interactive | Fix the launcher in M0 and log its startup |
-| One-hour acceptance backend | Safety runbook | Owner decision in M0 |
-| RDP/VNC comparison needs Windows Pro | No such machine | Hardware; comparison rules in section 6 |
-| Sign-in screen and USB | Needs hardware and driver work | Separate gates in M1 and M5 |
+| Surfiena local click per approval | Product consent model | Trusted access turned on once by the owner (M0). Attended tests keep the click. |
+| Input test box does not show | Launcher runs hidden and non-interactive | Fix the launcher in M0. Log startup. |
+| One-hour acceptance backend | Runbook safety limit | Owner decision (section 6). |
+| RDP and VNC comparison needs Windows Pro | No such machine | Hardware. Comparison rules in section 7. |
+| Remote typing target | Settings search row is not editable | Debug-only text field app (owner approval, section 6). |
 
-## 5. Owner decisions needed
+## 6. Owner decisions
 
-1. Turn on trusted access on Surfiena for the test account (device-side click).
-2. Whether the acceptance backend may stay up longer than one hour.
-3. Approve the debug-only text field app for Pixel remote-typing tests.
-4. Clipboard viewer-to-device: confirm the ADR 0021 change to permit it with device approval.
-5. Whether a SYSTEM service for native session attach can be reviewed now or after M2.
+1. Turn on trusted access on Surfiena for the test account (device-side, one click).
+2. Turn on unattended access for the Pixel's owner account (device-side).
+3. Whether the acceptance backend may stay up longer than one hour.
+4. Approve the debug-only text field app for Pixel remote-typing tests.
+5. Clipboard viewer-to-device: confirm the ADR 0021 change, with device approval.
+6. SYSTEM service for native session attach: review now or after M2.
+7. Whether to buy or borrow a Windows Pro, Enterprise or Server machine for the RDP and VNC comparison.
 
-## 6. Comparison rules
+## 7. Comparison rules
 
-Beacon may state "better than" for a named task only after:
+Beacon may state "better than" for a named task only when:
 - the same two machines, network and task list are used for each product;
 - at least five runs per product, with median and spread;
 - raw numbers and build versions are published with the claim.
 
 Until then the claim is "measured" or "different by design", never "better".
 
-## 7. Working rules
+## 8. Working rules
 
 - Every change ships with the smallest test that protects the behavior.
-- Every device test is recorded in [testing-remaining.md](testing-remaining.md) with the build and hardware used.
-- Development checkpoints are committed and pushed to the feature branch;
-  deployment to a shared server is a separate, explicit step.
+- Every device test is recorded in [testing-remaining.md](testing-remaining.md) with build and hardware.
+- Development checkpoints are committed and pushed to the feature branch. Deployment to a
+  shared server is a separate, explicit step.
 - Destructive actions on devices (wiping accounts, reinstalling) need an owner request.
