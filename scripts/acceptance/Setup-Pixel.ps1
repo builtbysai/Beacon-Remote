@@ -39,6 +39,8 @@ if ($Action -eq 'Prepare') {
     # Keep the phone awake long enough for a test, and let Beacon run in the background.
     Invoke-Phone @('shell', 'settings', 'put', 'system', 'screen_off_timeout', '1800000') | Out-Null
     Invoke-Phone @('shell', 'dumpsys', 'deviceidle', 'whitelist', "+$package") | Out-Null
+    # While plugged in over USB or AC the screen stays on, so a long test is not interrupted by the lock.
+    Invoke-Phone @('shell', 'settings', 'put', 'global', 'stay_on_while_plugged_in', '3') | Out-Null
 }
 
 $accessibility = Invoke-Phone @('shell', 'settings', 'get', 'secure', 'enabled_accessibility_services')
@@ -48,6 +50,7 @@ $status = [ordered]@{
     version           = ((Invoke-Phone @('shell', 'dumpsys', 'package', $package) | Select-String 'versionName=(\S+)' | Select-Object -First 1).Matches.Groups[1].Value)
     accessibilityOn   = ($accessibility -split ':' -contains $service)
     screenTimeoutMs   = Invoke-Phone @('shell', 'settings', 'get', 'system', 'screen_off_timeout')
+    stayOnWhilePlugged = Invoke-Phone @('shell', 'settings', 'get', 'global', 'stay_on_while_plugged_in')
     awake             = ((Invoke-Phone @('shell', 'dumpsys', 'power')) -match 'mWakefulness=Awake')
     unlocked          = ((Invoke-Phone @('shell', 'dumpsys', 'window')) -match 'isKeyguardShowing=false')
     serviceRunning    = [bool](Invoke-Phone @('shell', 'pidof', $package))
