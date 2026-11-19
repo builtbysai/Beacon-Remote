@@ -193,6 +193,11 @@ product requires.
   ended (a slow start, not the old fail-with-zero-frames). Before the fix about every other run ended at
   once. Verdict: the race is fixed for the failure seen; the slow start in run 3 is not explained
   (the sample is small) and is worth a longer-wait recheck. Not pushed.
+- Pixel 8 s Wi-Fi drop on the fixed backend (19 Nov, ~19:10): the session ended and did not resume.
+  Phone log: signaling socket failure then "Session ended: Connection lost"; the backend also finishes a
+  session when the host socket closes. The viewer already reconnects, so auto-resume needs host-side
+  changes on both Android and the backend. Design written in [host-reconnect-design.md](host-reconnect-design.md);
+  awaiting owner approval and two answers (window length; attended sessions).
 - Pixel network drop (19 Nov, 17:58): Wi-Fi turned off over ADB for 20 s during a live control
   session. The session ended (it did not resume), consistent with the backend's 15 s silent-host
   rule; a new connection is needed after the network returns. Passed as a clean teardown;
