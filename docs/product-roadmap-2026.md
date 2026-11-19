@@ -52,13 +52,13 @@ with known gaps. **missing** means not built. Hardware items need a device.
 | --- | --- | --- | --- |
 | Attended view with local approval | done | done | Pixel and Surfiena view runs |
 | Attended control with local approval | blocked (input test box did not show) | done (ordinary control re-run after factory reset) | testing-remaining.md, 19 Nov |
-| Unattended trusted access (no local click) | not enabled | not tested end to end | owner decision pending |
+| Unattended trusted access (no local click) | not enabled (owner click pending) | connect passed 19 Nov; "no local click" to confirm with phone untouched | M0 notes, 19 Nov |
 | Visible Pause, Stop and local revoke | done (Stop) | done (Pause, Stop) | earlier runs |
-| Remote typing into an editable field | not tested | not reaching a field | Settings search row is not editable; test app needed |
+| Remote typing into an editable field | not tested | done (Chrome address bar, 19 Nov) | M0 notes, 19 Nov |
 | Control expiry and lease loss | not tested | not tested | — |
-| Accessibility loss detected and shown | n/a | not tested (the app shows a notice) | — |
+| Accessibility loss detected and shown | n/a | done (session ended, unattended off, notice shown, 19 Nov) | M0 notes, 19 Nov |
 | Lock screen behaviour | not tested | not tested | — |
-| Resume after network change | partial | partial | — |
+| Resume after network change | partial | partial (20 s Wi-Fi drop ends the session; no auto-resume, 19 Nov) | M0 notes, 19 Nov |
 | File send device to viewer | partial | partial | — |
 | File send viewer to device | partial (download) | partial | — |
 | Clipboard device to viewer | done (Windows), done (Pixel) | done | — |
