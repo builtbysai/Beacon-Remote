@@ -105,6 +105,12 @@ product requires.
   approval was reported in 484 ms; Stop ended the session and profile cleanup was confirmed.
   The agent sent no tap on the phone; the owner was nearby, so confirm "no local click" on the
   next run with the phone untouched. Not yet covered: reboot, accessibility loss, lock, expiry.
+- Pixel accessibility loss (19 Nov, 17:55, run with the same harness): while a control session was
+  live, Beacon's accessibility service was removed with `settings put secure
+  enabled_accessibility_services ''`. The session ended within about 5 s, unattended access was
+  switched off, and the app showed "Unattended access is off. Accessibility permission was
+  removed." with an Enable accessibility button. Passed. The service was then restored and
+  unattended access re-enabled by the agent.
 - Surfiena trusted access: in the host window press "More options", then choose "They can view
   and control without asking" (view-only: "They can view without asking"). Still needs the Beacon host window in session 1.
 - Acceptance backend: the one-hour expiry is an owner decision.
