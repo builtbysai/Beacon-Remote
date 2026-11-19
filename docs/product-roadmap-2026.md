@@ -117,6 +117,11 @@ product requires.
   A first attempt typed before the field had focus and did nothing, so the harness must tap and
   confirm focus first. Chrome was set to "Stay signed out" with notifications declined; nothing
   was searched or saved. No debug app was needed (roadmap decision 4 is moot).
+- Pixel lock-screen run (19 Nov, ~18:05): inconclusive. The connect request ended about 100 ms
+  after the phone joined signaling, with approval pending and no frames, before the phone was
+  locked. Cause not yet found (backend log shows the session ended at the host signaling
+  handshake). The phone was then locked over ADB and awaits the owner's unlock. Rerun with the
+  phone unlocked and Beacon in the foreground.
 - Pixel network drop (19 Nov, 17:58): Wi-Fi turned off over ADB for 20 s during a live control
   session. The session ended (it did not resume), consistent with the backend's 15 s silent-host
   rule; a new connection is needed after the network returns. Passed as a clean teardown;
