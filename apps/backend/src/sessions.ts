@@ -55,6 +55,10 @@ type Entry = {
   // How long a session waits for its viewer to come back after the connection drops.
   reconnectMs: number;
   generation: number;
+  // performance.now() when this session's first peer joined; bounds the wait for the first viewer.
+  createdAt: number;
+  // True once any viewer has attached; after that a missing viewer follows the reconnect rules.
+  viewerEverAttached?: boolean;
 };
 // Attended sessions wait two minutes, trusted ones five (ADR 0021). Capture and input stay
 // stopped while nobody is attached, and nothing in this window can revive an ended session.
@@ -68,6 +72,14 @@ const MACHINE_SILENCE_MS = 15_000;
 // True once a host that had been renewing its lease has been quiet longer than the allowance.
 export function machineSilent(renewedAt: number | undefined, now: number) {
   return renewedAt !== undefined && now - renewedAt > MACHINE_SILENCE_MS;
+}
+// An unattended phone starts sharing as soon as the request reaches it and renews its lease about a
+// second later, while the browser may still be opening its own signaling socket. Until the viewer's
+// first attach, give it this long before treating the missing viewer as a reason to end the session.
+const VIEWER_ATTACH_GRACE_MS = 10_000;
+// True while a session whose viewer has never attached is still inside its first-attach allowance.
+export function viewerAttachGraceOpen(createdAt: number, now: number) {
+  return now - createdAt <= VIEWER_ATTACH_GRACE_MS;
 }
 // A computer can be shared with a bounded number of helpers at once.
 const MAX_HELPERS_PER_MACHINE = 20;
@@ -332,7 +344,11 @@ export async function registerSessions(
       {
         session: id,
         status,
-        callers: (new Error().stack ?? "").split("\n").slice(2, 4).map((line) => line.trim()).join(" | "),
+        callers: (new Error().stack ?? "")
+          .split("\n")
+          .slice(2, 4)
+          .map((line) => line.trim())
+          .join(" | "),
         viewerState: entry?.viewer?.readyState ?? null,
         machineState: entry?.machine?.readyState ?? null,
         machineSilentMs:
@@ -1184,6 +1200,7 @@ export async function registerSessions(
           frameWindow: performance.now(),
           pendingFrames: 0,
           generation: 0,
+          createdAt: performance.now(),
           reconnectMs: reconnectSeconds(session) * 1000,
         };
         const live = entry;
@@ -1246,6 +1263,7 @@ export async function registerSessions(
           entry.generation += 1;
           entry.permissions.resume(entry.generation);
         }
+        entry.viewerEverAttached = true;
         entry.viewerRequest = request;
         entry.viewerTokenHash = browserHash(request);
         entry.detachedUntil = undefined;
@@ -1372,6 +1390,14 @@ export async function registerSessions(
                 return;
               }
               if (!viewer) {
+                // The first viewer may still be attaching; keep leasing for a short, fixed allowance.
+                if (
+                  !live.viewerEverAttached &&
+                  viewerAttachGraceOpen(live.createdAt, performance.now())
+                ) {
+                  send(socket, leaseReply(body.nonce));
+                  return;
+                }
                 if (
                   !live.resumable ||
                   !live.detachedUntil ||
@@ -1385,7 +1411,9 @@ export async function registerSessions(
                 send(socket, leaseReply(body.nonce));
                 return;
               }
-              const viewerOwner = viewer.accountRequest ? await owner(viewer.accountRequest) : null;
+              const viewerOwner = viewer.accountRequest
+                ? await owner(viewer.accountRequest)
+                : null;
               if (
                 viewer.readyState !== 1 ||
                 !viewer.accountRequest ||

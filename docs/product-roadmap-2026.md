@@ -168,6 +168,15 @@ product requires.
   by Wi-Fi changes, the phone being locked, or waiting 45 s after the previous Stop. The lease
   (3 s, renewed every 1 s) is the likely link. Needs root cause before auto-resume is built, because
   a resume would hit the same fault. The 8 s Wi-Fi drop test could not be completed for this reason.
+- Root cause of the connect bug (19 Nov, ~18:45): a race. An unattended phone starts sharing at once
+  and sends its first lease renewal about 1 s later. If the browser's signaling socket has not
+  attached yet, the backend's renewal handler (`apps/backend/src/sessions.ts`, the `!viewer` branch)
+  ended the session. Backend log of failing sessions showed `viewerState: null` with the machine
+  still renewing. Fix in source (not deployed): a 10 s first-attach allowance
+  (`viewerAttachGraceOpen`), used only before any viewer has ever attached; later viewer loss still
+  follows the reconnect rules. Test `apps/backend/test/viewer-attach-grace.test.ts` (node:test, passes
+  with the silence tests); backend typecheck passes. Needs deployment to the isolated acceptance
+  backend and an alternating-run recheck before it counts as fixed.
 - Pixel network drop (19 Nov, 17:58): Wi-Fi turned off over ADB for 20 s during a live control
   session. The session ended (it did not resume), consistent with the backend's 15 s silent-host
   rule; a new connection is needed after the network returns. Passed as a clean teardown;
