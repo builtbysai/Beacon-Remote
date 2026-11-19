@@ -59,8 +59,8 @@ with known gaps. **missing** means not built. Hardware items need a device.
 | Accessibility loss detected and shown | n/a | done (session ended, unattended off, notice shown, 19 Nov) | M0 notes, 19 Nov |
 | Lock screen behaviour | not tested | done (session ends on lock, 19 Nov) | M0 notes, 19 Nov |
 | Resume after network change | partial | partial (20 s Wi-Fi drop ends the session; no auto-resume, 19 Nov) | M0 notes, 19 Nov |
-| File send device to viewer | partial | partial | — |
-| File send viewer to device | partial (download) | partial | — |
+| File send device to viewer | partial | done (1 MiB, hash match, 19 Nov); resume untested | M0 notes, 19 Nov |
+| File send viewer to device | partial (download) | done (3 MiB, hash match, 19 Nov); resume untested | M0 notes, 19 Nov |
 | Clipboard device to viewer | done (Windows), done (Pixel) | done | — |
 | Clipboard viewer to device | missing (ADR 0021 forbids; approved decision) | missing | needs ADR change |
 | Multi-monitor selection | partial | n/a | — |
@@ -138,6 +138,15 @@ product requires.
   machine, status active; the backend's minimum configurable limit is 1 hour, so a real wait was not
   practical). Video was live (236 frames) until the deadline, then the viewer showed ended and
   frames stopped. This tests the server deadline reaching the host, not a real 12-hour wait.
+- Pixel file transfer both directions (19 Nov, ~18:12-18:14, attended): unattended access was turned
+  off for this run (the viewer offers Files only in an attended session). The consent prompt showed
+  the test account, "Also allow receiving files" was ticked, Allow once was tapped, and Android's
+  Share screen confirmation was accepted (all taps by the agent over ADB, on the owner's
+  instruction). Viewer to phone: 3,145,728-byte fixture sent, phone copy in Downloads/Beacon Remote
+  matched SHA-256 80e8d42a... (copy then deleted). Phone to viewer: 1 MiB random file chosen through
+  the notification's Send file and the system picker; viewer Save received it and SHA-256 04d4104a...
+  matched. Both passed. Not tested: resume of an interrupted transfer. Viewer wording bug: the
+  phone's offer reads "The computer wants to send ..." Unattended access was re-enabled afterwards.
 - Pixel network drop (19 Nov, 17:58): Wi-Fi turned off over ADB for 20 s during a live control
   session. The session ended (it did not resume), consistent with the backend's 15 s silent-host
   rule; a new connection is needed after the network returns. Passed as a clean teardown;
