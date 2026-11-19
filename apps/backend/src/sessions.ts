@@ -48,6 +48,8 @@ type Entry = {
   viewerRequest?: FastifyRequest;
   viewerTokenHash?: string;
   detachedUntil?: number;
+  // Set while an unattended host's connection is lost; it may re-attach once until this deadline.
+  machineDetachedUntil?: number;
   relayRefreshAt?: number;
   // When the computer or phone last asked to renew its lease. Hosts ask about once a second while
   // sharing, so a long silence means the connection died without closing (Wi-Fi lost, battery pulled).
@@ -80,6 +82,16 @@ const VIEWER_ATTACH_GRACE_MS = 10_000;
 // True while a session whose viewer has never attached is still inside its first-attach allowance.
 export function viewerAttachGraceOpen(createdAt: number, now: number) {
   return now - createdAt <= VIEWER_ATTACH_GRACE_MS;
+}
+// An unattended host whose own connection drops may re-attach this long before the session ends.
+// Capture and input stay stopped while it is detached (docs/host-reconnect-design.md).
+const HOST_RECONNECT_MS = 20_000;
+// True while a detached host is still inside its re-attach window.
+export function hostReconnectOpen(
+  detachedUntil: number | undefined,
+  now: number,
+) {
+  return detachedUntil !== undefined && now < detachedUntil;
 }
 // A computer can be shared with a bounded number of helpers at once.
 const MAX_HELPERS_PER_MACHINE = 20;
@@ -1169,6 +1181,18 @@ export async function registerSessions(
         )?.[1];
         if (!bearer)
           return reply.code(403).send({ error: "Session unavailable" });
+        const detachedHost = entries.get(session.id)?.machineDetachedUntil;
+        if (hostReconnectOpen(detachedHost, performance.now())) {
+          // A host that lost its connection mid-session re-attaches with the same bearer, once.
+          const same = await pool.query(
+            "SELECT 1 FROM view_sessions WHERE id=$1 AND token_hash=$2 AND status='active' AND approval='policy'",
+            [session.id, digest(bearer)],
+          );
+          if (!same.rowCount)
+            return reply.code(403).send({ error: "Session unavailable" });
+          authorized.set(request, { session, role: query.data.role, request });
+          return;
+        }
         const claimed = await pool.query(
           `UPDATE view_sessions s SET status='connecting' WHERE id=$1 AND token_hash=$2 AND status='requested' AND ${liveDuration("s")} AND EXISTS (SELECT 1 FROM machines m WHERE m.id=s.machine_id AND m.revoked_at IS NULL) RETURNING id`,
           [session.id, digest(bearer)],
@@ -1220,7 +1244,13 @@ export async function registerSessions(
             if (
               !valid.rowCount ||
               (live.viewer && live.viewer.readyState !== 1) ||
-              machineSilent(live.machineRenewedAt, performance.now()) ||
+              (live.machineDetachedUntil === undefined &&
+                machineSilent(live.machineRenewedAt, performance.now())) ||
+              (live.machineDetachedUntil !== undefined &&
+                !hostReconnectOpen(
+                  live.machineDetachedUntil,
+                  performance.now(),
+                )) ||
               (live.detachedUntil !== undefined &&
                 performance.now() >= live.detachedUntil)
             ) {
@@ -1258,6 +1288,8 @@ export async function registerSessions(
       }
       entry[role] = socket;
       const resuming = role === "viewer" && entry.detachedUntil !== undefined;
+      const hostResuming =
+        role === "machine" && entry.machineDetachedUntil !== undefined;
       if (role === "viewer") {
         if (resuming) {
           entry.generation += 1;
@@ -1271,7 +1303,32 @@ export async function registerSessions(
           socket as WebSocket & { accountRequest?: FastifyRequest }
         ).accountRequest = request;
       }
+      if (hostResuming) {
+        // New generation: the old peer is dead. The viewer is dropped so its normal reconnect path
+        // rebuilds the connection against the returned host; nothing is captured until a fresh lease.
+        entry.machineDetachedUntil = undefined;
+        entry.machineRenewedAt = undefined;
+        entry.generation += 1;
+        entry.permissions.resume(entry.generation);
+        const staleViewer = entry.viewer;
+        if (staleViewer) {
+          detachViewer(entry, staleViewer);
+          staleViewer.terminate();
+        }
+      }
       const live = entry;
+      const hostMayReattach = (target: Entry, from: WebSocket) =>
+        role === "machine" &&
+        session.approval === "policy" &&
+        target.resumable === true &&
+        !target.closed &&
+        target.machine === from &&
+        target.machineDetachedUntil === undefined;
+      const detachHost = (target: Entry) => {
+        target.machine = undefined;
+        target.machineDetachedUntil = performance.now() + HOST_RECONNECT_MS;
+        target.permissions.detach();
+      };
       // Short relay credentials are re-issued inside lease replies, so a long session can always
       // rebuild its peer. The lease is already authenticated and checked on every renewal.
       const leaseReply = (nonce: string) => ({
@@ -1519,11 +1576,15 @@ export async function registerSessions(
         ) {
           // A short transport-recovery window, bounded by original approval.
           detachViewer(live, socket);
+        } else if (hostMayReattach(live, socket)) {
+          detachHost(live);
         } else if (role !== "viewer" || live.viewer === socket) {
           void finish(session.id).catch(() => {});
         }
       });
       socket.on("error", () => {
+        // The close event follows; a host that may re-attach is judged there.
+        if (hostMayReattach(live, socket)) return;
         void finish(session.id).catch(() => {});
       });
       send(socket, {

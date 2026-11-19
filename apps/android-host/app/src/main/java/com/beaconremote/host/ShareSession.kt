@@ -76,6 +76,13 @@ class ShareSession(
     private var sequence = 0L
     private val challenges = ArrayDeque<Pair<String, Long>>()
     @Volatile private var lastLease = 0L
+    // The lease clock starts here: at the session start, and again after a re-attach.
+    @Volatile private var leaseEpoch = started
+    // Unattended sessions survive a short loss of this phone's connection (docs/host-reconnect-design.md).
+    // While reconnecting, nothing is captured or injected and the lease must be earned again.
+    @Volatile private var reconnectDeadline = 0L
+    private var lastReconnectAttempt = 0L
+    private var connectedOnce = false
     private var ticker: ScheduledFuture<*>? = null
 
     private var egl: EglBase? = null
@@ -208,7 +215,7 @@ class ShareSession(
             .put("generation", prompt.generation).put("id", prompt.id).put("approved", approved).toString())
     }
 
-    private fun connect(accepted: Boolean) {
+    private fun connect(accepted: Boolean, resume: Boolean = false) {
         val url = server.replaceFirst("http", "ws") + "/api/sessions/${grant.id}/signal?role=machine"
         val request = Request.Builder().url(url).header("Authorization", "Bearer ${grant.token}").build()
         socket =
@@ -217,6 +224,22 @@ class ShareSession(
                 object : WebSocketListener() {
                     override fun onOpen(webSocket: WebSocket, response: Response) {
                         post {
+                            if (resume) {
+                                // Same bearer, same session. The server drops the old viewer so it reconnects and
+                                // asks for a fresh offer; the lease restarts from zero.
+                                if (webSocket !== socket || ended) return@post
+                                if (!(Identity(context).wantsAvailable && Identity(context).unattended && UnattendedAccess.ready(context))) {
+                                    end("Unattended access was turned off or the phone was locked")
+                                    return@post
+                                }
+                                leaseEpoch = SystemClock.elapsedRealtime()
+                                lastLease = 0L
+                                challenges.clear()
+                                reconnectDeadline = 0L
+                                Log.i(TAG, "Reconnected after a short network loss")
+                                return@post
+                            }
+                            connectedOnce = true
                             if (!accepted || !SharingNotifications.ready(context)) {
                                 webSocket.send(JSONObject().put("type", "consent").put("accepted", false).toString())
                                 end(if (accepted) "Sharing notifications are unavailable" else "Declined")
@@ -239,15 +262,33 @@ class ShareSession(
                     }
 
                     override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                        post { end("Connection closed") }
+                        post { if (webSocket === socket) end("Connection closed") }
                     }
 
                     override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                         Log.w(TAG, "Signaling failed", t)
-                        post { end("Connection lost") }
+                        post { if (webSocket === socket) connectionLost() }
                     }
                 },
             )
+    }
+
+    /** The signaling socket failed. An unattended session waits briefly for the network instead of ending. */
+    private fun connectionLost() {
+        if (ended) return
+        // A retry that failed while already waiting just keeps waiting until the window closes.
+        if (reconnectDeadline != 0L) return
+        if (unattended && connectedOnce) {
+            reconnectDeadline = SystemClock.elapsedRealtime() + RECONNECT_WINDOW
+            lastReconnectAttempt = SystemClock.elapsedRealtime()
+            // Stop sending and release input now; the capture keeps its place but the lease is not fresh.
+            viewer.detach()
+            closePeer()
+            control?.release()
+            Log.i(TAG, "Connection lost; waiting up to ${RECONNECT_WINDOW / 1000} s for the network")
+            return
+        }
+        end("Connection lost")
     }
 
     private fun tick() {
@@ -266,8 +307,18 @@ class ShareSession(
             end("Unattended access was turned off or the phone was locked")
             return
         }
+        if (reconnectDeadline != 0L) {
+            if (now >= reconnectDeadline) {
+                end("Connection lost")
+            } else if (now - lastReconnectAttempt >= RECONNECT_RETRY) {
+                lastReconnectAttempt = now
+                runCatching { socket?.cancel() }
+                connect(accepted = true, resume = true)
+            }
+            return
+        }
         // Authorization lapses without a fresh reply: nothing keeps sharing on its own.
-        if (now - started >= MAX_AGE && (lastLease == 0L || now - lastLease >= MAX_AGE)) {
+        if (now - leaseEpoch >= MAX_AGE && (lastLease == 0L || now - lastLease >= MAX_AGE)) {
             end("Authorization lapsed")
             return
         }
@@ -611,6 +662,8 @@ class ShareSession(
 
     private companion object {
         const val MAX_AGE = 3000L
+        const val RECONNECT_WINDOW = 20_000L
+        const val RECONNECT_RETRY = 2_000L
         const val TAG = "BeaconHost"
     }
 }

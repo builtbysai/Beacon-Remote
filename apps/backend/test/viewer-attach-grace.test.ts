@@ -11,3 +11,12 @@ test("a new session stays alive while its first viewer is still attaching", () =
 test("the wait ends after ten seconds so a viewer that never comes cannot hold the phone", () => {
   assert.equal(viewerAttachGraceOpen(1_000, 11_001), false);
 });
+
+import { hostReconnectOpen } from "../src/sessions.js";
+
+test("a detached host may re-attach only inside its twenty second window", () => {
+  assert.equal(hostReconnectOpen(undefined, 5_000), false);
+  assert.equal(hostReconnectOpen(25_000, 5_000), true);
+  assert.equal(hostReconnectOpen(25_000, 24_999), true);
+  assert.equal(hostReconnectOpen(25_000, 25_000), false);
+});
