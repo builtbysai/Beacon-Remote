@@ -100,7 +100,13 @@ product requires.
 - Pixel unattended access enabled 19 Nov by the agent on the owner's instruction (it failed
   while the backend was down). The isolated acceptance backend was restarted with
   `docker start` (same config, fresh one-hour lifetime) at 17:51 local; it expires about 18:51.
-- Surfiena trusted access: still needs the Beacon host window in session 1.
+- Pixel unattended connect run (19 Nov, 17:55 local, harness `pixel-connect-2026-11-18.mjs`): the
+  viewer connected with live relayed video (324x720, first frame 2.5 s) and control ready;
+  approval was reported in 484 ms; Stop ended the session and profile cleanup was confirmed.
+  The agent sent no tap on the phone; the owner was nearby, so confirm "no local click" on the
+  next run with the phone untouched. Not yet covered: reboot, accessibility loss, lock, expiry.
+- Surfiena trusted access: in the host window press "More options", then choose "They can view
+  and control without asking" (view-only: "They can view without asking"). Still needs the Beacon host window in session 1.
 - Acceptance backend: the one-hour expiry is an owner decision.
 - One runbook: owner one-time steps and each run's command in one file.
 
