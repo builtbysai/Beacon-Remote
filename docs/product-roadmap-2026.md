@@ -57,7 +57,7 @@ with known gaps. **missing** means not built. Hardware items need a device.
 | Remote typing into an editable field | not tested | done (Chrome address bar, 19 Nov) | M0 notes, 19 Nov |
 | Control expiry and lease loss | not tested | not tested | — |
 | Accessibility loss detected and shown | n/a | done (session ended, unattended off, notice shown, 19 Nov) | M0 notes, 19 Nov |
-| Lock screen behaviour | not tested | not tested | — |
+| Lock screen behaviour | not tested | done (session ends on lock, 19 Nov) | M0 notes, 19 Nov |
 | Resume after network change | partial | partial (20 s Wi-Fi drop ends the session; no auto-resume, 19 Nov) | M0 notes, 19 Nov |
 | File send device to viewer | partial | partial | — |
 | File send viewer to device | partial (download) | partial | — |
@@ -122,6 +122,11 @@ product requires.
   locked. Cause not yet found (backend log shows the session ended at the host signaling
   handshake). The phone was then locked over ADB and awaits the owner's unlock. Rerun with the
   phone unlocked and Beacon in the foreground.
+- Pixel lock-screen rerun (19 Nov, ~18:10): passed. Connected with unattended access (video 324x720,
+  control ready), then the phone was locked over ADB (power key); the session ended within 6 s and
+  the viewer showed ended. The earlier failed attempt came with Beacon not in the foreground after
+  Chrome clean-up; the rerun started with the Beacon app in front. Cause of the first failure is
+  still a hypothesis. The phone is locked again and needs the owner's unlock.
 - Pixel network drop (19 Nov, 17:58): Wi-Fi turned off over ADB for 20 s during a live control
   session. The session ended (it did not resume), consistent with the backend's 15 s silent-host
   rule; a new connection is needed after the network returns. Passed as a clean teardown;
