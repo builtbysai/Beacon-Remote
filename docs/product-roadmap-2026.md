@@ -97,6 +97,10 @@ product requires.
 - Environment check (19 Nov): Pixel 7a `34171JEHN07672` over ADB is awake and unlocked with
   Beacon accessibility enabled and screen timeout 30 minutes. Surfiena SSH works with
   explorer running in session 1.
+- Pixel unattended access enabled 19 Nov by the agent on the owner's instruction (it failed
+  while the backend was down). The isolated acceptance backend was restarted with
+  `docker start` (same config, fresh one-hour lifetime) at 17:51 local; it expires about 18:51.
+- Surfiena trusted access: still needs the Beacon host window in session 1.
 - Acceptance backend: the one-hour expiry is an owner decision.
 - One runbook: owner one-time steps and each run's command in one file.
 
