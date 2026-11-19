@@ -335,7 +335,10 @@ export async function registerSessions(
         callers: (new Error().stack ?? "").split("\n").slice(2, 4).map((line) => line.trim()).join(" | "),
         viewerState: entry?.viewer?.readyState ?? null,
         machineState: entry?.machine?.readyState ?? null,
-        machineSilentMs: entry ? Math.round(performance.now() - entry.machineRenewedAt) : null,
+        machineSilentMs:
+          entry && entry.machineRenewedAt !== undefined
+            ? Math.round(performance.now() - entry.machineRenewedAt)
+            : null,
       },
       "live session ended",
     );
