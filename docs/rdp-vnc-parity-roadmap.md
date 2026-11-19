@@ -140,3 +140,11 @@ real end-to-end action, revoke/Stop and teardown evidence, device/build/network
 identity, known limitations and a committed receipt. Builds and health endpoints
 alone do not close a device feature. Keep historical evidence, but replace stale
 current summaries when a newer result supersedes them.
+
+## Owner decisions, November 19, 2026
+
+These are decisions from the owner. Each is still to be designed and reviewed before code, and the owner's approval does not replace that review.
+
+- **Clipboard writing:** approved in both directions, each gated by a local approval on the device. ADR 0021 forbids clipboard writing today and must be revised before any code.
+- **Native session attach:** approved to add a privileged SYSTEM service. It must keep the Session 0, UAC and UIPI boundaries and needs a separate security review before implementation.
+- **USB forwarding and microphone redirection:** both approved. Each needs hardware to test, and each needs its own consent and revocation rules.
