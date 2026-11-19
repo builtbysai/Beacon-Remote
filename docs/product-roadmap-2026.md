@@ -160,6 +160,14 @@ product requires.
   = unlock; everything else is the script. Tested idempotently on the paired Pixel.
 - Web wording fix: the phone's file offer now reads "The phone wants to send ..." (typecheck and
   Prettier pass; no existing test referenced the text).
+- OPEN BUG, Pixel intermittent connect failure (19 Nov, 18:05 to 18:38): about every other
+  unattended connect from the harness ends within seconds with zero frames (success, fail, success,
+  fail; earlier runs at 17:53 to 17:59 passed back to back). Phone log of a failing run: the input
+  channel reaches CONNECTING, then "Session ended: Authorization lapsed" 3 s later, then "Signaling
+  failed ... Broken pipe". Backend log: the session is ended at the signaling handshake. Not caused
+  by Wi-Fi changes, the phone being locked, or waiting 45 s after the previous Stop. The lease
+  (3 s, renewed every 1 s) is the likely link. Needs root cause before auto-resume is built, because
+  a resume would hit the same fault. The 8 s Wi-Fi drop test could not be completed for this reason.
 - Pixel network drop (19 Nov, 17:58): Wi-Fi turned off over ADB for 20 s during a live control
   session. The session ended (it did not resume), consistent with the backend's 15 s silent-host
   rule; a new connection is needed after the network returns. Passed as a clean teardown;
