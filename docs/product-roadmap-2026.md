@@ -147,6 +147,19 @@ product requires.
   the notification's Send file and the system picker; viewer Save received it and SHA-256 04d4104a...
   matched. Both passed. Not tested: resume of an interrupted transfer. Viewer wording bug: the
   phone's offer reads "The computer wants to send ..." Unattended access was re-enabled afterwards.
+- Pixel hands-off unattended run (19 Nov, ~18:30): the agent sent no taps and no keys to the phone
+  during the run. Beacon's main screen held focus the whole time, the log showed no consent or
+  screen-capture activity, and the viewer reached live video (324x720, 31 frames) with control
+  ready. This is the "no local click" evidence for Android (the owner was in the room but was
+  not asked to touch the phone). Stop ended it cleanly.
+- Pixel setup script (19 Nov): `scripts/acceptance/Setup-Pixel.ps1 -Action Prepare|Status [-Apk path]`
+  installs an update, allows restricted settings, grants notifications, adds Beacon's
+  accessibility service without removing others, sets a 30-minute screen timeout, exempts Beacon from
+  battery optimisation and prints a status. It never types the passcode, pairs or enables unattended
+  access. Minimal Pixel workflow: owner once = pair code + "Enable unattended access"; owner per boot
+  = unlock; everything else is the script. Tested idempotently on the paired Pixel.
+- Web wording fix: the phone's file offer now reads "The phone wants to send ..." (typecheck and
+  Prettier pass; no existing test referenced the text).
 - Pixel network drop (19 Nov, 17:58): Wi-Fi turned off over ADB for 20 s during a live control
   session. The session ended (it did not resume), consistent with the backend's 15 s silent-host
   rule; a new connection is needed after the network returns. Passed as a clean teardown;

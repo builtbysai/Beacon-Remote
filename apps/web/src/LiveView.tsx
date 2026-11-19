@@ -1475,7 +1475,8 @@ export function LiveView({
         )}
         {offer && (
           <span role="status" className="viewer-transfer">
-            The computer wants to send {offer.name} (
+            {phoneHost ? "The phone" : "The computer"} wants to send{" "}
+            {offer.name} (
             {(offer.size / 1_048_576).toFixed(offer.size < 10_485_760 ? 1 : 0)}{" "}
             MB).{" "}
             <button
