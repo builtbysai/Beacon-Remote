@@ -289,3 +289,26 @@ probe. "Copy from computer" produced the viewer notice "Copied from the computer
 and the browser clipboard read back the probe text exactly. The earlier refusal
 was the unfocused automated window, not a product fault. Viewer-to-phone paste
 remains typed input.
+
+### Ordinary control on the Pixel, after the consent fix (November 19, 2026)
+
+Pixel 7a Android 17 with a signed release build from `7c59256`, isolated acceptance
+backend from `980d089` (diagnostic logging only), fresh owner test account. The
+owner approved Allow once with the control box ticked and Android's screen-capture
+prompt accepted.
+
+- Control granted on the host: "Control decision: capability=desktop:control
+  allowed=true", and the input channel reached OPEN.
+- Viewer showed live relayed video (576x1280, first presented frame 1.6 s after
+  approval). A remote tap on the phone's Connection details row changed the phone's
+  screen, which was checked by comparing screenshots (no UiAutomator).
+- Stop from the viewer ended the session, and the host released capture.
+- Result file: `pixel-control-2-result.json` in the private preparation folder. Its
+  `source` and `backend` fields are stale template labels and do not describe this run.
+
+Not covered by this entry: remote typing, control expiry, accessibility loss,
+lock, and resume after a dropped connection.
+
+Harness finding: `uiautomator dump` unbinds Beacon's accessibility service, which
+Beacon reads as permission removed and ends sharing. Acceptance tooling must not use
+UiAutomator while a control session is active.
