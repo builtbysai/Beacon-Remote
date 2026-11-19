@@ -482,6 +482,7 @@ class ShareSession(
             val ordered = codecs.filter { it.name == "H264" } + codecs.filter { it.name != "H264" }
             connection.transceivers.firstOrNull { it.sender == sender }?.setCodecPreferences(ordered)
         }
+        Log.i("BeaconHost", "Control decision: capability=${grant.capability} allowed=$controlAllowed service=${ControlService.instance != null}")
         if (grant.capability == "desktop:control" && controlAllowed && ControlService.instance != null) {
             // The input channel is made here, before the offer, as the Windows host does.
             openInput(thisGeneration, "beacon-input-v1") { true }
@@ -529,6 +530,7 @@ class ShareSession(
     }
 
     private fun openInput(generation: Long, label: String, permitted: () -> Boolean) {
+        Log.i("BeaconHost", "Open input requested: label=$label existing=${control != null} peer=${peer != null}")
         if (control != null) {
             Log.w("BeaconHost", "Input channel not opened: control is already active")
             return

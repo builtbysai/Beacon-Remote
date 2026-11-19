@@ -9,6 +9,7 @@ import android.graphics.Typeface
 import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.util.Log
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -162,8 +163,18 @@ class ConsentActivity : Activity() {
         files?.setOnCheckedChangeListener { _, _ -> refreshScope() }
         HostUi.screen(this, layout, footer)
         refreshControl()
+        // The accessibility service can connect a moment after this screen opens; keep the control box in step with it.
+        handler.post(refreshControlTick)
         // The request expires on the server after two minutes.
         handler.postDelayed({ decline() }, maxOf(0, expiresAt - SystemClock.elapsedRealtime()))
+    }
+
+    private val refreshControlTick = object : Runnable {
+        override fun run() {
+            if (answered || isFinishing) return
+            refreshControl()
+            handler.postDelayed(this, 500)
+        }
     }
 
     override fun onResume() {
@@ -221,8 +232,11 @@ class ConsentActivity : Activity() {
         refreshScope()
         val box = control ?: return
         val on = ControlService.enabled(this) && ControlService.instance != null
+        Log.i("BeaconHost", "Consent control state: enabled=${ControlService.enabled(this)} instance=${ControlService.instance != null} awaiting=$awaitingCapture")
         box.isEnabled = on && !awaitingCapture
-        if (!on) box.isChecked = false
+        // Clear the box only when the service is really off in Settings. The live instance can be missing for a moment
+        // at startup, and clearing on that moment would leave control unticked after the service connects.
+        if (!ControlService.enabled(this)) box.isChecked = false
         controlNote?.text =
             if (on) "Off unless you tick it. You can pause or stop at any time."
             else "Control needs Beacon Remote's accessibility service. Turn it on once in Settings; it does nothing outside a session you approve."
