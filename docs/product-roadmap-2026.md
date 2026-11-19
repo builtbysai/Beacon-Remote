@@ -115,6 +115,9 @@ product requires.
   session. The session ended (it did not resume), consistent with the backend's 15 s silent-host
   rule; a new connection is needed after the network returns. Passed as a clean teardown;
   automatic resume stays a gap (capability matrix: resume after network change = partial).
+- Not testable by the agent alone (19 Nov): control expiry (backend `SESSION_MAX_HOURS` minimum is
+  1 hour, default 12; needs a bounded config change or a wait), lock screen and Pixel reboot
+  (the phone needs its passcode, which the agent does not have; owner unlocks).
 - Surfiena trusted access: in the host window press "More options", then choose "They can view
   and control without asking" (view-only: "They can view without asking"). Still needs the Beacon host window in session 1.
 - Acceptance backend: the one-hour expiry is an owner decision.
