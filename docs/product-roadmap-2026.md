@@ -88,8 +88,15 @@ product requires.
 - Pixel: screen timeout 30 minutes (done 19 Nov). Accessibility and restricted settings
   allowed (done). Unattended access for the owner's account: owner decision.
 - Surfiena: trusted access on the Beacon host window (owner click, device-side).
-  Input test box must open visibly in the signed-in session from one command. The launcher
-  is hidden and non-interactive, so this is a fix to make.
+  Input test box opens visibly and takes focus in the signed-in session from one command (done 19 Nov).
+  Finding (19 Nov, read-only inspection): the probe does start in session 1 and wrote
+  `input-probe-e48fe6c7.json` at 17:24 (closed, 9 key-downs, not focused, text not matched).
+  The later task run exited 1 because the script refuses an existing probe id. Fixed in
+  `Windows-InputProbe.ps1` (raises the window on show): a run with a fresh probe id reported
+  `focused: true` in session 1. Rule: use one fresh probe id per run.
+- Environment check (19 Nov): Pixel 7a `34171JEHN07672` over ADB is awake and unlocked with
+  Beacon accessibility enabled and screen timeout 30 minutes. Surfiena SSH works with
+  explorer running in session 1.
 - Acceptance backend: the one-hour expiry is an owner decision.
 - One runbook: owner one-time steps and each run's command in one file.
 

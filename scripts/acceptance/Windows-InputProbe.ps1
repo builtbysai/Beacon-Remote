@@ -74,5 +74,10 @@ function Write-Probe([bool]$closed) {
 $timer = New-Object Windows.Forms.Timer
 $timer.Interval = 200
 $timer.Add_Tick({ Write-Probe $false; if ([DateTime]::UtcNow -ge $deadline -or (Test-Path -LiteralPath $stop)) { $form.Close() } })
-$form.Add_Shown({ $box.Focus() | Out-Null; $timer.Start() })
+$form.Add_Shown({
+    # A task-launched window is not foreground by default; raise it so the box
+    # can take focus without an owner click.
+    $form.TopMost = $true; $form.Activate(); $form.TopMost = $false
+    $box.Focus() | Out-Null; $timer.Start()
+})
 try { [void]$form.ShowDialog() } finally { $timer.Stop(); Write-Probe $true; $timer.Dispose(); $form.Dispose() }
