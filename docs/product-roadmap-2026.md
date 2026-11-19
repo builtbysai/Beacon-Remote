@@ -55,7 +55,7 @@ with known gaps. **missing** means not built. Hardware items need a device.
 | Unattended trusted access (no local click) | not enabled (owner click pending) | connect passed 19 Nov; "no local click" to confirm with phone untouched | M0 notes, 19 Nov |
 | Visible Pause, Stop and local revoke | done (Stop) | done (Pause, Stop) | earlier runs |
 | Remote typing into an editable field | not tested | done (Chrome address bar, 19 Nov) | M0 notes, 19 Nov |
-| Control expiry and lease loss | not tested | not tested | — |
+| Control expiry and lease loss | not tested | done (deadline ends session; lease loss = Wi-Fi drop test, 19 Nov) | M0 notes, 19 Nov |
 | Accessibility loss detected and shown | n/a | done (session ended, unattended off, notice shown, 19 Nov) | M0 notes, 19 Nov |
 | Lock screen behaviour | not tested | done (session ends on lock, 19 Nov) | M0 notes, 19 Nov |
 | Resume after network change | partial | partial (20 s Wi-Fi drop ends the session; no auto-resume, 19 Nov) | M0 notes, 19 Nov |
@@ -133,6 +133,11 @@ product requires.
   and an unattended connect gave live relayed video (324x720, first frame 3.1 s, approval 744 ms)
   with control ready. Stop ended it cleanly. Android unattended after reboot = done, with one
   owner unlock per boot as the platform requires.
+- Pixel control expiry (19 Nov, ~18:09): passed. During a live unattended control session the one
+  session row's `expires_at` was set to now+40 s in the isolated acceptance database only (same
+  machine, status active; the backend's minimum configurable limit is 1 hour, so a real wait was not
+  practical). Video was live (236 frames) until the deadline, then the viewer showed ended and
+  frames stopped. This tests the server deadline reaching the host, not a real 12-hour wait.
 - Pixel network drop (19 Nov, 17:58): Wi-Fi turned off over ADB for 20 s during a live control
   session. The session ended (it did not resume), consistent with the backend's 15 s silent-host
   rule; a new connection is needed after the network returns. Passed as a clean teardown;
