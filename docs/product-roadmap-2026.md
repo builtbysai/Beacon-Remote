@@ -187,6 +187,12 @@ product requires.
   timeout, so runs 2 to 8 (phone log "phone is locked", then "Declined") do not test the fix. The phone is
   now set to stay awake while plugged in (`stay_on_while_plugged_in=3`, also in Setup-Pixel.ps1).
   Repeat the alternating connects once the owner has unlocked the phone.
+- Connect-race fix verified on the Pixel (19 Nov, ~19:05): with the phone unlocked and awake, eight
+  back-to-back unattended connects on the deployed backend (a35029e): 7 reached live video with control
+  ready (324x720, 9 to 15 frames at the 19 s sample); run 3 was still "connecting" at 19 s and had not
+  ended (a slow start, not the old fail-with-zero-frames). Before the fix about every other run ended at
+  once. Verdict: the race is fixed for the failure seen; the slow start in run 3 is not explained
+  (the sample is small) and is worth a longer-wait recheck. Not pushed.
 - Pixel network drop (19 Nov, 17:58): Wi-Fi turned off over ADB for 20 s during a live control
   session. The session ended (it did not resume), consistent with the backend's 15 s silent-host
   rule; a new connection is needed after the network returns. Passed as a clean teardown;
