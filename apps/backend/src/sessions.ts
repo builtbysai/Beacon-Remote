@@ -1385,11 +1385,22 @@ export async function registerSessions(
                 send(socket, leaseReply(body.nonce));
                 return;
               }
+              const viewerOwner = viewer.accountRequest ? await owner(viewer.accountRequest) : null;
               if (
                 viewer.readyState !== 1 ||
                 !viewer.accountRequest ||
-                (await owner(viewer.accountRequest)) !== session.account_id
+                viewerOwner !== session.account_id
               ) {
+                // Diagnostic: which part of the viewer check failed at this renewal.
+                app.log.warn(
+                  {
+                    session: session.id,
+                    viewerReadyState: viewer.readyState,
+                    hasViewerRequest: Boolean(viewer.accountRequest),
+                    ownerMatches: viewerOwner === session.account_id,
+                  },
+                  "renewal viewer check failed",
+                );
                 await finish(session.id);
                 return;
               }
