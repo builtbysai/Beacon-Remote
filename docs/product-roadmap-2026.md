@@ -111,6 +111,12 @@ product requires.
   switched off, and the app showed "Unattended access is off. Accessibility permission was
   removed." with an Enable accessibility button. Passed. The service was then restored and
   unattended access re-enabled by the agent.
+- Pixel remote typing (19 Nov, 17:59): with unattended access and the Chrome address bar as the
+  editable field (focused by a remote tap through the viewer), the test word "beacon" typed
+  through the Beacon keyboard channel appeared in the field (checked by screenshot). Passed.
+  A first attempt typed before the field had focus and did nothing, so the harness must tap and
+  confirm focus first. Chrome was set to "Stay signed out" with notifications declined; nothing
+  was searched or saved. No debug app was needed (roadmap decision 4 is moot).
 - Pixel network drop (19 Nov, 17:58): Wi-Fi turned off over ADB for 20 s during a live control
   session. The session ended (it did not resume), consistent with the backend's 15 s silent-host
   rule; a new connection is needed after the network returns. Passed as a clean teardown;
