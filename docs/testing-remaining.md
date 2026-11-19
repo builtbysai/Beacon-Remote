@@ -113,6 +113,8 @@ the backend accepts the option alone so hosts already installed recover; the
 acceptance backend with that rule recovered Surfiena without touching the laptop.
 Device approval click counts were not measured exactly.
 
+November 19, 2026, Pixel 7a: a 120 MB file sent from the viewer. Tapping Stop on the phone's sharing notification at about 18 percent ended the session ("Sharing stopped"). The viewer reported "Could not send ... The file connection closed." and no partial copy of the file was in Downloads/Beacon Remote. Partial storage outside Downloads was not inspected. Still open on the Pixel: Pause followed by a fresh offer, control expiry, lock and accessibility loss.
+
 Android P0-3 now checks the dedicated **While sharing** notification channel as
 well as the app-wide notification setting. Android unit/lint/build checks passed.
 The guarded Android API 36 emulator test removed the channel while app-wide
