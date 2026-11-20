@@ -353,3 +353,15 @@ Until then the claim is "measured" or "different by design", never "better".
   returned. Needs control to be open; a view-only session has no chat yet.
 - End-of-session cases (Pixel): a drop longer than 2 minutes ends the session; Stop during a drop ends it and the
   phone now ends at once when the server refuses its re-attach instead of retrying for the whole window.
+
+## Android setup redesign (19 Nov)
+
+- The paired screen opens with a Setup checklist: notifications, Beacon accessibility, access without asking, and
+  permission to keep running in the background. One "Next step" button does the first unfinished step; when all four
+  are done the list says "Setup complete: this phone is ready" and the button goes away. The existing unattended
+  access controls and their safety checks are unchanged; the new button calls them.
+- A pairing link `beaconremote://pair?code=...&server=...` opens the app with the code filled in. The person still
+  taps Pair, so a link alone never pairs a phone. The workspace page does not show this link or a QR code yet.
+- Pixel run: all four steps showed as done; with the background permission removed the list showed "3 of 4 done"
+  and a "Keep Beacon running" button. Not yet run on a freshly reset phone, so first-time pairing from the link and
+  the accessibility step on a clean install are untested.
