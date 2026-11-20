@@ -253,6 +253,9 @@ export function LiveView({
   // The phone's PIN screen cannot be captured, so this pad stands in for it. Nothing typed here is kept.
   const [padOpen, setPadOpen] = useState(false);
   const [padNote, setPadNote] = useState("");
+  // A pattern being chosen (cells 0-8) or a password being typed. Cleared the moment it is sent; never kept.
+  const [patternCells, setPatternCells] = useState<number[]>([]);
+  const [passwordDraft, setPasswordDraft] = useState("");
   // The layout of the phone's PIN screen, sent by the phone while the pad is open, drawn as a stand-in for the picture.
   const [lockScreen, setLockScreen] = useState<LockScreen | null>(null);
   useEffect(() => {
@@ -1397,7 +1400,100 @@ export function LiveView({
           {controlReady &&
             phoneHost &&
             padOpen &&
-            lockScreen?.state === "pad" && (
+            lockScreen?.state === "pad" &&
+            lockScreen.lock === "pattern" && (
+              <div
+                className="viewer-pattern"
+                role="group"
+                aria-label="Pattern entry"
+              >
+                <div className="pattern-grid">
+                  {[0, 1, 2, 3, 4, 5, 6, 7, 8].map((cell) => (
+                    <button
+                      key={cell}
+                      type="button"
+                      className="pattern-dot"
+                      aria-label={`Dot ${cell + 1}`}
+                      aria-pressed={patternCells.includes(cell)}
+                      onClick={() =>
+                        setPatternCells((cells) =>
+                          cells.includes(cell) ? cells : [...cells, cell],
+                        )
+                      }
+                    >
+                      {patternCells.includes(cell)
+                        ? patternCells.indexOf(cell) + 1
+                        : ""}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="viewer-control"
+                  disabled={patternCells.length < 2}
+                  onClick={() => {
+                    video.current?.dispatchEvent(
+                      new CustomEvent("beacon-unlock-pattern", {
+                        detail: patternCells,
+                      }),
+                    );
+                    setPatternCells([]);
+                  }}
+                >
+                  Draw pattern
+                </button>
+                <button
+                  type="button"
+                  className="viewer-control"
+                  onClick={() => setPatternCells([])}
+                >
+                  Clear
+                </button>
+                <p className="note" role="status">
+                  Click the dots in order, then Draw pattern. It is sent to the
+                  phone and not saved.
+                </p>
+              </div>
+            )}
+          {controlReady &&
+            phoneHost &&
+            padOpen &&
+            lockScreen?.state === "pad" &&
+            lockScreen.lock === "password" && (
+              <form
+                className="viewer-password"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (!passwordDraft) return;
+                  video.current?.dispatchEvent(
+                    new CustomEvent("beacon-unlock-password", {
+                      detail: passwordDraft,
+                    }),
+                  );
+                  setPasswordDraft("");
+                }}
+              >
+                <input
+                  type="password"
+                  autoComplete="off"
+                  aria-label="Phone password"
+                  maxLength={64}
+                  value={passwordDraft}
+                  onChange={(event) => setPasswordDraft(event.target.value)}
+                />
+                <button className="viewer-control" type="submit">
+                  Send password
+                </button>
+                <p className="note" role="status">
+                  The password is sent to the phone and not saved.
+                </p>
+              </form>
+            )}
+          {controlReady &&
+            phoneHost &&
+            padOpen &&
+            lockScreen?.state === "pad" &&
+            lockScreen.lock === "pin" && (
               <div
                 className="viewer-replica"
                 role="group"

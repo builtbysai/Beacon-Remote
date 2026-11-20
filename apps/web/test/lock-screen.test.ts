@@ -47,3 +47,16 @@ test("only digits, Delete and Enter captions stand for pressable keys", () => {
   assert.equal(lockKeyFor("Emergency"), null);
   assert.equal(lockKeyFor("12"), null);
 });
+
+test("a pattern or password lock screen needs no keys, and an unknown lock kind falls back to PIN", () => {
+  const base = { type: "lockscreen", state: "pad", w: 1080, h: 2400 };
+  assert.equal(lockScreenShape({ ...base, lock: "pattern" })?.lock, "pattern");
+  assert.equal(
+    lockScreenShape({ ...base, lock: "password" })?.lock,
+    "password",
+  );
+  assert.equal(
+    lockScreenShape({ ...base, lock: "other", nodes: [] })?.lock,
+    "pin",
+  );
+});

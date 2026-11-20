@@ -156,6 +156,66 @@ class ControlService : AccessibilityService() {
 
     private fun isPinPad(node: AccessibilityNodeInfo) = node.viewIdResourceName?.endsWith("pin_pad_grid") == true || node.text?.toString() == "Enter PIN"
 
+    private fun isPatternView(node: AccessibilityNodeInfo) = node.viewIdResourceName?.endsWith("lockPatternView") == true
+
+    private fun isPasswordField(node: AccessibilityNodeInfo) = node.viewIdResourceName?.endsWith("passwordEntry") == true
+
+    /** The credential screen that is up (PIN pad, pattern grid or password field) and which kind it is. */
+    private fun findLockRoot(): Pair<AccessibilityNodeInfo, String>? {
+        for (root in listOfNotNull(rootInActiveWindow) + windows.mapNotNull { it.root }) {
+            if (root.packageName?.toString() != "com.android.systemui") continue
+            if (walkTree(root, 0, ::isPinPad) != null) return root to "pin"
+            if (walkTree(root, 0, ::isPatternView) != null) return root to "pattern"
+            if (walkTree(root, 0, ::isPasswordField) != null) return root to "password"
+        }
+        return null
+    }
+
+    private fun lockRootOrReveal(): AccessibilityNodeInfo? {
+        var found = findLockRoot()?.first
+        if (found == null) {
+            swipeUpToPin()
+            for (attempt in 1..8) {
+                Thread.sleep(400)
+                found = findLockRoot()?.first
+                if (found != null) break
+            }
+        }
+        return found
+    }
+
+    /**
+     * Draws a pattern for a viewer whose person knows it: a finger path through the centres of the grid's cells (0 is the
+     * top left, 8 the bottom right). Nothing about the pattern is stored or logged.
+     */
+    fun drawLockPattern(cells: List<Int>): String {
+        if (!Identity(this).unlockFromViewer) return "off"
+        if (!getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked) return "not-locked"
+        if (cells.size !in 2..9 || cells.toSet().size != cells.size || cells.any { it !in 0..8 }) return "bad"
+        val screen = lockRootOrReveal() ?: return "no-pad"
+        val grid = walkTree(screen, 0, ::isPatternView) ?: return "no-key"
+        val bounds = android.graphics.Rect()
+        grid.getBoundsInScreen(bounds)
+        val points = cells.map { cell ->
+            (bounds.left + bounds.width() * (cell % 3 * 2 + 1) / 6) to (bounds.top + bounds.height() * (cell / 3 * 2 + 1) / 6)
+        }
+        return if (stroke(points, 220L * points.size)) "ok" else "no-key"
+    }
+
+    /** Types a password into the lock screen's field and presses its Enter action. Never stored or logged. */
+    fun enterLockPassword(text: String): String {
+        if (!Identity(this).unlockFromViewer) return "off"
+        if (!getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked) return "not-locked"
+        if (text.isEmpty() || text.length > 64) return "bad"
+        val screen = lockRootOrReveal() ?: return "no-pad"
+        val field = walkTree(screen, 0, ::isPasswordField) ?: return "no-key"
+        field.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text) }
+        if (!field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) return "no-key"
+        val enter = Build.VERSION.SDK_INT >= 30 && field.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
+        return if (enter) "ok" else "typed"
+    }
+
     private fun findPinRoot(): AccessibilityNodeInfo? =
         (listOfNotNull(rootInActiveWindow) + windows.mapNotNull { it.root })
             .firstOrNull { it.packageName?.toString() == "com.android.systemui" && walkTree(it, 0, ::isPinPad) != null }
@@ -176,7 +236,17 @@ class ControlService : AccessibilityService() {
         val out = org.json.JSONObject().put("type", "lockscreen").put("w", metrics.widthPixels).put("h", metrics.heightPixels)
         if (!Identity(this).unlockFromViewer) return out.put("state", "off")
         if (!getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked) return out.put("state", "not-locked")
-        val root = findPinRoot() ?: return out.put("state", "no-pad")
+        val (root, lock) = findLockRoot() ?: return out.put("state", "no-pad")
+        out.put("lock", lock)
+        if (lock == "pattern") {
+            // The grid itself: where it is on the screen, for the viewer's stand-in.
+            val grid = walkTree(root, 0, ::isPatternView)
+            val bounds = android.graphics.Rect()
+            grid?.getBoundsInScreen(bounds)
+            return out.put("state", "pad").put("nodes", org.json.JSONArray())
+                .put("grid", org.json.JSONObject().put("x", bounds.left).put("y", bounds.top).put("w", bounds.width()).put("h", bounds.height()))
+        }
+        if (lock == "password") return out.put("state", "pad").put("nodes", org.json.JSONArray())
         val nodes = org.json.JSONArray()
         fun collect(node: AccessibilityNodeInfo?, depth: Int) {
             if (node == null || depth > 14 || nodes.length() >= 40) return

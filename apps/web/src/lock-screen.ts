@@ -10,6 +10,8 @@ export type LockScreenNode = {
 };
 export type LockScreen = {
   state: "off" | "not-locked" | "no-pad" | "pad";
+  // Which credential screen is up. A pattern or a password has no keys to draw; the viewer shows its own entry.
+  lock: "pin" | "pattern" | "password";
   w: number;
   h: number;
   nodes: LockScreenNode[];
@@ -35,6 +37,8 @@ export function lockScreenShape(message: unknown): LockScreen | null {
   if (!finite(raw.w) || !finite(raw.h) || raw.w === 0 || raw.h === 0)
     return null;
   const nodes: LockScreenNode[] = [];
+  if (state === "pad" && (raw.lock === "pattern" || raw.lock === "password"))
+    return { state, lock: raw.lock, w: raw.w, h: raw.h, nodes };
   if (state === "pad") {
     if (!Array.isArray(raw.nodes) || raw.nodes.length > 60) return null;
     for (const item of raw.nodes as unknown[]) {
@@ -61,7 +65,9 @@ export function lockScreenShape(message: unknown): LockScreen | null {
       });
     }
   }
-  return { state, w: raw.w, h: raw.h, nodes };
+  const lock =
+    raw.lock === "pattern" || raw.lock === "password" ? raw.lock : "pin";
+  return { state, lock, w: raw.w, h: raw.h, nodes };
 }
 
 // Which key a drawn button stands for, or null when it is not one the pad may press.

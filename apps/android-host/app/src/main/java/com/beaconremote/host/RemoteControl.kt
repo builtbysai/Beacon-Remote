@@ -315,6 +315,15 @@ class RemoteControl(
             // A viewer that knows about the clipboard says so; older viewers never hear about it.
             "clipboard_hello" -> announceClipboard()
             "unlock_view" -> lockScreenView(input.optBoolean("on"))
+            "unlock_pattern" -> {
+                val list = input.optJSONArray("cells")
+                val cells = if (list == null || list.length() > 9) null else (0 until list.length()).map { list.optInt(it, -1) }
+                if (cells != null) runCatching { lockKeys.execute { sendJson(JSONObject().put("type", "unlock").put("state", runCatching { service.drawLockPattern(cells) }.getOrDefault("error"))) } }
+            }
+            "unlock_password" -> {
+                val text = input.optString("text")
+                if (text.isNotEmpty() && text.length <= 64) runCatching { lockKeys.execute { sendJson(JSONObject().put("type", "unlock").put("state", runCatching { service.enterLockPassword(text) }.getOrDefault("error"))) } }
+            }
             "unlock_key" -> {
                 val key = input.getString("key")
                 if (key.length == 1 && key[0] in '0'..'9' || key == "delete" || key == "enter") {

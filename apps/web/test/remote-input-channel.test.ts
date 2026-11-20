@@ -523,3 +523,38 @@ test("a copied PNG image goes to the phone in paced base64 pieces, and an image 
   assert.ok(written);
   delete (globalThis as Record<string, unknown>).ClipboardItem;
 });
+
+test("a pattern and a password are sent to the phone only in their exact shapes", (t) => {
+  const f = channelFixture(t);
+  const pattern = (cells: unknown) =>
+    f.video.dispatchEvent(
+      new CustomEvent("beacon-unlock-pattern", { detail: cells }),
+    );
+  pattern([0, 1, 2, 5]);
+  pattern([0]);
+  pattern([0, 0, 1]);
+  pattern([0, 9]);
+  pattern("012");
+  f.video.dispatchEvent(
+    new CustomEvent("beacon-unlock-password", { detail: "hunter2" }),
+  );
+  f.video.dispatchEvent(
+    new CustomEvent("beacon-unlock-password", { detail: "" }),
+  );
+  f.video.dispatchEvent(
+    new CustomEvent("beacon-unlock-password", { detail: "x".repeat(65) }),
+  );
+  const sent = f.sent.map((body) => body.input);
+  assert.deepEqual(
+    sent
+      .filter((input) => input.type === "unlock_pattern")
+      .map((input) => input.cells),
+    [[0, 1, 2, 5]],
+  );
+  assert.deepEqual(
+    sent
+      .filter((input) => input.type === "unlock_password")
+      .map((input) => input.text),
+    ["hunter2"],
+  );
+});

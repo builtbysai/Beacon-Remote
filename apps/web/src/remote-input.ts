@@ -1091,6 +1091,34 @@ export function attachRemoteInput(
       send({ type: "unlock_view", on: (event as CustomEvent).detail === true });
   };
   element.addEventListener("beacon-unlock-view", lockScreenView);
+  // A pattern (cells 0-8, top left to bottom right) or a password, typed by the person at the viewer. Sent straight
+  // to the phone: not kept, not logged, not put in any field.
+  const sendLockPattern = (event: Event) => {
+    const cells = (event as CustomEvent).detail as unknown;
+    if (
+      display &&
+      !signIn &&
+      Array.isArray(cells) &&
+      cells.length >= 2 &&
+      cells.length <= 9 &&
+      new Set(cells).size === cells.length &&
+      cells.every((cell) => Number.isInteger(cell) && cell >= 0 && cell <= 8)
+    )
+      send({ type: "unlock_pattern", cells });
+  };
+  const sendLockPassword = (event: Event) => {
+    const text = (event as CustomEvent).detail as unknown;
+    if (
+      display &&
+      !signIn &&
+      typeof text === "string" &&
+      text.length > 0 &&
+      text.length <= 64
+    )
+      send({ type: "unlock_password", text });
+  };
+  element.addEventListener("beacon-unlock-pattern", sendLockPattern);
+  element.addEventListener("beacon-unlock-password", sendLockPassword);
   window.addEventListener("blur", release);
   document.addEventListener("visibilitychange", visibility);
   const heartbeat = setInterval(() => send({ type: "keep_alive" }), 400);
@@ -1133,6 +1161,8 @@ export function attachRemoteInput(
     element.removeEventListener("beacon-chat-send", sendChat);
     element.removeEventListener("beacon-unlock-key", sendLockKey);
     element.removeEventListener("beacon-unlock-view", lockScreenView);
+    element.removeEventListener("beacon-unlock-pattern", sendLockPattern);
+    element.removeEventListener("beacon-unlock-password", sendLockPassword);
     if (awaitingClipboard) clearTimeout(awaitingClipboard);
     sink?.remove();
     sink = null;

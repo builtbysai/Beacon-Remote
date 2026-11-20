@@ -2670,3 +2670,29 @@ button.danger {
   opacity: 0.5;
   cursor: default;
 }
+
+/* Pattern and password entry for the phone's lock screen, drawn by the viewer (Android hides the real screen). */
+.viewer-pattern,
+.viewer-password {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: start;
+}
+.pattern-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 3rem);
+  gap: 0.6rem;
+}
+.pattern-dot {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  border: 1px solid #3a4a63;
+  background: #1c2a40;
+  color: #e8eefc;
+  font-weight: 700;
+  cursor: pointer;
+}
+.pattern-dot[aria-pressed="true"] {
+  background: #3b6fd8;
+}
