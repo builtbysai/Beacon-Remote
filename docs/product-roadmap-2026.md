@@ -370,3 +370,8 @@ Until then the claim is "measured" or "different by design", never "better".
   carries the address and the one-use code. Opening it on the paired Pixel resolves to the app and is ignored without
   a crash (a paired phone never re-pairs from a link). Filling the code on an unpaired phone is not device-tested yet;
   a QR code is not built (it would add a dependency).
+
+- Clipboard modes on the Pixel (19 Nov): Automatic wrote the browser's clipboard to the phone with no button press
+  (page focus triggered it). Off disabled the viewer's send button and the phone logged no clipboard writes.
+  Phone-to-viewer automatic copy was not exercised (the phone's clipboard could not be changed from this setup).
+  Rich formats (images, HTML) and the ADR 0021 wording change are still open.
