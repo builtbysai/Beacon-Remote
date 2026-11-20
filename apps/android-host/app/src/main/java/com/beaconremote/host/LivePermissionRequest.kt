@@ -1,6 +1,6 @@
 package com.beaconremote.host
 
-enum class LivePermission(val wire: String) { FILES("files"), CONTROL("control") }
+enum class LivePermission(val wire: String) { FILES("files"), CONTROL("control"), RECORDING("recording") }
 
 data class LivePermissionPrompt(
     val sessionId: String,

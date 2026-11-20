@@ -146,7 +146,7 @@ class CaptureService : Service() {
             return
         }
         fun action(name: String) = permissionAction(prompt, name)
-        val input = prompt.scope == LivePermission.CONTROL
+        val words = promptWords(prompt.scope)
         // A request the person must answer is posted on the high-importance request channel, not the silent
         // "While sharing" one, so it appears as a heads-up and cannot sit unseen in the shade until it expires.
         manager.createNotificationChannel(
@@ -156,15 +156,21 @@ class CaptureService : Service() {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setSmallIcon(R.drawable.ic_stat_beacon)
-            .setContentTitle(if (input) "Allow this viewer to control the phone?" else "Allow this viewer to send files?")
-            .setContentText(if (input) "They can touch and type until this connection ends. Pause or Stop at any time."
-                else "Files are saved in Downloads/Beacon Remote during this connection.")
+            .setContentTitle(words.title)
+            .setContentText(words.text)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setTimeoutAfter(prompt.timeoutMs)
             .addAction(0, "Decline", action(ACTION_DECLINE_PERMISSION))
-            .addAction(0, if (input) "Allow control" else "Allow files", action(ACTION_ALLOW_PERMISSION))
+            .addAction(0, words.allow, action(ACTION_ALLOW_PERMISSION))
             .build())
         refresh()
+    }
+
+    private class PromptWords(val title: String, val text: String, val allow: String)
+    private fun promptWords(scope: LivePermission) = when (scope) {
+        LivePermission.CONTROL -> PromptWords("Allow this viewer to control the phone?", "They can touch and type until this connection ends. Pause or Stop at any time.", "Allow control")
+        LivePermission.RECORDING -> PromptWords("Allow this viewer to record your screen?", "The recording is saved in their browser, not on this phone, and stops when this connection ends.", "Allow recording")
+        LivePermission.FILES -> PromptWords("Allow this viewer to send files?", "Files are saved in Downloads/Beacon Remote during this connection.", "Allow files")
     }
 
     private fun build(): Notification {
@@ -177,16 +183,15 @@ class CaptureService : Service() {
             )
         val waiting = prompting
         if (waiting != null) {
-            val input = waiting.scope == LivePermission.CONTROL
+            val words = promptWords(waiting.scope)
             return NotificationCompat.Builder(this, SharingNotifications.CHANNEL)
                 .setSmallIcon(R.drawable.ic_stat_beacon)
-                .setContentTitle(if (input) "Allow this viewer to control the phone?" else "Allow this viewer to send files?")
-                .setContentText(if (input) "They can touch and type until this connection ends."
-                    else "Files are saved in Downloads/Beacon Remote during this connection.")
+                .setContentTitle(words.title)
+                .setContentText(words.text)
                 .setOngoing(true)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .addAction(0, "Decline", permissionAction(waiting, ACTION_DECLINE_PERMISSION))
-                .addAction(0, if (input) "Allow control" else "Allow files", permissionAction(waiting, ACTION_ALLOW_PERMISSION))
+                .addAction(0, words.allow, permissionAction(waiting, ACTION_ALLOW_PERMISSION))
                 .addAction(0, "Stop", action(ACTION_STOP))
                 .build()
         }

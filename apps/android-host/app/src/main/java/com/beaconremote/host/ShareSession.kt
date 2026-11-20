@@ -190,6 +190,7 @@ class ShareSession(
         if (!deviceUnlocked()) return emptySet()
         return buildSet {
             if (!filesAllowed && files?.isOpen() == true && !permissions.allowed(generation, LivePermission.FILES)) add(LivePermission.FILES)
+            if (files?.isOpen() == true && !permissions.allowed(generation, LivePermission.RECORDING)) add(LivePermission.RECORDING)
             if (dataTransportAvailable && control == null && ControlService.enabled(context) && ControlService.instance != null &&
                 !permissions.allowed(generation, LivePermission.CONTROL)) add(LivePermission.CONTROL)
         }
@@ -373,7 +374,7 @@ class ShareSession(
                 if (stillAvailable &&
                     permissions.commit(id, generation, SystemClock.elapsedRealtime())) {
                     when (prompt.scope) {
-                        LivePermission.FILES -> files?.publishReady()
+                        LivePermission.FILES, LivePermission.RECORDING -> files?.publishReady()
                         LivePermission.CONTROL -> openInput(generation, "beacon-approved-input-v1:$id") {
                             permissions.allowed(generation, LivePermission.CONTROL) && deviceUnlocked()
                         }
@@ -557,9 +558,9 @@ class ShareSession(
                 dataTransportAvailable = true
                 if (FileReceiver.supported) {
                     val permitted = { filesAllowed || permissions.allowed(thisGeneration, LivePermission.FILES) }
-                    files = FileReceiver(context, channel, permitted) {
+                    files = FileReceiver(context, channel, permitted, {
                         permitted() && canShare(thisGeneration) && localActionsAllowed()
-                    }.also { it.start() }
+                    }, { permissions.allowed(thisGeneration, LivePermission.RECORDING) && canShare(thisGeneration) }).also { it.start() }
                 }
             }
         }

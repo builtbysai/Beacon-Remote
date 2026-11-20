@@ -30,6 +30,8 @@ class FileReceiver(
     private val permitted: () -> Boolean,
     /** False while sharing is paused or the session is over: offers are refused and a file in flight is dropped. */
     private val allowed: () -> Boolean,
+    /** True while the person has allowed this viewer to record the session in its own browser. */
+    private val recording: () -> Boolean = { false },
 ) : DataChannel.Observer {
     @Volatile var lastActivity: Long = 0L
         private set
@@ -61,8 +63,8 @@ class FileReceiver(
 
     fun publishReady() {
         post {
-            if (channel.state() == DataChannel.State.OPEN && permitted())
-                send(JSONObject().put("t", "ready").put("maxFile", MAX_FILE).put("chunk", MAX_CHUNK).put("files", true).put("recording", false))
+            if (channel.state() == DataChannel.State.OPEN && (permitted() || recording()))
+                send(JSONObject().put("t", "ready").put("maxFile", MAX_FILE).put("chunk", MAX_CHUNK).put("files", permitted()).put("recording", recording()))
         }
     }
 
