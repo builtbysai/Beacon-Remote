@@ -47,7 +47,22 @@ class MainActivity : Activity() {
         root = HostUi.column(this)
         HostUi.screen(this, root)
         render()
+        prefillFromLink(intent)
         if (identity.paired && identity.wantsAvailable && notificationsReady()) AvailabilityService.start(this)
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        prefillFromLink(intent)
+    }
+    /** A pairing link (beaconremote://pair?code=...) fills in the code. The person still taps Pair, so a link alone never pairs. */
+    private fun prefillFromLink(link: Intent?) {
+        val uri = link?.data ?: return
+        if (uri.scheme != "beaconremote" || uri.host != "pair" || identity.paired) return
+        uri.getQueryParameter("code")?.take(32)?.let { code -> root.findViewById<EditText>(R.id.pair_code)?.setText(code) }
+        uri.getQueryParameter("server")?.let { server ->
+            Api.validServer(server)?.let { origin -> root.findViewById<EditText>(R.id.pair_server)?.apply { setText(origin); visibility = View.VISIBLE } }
+        }
     }
     override fun onResume() {
         super.onResume()
@@ -178,6 +193,9 @@ class MainActivity : Activity() {
                 refreshStatus()
             }
         })
+        root.addView(label("Setup", 18f, true).apply { tag = "guide-title"; setPadding(0, HostUi.dp(this@MainActivity, 24), 0, HostUi.dp(this@MainActivity, 8)) })
+        root.addView(HostUi.text(this, "", 14f).apply { tag = "guide-steps" })
+        root.addView(HostUi.button(this, "Next step", true).apply { tag = "guide-next"; setOnClickListener { setupSteps().firstOrNull { !it.done }?.action?.invoke() } })
         root.addView(label("Unattended access", 18f, true).apply { setPadding(0, HostUi.dp(this@MainActivity, 24), 0, HostUi.dp(this@MainActivity, 8)) })
         root.addView(HostUi.text(this, "Your account can connect without a prompt while this device is unlocked. Pause and Stop remain visible.", secondary = true))
         root.addView(HostUi.text(this, "Android 11+ · Up to 2 fps in unattended mode · No system audio", 13f, secondary = true))
@@ -270,6 +288,12 @@ class MainActivity : Activity() {
             if (!pairing.get()) listOf(R.id.pair_name, R.id.pair_code, R.id.pair_server).forEach { root.findViewById<EditText>(it)?.isEnabled = true }
             return
         }
+        val steps = setupSteps()
+        val next = steps.firstOrNull { !it.done }
+        root.findViewWithTag<TextView>("guide-title")?.text = if (next == null) "Setup complete: this phone is ready" else "Setup: ${steps.count { it.done }} of ${steps.size} done"
+        root.findViewWithTag<TextView>("guide-steps")?.text = steps.joinToString("
+") { (if (it.done) "✓  " else "○  ") + it.title }
+        root.findViewWithTag<Button>("guide-next")?.apply { visibility = if (next == null) View.GONE else View.VISIBLE; text = next?.button ?: "" }
         root.findViewWithTag<TextView>("status")?.let { if (it.text.toString() != HostState.status) it.text = HostState.status }
         root.findViewWithTag<Button>("availability-toggle")?.text = if (identity.wantsAvailable) "Go offline" else "Make available"
         root.findViewWithTag<Button>("notification-settings")?.visibility = if (SharingNotifications.ready(this)) View.GONE else View.VISIBLE
@@ -282,6 +306,23 @@ class MainActivity : Activity() {
             text = AccessIntents.notice?.takeIf { it.first == identity.accessBinding() }?.second.orEmpty()
             visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
         }
+    }
+    private class SetupStep(val title: String, val button: String, val done: Boolean, val action: () -> Unit)
+    /** The few things this phone needs, in order. One button always does the next one. */
+    private fun setupSteps(): List<SetupStep> {
+        val list = ArrayList<SetupStep>()
+        list += SetupStep("Notifications allowed", "Allow notifications", SharingNotifications.ready(this)) { notificationSettings() }
+        if (Build.VERSION.SDK_INT >= 30) {
+            list += SetupStep("Beacon accessibility is on", "Turn on Beacon accessibility", ControlService.enabled(this) && ControlService.instance != null) {
+                startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            }
+        }
+        list += SetupStep("Access without asking is allowed", "Allow access without asking", identity.unattended) { changeAccess() }
+        val power = getSystemService(android.os.PowerManager::class.java)
+        list += SetupStep("Allowed to keep running in the background", "Keep Beacon running", power.isIgnoringBatteryOptimizations(packageName)) {
+            startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        }
+        return list
     }
     private fun unpair() {
         stopCapture()
