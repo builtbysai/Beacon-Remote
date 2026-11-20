@@ -238,6 +238,9 @@ export function LiveView({
   const [transportAttempt, setTransportAttempt] = useState(0);
   // Relay credentials are short; each resume brings fresh ones for the next transport.
   const ice = useRef({ id: grant.id, servers: grant.iceServers });
+  // A rebuilt transport inherits this: while the computer is away it sends no consent, and a viewer
+  // that forgot it was resumable would stop the whole session when the computer came back.
+  const wasResumable = useRef("");
   if (ice.current.id !== grant.id)
     ice.current = { id: grant.id, servers: grant.iceServers };
   // Measured numbers go to the server every 15 s while the picture flows, so a real device and network can be
@@ -355,7 +358,7 @@ export function LiveView({
     let replaced = false;
     let socketClosed = () => {};
     const recoveryAbort = new AbortController();
-    let resumable = false;
+    let resumable = wasResumable.current === grant.id;
     let controlGranted = true;
     let generation = 0;
     let permissionsVersion = 0;
@@ -803,6 +806,7 @@ export function LiveView({
                 if (permissionsVersion === 1)
                   send({ type: "permission-hello" });
                 resumable = message.resumable === true;
+                wasResumable.current = resumable ? grant.id : "";
                 // The person at the computer may allow viewing but not the control that was asked for.
                 if (message.control === false) controlGranted = false;
                 if (resumable) rememberView({ id: grant.id, name });

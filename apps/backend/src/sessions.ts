@@ -1267,6 +1267,18 @@ export async function registerSessions(
             if (viewer && viewer.readyState !== 1 && live.resumable)
               detachViewer(live, viewer);
             if (
+              live.machineDetachedUntil === undefined &&
+              live.resumable === true &&
+              session.approval === "policy" &&
+              machineSilent(live.machineRenewedAt, performance.now())
+            ) {
+              // A dead network sends no close. Silence from an unattended host is a detach, not an end:
+              // the phone may re-attach within the host window; nothing is captured meanwhile.
+              const silent = live.machine;
+              detachHost(live);
+              silent?.terminate();
+            }
+            if (
               !valid.rowCount ||
               (live.viewer && live.viewer.readyState !== 1) ||
               (live.machineDetachedUntil === undefined &&
