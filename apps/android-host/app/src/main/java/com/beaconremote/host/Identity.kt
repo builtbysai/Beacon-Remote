@@ -53,6 +53,11 @@ class Identity(private val context: Context) {
         get() = prefs.getBoolean("unlockFromViewer", false)
         set(value) = prefs.edit().putBoolean("unlockFromViewer", value).apply()
 
+    /** Whether a trusted viewer may hear this phone's microphone (ADR 0057). Off in a fresh install. */
+    var shareMic: Boolean
+        get() = prefs.getBoolean("shareMic", false)
+        set(value) = prefs.edit().putBoolean("shareMic", value).apply()
+
     val paired: Boolean get() = machineId.isNotEmpty() && prefs.contains("seed")
     /** Raised only by the local setup screen. Server policy alone cannot enable capture. */
     var unattended: Boolean

@@ -1,29 +1,22 @@
-# Image and file clipboard (proposal, not decided)
+# Image and file clipboard
 
-Status: proposed, 20 November 2026. Needs the owner's yes before any code. ADR 0053 covers text and formatted text.
+Status: decided by the owner, 20 November 2026 (replaces the earlier proposal, which recommended images only and only
+on a button press). Extends ADR 0053.
 
-## Question
+## Decision
 
-Should a phone share images (and files) on the clipboard with a viewer, as it now shares text?
+- When the phone's clipboard setting is on (Button only or Automatic), everything on the clipboard is shared: text,
+  formatted text, images and files. There is no separate limit by type; the setting is the owner's single switch.
+- Sizes: the transfer limits of the files channel apply (a clipboard item is sent as a file), so very large items are
+  refused with a message rather than cut.
+- Off means nothing is shared, as before.
 
-## Recommendation
+## Why
 
-Yes for images, no for files, behind the same device setting as text, with one extra rule: images move only when
-the viewer presses a button, even when the setting is Automatic.
-
-- Why only on a press: an image can be a screenshot of a bank page or a private photo. Text in Automatic mode is
-  already a risk the owner accepts; a picture is larger, harder to notice and cannot be skimmed in a notification.
-- Size: PNG up to 4 MB, one image at a time, through the existing files channel (not the 2 KB input channel), with
-  its length and SHA-256 checked as for files.
-- Android: reading an image from the clipboard needs a content URI the phone can open; writing one needs a
-  FileProvider entry that is deleted when the session ends. Both are new code and need a device test.
-- Files stay out: copying a file is a file transfer, which already has its own permission and prompt.
-
-## If the owner says no
-
-Text and formatted text stay as they are (ADR 0053). Nothing else changes.
+The owner chose "copy here, paste there" to cover whatever was copied. One switch is simpler to understand than one
+per kind of content.
 
 ## Tests needed before it counts
 
-Pixel: send an image from the viewer, paste it in an app on the phone; copy an image on the phone and receive it in
-the browser; Off blocks both; a 5 MB image is refused with a message; the temporary file is gone after Stop.
+Pixel: an image copied on the phone arrives in the browser and one copied in the browser arrives on the phone; a file
+copy arrives; Off blocks all of them; an oversize item is refused with a message.

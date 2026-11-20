@@ -84,7 +84,8 @@ class CaptureService : Service() {
             this,
             3,
             build(),
-            if (unattended) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION,
+            (if (unattended) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION) or
+                (if (microphoneOn()) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0),
         )
         HostState.sharing = true
         HostState.status = "Sharing your screen"
@@ -173,6 +174,10 @@ class CaptureService : Service() {
         LivePermission.FILES -> PromptWords("Allow this viewer to send files?", "Files are saved in Downloads/Beacon Remote during this connection.", "Allow files")
     }
 
+    /** The owner allowed trusted viewers to hear the microphone and Android allows this app to record. */
+    private fun microphoneOn(): Boolean =
+        Identity(this).shareMic && checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
     private fun build(): Notification {
         fun action(name: String) =
             PendingIntent.getService(
@@ -204,7 +209,7 @@ class CaptureService : Service() {
                     else -> "Sharing your screen"
                 },
             )
-            .setContentText(controller)
+            .setContentText(if (microphoneOn()) "$controller · Microphone is on" else controller)
             .setOngoing(true)
             // Stop must stay reachable, and visible, even on a locked screen.
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)

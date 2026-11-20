@@ -16,7 +16,11 @@ import org.webrtc.audio.JavaAudioDeviceModule
  * this callback replaces every buffer it reads with the captured playback sound, or with silence. The microphone's
  * samples are never passed on: the buffer is cleared first, so a failure here can only produce silence.
  */
-internal class SoundCapture(private val projection: () -> MediaProjection?) : JavaAudioDeviceModule.AudioBufferCallback {
+internal class SoundCapture(
+    private val projection: () -> MediaProjection?,
+    /** Keep the microphone's samples and add the phone's playback sound to them (the owner allowed both). */
+    private val mixMicrophone: Boolean = false,
+) : JavaAudioDeviceModule.AudioBufferCallback {
     private var record: AudioRecord? = null
     private var failed = false
 
@@ -45,15 +49,29 @@ internal class SoundCapture(private val projection: () -> MediaProjection?) : Ja
     }
 
     override fun onBuffer(buffer: ByteBuffer, audioFormat: Int, channelCount: Int, sampleRate: Int, bytesRead: Int, captureTimeNs: Long): Long {
-        // Clear what the microphone wrote before anything else.
         val size = minOf(bytesRead, buffer.capacity())
-        buffer.clear()
-        for (index in 0 until size) buffer.put(index, 0)
+        if (!mixMicrophone) {
+            // Sound only: clear what the microphone wrote before anything else.
+            buffer.clear()
+            for (index in 0 until size) buffer.put(index, 0)
+        }
         runCatching {
             val sound = open(sampleRate, channelCount)
             if (sound != null && audioFormat == AudioFormat.ENCODING_PCM_16BIT) {
-                buffer.clear()
-                sound.read(buffer, size, AudioRecord.READ_NON_BLOCKING)
+                if (!mixMicrophone) {
+                    buffer.clear()
+                    sound.read(buffer, size, AudioRecord.READ_NON_BLOCKING)
+                } else {
+                    val extra = ByteBuffer.allocateDirect(size).order(java.nio.ByteOrder.nativeOrder())
+                    val got = sound.read(extra, size, AudioRecord.READ_NON_BLOCKING)
+                    val mic = buffer.duplicate().order(java.nio.ByteOrder.nativeOrder())
+                    var index = 0
+                    while (index + 1 < minOf(got, size)) {
+                        val sum = mic.getShort(index) + extra.getShort(index)
+                        mic.putShort(index, sum.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort())
+                        index += 2
+                    }
+                }
             }
         }
         return captureTimeNs

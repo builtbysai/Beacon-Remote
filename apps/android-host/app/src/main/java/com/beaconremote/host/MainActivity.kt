@@ -169,6 +169,11 @@ class MainActivity : Activity() {
     }
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, results: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, results)
+        if (requestCode == 3) {
+            identity.shareMic = results.firstOrNull() == PackageManager.PERMISSION_GRANTED
+            render()
+            return
+        }
         if (requestCode == 2) {
             identity.shareSound = results.firstOrNull() == PackageManager.PERMISSION_GRANTED
             render()
@@ -258,6 +263,26 @@ class MainActivity : Activity() {
         showSound()
         root.addView(soundButton)
         root.addView(soundNote)
+        root.addView(label("Microphone", 18f, true).apply { setPadding(0, HostUi.dp(this@MainActivity, 24), 0, HostUi.dp(this@MainActivity, 8)) })
+        val micButton = HostUi.button(this, "").apply { tag = "mic-toggle" }
+        fun showMic() {
+            val on = identity.shareMic && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            micButton.text = if (on) "Microphone for trusted viewers: On (tap to turn off)" else "Microphone for trusted viewers: Off (tap to turn on)"
+        }
+        micButton.setOnClickListener {
+            if (identity.shareMic) {
+                identity.shareMic = false
+                showMic()
+            } else if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                identity.shareMic = true
+                showMic()
+            } else {
+                requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 3)
+            }
+        }
+        showMic()
+        root.addView(micButton)
+        root.addView(HostUi.text(this, "When on, a viewer with trusted access can hear this phone's microphone, even while it is locked. The sharing notification says \"Microphone is on\" while it is open.", 13f, secondary = true))
         val server = HostUi.text(this, identity.server, 13f, secondary = true).apply { visibility = View.GONE }
         root.addView(HostUi.button(this, "Connection details").apply { setOnClickListener { server.visibility = if (server.visibility == View.VISIBLE) View.GONE else View.VISIBLE } })
         root.addView(server)

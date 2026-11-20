@@ -431,14 +431,16 @@ class ShareSession(
             PeerConnectionFactory.InitializationOptions.builder(context).setEnableInternalTracer(false).createInitializationOptions(),
         )
         val eglBase = EglBase.create().also { egl = it }
-        val shareSound = !unattended && android.os.Build.VERSION.SDK_INT >= 29 && Identity(context).shareSound &&
-            context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val canRecord = context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val shareSound = !unattended && android.os.Build.VERSION.SDK_INT >= 29 && Identity(context).shareSound && canRecord
+        // A trusted viewer hears the microphone when the owner allowed it (ADR 0057), in any kind of session.
+        val shareMic = Identity(context).shareMic && canRecord
         val builder =
             PeerConnectionFactory.builder()
                 .setVideoEncoderFactory(DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true))
                 .setVideoDecoderFactory(DefaultVideoDecoderFactory(eglBase.eglBaseContext))
         if (shareSound) {
-            val capture = SoundCapture { (capturer as? ScreenCapturerAndroid)?.mediaProjection }.also { sound = it }
+            val capture = SoundCapture({ (capturer as? ScreenCapturerAndroid)?.mediaProjection }, mixMicrophone = shareMic).also { sound = it }
             builder.setAudioDeviceModule(
                 org.webrtc.audio.JavaAudioDeviceModule.builder(context)
                     .setAudioBufferCallback(capture)
@@ -448,7 +450,7 @@ class ShareSession(
             )
         }
         val peerFactory = builder.createPeerConnectionFactory().also { factory = it }
-        if (shareSound) {
+        if (shareSound || shareMic) {
             // What the phone plays is not speech: no echo cancelling, noise suppression, gain or high-pass filtering.
             val raw = MediaConstraints().apply {
                 for (name in listOf("googEchoCancellation", "googAutoGainControl", "googNoiseSuppression", "googHighpassFilter", "googTypingNoiseDetection"))
