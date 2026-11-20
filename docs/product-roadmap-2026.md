@@ -544,3 +544,8 @@ Each item is built and pushed; the test needs a step only the owner can do. Pick
   viewer showed "paused" and the peak was exactly 0; the notification read "Sharing is paused" with a Resume action.
   Stop ended the session. Not tested: resuming restores the microphone, and Stop releasing it (the service stops, so the
   recording does too).
+
+- Resume restores the microphone, Pixel (20 Nov, 14:22 local): Pause gave a viewer peak of exactly 0 (notification
+  "Sharing is paused", Resume and Stop actions); tapping Resume returned the viewer to "viewing" and the microphone
+  to the room's background level (peak 0.0045, matching the 0.0046 measured before pausing). The tone was not playing for
+  this run, so the comparison is silence (0) against background noise (about 0.005), not against a loud sound.
