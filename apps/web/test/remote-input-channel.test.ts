@@ -375,3 +375,12 @@ test("an Off setting on the device stops every clipboard transfer, and Automatic
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.deepEqual(f.copied, ["from the phone"]);
 });
+
+test("a phone is greeted once so it can announce its clipboard setting", (t) => {
+  const f = channelFixture(t);
+  f.display(2400, 1080);
+  assert.equal(
+    f.sent.filter((body) => body.input.type === "clipboard_hello").length,
+    1,
+  );
+});

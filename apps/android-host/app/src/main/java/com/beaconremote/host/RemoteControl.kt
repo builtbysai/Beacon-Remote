@@ -85,7 +85,6 @@ class RemoteControl(
                 open = true
                 lastMessage = SystemClock.elapsedRealtime()
                 sendGeometry()
-                announceClipboard()
                 onState(true)
             }
             DataChannel.State.CLOSED, DataChannel.State.CLOSING -> stop()
@@ -237,6 +236,8 @@ class RemoteControl(
                     }
                 }
             }
+            // A viewer that knows about the clipboard says so; older viewers never hear about it.
+            "clipboard_hello" -> announceClipboard()
             "release_all" -> release()
             "keep_alive" -> {}
         }

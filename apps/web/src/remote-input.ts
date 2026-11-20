@@ -798,6 +798,9 @@ export function attachRemoteInput(
       .catch(() => undefined);
     onState(true);
     send({ type: "keep_alive" });
+    // Only a phone knows this message; it answers with its clipboard setting. A host that never hears
+    // it (every older one) stays silent about the clipboard, so older and newer pieces keep working together.
+    if (next.platform === "android") send({ type: "clipboard_hello" });
   };
   channel.onclose = () => {
     onState(false);
