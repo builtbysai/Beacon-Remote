@@ -8,6 +8,7 @@ import android.app.RemoteInput
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 
 /**
  * Session chat on the phone. A viewer's message arrives on the open control channel and shows as a notification the
@@ -47,6 +48,7 @@ class ChatReceiver : BroadcastReceiver() {
         val text = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(Chat.KEY)?.toString()?.trim().orEmpty()
         if (text.isEmpty()) return
         val sent = Chat.send?.invoke(text.take(Chat.MAX_CHARS)) == true
+        Log.i("BeaconHost", "Chat reply from the phone: ${text.length} characters, sent=$sent")
         // Replacing the notification also stops its reply spinner.
         Chat.show(context, if (sent) "You: $text" else "Not sent: the viewer is no longer connected.", if (sent) "Sent to the viewer" else "Chat")
     }
