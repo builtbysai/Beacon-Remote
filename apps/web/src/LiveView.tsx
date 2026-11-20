@@ -241,6 +241,21 @@ export function LiveView({
   // A rebuilt transport inherits this: while the computer is away it sends no consent, and a viewer
   // that forgot it was resumable would stop the whole session when the computer came back.
   const wasResumable = useRef("");
+  // The device's own clipboard setting, announced when control opens: off, button only (default) or automatic.
+  const [clipboardMode, setClipboardMode] = useState<"off" | "button" | "auto">(
+    "button",
+  );
+  useEffect(() => {
+    const target = video.current;
+    if (!target) return;
+    const onMode = (event: Event) => {
+      const mode = (event as CustomEvent).detail;
+      if (mode === "off" || mode === "button" || mode === "auto")
+        setClipboardMode(mode);
+    };
+    target.addEventListener("beacon-clipboard-mode", onMode);
+    return () => target.removeEventListener("beacon-clipboard-mode", onMode);
+  }, [transportAttempt]);
   if (ice.current.id !== grant.id)
     ice.current = { id: grant.id, servers: grant.iceServers };
   // Measured numbers go to the server every 15 s while the picture flows, so a real device and network can be
@@ -1269,13 +1284,41 @@ export function LiveView({
           {controlReady && (
             <button
               className="viewer-control"
-              title="Copy the computer's clipboard text to this device"
+              disabled={clipboardMode === "off"}
+              title={
+                clipboardMode === "off"
+                  ? "Clipboard sharing is turned off on the device"
+                  : phoneHost
+                    ? "Copy the phone's clipboard text to this browser"
+                    : "Copy the computer's clipboard text to this device"
+              }
               onClick={() =>
                 video.current?.dispatchEvent(new Event("beacon-clipboard-read"))
               }
             >
-              Copy from computer
+              {phoneHost ? "Copy from phone" : "Copy from computer"}
             </button>
+          )}
+          {controlReady && phoneHost && (
+            <button
+              className="viewer-control"
+              disabled={clipboardMode === "off"}
+              title={
+                clipboardMode === "off"
+                  ? "Clipboard sharing is turned off on the phone"
+                  : "Put this browser's clipboard text on the phone's clipboard"
+              }
+              onClick={() =>
+                video.current?.dispatchEvent(
+                  new Event("beacon-clipboard-write"),
+                )
+              }
+            >
+              Send clipboard to phone
+            </button>
+          )}
+          {controlReady && phoneHost && clipboardMode === "auto" && (
+            <span className="viewer-note">Clipboard syncs automatically.</span>
           )}
           {controlReady && !phoneHost && (
             <button

@@ -75,6 +75,21 @@ class ControlService : AccessibilityService() {
         clip.getItemAt(0).coerceToText(this)?.toString()
     }.getOrNull()
 
+    /** Puts text on the phone's clipboard (a viewer asked, and the phone's clipboard mode allows it). */
+    fun writeClipboardText(text: String): Boolean = runCatching {
+        getSystemService(android.content.ClipboardManager::class.java)
+            .setPrimaryClip(android.content.ClipData.newPlainText("Beacon Remote", text))
+        true
+    }.getOrDefault(false)
+
+    /** Calls [onChange] whenever the phone's clipboard changes; returns how to stop listening. */
+    fun listenForClipboard(onChange: () -> Unit): () -> Unit {
+        val manager = getSystemService(android.content.ClipboardManager::class.java)
+        val listener = android.content.ClipboardManager.OnPrimaryClipChangedListener { onChange() }
+        manager.addPrimaryClipChangedListener(listener)
+        return { manager.removePrimaryClipChangedListener(listener) }
+    }
+
     /** Deletes the last character of the focused text field. */
     fun backspace(): Boolean = edit { current -> if (current.isEmpty()) current else current.substring(0, current.offsetByCodePoints(current.length, -1)) }
 

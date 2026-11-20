@@ -343,3 +343,35 @@ test("replacing a paced paste releases its Enter even if the next clipboard read
   t.mock.timers.tick(100);
   assert.deepEqual(f.sent.slice(start), []);
 });
+
+test("Send to device chunks the viewer's clipboard under the channel's size limit", async (t) => {
+  const f = channelFixture(t);
+  const text = "é".repeat(700);
+  f.navigator.clipboard.readText = async () => text;
+  f.video.dispatchEvent(new Event("beacon-clipboard-write"));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const writes = f.sent
+    .map((body) => body.input)
+    .filter((input) => input.type === "clipboard_write");
+  assert.equal(writes.length, 3);
+  assert.deepEqual(
+    writes.map((input) => input.more),
+    [true, true, false],
+  );
+  assert.equal(writes.map((input) => input.text).join(""), text);
+});
+
+test("an Off setting on the device stops every clipboard transfer, and Automatic accepts unasked text", async (t) => {
+  const f = channelFixture(t);
+  f.message({ type: "clipboard_mode", mode: "off" });
+  f.video.dispatchEvent(new Event("beacon-clipboard-write"));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(
+    f.sent.filter((body) => body.input.type === "clipboard_write").length,
+    0,
+  );
+  f.message({ type: "clipboard_mode", mode: "auto" });
+  f.message({ type: "clipboard", text: "from the phone" });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(f.copied, ["from the phone"]);
+});

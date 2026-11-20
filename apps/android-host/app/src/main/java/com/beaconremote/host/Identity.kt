@@ -35,6 +35,11 @@ class Identity(private val context: Context) {
         get() = prefs.getBoolean("available", false)
         set(value) = prefs.edit().putBoolean("available", value).apply()
 
+    /** Clipboard sharing with a viewer: "off", "button" (only when the viewer presses a button, the default) or "auto". */
+    var clipboardMode: String
+        get() = prefs.getString("clipboardMode", "button").takeIf { it in CLIPBOARD_MODES } ?: "button"
+        set(value) { if (value in CLIPBOARD_MODES) prefs.edit().putString("clipboardMode", value).apply() }
+
     val paired: Boolean get() = machineId.isNotEmpty() && prefs.contains("seed")
     /** Raised only by the local setup screen. Server policy alone cannot enable capture. */
     var unattended: Boolean
@@ -103,7 +108,8 @@ class Identity(private val context: Context) {
         return cipher.doFinal(bytes, 12, bytes.size - 12)
     }
 
-    private companion object {
-        const val ALIAS = "beacon-remote-host-identity"
+    companion object {
+        private const val ALIAS = "beacon-remote-host-identity"
+        val CLIPBOARD_MODES = listOf("off", "button", "auto")
     }
 }

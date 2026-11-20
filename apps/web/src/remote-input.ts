@@ -582,32 +582,101 @@ export function attachRemoteInput(
       truncated?: unknown;
       unavailable?: unknown;
     };
+    // A reply nobody asked for is accepted only while the phone's own setting is Automatic.
+    const asked = awaitingClipboard !== null;
     if (
-      !awaitingClipboard ||
+      (!asked && clipboardMode !== "auto") ||
       reply.type !== "clipboard" ||
       typeof reply.text !== "string" ||
       reply.text.length > 32768
     )
       throw new Error();
-    clearTimeout(awaitingClipboard);
+    if (awaitingClipboard) clearTimeout(awaitingClipboard);
     awaitingClipboard = null;
     if (reply.unavailable === true || !reply.text) {
-      onNotice("The computer's clipboard has no text to copy.");
+      if (asked)
+        onNotice(
+          clipboardMode === "off"
+            ? "Clipboard sharing is turned off on the device."
+            : "The computer's clipboard has no text to copy.",
+        );
       return;
     }
     try {
       await navigator.clipboard.writeText(reply.text);
-      onNotice(
-        reply.truncated
-          ? "Copied the start of the computer's clipboard."
-          : "Copied from the computer.",
-      );
+      // What the browser now holds came from the device; sending it straight back would be a loop.
+      lastSentClipboard = reply.text;
+      if (asked)
+        onNotice(
+          reply.truncated
+            ? "Copied the start of the computer's clipboard."
+            : "Copied from the computer.",
+        );
     } catch {
-      onNotice(
-        "Allow clipboard access in your browser to copy from the computer.",
-      );
+      if (asked)
+        onNotice(
+          "Allow clipboard access in your browser to copy from the computer.",
+        );
     }
   };
+  // Send to the device: the browser's clipboard text goes to the device's clipboard, in pieces small enough
+  // for the channel. Button: only when pressed. Automatic: also when this page gets focus. Off: never.
+  const CLIPBOARD_PIECE = 300;
+  const CLIPBOARD_LIMIT = 8000;
+  let clipboardMode: "off" | "button" | "auto" = "button";
+  let lastSentClipboard = "";
+  const pushClipboard = async (explicit: boolean) => {
+    if (signIn || !display || disposed) return;
+    if (clipboardMode === "off") {
+      if (explicit) onNotice("Clipboard sharing is turned off on the device.");
+      return;
+    }
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      if (explicit)
+        onNotice(
+          "Allow clipboard access in your browser to send to the device.",
+        );
+      return;
+    }
+    if (disposed || channel.readyState !== "open") return;
+    if (!text) {
+      if (explicit) onNotice("Your clipboard has no text to send.");
+      return;
+    }
+    if (!explicit && text === lastSentClipboard) return;
+    const characters = Array.from(text.replace(/\r\n?/g, "\n")).filter(
+      (character) => {
+        const code = character.codePointAt(0)!;
+        return (
+          character === "\n" ||
+          character === "\t" ||
+          (code >= 32 && !(code >= 127 && code <= 159))
+        );
+      },
+    );
+    const sent = characters.slice(0, CLIPBOARD_LIMIT);
+    for (let at = 0; at < sent.length; at += CLIPBOARD_PIECE)
+      send({
+        type: "clipboard_write",
+        text: sent.slice(at, at + CLIPBOARD_PIECE).join(""),
+        more: at + CLIPBOARD_PIECE < sent.length,
+      });
+    lastSentClipboard = text;
+    if (explicit)
+      onNotice(
+        characters.length > CLIPBOARD_LIMIT
+          ? "Sent the start of your clipboard to the device."
+          : "Sent to the device.",
+      );
+  };
+  const pushClipboardByButton = () => void pushClipboard(true);
+  const pushClipboardOnFocus = () => {
+    if (clipboardMode === "auto" && !document.hidden) void pushClipboard(false);
+  };
+  window.addEventListener("focus", pushClipboardOnFocus);
   channel.onmessage = (event) => {
     if (signIn) {
       if (
@@ -680,6 +749,24 @@ export function attachRemoteInput(
           reply.type === "clipboard"
         ) {
           void receiveClipboard(reply).catch(onFailure);
+          return;
+        }
+        if (
+          reply !== null &&
+          typeof reply === "object" &&
+          "type" in reply &&
+          reply.type === "clipboard_mode"
+        ) {
+          const mode = (reply as { mode?: unknown }).mode;
+          if (mode !== "off" && mode !== "button" && mode !== "auto") {
+            onFailure();
+            return;
+          }
+          clipboardMode = mode;
+          element.dispatchEvent(
+            new CustomEvent("beacon-clipboard-mode", { detail: mode }),
+          );
+          pushClipboardOnFocus();
           return;
         }
       } catch {
@@ -770,6 +857,7 @@ export function attachRemoteInput(
   element.addEventListener("beacon-secure-attention", secureAttention);
   element.addEventListener("beacon-nav", navigate);
   element.addEventListener("beacon-clipboard-read", requestClipboard);
+  element.addEventListener("beacon-clipboard-write", pushClipboardByButton);
   window.addEventListener("blur", release);
   document.addEventListener("visibilitychange", visibility);
   const heartbeat = setInterval(() => send({ type: "keep_alive" }), 400);
@@ -804,6 +892,11 @@ export function attachRemoteInput(
     element.removeEventListener("beacon-secure-attention", secureAttention);
     element.removeEventListener("beacon-nav", navigate);
     element.removeEventListener("beacon-clipboard-read", requestClipboard);
+    element.removeEventListener(
+      "beacon-clipboard-write",
+      pushClipboardByButton,
+    );
+    window.removeEventListener("focus", pushClipboardOnFocus);
     if (awaitingClipboard) clearTimeout(awaitingClipboard);
     sink?.remove();
     sink = null;

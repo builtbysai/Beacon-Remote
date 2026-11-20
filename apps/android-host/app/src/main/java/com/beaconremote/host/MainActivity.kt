@@ -185,6 +185,27 @@ class MainActivity : Activity() {
         root.addView(HostUi.button(this, "Enable accessibility").apply { tag = "accessibility-settings"; setOnClickListener { startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)) } })
         root.addView(HostUi.button(this, "Enable unattended access").apply { tag = "access-toggle"; setOnClickListener { changeAccess() } })
         root.addView(label("", 14f).apply { tag = "access-notice"; accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE })
+        root.addView(label("Clipboard sharing", 18f, true).apply { setPadding(0, HostUi.dp(this@MainActivity, 24), 0, HostUi.dp(this@MainActivity, 8)) })
+        val clipboardNote = HostUi.text(this, "", 13f, secondary = true)
+        fun clipboardWords(mode: String) = when (mode) {
+            "off" -> "Off: nothing is copied between this phone and a viewer."
+            "auto" -> "Automatic: copied text moves both ways while a viewer is connected."
+            else -> "Button only: text is copied only when the viewer presses a button."
+        }
+        val clipboardButton = HostUi.button(this, "").apply { tag = "clipboard-mode" }
+        fun showClipboard() {
+            val mode = identity.clipboardMode
+            clipboardButton.text = "Clipboard: " + when (mode) { "off" -> "Off"; "auto" -> "Automatic"; else -> "Button only" } + " (tap to change)"
+            clipboardNote.text = clipboardWords(mode)
+        }
+        clipboardButton.setOnClickListener {
+            val modes = Identity.CLIPBOARD_MODES
+            identity.clipboardMode = modes[(modes.indexOf(identity.clipboardMode) + 1) % modes.size]
+            showClipboard()
+        }
+        showClipboard()
+        root.addView(clipboardButton)
+        root.addView(clipboardNote)
         val server = HostUi.text(this, identity.server, 13f, secondary = true).apply { visibility = View.GONE }
         root.addView(HostUi.button(this, "Connection details").apply { setOnClickListener { server.visibility = if (server.visibility == View.VISIBLE) View.GONE else View.VISIBLE } })
         root.addView(server)

@@ -38,6 +38,34 @@ class RemoteControl(
     private var capsLock = false
     private var modified = false
     private var open = false
+    // Clipboard sharing (ADR 0021 as amended): text only, gated by the phone's own setting, never rich formats yet.
+    private val clipboardParts = StringBuilder()
+    private var stopClipboardListener: (() -> Unit)? = null
+    private var lastClipboard = ""
+
+    private fun clipboardMode(): String = ControlService.instance?.let { Identity(it).clipboardMode } ?: "off"
+
+    private fun sendJson(message: JSONObject) {
+        channel.send(DataChannel.Buffer(ByteBuffer.wrap(message.toString().toByteArray()), false))
+    }
+
+    /** Tells the viewer what the phone's clipboard setting is, and starts watching for copies when it is automatic. */
+    private fun announceClipboard() {
+        sendJson(JSONObject().put("type", "clipboard_mode").put("mode", clipboardMode()))
+        stopClipboardListener?.invoke()
+        stopClipboardListener = ControlService.instance?.listenForClipboard { onClipboardChanged() }
+    }
+
+    private fun onClipboardChanged() {
+        if (!open || clipboardMode() != "auto") return
+        val text = ControlService.instance?.readClipboardText()?.takeIf { it.isNotEmpty() } ?: return
+        if (text == lastClipboard) return
+        lastClipboard = text
+        sendJson(
+            JSONObject().put("type", "clipboard").put("text", text.take(MAX_CLIPBOARD_CHARS))
+                .put("truncated", text.length > MAX_CLIPBOARD_CHARS).put("unavailable", false),
+        )
+    }
 
     fun start() {
         channel.registerObserver(this)
@@ -57,6 +85,7 @@ class RemoteControl(
                 open = true
                 lastMessage = SystemClock.elapsedRealtime()
                 sendGeometry()
+                announceClipboard()
                 onState(true)
             }
             DataChannel.State.CLOSED, DataChannel.State.CLOSING -> stop()
@@ -132,6 +161,8 @@ class RemoteControl(
         if (!open) return
         open = false
         release()
+        runCatching { stopClipboardListener?.invoke() }
+        stopClipboardListener = null
         runCatching { channel.unregisterObserver() }
         runCatching { channel.close() }
         onState(false)
@@ -172,16 +203,39 @@ class RemoteControl(
             "nav" -> service.system(input.getString("action"))
             "clipboard_read" -> {
                 // The viewer accepts at most 32768 characters; a longer copy is sent from its start and marked truncated.
-                val text = service.readClipboardText()
-                Log.i(TAG, "Clipboard read requested: ${text?.length?.let { "returned $it characters" } ?: "unavailable"}")
+                val mode = clipboardMode()
+                val text = if (mode == "off") null else service.readClipboardText()
+                Log.i(TAG, "Clipboard read requested (mode $mode): ${text?.length?.let { "returned $it characters" } ?: "unavailable"}")
                 val reply =
                     if (text.isNullOrEmpty()) {
                         JSONObject().put("type", "clipboard").put("text", "").put("truncated", false).put("unavailable", true)
                     } else {
+                        lastClipboard = text
                         JSONObject().put("type", "clipboard").put("text", text.take(MAX_CLIPBOARD_CHARS))
                             .put("truncated", text.length > MAX_CLIPBOARD_CHARS).put("unavailable", false)
                     }
-                channel.send(DataChannel.Buffer(ByteBuffer.wrap(reply.toString().toByteArray()), false))
+                sendJson(reply)
+            }
+            "clipboard_write" -> {
+                // The viewer sends its clipboard in small pieces (the channel carries 2 KB at most). Off ignores it.
+                if (clipboardMode() == "off") {
+                    clipboardParts.setLength(0)
+                    return
+                }
+                val piece = input.getString("text")
+                if (clipboardParts.length + piece.length > MAX_CLIPBOARD_WRITE) {
+                    clipboardParts.setLength(0)
+                    return
+                }
+                clipboardParts.append(piece)
+                if (!input.optBoolean("more")) {
+                    val text = clipboardParts.toString()
+                    clipboardParts.setLength(0)
+                    if (text.isNotEmpty() && service.writeClipboardText(text)) {
+                        lastClipboard = text
+                        Log.i(TAG, "Clipboard written from the viewer: ${text.length} characters")
+                    }
+                }
             }
             "release_all" -> release()
             "keep_alive" -> {}
@@ -249,6 +303,7 @@ class RemoteControl(
         const val MAX_MESSAGE = 2048
         const val MAX_PER_SECOND = 500
         const val MAX_CLIPBOARD_CHARS = 32768
+        const val MAX_CLIPBOARD_WRITE = 8000
         val LETTER_ROWS = listOf(0x10 to "qwertyuiop", 0x1e to "asdfghjkl", 0x2c to "zxcvbnm")
         val DIGITS = (2..11).toList()
         const val SHIFTED_DIGITS = "!@#$%^&*()"
