@@ -49,33 +49,33 @@ Where Beacon can be different by design (not measured as better):
 Status: **done** means implemented and tested on real hardware. **partial** means implemented
 with known gaps. **missing** means not built. Hardware items need a device.
 
-| Capability                                 | Windows (Surfiena)                            | Android (Pixel 7a)                                                                                         | Evidence                     |
-| ------------------------------------------ | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| Attended view with local approval          | done                                          | done                                                                                                       | Pixel and Surfiena view runs |
-| Attended control with local approval       | blocked (input test box did not show)         | done (ordinary control re-run after factory reset)                                                         | testing-remaining.md, 19 Nov |
-| Unattended trusted access (no local click) | not enabled (owner click pending)             | connect passed 19 Nov; "no local click" to confirm with phone untouched                                    | M0 notes, 19 Nov             |
-| Visible Pause, Stop and local revoke       | done (Stop)                                   | done (Pause, Stop)                                                                                         | earlier runs                 |
-| Remote typing into an editable field       | not tested                                    | done (Chrome address bar, 19 Nov)                                                                          | M0 notes, 19 Nov             |
-| Control expiry and lease loss              | not tested                                    | done (deadline ends session; lease loss = Wi-Fi drop test, 19 Nov)                                         | M0 notes, 19 Nov             |
-| Accessibility loss detected and shown      | n/a                                           | done (session ended, unattended off, notice shown, 19 Nov)                                                 | M0 notes, 19 Nov             |
-| Lock screen behaviour                      | not tested                                    | done (session ends on lock, 19 Nov)                                                                        | M0 notes, 19 Nov             |
-| Resume after network change                | partial                                       | done (unattended: 8, 15 and 40 s drops resume with video; over 2 min, Stop during a drop end it, 19 Nov)   | M0 notes, 19 Nov             |
-| File send device to viewer                 | partial                                       | done (1 MiB, hash match, 19 Nov); resume untested                                                          | M0 notes, 19 Nov             |
-| File send viewer to device                 | partial (download)                            | done (3 MiB, hash match, 19 Nov); resume untested                                                          | M0 notes, 19 Nov             |
-| Clipboard device to viewer                 | done (Windows), done (Pixel)                  | done                                                                                                       | —                            |
-| Clipboard viewer to device                 | missing (ADR 0021 forbids; approved decision) | missing                                                                                                    | needs ADR change             |
-| Multi-monitor selection                    | partial                                       | n/a                                                                                                        | —                            |
-| Audio output                               | missing                                       | missing                                                                                                    | —                            |
-| Microphone input                           | missing (approved decision)                   | missing                                                                                                    | needs hardware               |
-| USB forwarding                             | missing (approved decision)                   | missing                                                                                                    | needs hardware               |
-| Printing redirection                       | partial (code, not tested)                    | n/a                                                                                                        | —                            |
-| Wake-on-LAN and boot-to-online             | missing                                       | missing                                                                                                    | competitor parity            |
-| Sign-in screen control                     | source only                                   | n/a                                                                                                        | needs hardware               |
-| Session recording with consent             | missing                                       | done (owner allows on the phone; recorded in the viewer's browser, 19 Nov)                                 | Pixel run                    |
-| Chat during a session                      | partial (handoff baseline)                    | done (viewer message arrives as a notification, reply from the notification returns to the viewer, 19 Nov) | Pixel run                    |
-| Session policy per device and per portal   | partial (per device)                          | partial (per device)                                                                                       | —                            |
-| Elevation to protected windows and UAC     | missing                                       | n/a                                                                                                        | competitor parity            |
-| Independent sessions and RemoteApp         | missing                                       | n/a                                                                                                        | needs Windows Pro or Server  |
+| Capability                                 | Windows (Surfiena)                            | Android (Pixel 7a)                                                                                            | Evidence                     |
+| ------------------------------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| Attended view with local approval          | done                                          | done                                                                                                          | Pixel and Surfiena view runs |
+| Attended control with local approval       | blocked (input test box did not show)         | done (ordinary control re-run after factory reset)                                                            | testing-remaining.md, 19 Nov |
+| Unattended trusted access (no local click) | not enabled (owner click pending)             | connect passed 19 Nov; "no local click" to confirm with phone untouched                                       | M0 notes, 19 Nov             |
+| Visible Pause, Stop and local revoke       | done (Stop)                                   | done (Pause, Stop)                                                                                            | earlier runs                 |
+| Remote typing into an editable field       | not tested                                    | done (Chrome address bar, 19 Nov)                                                                             | M0 notes, 19 Nov             |
+| Control expiry and lease loss              | not tested                                    | done (deadline ends session; lease loss = Wi-Fi drop test, 19 Nov)                                            | M0 notes, 19 Nov             |
+| Accessibility loss detected and shown      | n/a                                           | done (session ended, unattended off, notice shown, 19 Nov)                                                    | M0 notes, 19 Nov             |
+| Lock screen behaviour                      | not tested                                    | done (session ends on lock, 19 Nov)                                                                           | M0 notes, 19 Nov             |
+| Resume after network change                | partial                                       | done (unattended: 8, 15 and 40 s drops resume with video; over 2 min, Stop during a drop end it, 19 Nov)      | M0 notes, 19 Nov             |
+| File send device to viewer                 | partial                                       | done (1 MiB, hash match, 19 Nov); resume untested                                                             | M0 notes, 19 Nov             |
+| File send viewer to device                 | partial (download)                            | done (3 MiB, hash match, 19 Nov); resume untested                                                             | M0 notes, 19 Nov             |
+| Clipboard device to viewer                 | done (Windows), done (Pixel)                  | done                                                                                                          | —                            |
+| Clipboard viewer to device                 | missing (ADR 0021 forbids; approved decision) | missing                                                                                                       | needs ADR change             |
+| Multi-monitor selection                    | partial                                       | n/a                                                                                                           | —                            |
+| Audio output                               | missing                                       | done for attended shares (owner setting, off by default; tone reached the viewer, 19 Nov); not for unattended | ADR 0054                     |
+| Microphone input                           | missing (approved decision)                   | missing                                                                                                       | needs hardware               |
+| USB forwarding                             | missing (approved decision)                   | missing                                                                                                       | needs hardware               |
+| Printing redirection                       | partial (code, not tested)                    | n/a                                                                                                           | —                            |
+| Wake-on-LAN and boot-to-online             | missing                                       | missing                                                                                                       | competitor parity            |
+| Sign-in screen control                     | source only                                   | n/a                                                                                                           | needs hardware               |
+| Session recording with consent             | missing                                       | done (owner allows on the phone; recorded in the viewer's browser, 19 Nov)                                    | Pixel run                    |
+| Chat during a session                      | partial (handoff baseline)                    | done (viewer message arrives as a notification, reply from the notification returns to the viewer, 19 Nov)    | Pixel run                    |
+| Session policy per device and per portal   | partial (per device)                          | partial (per device)                                                                                          | —                            |
+| Elevation to protected windows and UAC     | missing                                       | n/a                                                                                                           | competitor parity            |
+| Independent sessions and RemoteApp         | missing                                       | n/a                                                                                                           | needs Windows Pro or Server  |
 
 ## 4. Milestones
 
@@ -384,3 +384,11 @@ Until then the claim is "measured" or "different by design", never "better".
   shows "Recording" with a clock, and saves a .webm in the viewer's browser; nothing is stored on the phone, and the
   permission ends with the connection. Pixel run: request, allow, 4 s recording and saved file all worked.
   Playback inside Beacon and recording of audio are not built.
+
+- Phone sound (19 Nov, ADR 0054): "Share phone sound" is an owner setting in the Beacon app, off by default, for
+  attended shares only. The phone captures what apps play (Android playback capture) and sends it as an audio track;
+  the microphone is never passed on. Pixel run: a 440 Hz tone from the system media player arrived in the viewer
+  (Web Audio peak 0.37 for a 0.366 tone). Chrome's own sound is not capturable, as Android requires. Not yet tested:
+  Pause with sound, long sessions, and the viewer's unmute button with a real person listening.
+- Remote unlock (type the passcode in the viewer each time) is waiting on the owner: it needs a screen lock set on the
+  Pixel and the owner to type the passcode, which the agent will not do. Nothing is built.
