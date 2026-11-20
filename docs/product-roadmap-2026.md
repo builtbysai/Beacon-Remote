@@ -66,7 +66,7 @@ with known gaps. **missing** means not built. Hardware items need a device.
 | Clipboard viewer to device                 | missing (ADR 0021 forbids; approved decision) | missing                                                                                                       | needs ADR change             |
 | Multi-monitor selection                    | partial                                       | n/a                                                                                                           | —                            |
 | Audio output                               | missing                                       | done for attended shares (owner setting, off by default; tone reached the viewer, 19 Nov); not for unattended | ADR 0054                     |
-| Microphone input                           | missing (approved decision)                   | missing                                                                                                       | needs hardware               |
+| Microphone input                           | missing (approved decision)                   | done for phone-to-viewer (owner switch on the phone; unattended, locked, 20 Nov); viewer-to-phone not built   | ADR 0057                     |
 | USB forwarding                             | missing (approved decision)                   | missing                                                                                                       | needs hardware               |
 | Printing redirection                       | partial (code, not tested)                    | n/a                                                                                                           | —                            |
 | Wake-on-LAN and boot-to-online             | missing                                       | missing                                                                                                       | competitor parity            |
@@ -436,3 +436,16 @@ Until then the claim is "measured" or "different by design", never "better".
   files) and ADR 0057 (microphone: phone microphone to the viewer as a per-request permission, never unattended,
   never while locked; viewer microphone to the phone later). Both are marked proposed. Nothing is built for either
   until the owner says yes or changes them.
+
+- Owner decisions, 20 Nov: (1) all clipboard content is shared when the clipboard setting is on, no limit by type
+  (ADR 0056, replaces the proposal); (2) a viewer with trusted access can hear the phone's microphone, no per-request
+  prompt, including unattended and locked (ADR 0057, replaces the proposal); (3) the viewer can see and interact with
+  the lock screen. For (3): the lock screen is visible and touch works (done); Android shows the PIN screen as black to
+  every capture, so interaction with it is through the viewer's passcode pad (Delete confirmed; the owner enters the
+  digits).
+- Microphone, Pixel (20 Nov): owner switch "Microphone for trusted viewers" (off in a fresh install, turned on here).
+  With it on, an unattended session on the locked phone carried an audio track; the viewer's Web Audio peak was 0.13
+  with a tone playing near the phone against 0.04 with it paused (ambient noise). The sharing notification reads
+  "... - Microphone is on" and the service runs with the microphone type. Not yet tested: Pause and Stop ending it,
+  Android 14+ behaviour when started from the background on other phones, and a mix with phone sound in an attended
+  share.
