@@ -87,6 +87,44 @@ class ControlService : AccessibilityService() {
         true
     }.getOrDefault(false)
 
+    /** Puts an image a viewer copied on the phone's clipboard, through a file in this app's own cache. */
+    fun writeClipboardImage(bytes: ByteArray, mime: String): Boolean = runCatching {
+        val folder = java.io.File(cacheDir, "clips").apply { mkdirs() }
+        folder.listFiles()?.forEach { it.delete() }
+        val file = java.io.File(folder, "clip-${System.currentTimeMillis()}.png")
+        file.writeBytes(bytes)
+        val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.clips", file)
+        getSystemService(android.content.ClipboardManager::class.java)
+            .setPrimaryClip(android.content.ClipData.newUri(contentResolver, "Beacon Remote", uri))
+        true
+    }.getOrDefault(false)
+
+    /** The image on the phone's clipboard (at most [max] bytes) and its type, or null. */
+    fun readClipboardImage(max: Int): Pair<String, ByteArray>? = runCatching {
+        val clip = getSystemService(android.content.ClipboardManager::class.java).primaryClip ?: return null
+        if (clip.itemCount == 0) return null
+        val uri = clip.getItemAt(0).uri ?: return null
+        val mime = contentResolver.getType(uri) ?: clip.description.getMimeType(0)
+        if (!mime.startsWith("image/")) return null
+        val bytes = contentResolver.openInputStream(uri)?.use { input ->
+            val out = java.io.ByteArrayOutputStream()
+            val chunk = ByteArray(8192)
+            while (true) {
+                val count = input.read(chunk)
+                if (count < 0) break
+                if (out.size() + count > max) return null
+                out.write(chunk, 0, count)
+            }
+            out.toByteArray()
+        } ?: return null
+        if (bytes.isEmpty()) null else mime to bytes
+    }.getOrNull()
+
+    /** Removes images left in the clipboard cache. */
+    fun clearClipboardImages() {
+        runCatching { java.io.File(cacheDir, "clips").listFiles()?.forEach { it.delete() } }
+    }
+
     /** The formatted version of the phone's clipboard text, when the copy carries one. */
     fun readClipboardHtml(): String? = runCatching {
         val clip = getSystemService(android.content.ClipboardManager::class.java).primaryClip ?: return null

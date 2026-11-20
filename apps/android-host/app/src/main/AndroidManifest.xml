@@ -68,6 +68,16 @@
                 android:value="Keeps this device reachable for remote support the owner requested" />
         </service>
 
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.clips"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/clip_paths" />
+        </provider>
+
         <receiver android:name=".ChatReceiver" android:exported="false" />
 
         <receiver

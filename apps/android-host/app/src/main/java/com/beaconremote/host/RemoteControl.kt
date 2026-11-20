@@ -43,6 +43,7 @@ class RemoteControl(
     // Clipboard sharing (ADR 0021 as amended): text only, gated by the phone's own setting, never rich formats yet.
     private val clipboardParts = StringBuilder()
     private val clipboardHtml = StringBuilder()
+    private val clipboardImage = StringBuilder()
     private var stopClipboardListener: (() -> Unit)? = null
     private var lastClipboard = ""
 
@@ -57,6 +58,23 @@ class RemoteControl(
         sendJson(JSONObject().put("type", "clipboard_mode").put("mode", clipboardMode()))
         stopClipboardListener?.invoke()
         stopClipboardListener = ControlService.instance?.listenForClipboard { onClipboardChanged() }
+    }
+
+    /** If the phone's clipboard holds an image, sends it in paced pieces after the text reply. Runs off the input thread. */
+    private fun sendClipboardImage(service: ControlService) {
+        lockKeys.execute {
+            val (mime, bytes) = service.readClipboardImage(MAX_CLIPBOARD_IMAGE) ?: return@execute
+            val encoded = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+            sendJson(JSONObject().put("type", "clipboard_image_start").put("mime", mime).put("size", bytes.size))
+            var at = 0
+            while (at < encoded.length && open) {
+                val end = minOf(encoded.length, at + 1000)
+                sendJson(JSONObject().put("type", "clipboard_image").put("text", encoded.substring(at, end)).put("more", end < encoded.length))
+                at = end
+                Thread.sleep(5)
+            }
+            Log.i(TAG, "Clipboard image sent to the viewer: ${bytes.size} bytes")
+        }
     }
 
     private fun onClipboardChanged() {
@@ -165,6 +183,7 @@ class RemoteControl(
         open = false
         release()
         Chat.send = null
+        runCatching { ControlService.instance?.clearClipboardImages() }
         runCatching { lockKeys.shutdownNow() }
         runCatching { stopClipboardListener?.invoke() }
         stopClipboardListener = null
@@ -221,6 +240,7 @@ class RemoteControl(
                             .also { reply -> service.readClipboardHtml()?.takeIf { it.length <= MAX_CLIPBOARD_HTML }?.let { reply.put("html", it) } }
                     }
                 sendJson(reply)
+                if (mode != "off") sendClipboardImage(service)
             }
             "clipboard_write" -> {
                 // The viewer sends its clipboard in small pieces (the channel carries 2 KB at most). Off ignores it.
@@ -229,6 +249,23 @@ class RemoteControl(
                     return
                 }
                 val piece = input.getString("text")
+                if (input.optString("kind") == "image") {
+                    // An image arrives as base64 pieces and is written once the last one is in.
+                    if (clipboardImage.length + piece.length > MAX_CLIPBOARD_IMAGE_BASE64) {
+                        clipboardImage.setLength(0)
+                        return
+                    }
+                    clipboardImage.append(piece)
+                    if (!input.optBoolean("more")) {
+                        val encoded = clipboardImage.toString()
+                        clipboardImage.setLength(0)
+                        val bytes = runCatching { android.util.Base64.decode(encoded, android.util.Base64.DEFAULT) }.getOrNull()
+                        if (bytes != null && bytes.isNotEmpty() && service.writeClipboardImage(bytes, input.optString("mime", "image/png"))) {
+                            Log.i(TAG, "Clipboard image written from the viewer: ${bytes.size} bytes")
+                        }
+                    }
+                    return
+                }
                 if (input.optString("kind") == "html") {
                     // Formatted text arrives first, then the plain text that completes the write.
                     if (clipboardHtml.length + piece.length > MAX_CLIPBOARD_HTML) clipboardHtml.setLength(0) else clipboardHtml.append(piece)
@@ -335,6 +372,8 @@ class RemoteControl(
         const val MAX_CLIPBOARD_CHARS = 32768
         const val MAX_CLIPBOARD_WRITE = 8000
         const val MAX_CLIPBOARD_HTML = 6000
+        const val MAX_CLIPBOARD_IMAGE = 1_500_000
+        const val MAX_CLIPBOARD_IMAGE_BASE64 = 2_100_000
         val LETTER_ROWS = listOf(0x10 to "qwertyuiop", 0x1e to "asdfghjkl", 0x2c to "zxcvbnm")
         val DIGITS = (2..11).toList()
         const val SHIFTED_DIGITS = "!@#$%^&*()"

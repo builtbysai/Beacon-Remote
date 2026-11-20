@@ -566,9 +566,15 @@ export function attachRemoteInput(
   // Copy from the computer: the viewer asks, the computer answers once with its clipboard text, and
   // that text goes to this browser's clipboard. Nothing is sent unasked.
   let awaitingClipboard: ReturnType<typeof setTimeout> | null = null;
+  // An image follows the text reply, so it is accepted for a while after a request (or any time in Automatic).
+  let imageUntil = 0;
+  let incomingImage: { mime: string; parts: string[]; length: number } | null =
+    null;
+  const IMAGE_LIMIT = 1_500_000;
   const requestClipboard = () => {
     if (signIn) return;
     if (!display || awaitingClipboard) return;
+    imageUntil = Date.now() + 30_000;
     awaitingClipboard = setTimeout(() => {
       awaitingClipboard = null;
       onNotice("The computer did not answer. Try again.");
@@ -641,6 +647,97 @@ export function attachRemoteInput(
   const CLIPBOARD_HTML_LIMIT = 6000;
   let clipboardMode: "off" | "button" | "auto" = "button";
   let lastSentClipboard = "";
+  let lastSentImage = "";
+  const readClipboardImage = async (): Promise<Blob | null> => {
+    try {
+      const items = await navigator.clipboard.read?.();
+      for (const item of items ?? [])
+        if (item.types.includes("image/png"))
+          return await item.getType("image/png");
+    } catch {
+      return null;
+    }
+    return null;
+  };
+  const sendClipboardImage = async (image: Blob, explicit: boolean) => {
+    if (image.size > IMAGE_LIMIT) {
+      if (explicit) onNotice("That image is larger than 1.5 MB.");
+      return;
+    }
+    const bytes = new Uint8Array(await image.arrayBuffer());
+    let binary = "";
+    for (let at = 0; at < bytes.length; at += 0x8000)
+      binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+    const encoded = btoa(binary);
+    for (let at = 0; at < encoded.length; at += 1000) {
+      if (disposed || channel.readyState !== "open") return;
+      send({
+        type: "clipboard_write",
+        kind: "image",
+        mime: "image/png",
+        text: encoded.slice(at, at + 1000),
+        more: at + 1000 < encoded.length,
+      });
+      // Stay well under the channel's rate limit.
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    lastSentImage = `${image.size}`;
+    if (explicit) onNotice("Sent the image to the device.");
+  };
+  const receiveClipboardImage = async (reply: {
+    type?: unknown;
+    text?: unknown;
+    more?: unknown;
+    mime?: unknown;
+    size?: unknown;
+  }) => {
+    if (clipboardMode === "off") return;
+    if (reply.type === "clipboard_image_start") {
+      const size = Number(reply.size);
+      if (
+        (Date.now() > imageUntil && clipboardMode !== "auto") ||
+        typeof reply.mime !== "string" ||
+        !/^image\/(png|jpeg|webp|gif)$/.test(reply.mime) ||
+        !Number.isSafeInteger(size) ||
+        size <= 0 ||
+        size > IMAGE_LIMIT
+      ) {
+        incomingImage = null;
+        return;
+      }
+      incomingImage = { mime: reply.mime, parts: [], length: 0 };
+      return;
+    }
+    if (!incomingImage || typeof reply.text !== "string") return;
+    incomingImage.length += reply.text.length;
+    if (incomingImage.length > 2_100_000) {
+      incomingImage = null;
+      return;
+    }
+    incomingImage.parts.push(reply.text);
+    if (reply.more === true) return;
+    const done = incomingImage;
+    incomingImage = null;
+    try {
+      const binary = atob(done.parts.join(""));
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index++)
+        bytes[index] = binary.charCodeAt(index);
+      const Item = (globalThis as { ClipboardItem?: typeof ClipboardItem })
+        .ClipboardItem;
+      if (!Item || done.mime !== "image/png") {
+        onNotice("This browser can only copy PNG images.");
+        return;
+      }
+      await navigator.clipboard.write([
+        new Item({ "image/png": new Blob([bytes], { type: "image/png" }) }),
+      ]);
+      lastSentImage = `${bytes.length}`;
+      onNotice("Copied the image from the device.");
+    } catch {
+      onNotice("Allow clipboard access in your browser to copy the image.");
+    }
+  };
   const pushClipboard = async (explicit: boolean) => {
     if (signIn || !display || disposed) return;
     if (clipboardMode === "off") {
@@ -658,6 +755,12 @@ export function attachRemoteInput(
       return;
     }
     if (disposed || channel.readyState !== "open") return;
+    const image = await readClipboardImage();
+    if (image) {
+      if (explicit || `${image.size}` !== lastSentImage)
+        await sendClipboardImage(image, explicit);
+      return;
+    }
     if (!text) {
       if (explicit) onNotice("Your clipboard has no text to send.");
       return;
@@ -793,6 +896,18 @@ export function attachRemoteInput(
           reply.type === "clipboard"
         ) {
           void receiveClipboard(reply).catch(onFailure);
+          return;
+        }
+        if (
+          reply !== null &&
+          typeof reply === "object" &&
+          "type" in reply &&
+          (reply.type === "clipboard_image_start" ||
+            reply.type === "clipboard_image")
+        ) {
+          void receiveClipboardImage(reply as Record<string, unknown>).catch(
+            onFailure,
+          );
           return;
         }
         if (

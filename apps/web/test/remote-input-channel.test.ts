@@ -476,3 +476,50 @@ test("formatted text is sent first and completed by the plain text, and the phon
   assert.deepEqual(written, [{ "text/plain": "hi", "text/html": "<i>hi</i>" }]);
   delete (globalThis as Record<string, unknown>).ClipboardItem;
 });
+
+test("a copied PNG image goes to the phone in paced base64 pieces, and an image from the phone is written to the clipboard", async (t) => {
+  const f = channelFixture(t);
+  const bytes = new Uint8Array(2500).map((_, index) => index % 251);
+  f.navigator.clipboard.readText = async () => "";
+  (f.navigator.clipboard as Record<string, unknown>).read = async () => [
+    {
+      types: ["image/png"],
+      getType: async () => new Blob([bytes], { type: "image/png" }),
+    },
+  ];
+  f.video.dispatchEvent(new Event("beacon-clipboard-write"));
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const pieces = f.sent
+    .map((body) => body.input)
+    .filter(
+      (input) => input.type === "clipboard_write" && input.kind === "image",
+    );
+  assert.ok(pieces.length >= 3);
+  assert.equal(pieces[pieces.length - 1]?.more, false);
+  const joined = pieces.map((input) => String(input.text)).join("");
+  assert.deepEqual(
+    Array.from(Buffer.from(joined, "base64")),
+    Array.from(bytes),
+  );
+
+  let written: Blob | undefined;
+  (globalThis as Record<string, unknown>).ClipboardItem = class {
+    constructor(readonly parts: Record<string, Blob>) {}
+  };
+  (f.navigator.clipboard as Record<string, unknown>).write = async (
+    items: { parts: Record<string, Blob> }[],
+  ) => {
+    written = items[0]?.parts["image/png"];
+  };
+  f.message({ type: "clipboard_mode", mode: "auto" });
+  f.message({ type: "clipboard_image_start", mime: "image/png", size: 4 });
+  f.message({
+    type: "clipboard_image",
+    text: Buffer.from([1, 2]).toString("base64"),
+    more: true,
+  });
+  f.message({ type: "clipboard_image", text: "", more: false });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(written);
+  delete (globalThis as Record<string, unknown>).ClipboardItem;
+});
