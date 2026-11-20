@@ -461,3 +461,11 @@ Until then the claim is "measured" or "different by design", never "better".
   file provider). The return trip failed while the phone was locked: Android lets only the focused app or the keyboard
   read the clipboard, so the phone answers "unavailable" on a locked screen. The phone-to-viewer direction needs an
   unlocked phone and is untested.
+
+- Pattern and password lock screens (20 Nov, built, not device-tested): the phone reports which credential screen is up
+  (PIN, pattern or password). For a pattern the viewer shows a 3x3 dot grid; the person clicks the dots in order and
+  the phone draws one finger path through the grid's cell centres. For a password the viewer shows a password box and
+  the phone types it into the lock screen's field through the accessibility tree and presses its Enter action. Neither
+  is stored or logged, and both need "Unlock from the viewer" on. Unit tests cover the message shapes and the
+  viewer's validation. A device test needs the Pixel's lock changed to a pattern or password, which is the owner's step.
+  The PIN stand-in was re-checked on the Pixel after the refactor.
