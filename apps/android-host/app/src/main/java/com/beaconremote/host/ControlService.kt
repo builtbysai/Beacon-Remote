@@ -128,14 +128,6 @@ class ControlService : AccessibilityService() {
         val screen = root ?: run {
             // Counts only: nothing about what was typed.
             android.util.Log.i("BeaconHost", "PIN screen not found: windows=${windows.size} active=${rootInActiveWindow?.packageName}")
-            // The labels of what the screen shows (key captions), to learn what Android exposes. Never what was pressed.
-            fun dump(node: AccessibilityNodeInfo?, depth: Int, budget: IntArray) {
-                if (node == null || budget[0] <= 0 || depth > 12) return
-                budget[0]--
-                android.util.Log.i("BeaconHost", "  node d=$depth ${node.className} text=${node.text?.toString()?.take(14)} desc=${node.contentDescription?.toString()?.take(14)} id=${node.viewIdResourceName?.takeLast(24)}")
-                for (index in 0 until node.childCount) dump(node.getChild(index), depth + 1, budget)
-            }
-            dump(rootInActiveWindow, 0, intArrayOf(45))
             return "no-pad"
         }
         val target: AccessibilityNodeInfo? = walk(screen, 0) { node ->
