@@ -138,7 +138,11 @@ class FileReceiver(
                 if (current?.id == id) discard()
                 if (sending != null) finishOutgoing("The viewer cancelled ${sending.name}")
             }
-            "accept" -> if (sending != null) stream(sending)
+            "accept" -> if (sending != null) {
+                // A viewer that kept part of this file asks to carry on from there, with the hash of what it holds.
+                val resume = body.optJSONObject("resume")
+                stream(sending, resume?.optLong("offset", 0)?.takeIf { it > 0 }, resume?.optString("sha256"))
+            }
             "reject" -> if (sending != null) finishOutgoing("The viewer did not take ${sending.name}")
             "done" -> if (sending != null) finishOutgoing("Sent ${sending.name}")
             "failed" -> if (sending != null) finishOutgoing("${sending.name} did not arrive intact")
@@ -180,7 +184,7 @@ class FileReceiver(
     }
 
     /** Streams the offered file in order, checked against its announced length and SHA-256, while the viewer has permission. */
-    private fun stream(out: Outgoing) {
+    private fun stream(out: Outgoing, resumeAt: Long? = null, resumeHash: String? = null) {
         val input = runCatching { context.contentResolver.openInputStream(out.uri) }.getOrNull()
         if (input == null) {
             outgoing = null
@@ -191,6 +195,23 @@ class FileReceiver(
         val buffer = ByteArray(MAX_CHUNK)
         var sent = 0L
         input.use { source ->
+            if (resumeAt != null) {
+                // Skip what the viewer already has, but only if it is exactly what this file starts with.
+                var skipped = 0L
+                while (skipped < resumeAt) {
+                    val want = minOf(buffer.size.toLong(), resumeAt - skipped).toInt()
+                    val got = source.read(buffer, 0, want)
+                    if (got < 0) break
+                    digest.update(buffer, 0, got)
+                    skipped += got
+                }
+                val prefix = (digest.clone() as MessageDigest).digest().joinToString("") { "%02x".format(it) }
+                if (skipped != resumeAt || resumeAt > out.size || !prefix.equals(resumeHash.orEmpty(), ignoreCase = true)) {
+                    send(JSONObject().put("t", "failed").put("id", out.id).put("reason", "resume"))
+                    return finishOutgoing("${out.name} changed since the first try; ask to send it again")
+                }
+                sent = skipped
+            }
             while (true) {
                 if (out.abortRequested || !allowed() || channel.state() != DataChannel.State.OPEN) {
                     Log.w(TAG, "Outgoing stopped: aborted=${out.abortRequested} allowed=${allowed()} open=${channel.state()}")
