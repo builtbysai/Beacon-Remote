@@ -19,7 +19,6 @@ import org.webrtc.audio.JavaAudioDeviceModule
 internal class SoundCapture(private val projection: () -> MediaProjection?) : JavaAudioDeviceModule.AudioBufferCallback {
     private var record: AudioRecord? = null
     private var failed = false
-    private var calls = 0
 
     @SuppressLint("MissingPermission")
     private fun open(rate: Int, channels: Int): AudioRecord? {
@@ -54,12 +53,7 @@ internal class SoundCapture(private val projection: () -> MediaProjection?) : Ja
             val sound = open(sampleRate, channelCount)
             if (sound != null && audioFormat == AudioFormat.ENCODING_PCM_16BIT) {
                 buffer.clear()
-                val got = sound.read(buffer, size, AudioRecord.READ_NON_BLOCKING)
-                if (++calls % 200 == 1) {
-                    var peak = 0
-                    for (index in 0 until size - 1 step 2) peak = maxOf(peak, kotlin.math.abs(buffer.getShort(index).toInt()))
-                    Log.i("BeaconHost", "Phone sound: read=$got of $size bytes, peak=$peak")
-                }
+                sound.read(buffer, size, AudioRecord.READ_NON_BLOCKING)
             }
         }
         return captureTimeNs
