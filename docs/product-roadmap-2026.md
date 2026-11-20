@@ -519,3 +519,9 @@ Each item is built and pushed; the test needs a step only the owner can do. Pick
   now also offers "Play last recording" (a player in the page with "Save again"). The recording stays in the page only
   and is released when replaced or when the page closes. Not yet tried on a real recording, which needs the device
   owner's approval on the phone.
+
+- Clipboard from the phone, Pixel results (20 Nov, build 821085fe, phone unlocked): text copied in the Google search
+  app (Beacon in the background) arrived in the viewer ("copied-on-the-phone-777", 23 characters); an image sent from the
+  viewer to the phone came back to the browser clipboard as image/png (427 bytes). The read worked without needing the
+  invisible screen to be proven separately. Still untested: a copied file (arrives as a download), the locked-phone case on
+  this build (known to answer "unavailable"), and a real recording with the new player.
