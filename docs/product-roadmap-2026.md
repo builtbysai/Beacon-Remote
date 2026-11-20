@@ -207,7 +207,13 @@ product requires.
   (the phone needs its passcode, which the agent does not have; owner unlocks).
 - Surfiena trusted access: in the host window press "More options", then choose "They can view
   and control without asking" (view-only: "They can view without asking"). Still needs the Beacon host window in session 1.
-- Acceptance backend: the one-hour expiry is an owner decision.
+- Acceptance backend lifetime raised to 4 hours by owner decision (19 Nov): override
+  `/etc/beacon-remote/acceptance-lifetime-4h.override.yaml` (last in the compose chain). Stop it by hand
+  when testing is done: `sudo docker stop beacon-remote-acceptance-backend`. It still stops itself after 4 h.
+- Owner decisions 19 Nov: push everything and deploy to the acceptance VM (done, branch at 284f13f);
+  build auto-resume, full clipboard, audio, recording and chat on Android; make setup and daily use
+  minimum-click; stay connected through lock and reboot with full trusted access chosen.
+- (Superseded) Acceptance backend: the one-hour expiry was an owner decision.
 - One runbook: owner one-time steps and each run's command in one file.
 
 ### M1. Unattended trusted access
