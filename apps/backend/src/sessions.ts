@@ -1065,7 +1065,9 @@ export async function registerSessions(
     if (
       !entry?.resumable ||
       entry.closed ||
-      entry.machine?.readyState !== 1 ||
+      // The viewer may come back while an unattended phone is still re-attaching.
+      (entry.machine?.readyState !== 1 &&
+        !hostReconnectOpen(entry.machineDetachedUntil, performance.now())) ||
       entry.viewerTokenHash !== browserHash(request) ||
       !entry.detachedUntil ||
       performance.now() >= entry.detachedUntil
