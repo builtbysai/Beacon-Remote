@@ -291,8 +291,7 @@ class MainActivity : Activity() {
         val steps = setupSteps()
         val next = steps.firstOrNull { !it.done }
         root.findViewWithTag<TextView>("guide-title")?.text = if (next == null) "Setup complete: this phone is ready" else "Setup: ${steps.count { it.done }} of ${steps.size} done"
-        root.findViewWithTag<TextView>("guide-steps")?.text = steps.joinToString("
-") { (if (it.done) "✓  " else "○  ") + it.title }
+        root.findViewWithTag<TextView>("guide-steps")?.text = steps.joinToString("\n") { (if (it.done) "✓  " else "○  ") + it.title }
         root.findViewWithTag<Button>("guide-next")?.apply { visibility = if (next == null) View.GONE else View.VISIBLE; text = next?.button ?: "" }
         root.findViewWithTag<TextView>("status")?.let { if (it.text.toString() != HostState.status) it.text = HostState.status }
         root.findViewWithTag<Button>("availability-toggle")?.text = if (identity.wantsAvailable) "Go offline" else "Make available"
