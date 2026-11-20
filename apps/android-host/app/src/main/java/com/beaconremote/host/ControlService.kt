@@ -99,8 +99,10 @@ class ControlService : AccessibilityService() {
     fun pressLockKey(key: String): String {
         if (!Identity(this).unlockFromViewer) return "off"
         if (!getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked) return "not-locked"
+        // The PIN screen is a SystemUI window; look through every window the service can see, not only the active one.
         fun pad(): AccessibilityNodeInfo? =
-            rootInActiveWindow?.takeIf { it.packageName == "com.android.systemui" && it.findAccessibilityNodeInfosByViewId(PIN_PAD).isNotEmpty() }
+            (listOfNotNull(rootInActiveWindow) + windows.mapNotNull { it.root })
+                .firstOrNull { it.packageName == "com.android.systemui" && it.findAccessibilityNodeInfosByViewId(PIN_PAD).isNotEmpty() }
         var root = pad()
         if (root == null) {
             // The PIN screen appears after swiping up on the lock screen.
