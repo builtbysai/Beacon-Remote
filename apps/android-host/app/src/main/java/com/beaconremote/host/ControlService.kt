@@ -103,12 +103,17 @@ class ControlService : AccessibilityService() {
         if (!Identity(this).unlockFromViewer) return "off"
         if (!getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked) return "not-locked"
         // The PIN screen is a SystemUI window; look through every window the service can see, not only the active one.
+        // The tree is walked by hand: that is what Android reliably exposes for this screen.
+        fun walk(node: AccessibilityNodeInfo?, depth: Int, test: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
+            if (node == null || depth > 14) return null
+            if (test(node)) return node
+            for (index in 0 until node.childCount) walk(node.getChild(index), depth + 1, test)?.let { return it }
+            return null
+        }
+        fun isPad(node: AccessibilityNodeInfo) = node.viewIdResourceName?.endsWith("pin_pad_grid") == true || node.text?.toString() == "Enter PIN"
         fun pad(): AccessibilityNodeInfo? =
             (listOfNotNull(rootInActiveWindow) + windows.mapNotNull { it.root })
-                .firstOrNull {
-                    it.packageName?.toString() == "com.android.systemui" &&
-                        (it.findAccessibilityNodeInfosByViewId(PIN_PAD).isNotEmpty() || it.findAccessibilityNodeInfosByText("Enter PIN").isNotEmpty())
-                }
+                .firstOrNull { it.packageName?.toString() == "com.android.systemui" && walk(it, 0, ::isPad) != null }
         var root = pad()
         if (root == null) {
             // The PIN screen appears after swiping up on the lock screen.
@@ -133,13 +138,12 @@ class ControlService : AccessibilityService() {
             dump(rootInActiveWindow, 0, intArrayOf(45))
             return "no-pad"
         }
-        val target: AccessibilityNodeInfo? = when (key) {
-            // By id where Android reports ids, otherwise by the words on the key.
-            "delete" -> screen.findAccessibilityNodeInfosByViewId("com.android.systemui:id/delete_button").firstOrNull()
-                ?: screen.findAccessibilityNodeInfosByText("Delete").firstOrNull { it.contentDescription?.toString() == "Delete" }
-            "enter" -> screen.findAccessibilityNodeInfosByViewId("com.android.systemui:id/key_enter").firstOrNull()
-                ?: screen.findAccessibilityNodeInfosByText("Enter").firstOrNull { it.contentDescription?.toString() == "Enter" }
-            else -> screen.findAccessibilityNodeInfosByText(key).firstOrNull { it.text?.toString() == key }
+        val target: AccessibilityNodeInfo? = walk(screen, 0) { node ->
+            when (key) {
+                "delete" -> node.contentDescription?.toString() == "Delete"
+                "enter" -> node.contentDescription?.toString() == "Enter"
+                else -> node.text?.toString() == key && node.className?.toString()?.endsWith("Button") == true
+            }
         }
         var node = target
         while (node != null && !node.isClickable) node = node.parent
