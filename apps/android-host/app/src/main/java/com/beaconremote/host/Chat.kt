@@ -28,7 +28,7 @@ internal object Chat {
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "Messages from the viewer", NotificationManager.IMPORTANCE_HIGH))
         val reply = PendingIntent.getBroadcast(
-            context, 0, Intent(ACTION_REPLY).setPackage(context.packageName),
+            context, 0, Intent(context, ChatReceiver::class.java).setAction(ACTION_REPLY),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
         )
         val action = Notification.Action.Builder(null, "Reply", reply)
