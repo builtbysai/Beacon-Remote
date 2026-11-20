@@ -493,3 +493,19 @@ Until then the claim is "measured" or "different by design", never "better".
   invisible screen). Build `821085fe`; both this and the invisible screen need an unlocked Pixel to test. Files copied
   in the browser to the phone are not possible (a browser cannot read files from the clipboard); the viewer's Send file
   button remains the way to send files.
+
+## Deferred until the owner is at the devices (20 Nov)
+
+Each item is built and pushed; the test needs a step only the owner can do. Pick them up in this order.
+
+1. Unlock the Pixel, then install build `821085fe` (or newer) and run, with another app in front of Beacon: copy text
+   from the phone to the viewer; copy an image; copy a file (arrives as a download); then lock the phone and confirm the
+   phone answers "unavailable" rather than failing.
+2. Passcode stand-in: with the phone locked and the stand-in open, click the PIN digits and Enter (the agent never
+   enters them) and confirm the phone unlocks. Delete was already confirmed through the pad.
+3. Pattern and password lock screens: change the Pixel's lock to a pattern, then a password (owner step), and try the
+   viewer's pattern grid and password box.
+4. Surfiena: wake it and put it on the network (SSH to 100.97.59.85 times out); then the owner step on its Beacon host
+   window (trusted access), and the Windows rows of the capability matrix.
+5. Not started: viewer microphone to the phone; attended frame rate and tap-to-picture latency (M4); Android
+   Enterprise managed-device unlock (needs the Pixel reset, so it is the owner's call).
