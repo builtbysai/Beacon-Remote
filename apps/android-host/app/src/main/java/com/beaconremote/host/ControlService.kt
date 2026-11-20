@@ -105,7 +105,10 @@ class ControlService : AccessibilityService() {
         // The PIN screen is a SystemUI window; look through every window the service can see, not only the active one.
         fun pad(): AccessibilityNodeInfo? =
             (listOfNotNull(rootInActiveWindow) + windows.mapNotNull { it.root })
-                .firstOrNull { it.packageName == "com.android.systemui" && it.findAccessibilityNodeInfosByViewId(PIN_PAD).isNotEmpty() }
+                .firstOrNull {
+                    it.packageName == "com.android.systemui" &&
+                        (it.findAccessibilityNodeInfosByViewId(PIN_PAD).isNotEmpty() || it.findAccessibilityNodeInfosByText("Enter PIN").isNotEmpty())
+                }
         var root = pad()
         if (root == null) {
             // The PIN screen appears after swiping up on the lock screen.
@@ -123,8 +126,11 @@ class ControlService : AccessibilityService() {
             return "no-pad"
         }
         val target: AccessibilityNodeInfo? = when (key) {
+            // By id where Android reports ids, otherwise by the words on the key.
             "delete" -> screen.findAccessibilityNodeInfosByViewId("com.android.systemui:id/delete_button").firstOrNull()
+                ?: screen.findAccessibilityNodeInfosByText("Delete").firstOrNull { it.contentDescription?.toString() == "Delete" }
             "enter" -> screen.findAccessibilityNodeInfosByViewId("com.android.systemui:id/key_enter").firstOrNull()
+                ?: screen.findAccessibilityNodeInfosByText("Enter").firstOrNull { it.contentDescription?.toString() == "Enter" }
             else -> screen.findAccessibilityNodeInfosByText(key).firstOrNull { it.text?.toString() == key }
         }
         var node = target
