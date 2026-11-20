@@ -538,3 +538,9 @@ Each item is built and pushed; the test needs a step only the owner can do. Pick
   about 1 frame per second (the capture sends frames when the screen changes), so the viewer's own "Presented FPS"
   reading is not a good measure on a still screen. Round trip 49-281 ms across samples. Unattended stays at its 2 fps
   design cap. Still not measured: tap-to-picture latency, a direct (non-relayed) path, cellular.
+
+- Pause silences the microphone, Pixel (20 Nov, 14:19 local, unattended, microphone switch on): with a tone playing
+  near the phone the viewer's Web Audio peak was 0.070; after "Pause" was tapped in the phone's sharing notification the
+  viewer showed "paused" and the peak was exactly 0; the notification read "Sharing is paused" with a Resume action.
+  Stop ended the session. Not tested: resuming restores the microphone, and Stop releasing it (the service stops, so the
+  recording does too).
