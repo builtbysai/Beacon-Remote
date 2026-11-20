@@ -639,7 +639,7 @@ class ShareSession(
         Log.i("BeaconHost", "Input channel opened for an approved control request")
         control = RemoteControl(channel, grant.id, screenWidth, screenHeight, {
             permitted() && canShare(generation) && localActionsAllowed()
-        }) { active -> post { if (viewer.owns(generation)) onControl(active) } }.also { it.start() }
+        }, { uri -> files?.sendFile(uri) { reason -> if (reason.isNotEmpty()) Log.i("BeaconHost", "Copied file not offered: $reason") } }) { active -> post { if (viewer.owns(generation)) onControl(active) } }.also { it.start() }
     }
 
     private fun localActionsAllowed(): Boolean = Identity(context).let { identity ->

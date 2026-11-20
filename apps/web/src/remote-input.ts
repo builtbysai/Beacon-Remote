@@ -589,6 +589,7 @@ export function attachRemoteInput(
       truncated?: unknown;
       unavailable?: unknown;
       html?: unknown;
+      file?: unknown;
     };
     // A reply nobody asked for is accepted only while the phone's own setting is Automatic.
     const asked = awaitingClipboard !== null;
@@ -603,6 +604,12 @@ export function attachRemoteInput(
       throw new Error();
     if (awaitingClipboard) clearTimeout(awaitingClipboard);
     awaitingClipboard = null;
+    if (reply.file === true && !reply.text) {
+      // A copied file arrives through the files channel as an offer to save.
+      if (asked)
+        onNotice("The phone offered the copied file. Use Save to keep it.");
+      return;
+    }
     if (reply.unavailable === true || !reply.text) {
       if (asked)
         onNotice(

@@ -99,6 +99,15 @@ class ControlService : AccessibilityService() {
         true
     }.getOrDefault(false)
 
+    /** A copied file (a content address that is not an image and not one of this app's own), or null. */
+    fun readClipboardFile(): android.net.Uri? = runCatching {
+        val clip = getSystemService(android.content.ClipboardManager::class.java).primaryClip ?: return null
+        if (clip.itemCount == 0) return null
+        val uri = clip.getItemAt(0).uri ?: return null
+        val mime = contentResolver.getType(uri) ?: clip.description.getMimeType(0)
+        if (mime.startsWith("image/") || uri.authority?.endsWith(".clips") == true) null else uri
+    }.getOrNull()
+
     /** The image on the phone's clipboard (at most [max] bytes) and its type, or null. */
     fun readClipboardImage(max: Int): Pair<String, ByteArray>? = runCatching {
         val clip = getSystemService(android.content.ClipboardManager::class.java).primaryClip ?: return null

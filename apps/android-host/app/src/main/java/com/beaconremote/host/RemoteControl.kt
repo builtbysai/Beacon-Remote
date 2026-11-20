@@ -17,6 +17,8 @@ class RemoteControl(
     width: Int,
     height: Int,
     private val allowed: () -> Boolean,
+    /** Offers a copied file to the viewer through the files channel (the viewer saves it as a download). */
+    private val offerFile: (android.net.Uri) -> Unit = {},
     private val onState: (Boolean) -> Unit,
 ) : DataChannel.Observer {
     // The screen's size in pixels; changes when the phone is turned (see [resize]).
@@ -89,16 +91,19 @@ class RemoteControl(
         var text: String? = null
         var html: String? = null
         var image: Pair<String, ByteArray>? = null
+        var file: android.net.Uri? = null
         if (mode != "off") {
             text = service.readClipboardText()
             html = service.readClipboardHtml()
             image = service.readClipboardImage(MAX_CLIPBOARD_IMAGE)
-            if (text.isNullOrEmpty() && image == null) {
+            if (text.isNullOrEmpty() && image == null) file = service.readClipboardFile()
+            if (text.isNullOrEmpty() && image == null && file == null) {
                 // Android refused a background read: bring an invisible screen forward for a moment and read there.
                 service.readClipboardViaActivity()?.let { snapshot ->
                     text = snapshot.text
                     html = snapshot.html
                     if (snapshot.image != null && snapshot.imageMime != null) image = snapshot.imageMime to snapshot.image
+                    file = snapshot.file
                 }
             }
         }
@@ -106,7 +111,8 @@ class RemoteControl(
         Log.i(TAG, "Clipboard read requested (mode $mode): ${readText?.length?.let { "returned $it characters" } ?: if (image != null) "an image" else "unavailable"}")
         val reply =
             if (readText.isNullOrEmpty()) {
-                JSONObject().put("type", "clipboard").put("text", "").put("truncated", false).put("unavailable", image == null)
+                JSONObject().put("type", "clipboard").put("text", "").put("truncated", false).put("unavailable", image == null && file == null)
+                    .put("file", file != null)
             } else {
                 lastClipboard = readText
                 JSONObject().put("type", "clipboard").put("text", readText.take(MAX_CLIPBOARD_CHARS))
@@ -115,6 +121,7 @@ class RemoteControl(
             }
         sendJson(reply)
         image?.let { (mime, bytes) -> streamClipboardImage(mime, bytes) }
+        file?.let { offerFile(it) }
     }
 
     /** Sends an image in paced pieces after the text reply. */

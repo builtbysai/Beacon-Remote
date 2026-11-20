@@ -6,7 +6,7 @@ import android.os.Bundle
 import java.util.concurrent.CompletableFuture
 
 /** What the phone's clipboard held when read: text, formatted text, and an image's bytes with its type. */
-internal class ClipSnapshot(val text: String?, val html: String?, val imageMime: String?, val image: ByteArray?)
+internal class ClipSnapshot(val text: String?, val html: String?, val imageMime: String?, val image: ByteArray?, val file: android.net.Uri? = null)
 
 /**
  * Android lets only the app that has focus read the clipboard. When a viewer asks and nothing could be read, the phone
@@ -65,8 +65,10 @@ class ClipReadActivity : Activity() {
                 }
             }
         }
-        val text = if (image != null) null else item.coerceToText(this)?.toString()
-        return ClipSnapshot(text, item.htmlText, imageMime, image)
+        // A copied file is a content address that is not an image; it is offered as a file, not read as text.
+        val file = item.uri?.takeIf { image == null && it.authority?.endsWith(".clips") != true }
+        val text = if (image != null || file != null) null else item.coerceToText(this)?.toString()
+        return ClipSnapshot(text, item.htmlText, imageMime, image, file)
     }
 
     private companion object {
