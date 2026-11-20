@@ -61,6 +61,9 @@ type Entry = {
   createdAt: number;
   // True once any viewer has attached; after that a missing viewer follows the reconnect rules.
   viewerEverAttached?: boolean;
+  // Messages from the host that arrived before the first viewer attached (an unattended phone is faster
+  // than the browser). Bounded; delivered in order when the viewer joins.
+  toViewerQueue?: Record<string, unknown>[];
 };
 // Attended sessions wait two minutes, trusted ones five (ADR 0021). Capture and input stay
 // stopped while nobody is attached, and nothing in this window can revive an ended session.
@@ -342,6 +345,17 @@ export async function registerSessions(
   }
   const browserHash = (request: FastifyRequest) =>
     digest(request.cookies.remote_session ?? "");
+  // Host to viewer. Before the first viewer has ever attached the message is kept (up to a few) instead
+  // of being lost; after that a missing viewer follows the normal reconnect rules.
+  function toViewer(entry: Entry, body: Record<string, unknown>) {
+    if (entry.viewer) {
+      send(entry.viewer, body);
+      return;
+    }
+    if (entry.viewerEverAttached) return;
+    const queue = (entry.toViewerQueue ??= []);
+    if (queue.length < 32) queue.push(body);
+  }
   function detachViewer(entry: Entry, socket: WebSocket) {
     if (entry.closed || entry.viewer !== socket) return;
     entry.viewer = undefined;
@@ -1560,7 +1574,7 @@ export async function registerSessions(
                 return;
               }
               live.resumable = body.accepted && body.resumable === true;
-              send(live.viewer, {
+              toViewer(live, {
                 type: "consent",
                 accepted: body.accepted,
                 ...(live.resumable ? { resumable: true } : {}),
@@ -1583,7 +1597,8 @@ export async function registerSessions(
               await finish(session.id);
               return;
             }
-            send(role === "viewer" ? live.machine : live.viewer, body);
+            if (role === "viewer") send(live.machine, body);
+            else toViewer(live, body);
           })
           .catch(() => finish(session.id).catch(() => {}))
           .finally(() => {
@@ -1625,6 +1640,11 @@ export async function registerSessions(
           ? { iceServers: sessionIce(session, randomBytes(4).toString("hex")) }
           : {}),
       });
+      if (role === "viewer" && live.toViewerQueue) {
+        const queued = live.toViewerQueue;
+        live.toViewerQueue = undefined;
+        for (const message of queued) send(socket, message);
+      }
       if (resuming) {
         send(socket, { type: "consent", accepted: true, resumable: true });
         send(live.machine, {
