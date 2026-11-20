@@ -405,3 +405,9 @@ Until then the claim is "measured" or "different by design", never "better".
   as enabled. Fixed in the build installed 20 Nov; the next update should keep the setting.
 - The isolated acceptance backend stops itself 4 hours after it starts; it had stopped overnight and phones show as
   offline until `docker start beacon-remote-acceptance-backend` and about a minute for the phone to reconnect.
+
+- Remote unlock, Pixel result (20 Nov): after the service was allowed to see all windows and the PIN screen's tree was
+  walked by hand, Delete pressed from the viewer's pad returned "ok" on the locked phone (the phone found its PIN
+  screen, which was brought up by one swipe). The passcode itself is entered by the owner on the pad; that last step
+  is pending the owner's run. The pad is laid out as a 3x4 grid. Clean build `d61e61dc` (diagnostic removed) is
+  built but not yet installed, to avoid ending the owner's open test session.
