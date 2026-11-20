@@ -668,7 +668,7 @@ class ShareSession(
 
     private companion object {
         const val MAX_AGE = 3000L
-        const val RECONNECT_WINDOW = 20_000L
+        const val RECONNECT_WINDOW = 120_000L
         const val RECONNECT_RETRY = 2_000L
         const val TAG = "BeaconHost"
     }

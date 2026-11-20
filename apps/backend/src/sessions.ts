@@ -88,7 +88,7 @@ export function viewerAttachGraceOpen(createdAt: number, now: number) {
 }
 // An unattended host whose own connection drops may re-attach this long before the session ends.
 // Capture and input stay stopped while it is detached (docs/host-reconnect-design.md).
-const HOST_RECONNECT_MS = 20_000;
+const HOST_RECONNECT_MS = 120_000;
 // True while a detached host is still inside its re-attach window.
 export function hostReconnectOpen(
   detachedUntil: number | undefined,
