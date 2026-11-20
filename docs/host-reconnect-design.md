@@ -20,6 +20,7 @@ Stop, local revoke, accessibility loss, lock, expiry and a second host all still
 ## Proposed changes
 
 Backend (`apps/backend/src/sessions.ts`):
+
 - When the host socket closes on a session that is active and resumable, do not call `finish`. Mark the
   entry `machineDetachedUntil = now + 20 s` and tell the viewer `host-lost` so it shows "Reconnecting".
 - Allow exactly one re-attach of the machine role while detached, authenticated by the same bearer
@@ -31,6 +32,7 @@ Backend (`apps/backend/src/sessions.ts`):
   session deadline.
 
 Android (`ShareSession.kt`):
+
 - On signaling failure, stop capture and release input at once, keep the foreground notification
   with the text "Reconnecting", and retry the signaling socket every 2 s for 20 s with the same bearer.
 - After re-attach, re-check local conditions (unattended still on, device unlocked, accessibility

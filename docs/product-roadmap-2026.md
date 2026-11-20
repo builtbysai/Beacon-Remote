@@ -26,17 +26,18 @@ repeatable measurements (section 7).
 ## 2. Competitor feature check
 
 Sources are vendor pages and reviews found on 19 November 2026. Vendor claims are
-marked as such. Entries marked *unconfirmed* need the current vendor documentation.
+marked as such. Entries marked _unconfirmed_ need the current vendor documentation.
 
-| Product | Confirmed features (source) | Notes for Beacon |
-| --- | --- | --- |
-| Microsoft RDP | Clipboard and drive/printer redirection, multi-monitor, RemoteApp (publishes single apps) | Needs a Windows Pro, Enterprise or Server host. Not available on Windows Home (our test). |
-| RealVNC Connect | Unattended access (managed devices tier), two-way file transfer, multi-monitor windows, control of Android devices through its server app; iOS view-only ([RealVNC](https://www.realvnc.com/en/connect/), [RealVNC features](https://www.g2.com/products/realvnc/features)) | Clipboard sharing *unconfirmed*. |
-| TeamViewer | Unattended access that starts with the OS, Wake-on-LAN, file transfer (box and side-by-side), remote management policies ([TeamViewer forum](https://community.teamviewer.com/English/discussion/6611/unattended-access-vs-wake-on-lan), [TeamViewer KB](https://www.teamviewer.com/en/global/support/knowledge-base)) | Remote Management feature list *unconfirmed*. Licensing claims not checked. |
-| BeyondTrust Remote Support (Bomgar) | Session policies per portal or endpoint, separate attended and unattended policies, elevation to protected windows and UAC (Windows and Mac), chat log with permissions granted, session recording and reports ([BeyondTrust features](https://www.beyondtrust.com/products/remote-support/features), [session policies](https://beyondtrust.com/remote-support/features/session-policies), [docs](https://docs.beyondtrust.com/rs/v24.3/docs/web-collaboration)) | Strongest on support-team workflow and audit. |
-| AnyDesk, Splashtop, ConnectWise ScreenConnect | Unattended access, clipboard, reporting and multi-user administration (vendor claims from comparison sites) | Used as secondary references only. |
+| Product                                       | Confirmed features (source)                                                                                                                                                                                                                                                                                                                                                                                                                                       | Notes for Beacon                                                                          |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Microsoft RDP                                 | Clipboard and drive/printer redirection, multi-monitor, RemoteApp (publishes single apps)                                                                                                                                                                                                                                                                                                                                                                         | Needs a Windows Pro, Enterprise or Server host. Not available on Windows Home (our test). |
+| RealVNC Connect                               | Unattended access (managed devices tier), two-way file transfer, multi-monitor windows, control of Android devices through its server app; iOS view-only ([RealVNC](https://www.realvnc.com/en/connect/), [RealVNC features](https://www.g2.com/products/realvnc/features))                                                                                                                                                                                       | Clipboard sharing _unconfirmed_.                                                          |
+| TeamViewer                                    | Unattended access that starts with the OS, Wake-on-LAN, file transfer (box and side-by-side), remote management policies ([TeamViewer forum](https://community.teamviewer.com/English/discussion/6611/unattended-access-vs-wake-on-lan), [TeamViewer KB](https://www.teamviewer.com/en/global/support/knowledge-base))                                                                                                                                            | Remote Management feature list _unconfirmed_. Licensing claims not checked.               |
+| BeyondTrust Remote Support (Bomgar)           | Session policies per portal or endpoint, separate attended and unattended policies, elevation to protected windows and UAC (Windows and Mac), chat log with permissions granted, session recording and reports ([BeyondTrust features](https://www.beyondtrust.com/products/remote-support/features), [session policies](https://beyondtrust.com/remote-support/features/session-policies), [docs](https://docs.beyondtrust.com/rs/v24.3/docs/web-collaboration)) | Strongest on support-team workflow and audit.                                             |
+| AnyDesk, Splashtop, ConnectWise ScreenConnect | Unattended access, clipboard, reporting and multi-user administration (vendor claims from comparison sites)                                                                                                                                                                                                                                                                                                                                                       | Used as secondary references only.                                                        |
 
 Where Beacon can be different by design (not measured as better):
+
 - No client install: the viewer is a web page.
 - Local approval, a visible indicator and a Stop on the device for every attended session.
 - Separate grants for files, printing and recording that end with the connection.
@@ -48,33 +49,33 @@ Where Beacon can be different by design (not measured as better):
 Status: **done** means implemented and tested on real hardware. **partial** means implemented
 with known gaps. **missing** means not built. Hardware items need a device.
 
-| Capability | Windows (Surfiena) | Android (Pixel 7a) | Evidence |
-| --- | --- | --- | --- |
-| Attended view with local approval | done | done | Pixel and Surfiena view runs |
-| Attended control with local approval | blocked (input test box did not show) | done (ordinary control re-run after factory reset) | testing-remaining.md, 19 Nov |
-| Unattended trusted access (no local click) | not enabled (owner click pending) | connect passed 19 Nov; "no local click" to confirm with phone untouched | M0 notes, 19 Nov |
-| Visible Pause, Stop and local revoke | done (Stop) | done (Pause, Stop) | earlier runs |
-| Remote typing into an editable field | not tested | done (Chrome address bar, 19 Nov) | M0 notes, 19 Nov |
-| Control expiry and lease loss | not tested | done (deadline ends session; lease loss = Wi-Fi drop test, 19 Nov) | M0 notes, 19 Nov |
-| Accessibility loss detected and shown | n/a | done (session ended, unattended off, notice shown, 19 Nov) | M0 notes, 19 Nov |
-| Lock screen behaviour | not tested | done (session ends on lock, 19 Nov) | M0 notes, 19 Nov |
-| Resume after network change | partial | partial (20 s Wi-Fi drop ends the session; no auto-resume, 19 Nov) | M0 notes, 19 Nov |
-| File send device to viewer | partial | done (1 MiB, hash match, 19 Nov); resume untested | M0 notes, 19 Nov |
-| File send viewer to device | partial (download) | done (3 MiB, hash match, 19 Nov); resume untested | M0 notes, 19 Nov |
-| Clipboard device to viewer | done (Windows), done (Pixel) | done | — |
-| Clipboard viewer to device | missing (ADR 0021 forbids; approved decision) | missing | needs ADR change |
-| Multi-monitor selection | partial | n/a | — |
-| Audio output | missing | missing | — |
-| Microphone input | missing (approved decision) | missing | needs hardware |
-| USB forwarding | missing (approved decision) | missing | needs hardware |
-| Printing redirection | partial (code, not tested) | n/a | — |
-| Wake-on-LAN and boot-to-online | missing | missing | competitor parity |
-| Sign-in screen control | source only | n/a | needs hardware |
-| Session recording with consent | missing | missing | competitor parity |
-| Chat during a session | partial (handoff baseline) | partial | not tested on devices |
-| Session policy per device and per portal | partial (per device) | partial (per device) | — |
-| Elevation to protected windows and UAC | missing | n/a | competitor parity |
-| Independent sessions and RemoteApp | missing | n/a | needs Windows Pro or Server |
+| Capability                                 | Windows (Surfiena)                            | Android (Pixel 7a)                                                      | Evidence                     |
+| ------------------------------------------ | --------------------------------------------- | ----------------------------------------------------------------------- | ---------------------------- |
+| Attended view with local approval          | done                                          | done                                                                    | Pixel and Surfiena view runs |
+| Attended control with local approval       | blocked (input test box did not show)         | done (ordinary control re-run after factory reset)                      | testing-remaining.md, 19 Nov |
+| Unattended trusted access (no local click) | not enabled (owner click pending)             | connect passed 19 Nov; "no local click" to confirm with phone untouched | M0 notes, 19 Nov             |
+| Visible Pause, Stop and local revoke       | done (Stop)                                   | done (Pause, Stop)                                                      | earlier runs                 |
+| Remote typing into an editable field       | not tested                                    | done (Chrome address bar, 19 Nov)                                       | M0 notes, 19 Nov             |
+| Control expiry and lease loss              | not tested                                    | done (deadline ends session; lease loss = Wi-Fi drop test, 19 Nov)      | M0 notes, 19 Nov             |
+| Accessibility loss detected and shown      | n/a                                           | done (session ended, unattended off, notice shown, 19 Nov)              | M0 notes, 19 Nov             |
+| Lock screen behaviour                      | not tested                                    | done (session ends on lock, 19 Nov)                                     | M0 notes, 19 Nov             |
+| Resume after network change                | partial                                       | partial (20 s Wi-Fi drop ends the session; no auto-resume, 19 Nov)      | M0 notes, 19 Nov             |
+| File send device to viewer                 | partial                                       | done (1 MiB, hash match, 19 Nov); resume untested                       | M0 notes, 19 Nov             |
+| File send viewer to device                 | partial (download)                            | done (3 MiB, hash match, 19 Nov); resume untested                       | M0 notes, 19 Nov             |
+| Clipboard device to viewer                 | done (Windows), done (Pixel)                  | done                                                                    | —                            |
+| Clipboard viewer to device                 | missing (ADR 0021 forbids; approved decision) | missing                                                                 | needs ADR change             |
+| Multi-monitor selection                    | partial                                       | n/a                                                                     | —                            |
+| Audio output                               | missing                                       | missing                                                                 | —                            |
+| Microphone input                           | missing (approved decision)                   | missing                                                                 | needs hardware               |
+| USB forwarding                             | missing (approved decision)                   | missing                                                                 | needs hardware               |
+| Printing redirection                       | partial (code, not tested)                    | n/a                                                                     | —                            |
+| Wake-on-LAN and boot-to-online             | missing                                       | missing                                                                 | competitor parity            |
+| Sign-in screen control                     | source only                                   | n/a                                                                     | needs hardware               |
+| Session recording with consent             | missing                                       | missing                                                                 | competitor parity            |
+| Chat during a session                      | partial (handoff baseline)                    | partial                                                                 | not tested on devices        |
+| Session policy per device and per portal   | partial (per device)                          | partial (per device)                                                    | —                            |
+| Elevation to protected windows and UAC     | missing                                       | n/a                                                                     | competitor parity            |
+| Independent sessions and RemoteApp         | missing                                       | n/a                                                                     | needs Windows Pro or Server  |
 
 ## 4. Milestones
 
@@ -107,7 +108,7 @@ product requires.
   next run with the phone untouched. Not yet covered: reboot, accessibility loss, lock, expiry.
 - Pixel accessibility loss (19 Nov, 17:55, run with the same harness): while a control session was
   live, Beacon's accessibility service was removed with `settings put secure
-  enabled_accessibility_services ''`. The session ended within about 5 s, unattended access was
+enabled_accessibility_services ''`. The session ended within about 5 s, unattended access was
   switched off, and the app showed "Unattended access is off. Accessibility permission was
   removed." with an Enable accessibility button. Passed. The service was then restored and
   unattended access re-enabled by the agent.
@@ -293,13 +294,13 @@ Exit gate: measured latency, frame rate and reconnect time against a published t
 
 ## 5. Blockers and how this roadmap handles them
 
-| Blocker | Why | Handling |
-| --- | --- | --- |
-| Surfiena local click per approval | Product consent model | Trusted access turned on once by the owner (M0). Attended tests keep the click. |
-| Input test box does not show | Launcher runs hidden and non-interactive | Fix the launcher in M0. Log startup. |
-| One-hour acceptance backend | Runbook safety limit | Owner decision (section 6). |
-| RDP and VNC comparison needs Windows Pro | No such machine | Hardware. Comparison rules in section 7. |
-| Remote typing target | Settings search row is not editable | Debug-only text field app (owner approval, section 6). |
+| Blocker                                  | Why                                      | Handling                                                                        |
+| ---------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------- |
+| Surfiena local click per approval        | Product consent model                    | Trusted access turned on once by the owner (M0). Attended tests keep the click. |
+| Input test box does not show             | Launcher runs hidden and non-interactive | Fix the launcher in M0. Log startup.                                            |
+| One-hour acceptance backend              | Runbook safety limit                     | Owner decision (section 6).                                                     |
+| RDP and VNC comparison needs Windows Pro | No such machine                          | Hardware. Comparison rules in section 7.                                        |
+| Remote typing target                     | Settings search row is not editable      | Debug-only text field app (owner approval, section 6).                          |
 
 ## 6. Owner decisions
 
@@ -314,6 +315,7 @@ Exit gate: measured latency, frame rate and reconnect time against a published t
 ## 7. Comparison rules
 
 Beacon may state "better than" for a named task only when:
+
 - the same two machines, network and task list are used for each product;
 - at least five runs per product, with median and spread;
 - raw numbers and build versions are published with the claim.
