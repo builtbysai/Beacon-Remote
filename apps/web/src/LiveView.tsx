@@ -249,6 +249,29 @@ export function LiveView({
     { from: "you" | "phone"; text: string }[]
   >([]);
   const [chatDraft, setChatDraft] = useState("");
+  // The phone's PIN screen cannot be captured, so this pad stands in for it. Nothing typed here is kept.
+  const [padOpen, setPadOpen] = useState(false);
+  const [padNote, setPadNote] = useState("");
+  useEffect(() => {
+    const target = video.current;
+    if (!target) return;
+    const onUnlock = (event: Event) => {
+      const state = String((event as CustomEvent).detail);
+      setPadNote(
+        state === "ok"
+          ? ""
+          : state === "not-locked"
+            ? "The phone is not locked."
+            : state === "off"
+              ? "Unlock from the viewer is turned off on the phone."
+              : state === "no-pad"
+                ? "The phone's keypad did not appear. Try again."
+                : "That key could not be pressed.",
+      );
+    };
+    target.addEventListener("beacon-unlock", onUnlock);
+    return () => target.removeEventListener("beacon-unlock", onUnlock);
+  }, [transportAttempt]);
   useEffect(() => {
     const target = video.current;
     if (!target) return;
@@ -1336,6 +1359,55 @@ export function LiveView({
             >
               Send clipboard to phone
             </button>
+          )}
+          {controlReady && phoneHost && (
+            <button
+              className="viewer-control"
+              aria-expanded={padOpen}
+              title="Type the phone's passcode here. It is sent to the phone and not saved."
+              onClick={() => setPadOpen((open) => !open)}
+            >
+              Unlock phone
+            </button>
+          )}
+          {controlReady && phoneHost && padOpen && (
+            <div
+              className="viewer-unlock"
+              role="group"
+              aria-label="Passcode pad"
+            >
+              {[
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9",
+                "delete",
+                "0",
+                "enter",
+              ].map((key) => (
+                <button
+                  key={key}
+                  className="viewer-control"
+                  type="button"
+                  onClick={() =>
+                    video.current?.dispatchEvent(
+                      new CustomEvent("beacon-unlock-key", { detail: key }),
+                    )
+                  }
+                >
+                  {key === "delete" ? "⌫" : key === "enter" ? "Enter" : key}
+                </button>
+              ))}
+              <p className="note" role="status">
+                {padNote ||
+                  "Your passcode is sent to the phone as you press. It is not saved."}
+              </p>
+            </div>
           )}
           {controlReady && phoneHost && (
             <form

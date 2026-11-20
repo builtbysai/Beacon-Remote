@@ -38,6 +38,8 @@ class RemoteControl(
     private var capsLock = false
     private var modified = false
     private var open = false
+    // Passcode keys are pressed one at a time on their own thread, because finding the PIN screen can take a moment.
+    private val lockKeys = java.util.concurrent.Executors.newSingleThreadExecutor()
     // Clipboard sharing (ADR 0021 as amended): text only, gated by the phone's own setting, never rich formats yet.
     private val clipboardParts = StringBuilder()
     private var stopClipboardListener: (() -> Unit)? = null
@@ -161,6 +163,7 @@ class RemoteControl(
         open = false
         release()
         Chat.send = null
+        runCatching { lockKeys.shutdownNow() }
         runCatching { stopClipboardListener?.invoke() }
         stopClipboardListener = null
         runCatching { channel.unregisterObserver() }
@@ -239,6 +242,13 @@ class RemoteControl(
             }
             // A viewer that knows about the clipboard says so; older viewers never hear about it.
             "clipboard_hello" -> announceClipboard()
+            "unlock_key" -> {
+                val key = input.getString("key")
+                if (key.length == 1 && key[0] in '0'..'9' || key == "delete" || key == "enter") {
+                    // Nothing here logs or keeps the key. Only the outcome goes back, so the viewer can say what happened.
+                    runCatching { lockKeys.execute { sendJson(JSONObject().put("type", "unlock").put("state", runCatching { service.pressLockKey(key) }.getOrDefault("error"))) } }
+                }
+            }
             "chat" -> {
                 val text = input.getString("text").trim().take(Chat.MAX_CHARS)
                 if (text.isNotEmpty()) {

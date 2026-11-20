@@ -406,3 +406,24 @@ test("chat lines go to the phone and the phone's replies reach the page", (t) =>
   f.message({ type: "chat", text: "x".repeat(301) });
   assert.equal(f.failures(), 1);
 });
+
+test("only digits, Delete and Enter are sent as passcode keys, and the phone's answer reaches the page", (t) => {
+  const f = channelFixture(t);
+  const states: string[] = [];
+  f.video.addEventListener("beacon-unlock", (event) =>
+    states.push(String((event as CustomEvent).detail)),
+  );
+  for (const key of ["7", "delete", "enter", "12", "a", "", "<b>"])
+    f.video.dispatchEvent(
+      new CustomEvent("beacon-unlock-key", { detail: key }),
+    );
+  assert.deepEqual(
+    f.sent
+      .filter((body) => body.input.type === "unlock_key")
+      .map((body) => body.input.key),
+    ["7", "delete", "enter"],
+  );
+  f.message({ type: "unlock", state: "no-pad" });
+  assert.deepEqual(states, ["no-pad"]);
+  assert.equal(f.failures(), 0);
+});

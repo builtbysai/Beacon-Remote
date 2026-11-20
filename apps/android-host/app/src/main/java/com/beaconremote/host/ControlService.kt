@@ -90,6 +90,39 @@ class ControlService : AccessibilityService() {
         return { manager.removePrimaryClipChangedListener(listener) }
     }
 
+    /**
+     * Presses one key on the phone's PIN screen for a viewer whose person is typing the passcode in the viewer. The
+     * screen itself cannot be captured (Android marks it secure), so the viewer shows its own number pad and the key is
+     * pressed here through the accessibility tree. Nothing about the key is stored or logged. Only digits, Delete and
+     * Enter are accepted, only while the owner has turned on "Unlock from the viewer", and only while the phone is locked.
+     */
+    fun pressLockKey(key: String): String {
+        if (!Identity(this).unlockFromViewer) return "off"
+        if (!getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked) return "not-locked"
+        fun pad(): AccessibilityNodeInfo? =
+            rootInActiveWindow?.takeIf { it.packageName == "com.android.systemui" && it.findAccessibilityNodeInfosByViewId(PIN_PAD).isNotEmpty() }
+        var root = pad()
+        if (root == null) {
+            // The PIN screen appears after swiping up on the lock screen.
+            val metrics = resources.displayMetrics
+            stroke(listOf(metrics.widthPixels / 2 to (metrics.heightPixels * 0.78).toInt(), metrics.widthPixels / 2 to (metrics.heightPixels * 0.25).toInt()), 300)
+            for (attempt in 1..8) {
+                Thread.sleep(400)
+                root = pad()
+                if (root != null) break
+            }
+        }
+        val screen = root ?: return "no-pad"
+        val target: AccessibilityNodeInfo? = when (key) {
+            "delete" -> screen.findAccessibilityNodeInfosByViewId("com.android.systemui:id/delete_button").firstOrNull()
+            "enter" -> screen.findAccessibilityNodeInfosByViewId("com.android.systemui:id/key_enter").firstOrNull()
+            else -> screen.findAccessibilityNodeInfosByText(key).firstOrNull { it.text?.toString() == key }
+        }
+        var node = target
+        while (node != null && !node.isClickable) node = node.parent
+        return if (node != null && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) "ok" else "no-key"
+    }
+
     /** Deletes the last character of the focused text field. */
     fun backspace(): Boolean = edit { current -> if (current.isEmpty()) current else current.substring(0, current.offsetByCodePoints(current.length, -1)) }
 
@@ -136,6 +169,7 @@ class ControlService : AccessibilityService() {
     }
 
     companion object {
+        private const val PIN_PAD = "com.android.systemui:id/pin_pad_grid"
         @Volatile var instance: ControlService? = null
 
         /** Whether the person has turned this service on in Settings. */

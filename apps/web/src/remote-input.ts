@@ -755,6 +755,22 @@ export function attachRemoteInput(
           reply !== null &&
           typeof reply === "object" &&
           "type" in reply &&
+          reply.type === "unlock"
+        ) {
+          const state = (reply as { state?: unknown }).state;
+          if (typeof state !== "string" || state.length > 16) {
+            onFailure();
+            return;
+          }
+          element.dispatchEvent(
+            new CustomEvent("beacon-unlock", { detail: state }),
+          );
+          return;
+        }
+        if (
+          reply !== null &&
+          typeof reply === "object" &&
+          "type" in reply &&
           reply.type === "chat"
         ) {
           const text = (reply as { text?: unknown }).text;
@@ -885,6 +901,14 @@ export function attachRemoteInput(
     if (text && display && !signIn) send({ type: "chat", text });
   };
   element.addEventListener("beacon-chat-send", sendChat);
+  // The phone's PIN screen cannot be captured, so the viewer's own number pad sends one key at a time. Keys go
+  // straight to the phone: not kept, not logged, not put in any field.
+  const sendLockKey = (event: Event) => {
+    const key = String((event as CustomEvent).detail ?? "");
+    if (display && !signIn && /^([0-9]|delete|enter)$/.test(key))
+      send({ type: "unlock_key", key });
+  };
+  element.addEventListener("beacon-unlock-key", sendLockKey);
   window.addEventListener("blur", release);
   document.addEventListener("visibilitychange", visibility);
   const heartbeat = setInterval(() => send({ type: "keep_alive" }), 400);
@@ -924,6 +948,8 @@ export function attachRemoteInput(
       pushClipboardByButton,
     );
     window.removeEventListener("focus", pushClipboardOnFocus);
+    element.removeEventListener("beacon-chat-send", sendChat);
+    element.removeEventListener("beacon-unlock-key", sendLockKey);
     if (awaitingClipboard) clearTimeout(awaitingClipboard);
     sink?.remove();
     sink = null;
