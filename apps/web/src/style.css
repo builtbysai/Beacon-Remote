@@ -2619,3 +2619,21 @@ button.danger {
   font-size: 12px;
   line-height: 1.35;
 }
+
+/* The phone's passcode pad: a compact phone-style grid, shown only on request. */
+.viewer-unlock {
+  display: grid;
+  grid-template-columns: repeat(3, 3.4rem);
+  gap: 0.4rem;
+  align-items: stretch;
+}
+.viewer-unlock .viewer-control {
+  min-height: 2.8rem;
+  font-size: 1.1rem;
+}
+.viewer-unlock .note {
+  grid-column: 1 / -1;
+  margin: 0.2rem 0 0;
+  max-width: 11.5rem;
+  white-space: normal;
+}
