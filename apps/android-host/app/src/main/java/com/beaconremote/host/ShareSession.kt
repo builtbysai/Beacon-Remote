@@ -448,7 +448,12 @@ class ShareSession(
         }
         val peerFactory = builder.createPeerConnectionFactory().also { factory = it }
         if (shareSound) {
-            soundSource = peerFactory.createAudioSource(MediaConstraints())
+            // What the phone plays is not speech: no echo cancelling, noise suppression, gain or high-pass filtering.
+            val raw = MediaConstraints().apply {
+                for (name in listOf("googEchoCancellation", "googAutoGainControl", "googNoiseSuppression", "googHighpassFilter", "googTypingNoiseDetection"))
+                    mandatory.add(MediaConstraints.KeyValuePair(name, "false"))
+            }
+            soundSource = peerFactory.createAudioSource(raw)
             soundTrack = peerFactory.createAudioTrack("beacon-sound", soundSource).also { it.setEnabled(false) }
         }
         val videoSource = peerFactory.createVideoSource(true).also { source = it }
