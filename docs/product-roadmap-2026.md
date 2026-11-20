@@ -375,3 +375,6 @@ Until then the claim is "measured" or "different by design", never "better".
   (page focus triggered it). Off disabled the viewer's send button and the phone logged no clipboard writes.
   Phone-to-viewer automatic copy was not exercised (the phone's clipboard could not be changed from this setup).
   Rich formats (images, HTML) and the ADR 0021 wording change are still open.
+
+- ADR 0053 (device clipboard sharing) records the Off / Button only / Automatic decision, the text limits and the
+  hello handshake. Windows keeps ADR 0021 behavior until it gets the same setting. Rich formats remain open.
