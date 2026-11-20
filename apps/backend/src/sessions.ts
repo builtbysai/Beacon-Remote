@@ -90,6 +90,24 @@ export function viewerAttachGraceOpen(createdAt: number, now: number) {
 // Capture and input stay stopped while it is detached (docs/host-reconnect-design.md).
 const HOST_RECONNECT_MS = 120_000;
 // True while a detached host is still inside its re-attach window.
+// A dead network sends no close. For a resumable, policy-approved (unattended) session, a host that has gone quiet
+// is treated as detached and given the re-attach window; any other session ends as before.
+export function silentHostShouldDetach(
+  state: {
+    machineDetachedUntil: number | undefined;
+    machineRenewedAt: number | undefined;
+    resumable: boolean | undefined;
+    approval: string;
+  },
+  now: number,
+) {
+  return (
+    state.machineDetachedUntil === undefined &&
+    state.resumable === true &&
+    state.approval === "policy" &&
+    machineSilent(state.machineRenewedAt, now)
+  );
+}
 export function hostReconnectOpen(
   detachedUntil: number | undefined,
   now: number,
@@ -1267,10 +1285,15 @@ export async function registerSessions(
             if (viewer && viewer.readyState !== 1 && live.resumable)
               detachViewer(live, viewer);
             if (
-              live.machineDetachedUntil === undefined &&
-              live.resumable === true &&
-              session.approval === "policy" &&
-              machineSilent(live.machineRenewedAt, performance.now())
+              silentHostShouldDetach(
+                {
+                  machineDetachedUntil: live.machineDetachedUntil,
+                  machineRenewedAt: live.machineRenewedAt,
+                  resumable: live.resumable,
+                  approval: session.approval,
+                },
+                performance.now(),
+              )
             ) {
               // A dead network sends no close. Silence from an unattended host is a detach, not an end:
               // the phone may re-attach within the host window; nothing is captured meanwhile.
