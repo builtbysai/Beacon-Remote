@@ -268,7 +268,12 @@ class ShareSession(
 
                     override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                         Log.w(TAG, "Signaling failed", t)
-                        post { if (webSocket === socket) connectionLost() }
+                        // The server answering "no" (stopped, revoked, expired) is final; only silence is waited out.
+                        val refused = response?.code in listOf(401, 403, 404, 410)
+                        post {
+                            if (webSocket !== socket) return@post
+                            if (refused && reconnectDeadline != 0L) end("The session is over") else connectionLost()
+                        }
                     }
                 },
             )
