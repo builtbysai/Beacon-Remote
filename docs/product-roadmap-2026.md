@@ -415,3 +415,8 @@ Until then the claim is "measured" or "different by design", never "better".
 - Surfiena (20 Nov, ~13:10 local): SSH to `beacon-surfiena` (100.97.59.85) timed out, so the laptop is asleep, off or
   off the network. No Windows work was possible; the owner step (trusted access on the Beacon host window) is still
   pending as well.
+
+- Update keeps unattended access (20 Nov, Pixel): build `d61e61dc` was installed over the previous build while the
+  phone was locked; afterwards an unattended session connected with no re-enable step and the viewer's passcode pad
+  opened. This confirms the fix that clears unattended access only when Android no longer lists the accessibility
+  service. The passcode itself (entered by the owner on the pad) is still the one untested step of remote unlock.
