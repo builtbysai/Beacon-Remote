@@ -193,7 +193,8 @@ class ControlService : AccessibilityService() {
             }
             for (index in 0 until node.childCount) collect(node.getChild(index), depth + 1)
         }
-        collect(root, 0)
+        // Only the credential area itself: the clock, status line and shortcuts around it are not part of the PIN screen.
+        collect(walkTree(root, 0) { it.viewIdResourceName?.endsWith("BouncerContent") == true } ?: root, 0)
         return out.put("state", "pad").put("nodes", nodes)
     }
 
