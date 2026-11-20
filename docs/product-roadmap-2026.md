@@ -525,3 +525,9 @@ Each item is built and pushed; the test needs a step only the owner can do. Pick
   viewer to the phone came back to the browser clipboard as image/png (427 bytes). The read worked without needing the
   invisible screen to be proven separately. Still untested: a copied file (arrives as a download), the locked-phone case on
   this build (known to answer "unavailable"), and a real recording with the new player.
+
+- Recording with the new player and the permissions log, Pixel (20 Nov, 14:11 local): after "Allow recording" was
+  tapped on the phone (the owner's consent, tapped by the agent on the test phone), the viewer recorded 3 s and saved
+  a .webm; "Play last recording" appeared in the toolbar and the permissions log read "Recording: allowed on the
+  device" with its time. The player itself (pressing the button and watching the clip) was not exercised. Android's
+  microphone indicator was showing because the microphone switch is on.
