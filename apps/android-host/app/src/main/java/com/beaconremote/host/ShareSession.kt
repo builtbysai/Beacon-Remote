@@ -83,6 +83,7 @@ class ShareSession(
     @Volatile private var reconnectDeadline = 0L
     private var lastReconnectAttempt = 0L
     private var connectedOnce = false
+    @Volatile private var iceOverride: org.json.JSONArray? = null
     private var ticker: ScheduledFuture<*>? = null
 
     private var egl: EglBase? = null
@@ -333,7 +334,11 @@ class ShareSession(
     private fun handle(message: JSONObject) {
         if (ended) return
         when (message.optString("type")) {
-            "joined" -> permissionsVersion = message.optInt("permissionsVersion")
+            "joined" -> {
+                permissionsVersion = message.optInt("permissionsVersion")
+                // After a re-attach the server hands out a fresh relay user; the old allocation may still be held.
+                message.optJSONArray("iceServers")?.let { iceOverride = it }
+            }
             "permission-prompt" -> {
                 if (permissionsVersion != 1) return
                 val scope = LivePermission.entries.firstOrNull { it.wire == message.optString("scope") } ?: return
@@ -463,9 +468,10 @@ class ShareSession(
     private fun openPeer() {
         closePeer()
         val peerFactory = factory ?: return
+        val iceList = iceOverride ?: grant.iceServers
         val servers =
-            (0 until grant.iceServers.length()).map { index ->
-                val entry = grant.iceServers.getJSONObject(index)
+            (0 until iceList.length()).map { index ->
+                val entry = iceList.getJSONObject(index)
                 // The server sends one URL as a string and several as an array.
                 val urls = entry.optJSONArray("urls")?.let { list -> (0 until list.length()).map { list.getString(it) } }
                     ?: listOf(entry.getString("urls"))

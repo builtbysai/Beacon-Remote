@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import websocket from "@fastify/websocket";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Pool, PoolClient } from "pg";
@@ -306,12 +306,13 @@ export async function registerSessions(
     { urls: [config.STUN_URL ?? "stun:129.213.128.206:3478"] },
   ];
   const iceTransportPolicy = config.ICE_TRANSPORT_POLICY ?? "all";
-  function sessionIce(session: Session) {
+  function sessionIce(session: Session, variant?: string) {
     if (!config.TURN_URLS || !config.TURN_SECRET) return iceServers;
     const relay = relayCredentials(
       config,
       session.id,
       relayExpiry(session.expires_at ?? new Date(0)),
+      variant,
     );
     return [
       ...iceServers,
@@ -1092,7 +1093,7 @@ export async function registerSessions(
       capability: session.capability,
       expiresAtMillis: expiryMillis(),
       reconnectSeconds: reconnectSeconds(session),
-      iceServers: sessionIce(session),
+      iceServers: sessionIce(session, randomBytes(4).toString("hex")),
       iceTransportPolicy,
     };
   });
@@ -1619,6 +1620,10 @@ export async function registerSessions(
         capability: session.capability,
         generation: live.generation,
         permissionsVersion: 1,
+        // A re-attached host gets its own relay user; its old allocation may still be held.
+        ...(hostResuming
+          ? { iceServers: sessionIce(session, randomBytes(4).toString("hex")) }
+          : {}),
       });
       if (resuming) {
         send(socket, { type: "consent", accepted: true, resumable: true });
