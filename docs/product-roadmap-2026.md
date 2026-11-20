@@ -449,3 +449,15 @@ Until then the claim is "measured" or "different by design", never "better".
   "... - Microphone is on" and the service runs with the microphone type. Not yet tested: Pause and Stop ending it,
   Android 14+ behaviour when started from the background on other phones, and a mix with phone sound in an attended
   share.
+
+- PIN screen stand-in (20 Nov): Android hides the PIN screen's picture from every capture, so the phone sends its
+  layout (captions and positions of the credential area only, about once a second while the viewer's "Unlock phone"
+  panel is open) and the viewer draws it: "Enter PIN", the entry area, the keypad, Delete, Enter and Emergency. Its keys
+  press the real keys through the phone's accessibility tree, and the phone swipes up once to bring the PIN screen up
+  if it is not showing. Pixel: the stand-in drew the keypad in its real positions on the locked phone. It cannot show
+  how many digits were entered (Android does not expose that), and it is not the real picture. Pattern and password
+  locks need their own pads (not built).
+- Image clipboard, Pixel (20 Nov): a PNG copied in the browser reached the phone (427 bytes, written through the app's
+  file provider). The return trip failed while the phone was locked: Android lets only the focused app or the keyboard
+  read the clipboard, so the phone answers "unavailable" on a locked screen. The phone-to-viewer direction needs an
+  unlocked phone and is untested.
