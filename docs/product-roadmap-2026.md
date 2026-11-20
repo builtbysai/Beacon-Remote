@@ -329,3 +329,21 @@ Until then the claim is "measured" or "different by design", never "better".
 - Development checkpoints are committed and pushed to the feature branch. Deployment to a
   shared server is a separate, explicit step.
 - Destructive actions on devices (wiping accounts, reinstalling) need an owner request.
+
+## Pixel results, 19 November (late): auto-resume and clipboard
+
+- Host re-attach window raised from 20 s to 2 minutes (server `HOST_RECONNECT_MS`, phone `RECONNECT_WINDOW`),
+  because Wi-Fi reassociation on the Pixel takes 10-15 s after a drop.
+- Two causes of a lost session during a 15 s drop were fixed: the server ended a resumable unattended session
+  when a dead network sent no close (it now detaches the host instead), and the browser viewer forgot it was
+  resumable while the phone was away and stopped the session when the phone returned.
+- Pixel, isolated acceptance backend (`447c615`), Wi-Fi off then on, same session, no click: 8 s drop resumed with
+  video, 15 s drop resumed with video, 40 s drop resumed with video. Still to test: a drop longer than the window
+  ends the session, Stop during a drop, lock during a drop, accessibility removed during a drop.
+- The relay (`total-quota=20`, `user-quota=4`) holds allocations for about 10 minutes, so many quick tests in a
+  row produce TURN error 486 and no video. That is the test environment, not the resume code. Space tests out.
+- Clipboard, text, both directions: phone setting Off / Button only (default) / Automatic in the Beacon app;
+  viewer shows "Copy from phone" and "Send clipboard to phone". The phone announces its setting only after the
+  viewer sends `clipboard_hello`, so older viewers keep working. Pixel, Button only: text sent from the viewer
+  landed on the phone clipboard and read back identical (25 characters). Automatic and Off, rich formats and the
+  ADR 0021 wording change are not done or not device-tested yet.
