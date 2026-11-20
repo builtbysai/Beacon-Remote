@@ -71,7 +71,7 @@ with known gaps. **missing** means not built. Hardware items need a device.
 | Printing redirection                       | partial (code, not tested)                    | n/a                                                                                                        | —                            |
 | Wake-on-LAN and boot-to-online             | missing                                       | missing                                                                                                    | competitor parity            |
 | Sign-in screen control                     | source only                                   | n/a                                                                                                        | needs hardware               |
-| Session recording with consent             | missing                                       | missing                                                                                                    | competitor parity            |
+| Session recording with consent             | missing                                       | done (owner allows on the phone; recorded in the viewer's browser, 19 Nov)                                 | Pixel run                    |
 | Chat during a session                      | partial (handoff baseline)                    | done (viewer message arrives as a notification, reply from the notification returns to the viewer, 19 Nov) | Pixel run                    |
 | Session policy per device and per portal   | partial (per device)                          | partial (per device)                                                                                       | —                            |
 | Elevation to protected windows and UAC     | missing                                       | n/a                                                                                                        | competitor parity            |
@@ -378,3 +378,9 @@ Until then the claim is "measured" or "different by design", never "better".
 
 - ADR 0053 (device clipboard sharing) records the Off / Button only / Automatic decision, the text limits and the
   hello handshake. Windows keeps ADR 0021 behavior until it gets the same setting. Rich formats remain open.
+
+- Recording with consent on the phone (19 Nov): the viewer's "recording" request now reaches the phone as "Allow this
+  viewer to record your screen?" with Decline and Allow recording. After Allow, the viewer's Record button appears,
+  shows "Recording" with a clock, and saves a .webm in the viewer's browser; nothing is stored on the phone, and the
+  permission ends with the connection. Pixel run: request, allow, 4 s recording and saved file all worked.
+  Playback inside Beacon and recording of audio are not built.
