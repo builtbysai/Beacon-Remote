@@ -64,7 +64,8 @@ class FileReceiver(
     fun publishReady() {
         post {
             if (channel.state() == DataChannel.State.OPEN && (permitted() || recording()))
-                send(JSONObject().put("t", "ready").put("maxFile", MAX_FILE).put("chunk", MAX_CHUNK).put("files", permitted()).put("recording", recording()))
+                send(JSONObject().put("t", "ready").put("maxFile", MAX_FILE).put("chunk", MAX_CHUNK).put("files", permitted()).put("recording", recording())
+                    .put("downloadTransferId", pendingTransferId ?: JSONObject.NULL))
         }
     }
 
@@ -136,15 +137,24 @@ class FileReceiver(
             "end" -> finish(id, body.optString("sha256"))
             "cancel" -> {
                 if (current?.id == id) discard()
-                if (sending != null) finishOutgoing("The viewer cancelled ${sending.name}")
+                if (sending != null) {
+                    pendingTransferId = null
+                    finishOutgoing("The viewer cancelled ${sending.name}")
+                }
             }
             "accept" -> if (sending != null) {
                 // A viewer that kept part of this file asks to carry on from there, with the hash of what it holds.
                 val resume = body.optJSONObject("resume")
                 stream(sending, resume?.optLong("offset", 0)?.takeIf { it > 0 }, resume?.optString("sha256"))
             }
-            "reject" -> if (sending != null) finishOutgoing("The viewer did not take ${sending.name}")
-            "done" -> if (sending != null) finishOutgoing("Sent ${sending.name}")
+            "reject" -> if (sending != null) {
+                pendingTransferId = null
+                finishOutgoing("The viewer did not take ${sending.name}")
+            }
+            "done" -> if (sending != null) {
+                pendingTransferId = null
+                finishOutgoing("Sent ${sending.name}")
+            }
             "failed" -> if (sending != null) finishOutgoing("${sending.name} did not arrive intact")
         }
     }
@@ -165,7 +175,10 @@ class FileReceiver(
         nextOutgoingId += 2
         outgoing = Outgoing(id, uri, info.name, info.size)
         HostState.status = "Offered ${info.name} to the viewer"
-        send(JSONObject().put("t", "send").put("id", id).put("name", info.name).put("size", info.size))
+        // The same file offered again gets the same id, so a viewer holding part of it can carry on.
+        val transferId = MessageDigest.getInstance("SHA-256").digest("$uri|${info.size}".toByteArray()).take(16).joinToString("") { "%02x".format(it) }
+        pendingTransferId = transferId
+        send(JSONObject().put("t", "send").put("id", id).put("name", info.name).put("size", info.size).put("transferId", transferId))
         onResult("")
     }
 
@@ -332,6 +345,12 @@ class FileReceiver(
     }
 
     companion object {
+        /**
+         * The transfer the phone last offered and has not finished or been refused. It outlives a lost connection so the
+         * viewer can tell, after reconnecting, that the file it holds part of is the one still on offer (resume).
+         */
+        @Volatile private var pendingTransferId: String? = null
+
         private const val TAG = "BeaconHost"
         const val MAX_FILE = 2L * 1024 * 1024 * 1024
         const val MAX_SESSION = 4L * 1024 * 1024 * 1024
