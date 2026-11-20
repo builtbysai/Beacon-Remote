@@ -411,3 +411,7 @@ Until then the claim is "measured" or "different by design", never "better".
   screen, which was brought up by one swipe). The passcode itself is entered by the owner on the pad; that last step
   is pending the owner's run. The pad is laid out as a 3x4 grid. Clean build `d61e61dc` (diagnostic removed) is
   built but not yet installed, to avoid ending the owner's open test session.
+
+- Surfiena (20 Nov, ~13:10 local): SSH to `beacon-surfiena` (100.97.59.85) timed out, so the laptop is asleep, off or
+  off the network. No Windows work was possible; the owner step (trusted access on the Beacon host window) is still
+  pending as well.
