@@ -485,3 +485,11 @@ Until then the claim is "measured" or "different by design", never "better".
   the clipboard there (text, formatted text, image up to 1.5 MB) and closes it. Only on an unlocked phone; if Android
   blocks the launch, the phone answers "unavailable" as before. Build `28118b39`. It needs an unlocked Pixel to test
   (the owner's unlock), including with another app in front. Copied files are still not built.
+
+- Copied files from the phone (20 Nov, built, not installed or tested): when the phone's clipboard holds a file that is
+  not an image, the phone offers it through the existing files channel and the viewer saves it as a download ("The
+  phone offered the copied file. Use Save to keep it."); a browser cannot put a file on the system clipboard, so this
+  is the closest equivalent. It follows the same Android rule as other clipboard reads (unlocked phone, brief
+  invisible screen). Build `821085fe`; both this and the invisible screen need an unlocked Pixel to test. Files copied
+  in the browser to the phone are not possible (a browser cannot read files from the clipboard); the viewer's Send file
+  button remains the way to send files.
