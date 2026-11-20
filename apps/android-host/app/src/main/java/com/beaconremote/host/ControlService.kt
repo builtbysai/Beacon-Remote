@@ -29,6 +29,9 @@ class ControlService : AccessibilityService() {
     override fun onUnbind(intent: android.content.Intent?): Boolean {
         android.util.Log.w("BeaconHost", "Accessibility service unbound (sharing=${HostState.sharing})")
         if (instance === this) instance = null
+        // An app update or a restart unbinds the service too, but then Android still lists it as enabled and it
+        // comes back by itself. Only a permission that is really gone turns unattended access off.
+        if (enabled(this)) return super.onUnbind(intent)
         val identity = Identity(this)
         identity.unattended = false
         AccessIntents.notice = identity.accessBinding() to "Unattended access is off. Accessibility permission was removed."
