@@ -420,3 +420,9 @@ Until then the claim is "measured" or "different by design", never "better".
   phone was locked; afterwards an unattended session connected with no re-enable step and the viewer's passcode pad
   opened. This confirms the fix that clears unattended access only when Android no longer lists the accessibility
   service. The passcode itself (entered by the owner on the pad) is still the one untested step of remote unlock.
+
+- Formatted (HTML) clipboard text, Pixel (20 Nov): the viewer sends the browser clipboard's HTML (up to 6,000
+  characters, in pieces) before the plain text; the phone sets a formatted clip, and its formatted reply is written to
+  the browser as formatted text beside the plain text. Round trip: `<b>rich-test-text</b>` went to the phone and came
+  back as `text/html=<b>rich-test-text</b>` with `text/plain=rich-test-text`. Images and files are still not shared;
+  they need their own decision. The phone must be in Button only or Automatic, as for plain text.

@@ -11,7 +11,7 @@ both directions, and who decides.
 - Off: the device never reads or writes its clipboard for a viewer, and tells the viewer so.
 - Button only: text moves only when the viewer presses "Copy from phone" or "Send clipboard to phone".
 - Automatic: while a viewer is connected, copied text moves both ways without a press. It stops when the session ends.
-- Text only for now, at most 8,000 characters to the device and 32,768 from it. Rich formats (images, HTML, files)
+- Text, plus formatted (HTML) text of at most 6,000 characters carried beside it, for now, at most 8,000 characters to the device and 32,768 from it. Images and files
   are not shared and need their own record.
 - The device announces its mode only to a viewer that says hello first, so older viewers and hosts keep working.
 - Unattended and attended sessions follow the same setting. Visible sharing, Stop and Pause are unchanged.
