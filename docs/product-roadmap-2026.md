@@ -198,6 +198,21 @@ product requires.
   session when the host socket closes. The viewer already reconnects, so auto-resume needs host-side
   changes on both Android and the backend. Design written in [host-reconnect-design.md](host-reconnect-design.md);
   awaiting owner approval and two answers (window length; attended sessions).
+- Auto-resume build log (19 Nov, 19:00 to 20:45): the phone now waits 20 s after a lost connection, retries every
+  2 s and re-attaches (log: "Connection lost; waiting", then "Reconnected after a short network loss", about 10 s after
+  an 8 s Wi-Fi drop). Backend fixes found by testing: (1) accept the re-attach over a stale socket (a dead network sends
+  no close), (2) replace the stale socket before the slot check (first version terminated the new socket), (3) let the
+  viewer resume while the phone is re-attaching (it used to be refused, and the viewer then stopped the session),
+  (4) give each reconnect its own relay credentials (relay error 486, allocation quota, blocked the new media path).
+  Not yet proven end to end: after (4) the one gated run ended 4 s after the drop with the viewer, not the phone,
+  sending Stop (cause not found), and later connects stayed at "connecting" with no media, which looks like the relay still
+  holding allocations from the repeated drop tests (about 10 minutes each). Next: wait for the allocations to expire, rerun
+  a single 8 s drop, and capture the viewer's own status text to see why it stops. Commits up to 30ee585, pushed;
+  acceptance backend runs 30ee585; Pixel runs the matching signed build.
+- Owner decisions 19 Nov (later): the Pixel is a dedicated test phone (screen lock removed by the owner); remote
+  unlock by typing the passcode in the viewer each time (never stored), subject to a feasibility test of whether Android
+  lets Beacon see and touch the lock screen; after a reboot nothing can run until a first unlock, so a no-lock phone is
+  the way to auto-reconnect after reboot; clipboard viewer to phone is Off / Button only / Auto sync, default Button only.
 - Pixel network drop (19 Nov, 17:58): Wi-Fi turned off over ADB for 20 s during a live control
   session. The session ended (it did not resume), consistent with the backend's 15 s silent-host
   rule; a new connection is needed after the network returns. Passed as a clean teardown;
