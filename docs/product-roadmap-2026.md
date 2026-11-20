@@ -469,3 +469,13 @@ Until then the claim is "measured" or "different by design", never "better".
   is stored or logged, and both need "Unlock from the viewer" on. Unit tests cover the message shapes and the
   viewer's validation. A device test needs the Pixel's lock changed to a pattern or password, which is the owner's step.
   The PIN stand-in was re-checked on the Pixel after the refactor.
+
+- Clipboard from the phone, an Android limit (20 Nov): since Android 10 only the focused app or the keyboard may read
+  the clipboard. On the locked Pixel the phone answered "unavailable" for text and for an image. It worked earlier
+  (text, formatted text) only while the Beacon app or the phone was in the foreground and unlocked. So phone-to-viewer
+  copying (text, images, files) is reliable only on an unlocked phone with Beacon in front. Options for the owner:
+  (a) accept it and say so in the viewer ("Unlock the phone to copy from it"); (b) have the service bring a
+  transparent Beacon screen to the front for a moment to read the clipboard, which needs testing on an unlocked phone
+  and may be blocked by Android's background-launch rules; (c) leave phone-to-viewer copy as best effort. Viewer-to-phone
+  copying is unaffected (the phone writes, it does not read). Copied files are not built: a browser cannot put a file on
+  the system clipboard, so a copied file would arrive as a download; this waits on the choice above.
