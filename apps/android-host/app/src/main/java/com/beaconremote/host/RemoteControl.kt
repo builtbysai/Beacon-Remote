@@ -40,6 +40,29 @@ class RemoteControl(
     private var open = false
     // Passcode keys are pressed one at a time on their own thread, because finding the PIN screen can take a moment.
     private val lockKeys = java.util.concurrent.Executors.newSingleThreadExecutor()
+    // While the viewer shows its stand-in for the PIN screen, the screen's layout is sent about once a second.
+    private var lockView: java.util.concurrent.ScheduledExecutorService? = null
+    private var lastSwipe = 0L
+
+    private fun lockScreenView(on: Boolean) {
+        lockView?.shutdownNow()
+        lockView = null
+        if (!on) return
+        lockView = java.util.concurrent.Executors.newSingleThreadScheduledExecutor().also { scheduler ->
+            scheduler.scheduleWithFixedDelay({
+                runCatching {
+                    val service = ControlService.instance ?: return@runCatching
+                    val snapshot = service.lockScreenSnapshot()
+                    if (open) sendJson(snapshot)
+                    // The PIN screen is not up yet: bring it up, but not more than once every few seconds.
+                    if (snapshot.optString("state") == "no-pad" && SystemClock.elapsedRealtime() - lastSwipe > 5000) {
+                        lastSwipe = SystemClock.elapsedRealtime()
+                        service.swipeUpToPin()
+                    }
+                }
+            }, 0, 900, java.util.concurrent.TimeUnit.MILLISECONDS)
+        }
+    }
     // Clipboard sharing (ADR 0021 as amended): text only, gated by the phone's own setting, never rich formats yet.
     private val clipboardParts = StringBuilder()
     private val clipboardHtml = StringBuilder()
@@ -185,6 +208,7 @@ class RemoteControl(
         Chat.send = null
         runCatching { ControlService.instance?.clearClipboardImages() }
         runCatching { lockKeys.shutdownNow() }
+        lockScreenView(false)
         runCatching { stopClipboardListener?.invoke() }
         stopClipboardListener = null
         runCatching { channel.unregisterObserver() }
@@ -290,6 +314,7 @@ class RemoteControl(
             }
             // A viewer that knows about the clipboard says so; older viewers never hear about it.
             "clipboard_hello" -> announceClipboard()
+            "unlock_view" -> lockScreenView(input.optBoolean("on"))
             "unlock_key" -> {
                 val key = input.getString("key")
                 if (key.length == 1 && key[0] in '0'..'9' || key == "delete" || key == "enter") {

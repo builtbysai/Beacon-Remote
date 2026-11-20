@@ -1,6 +1,7 @@
 // Browser events become bounded physical-pixel input, only on an approved channel.
 import { isModifierCode, modifierChanges } from "./modifiers.js";
 import { pasteSteps, type PasteInput } from "./paste.js";
+import { lockScreenShape } from "./lock-screen.js";
 import { TouchPad, type TouchAction, type TouchMode } from "./touch-input.js";
 import {
   signInInput,
@@ -914,6 +915,22 @@ export function attachRemoteInput(
           reply !== null &&
           typeof reply === "object" &&
           "type" in reply &&
+          reply.type === "lockscreen"
+        ) {
+          const shape = lockScreenShape(reply);
+          if (!shape) {
+            onFailure();
+            return;
+          }
+          element.dispatchEvent(
+            new CustomEvent("beacon-lockscreen", { detail: shape }),
+          );
+          return;
+        }
+        if (
+          reply !== null &&
+          typeof reply === "object" &&
+          "type" in reply &&
           reply.type === "unlock"
         ) {
           const state = (reply as { state?: unknown }).state;
@@ -1068,6 +1085,12 @@ export function attachRemoteInput(
       send({ type: "unlock_key", key });
   };
   element.addEventListener("beacon-unlock-key", sendLockKey);
+  // The viewer's stand-in for the PIN screen asks the phone to send its layout while it is open.
+  const lockScreenView = (event: Event) => {
+    if (display && !signIn)
+      send({ type: "unlock_view", on: (event as CustomEvent).detail === true });
+  };
+  element.addEventListener("beacon-unlock-view", lockScreenView);
   window.addEventListener("blur", release);
   document.addEventListener("visibilitychange", visibility);
   const heartbeat = setInterval(() => send({ type: "keep_alive" }), 400);
@@ -1109,6 +1132,7 @@ export function attachRemoteInput(
     window.removeEventListener("focus", pushClipboardOnFocus);
     element.removeEventListener("beacon-chat-send", sendChat);
     element.removeEventListener("beacon-unlock-key", sendLockKey);
+    element.removeEventListener("beacon-unlock-view", lockScreenView);
     if (awaitingClipboard) clearTimeout(awaitingClipboard);
     sink?.remove();
     sink = null;

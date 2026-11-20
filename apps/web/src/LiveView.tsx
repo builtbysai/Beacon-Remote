@@ -22,6 +22,7 @@ import {
   readFile,
   type DriveEntry,
 } from "./drive-client.js";
+import { lockKeyFor, type LockScreen } from "./lock-screen.js";
 import { PrintClient } from "./print-client.js";
 import { approvedInput, approvedInputPrefix } from "./approved-input.js";
 import {
@@ -252,6 +253,29 @@ export function LiveView({
   // The phone's PIN screen cannot be captured, so this pad stands in for it. Nothing typed here is kept.
   const [padOpen, setPadOpen] = useState(false);
   const [padNote, setPadNote] = useState("");
+  // The layout of the phone's PIN screen, sent by the phone while the pad is open, drawn as a stand-in for the picture.
+  const [lockScreen, setLockScreen] = useState<LockScreen | null>(null);
+  useEffect(() => {
+    const target = video.current;
+    if (!target) return;
+    const onLayout = (event: Event) =>
+      setLockScreen((event as CustomEvent<LockScreen>).detail);
+    target.addEventListener("beacon-lockscreen", onLayout);
+    return () => target.removeEventListener("beacon-lockscreen", onLayout);
+  }, [transportAttempt]);
+  useEffect(() => {
+    const target = video.current;
+    if (!target || !padOpen) return;
+    target.dispatchEvent(
+      new CustomEvent("beacon-unlock-view", { detail: true }),
+    );
+    return () => {
+      target.dispatchEvent(
+        new CustomEvent("beacon-unlock-view", { detail: false }),
+      );
+      setLockScreen(null);
+    };
+  }, [padOpen, transportAttempt]);
   useEffect(() => {
     const target = video.current;
     if (!target) return;
@@ -1370,45 +1394,106 @@ export function LiveView({
               Unlock phone
             </button>
           )}
-          {controlReady && phoneHost && padOpen && (
-            <div
-              className="viewer-unlock"
-              role="group"
-              aria-label="Passcode pad"
-            >
-              {[
-                "1",
-                "2",
-                "3",
-                "4",
-                "5",
-                "6",
-                "7",
-                "8",
-                "9",
-                "delete",
-                "0",
-                "enter",
-              ].map((key) => (
-                <button
-                  key={key}
-                  className="viewer-control"
-                  type="button"
-                  onClick={() =>
-                    video.current?.dispatchEvent(
-                      new CustomEvent("beacon-unlock-key", { detail: key }),
-                    )
-                  }
-                >
-                  {key === "delete" ? "⌫" : key === "enter" ? "Enter" : key}
-                </button>
-              ))}
+          {controlReady &&
+            phoneHost &&
+            padOpen &&
+            lockScreen?.state === "pad" && (
+              <div
+                className="viewer-replica"
+                role="group"
+                aria-label="Stand-in for the phone's PIN screen"
+                style={{ aspectRatio: `${lockScreen.w} / ${lockScreen.h}` }}
+              >
+                {lockScreen.nodes.map((node, index) => {
+                  const key =
+                    node.kind === "key" ? lockKeyFor(node.text) : null;
+                  const place = {
+                    left: `${(node.x / lockScreen.w) * 100}%`,
+                    top: `${(node.y / lockScreen.h) * 100}%`,
+                    width: `${(node.w / lockScreen.w) * 100}%`,
+                    height: `${(node.h / lockScreen.h) * 100}%`,
+                  };
+                  const caption = node.text === "Delete" ? "⌫" : node.text;
+                  return node.kind === "key" ? (
+                    <button
+                      key={index}
+                      type="button"
+                      className="replica-key"
+                      style={place}
+                      disabled={key === null}
+                      aria-label={node.text || "key"}
+                      onClick={() =>
+                        key &&
+                        video.current?.dispatchEvent(
+                          new CustomEvent("beacon-unlock-key", { detail: key }),
+                        )
+                      }
+                    >
+                      {caption}
+                    </button>
+                  ) : (
+                    <span key={index} className="replica-text" style={place}>
+                      {caption}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          {controlReady &&
+            phoneHost &&
+            padOpen &&
+            lockScreen !== null &&
+            lockScreen.state !== "pad" && (
               <p className="note" role="status">
-                {padNote ||
-                  "Your passcode is sent to the phone as you press. It is not saved."}
+                {lockScreen.state === "no-pad"
+                  ? "Bringing up the PIN screen on the phone…"
+                  : lockScreen.state === "not-locked"
+                    ? "The phone is not locked."
+                    : "Unlock from the viewer is turned off on the phone."}
               </p>
-            </div>
-          )}
+            )}
+          {controlReady &&
+            phoneHost &&
+            padOpen &&
+            lockScreen?.state !== "pad" && (
+              <div
+                className="viewer-unlock"
+                role="group"
+                aria-label="Passcode pad"
+              >
+                {[
+                  "1",
+                  "2",
+                  "3",
+                  "4",
+                  "5",
+                  "6",
+                  "7",
+                  "8",
+                  "9",
+                  "delete",
+                  "0",
+                  "enter",
+                ].map((key) => (
+                  <button
+                    key={key}
+                    className="viewer-control"
+                    type="button"
+                    onClick={() =>
+                      video.current?.dispatchEvent(
+                        new CustomEvent("beacon-unlock-key", { detail: key }),
+                      )
+                    }
+                  >
+                    {key === "delete" ? "⌫" : key === "enter" ? "Enter" : key}
+                  </button>
+                ))}
+                <p className="note" role="status">
+                  {padNote ||
+                    "Your passcode is sent to the phone as you press. It is not saved."}
+                </p>
+              </div>
+            )}
           {controlReady && phoneHost && (
             <form
               className="viewer-chat"

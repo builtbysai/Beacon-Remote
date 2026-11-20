@@ -145,29 +145,68 @@ class ControlService : AccessibilityService() {
      * pressed here through the accessibility tree. Nothing about the key is stored or logged. Only digits, Delete and
      * Enter are accepted, only while the owner has turned on "Unlock from the viewer", and only while the phone is locked.
      */
+    // The PIN screen is a SystemUI window; look through every window the service can see, not only the active one.
+    // The tree is walked by hand: that is what Android reliably exposes for this screen.
+    private fun walkTree(node: AccessibilityNodeInfo?, depth: Int, test: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
+        if (node == null || depth > 14) return null
+        if (test(node)) return node
+        for (index in 0 until node.childCount) walkTree(node.getChild(index), depth + 1, test)?.let { return it }
+        return null
+    }
+
+    private fun isPinPad(node: AccessibilityNodeInfo) = node.viewIdResourceName?.endsWith("pin_pad_grid") == true || node.text?.toString() == "Enter PIN"
+
+    private fun findPinRoot(): AccessibilityNodeInfo? =
+        (listOfNotNull(rootInActiveWindow) + windows.mapNotNull { it.root })
+            .firstOrNull { it.packageName?.toString() == "com.android.systemui" && walkTree(it, 0, ::isPinPad) != null }
+
+    /** One swipe up from the lock screen, which brings up the PIN screen. */
+    fun swipeUpToPin() {
+        val metrics = resources.displayMetrics
+        stroke(listOf(metrics.widthPixels / 2 to (metrics.heightPixels * 0.78).toInt(), metrics.widthPixels / 2 to (metrics.heightPixels * 0.25).toInt()), 300)
+    }
+
+    /**
+     * What the PIN screen shows, as captions and where they sit, so the viewer can draw a stand-in for the picture
+     * Android hides. Only the credential screen's own parts are listed (not notifications), and nothing about what
+     * was pressed.
+     */
+    fun lockScreenSnapshot(): org.json.JSONObject {
+        val metrics = resources.displayMetrics
+        val out = org.json.JSONObject().put("type", "lockscreen").put("w", metrics.widthPixels).put("h", metrics.heightPixels)
+        if (!Identity(this).unlockFromViewer) return out.put("state", "off")
+        if (!getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked) return out.put("state", "not-locked")
+        val root = findPinRoot() ?: return out.put("state", "no-pad")
+        val nodes = org.json.JSONArray()
+        fun collect(node: AccessibilityNodeInfo?, depth: Int) {
+            if (node == null || depth > 14 || nodes.length() >= 40) return
+            if (node.viewIdResourceName?.endsWith("notification_container") == true) return
+            val label = (node.text?.toString()?.takeIf { it.isNotBlank() } ?: node.contentDescription?.toString()).orEmpty().take(24)
+            val isKey = node.className?.toString()?.endsWith("Button") == true
+            if (label.isNotEmpty() || isKey) {
+                val bounds = android.graphics.Rect()
+                node.getBoundsInScreen(bounds)
+                if (bounds.width() > 0 && bounds.height() > 0) {
+                    nodes.put(org.json.JSONObject().put("x", bounds.left).put("y", bounds.top).put("w", bounds.width()).put("h", bounds.height())
+                        .put("text", label).put("kind", if (isKey) "key" else "text"))
+                }
+            }
+            for (index in 0 until node.childCount) collect(node.getChild(index), depth + 1)
+        }
+        collect(root, 0)
+        return out.put("state", "pad").put("nodes", nodes)
+    }
+
     fun pressLockKey(key: String): String {
         if (!Identity(this).unlockFromViewer) return "off"
         if (!getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked) return "not-locked"
-        // The PIN screen is a SystemUI window; look through every window the service can see, not only the active one.
-        // The tree is walked by hand: that is what Android reliably exposes for this screen.
-        fun walk(node: AccessibilityNodeInfo?, depth: Int, test: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
-            if (node == null || depth > 14) return null
-            if (test(node)) return node
-            for (index in 0 until node.childCount) walk(node.getChild(index), depth + 1, test)?.let { return it }
-            return null
-        }
-        fun isPad(node: AccessibilityNodeInfo) = node.viewIdResourceName?.endsWith("pin_pad_grid") == true || node.text?.toString() == "Enter PIN"
-        fun pad(): AccessibilityNodeInfo? =
-            (listOfNotNull(rootInActiveWindow) + windows.mapNotNull { it.root })
-                .firstOrNull { it.packageName?.toString() == "com.android.systemui" && walk(it, 0, ::isPad) != null }
-        var root = pad()
+        var root = findPinRoot()
         if (root == null) {
             // The PIN screen appears after swiping up on the lock screen.
-            val metrics = resources.displayMetrics
-            stroke(listOf(metrics.widthPixels / 2 to (metrics.heightPixels * 0.78).toInt(), metrics.widthPixels / 2 to (metrics.heightPixels * 0.25).toInt()), 300)
+            swipeUpToPin()
             for (attempt in 1..8) {
                 Thread.sleep(400)
-                root = pad()
+                root = findPinRoot()
                 if (root != null) break
             }
         }
@@ -176,7 +215,7 @@ class ControlService : AccessibilityService() {
             android.util.Log.i("BeaconHost", "PIN screen not found: windows=${windows.size} active=${rootInActiveWindow?.packageName}")
             return "no-pad"
         }
-        val target: AccessibilityNodeInfo? = walk(screen, 0) { node ->
+        val target: AccessibilityNodeInfo? = walkTree(screen, 0) { node ->
             when (key) {
                 "delete" -> node.contentDescription?.toString() == "Delete"
                 "enter" -> node.contentDescription?.toString() == "Enter"
