@@ -1181,9 +1181,17 @@ export async function registerSessions(
         )?.[1];
         if (!bearer)
           return reply.code(403).send({ error: "Session unavailable" });
-        const detachedHost = entries.get(session.id)?.machineDetachedUntil;
-        if (hostReconnectOpen(detachedHost, performance.now())) {
-          // A host that lost its connection mid-session re-attaches with the same bearer, once.
+        const known = entries.get(session.id);
+        // A host that lost its connection mid-session re-attaches with the same bearer. A dead
+        // network sends no close, so the server may still hold the old socket: it is replaced.
+        const mayReattach =
+          known !== undefined &&
+          !known.closed &&
+          known.resumable === true &&
+          (known.machineDetachedUntil === undefined
+            ? known.machine !== undefined
+            : hostReconnectOpen(known.machineDetachedUntil, performance.now()));
+        if (mayReattach) {
           const same = await pool.query(
             "SELECT 1 FROM view_sessions WHERE id=$1 AND token_hash=$2 AND status='active' AND approval='policy'",
             [session.id, digest(bearer)],
@@ -1287,6 +1295,18 @@ export async function registerSessions(
         return;
       }
       entry[role] = socket;
+      if (
+        role === "machine" &&
+        entry.machine &&
+        entry.resumable &&
+        session.approval === "policy"
+      ) {
+        // Re-attach while the old socket still looks open: drop it and treat it as a detach.
+        const old = entry.machine;
+        entry.machine = undefined;
+        entry.machineDetachedUntil = performance.now() + HOST_RECONNECT_MS;
+        old.terminate();
+      }
       const resuming = role === "viewer" && entry.detachedUntil !== undefined;
       const hostResuming =
         role === "machine" && entry.machineDetachedUntil !== undefined;
@@ -1576,6 +1596,8 @@ export async function registerSessions(
         ) {
           // A short transport-recovery window, bounded by original approval.
           detachViewer(live, socket);
+        } else if (role === "machine" && live.machine !== socket) {
+          // A replaced host socket closing is not the end of the session.
         } else if (hostMayReattach(live, socket)) {
           detachHost(live);
         } else if (role !== "viewer" || live.viewer === socket) {
@@ -1585,6 +1607,7 @@ export async function registerSessions(
       socket.on("error", () => {
         // The close event follows; a host that may re-attach is judged there.
         if (hostMayReattach(live, socket)) return;
+        if (role === "machine" && live.machine !== socket) return;
         void finish(session.id).catch(() => {});
       });
       send(socket, {
