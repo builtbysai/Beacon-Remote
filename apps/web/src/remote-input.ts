@@ -608,7 +608,7 @@ export function attachRemoteInput(
         onNotice(
           clipboardMode === "off"
             ? "Clipboard sharing is turned off on the device."
-            : "The computer's clipboard has no text to copy.",
+            : "Nothing could be copied. A phone shares its clipboard only while it is unlocked with Beacon in front.",
         );
       return;
     }
