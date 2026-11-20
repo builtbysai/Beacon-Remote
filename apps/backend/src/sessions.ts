@@ -1290,11 +1290,6 @@ export async function registerSessions(
         detachViewer(entry, stale);
         stale.terminate();
       }
-      if (entry[role]) {
-        socket.close(1008);
-        return;
-      }
-      entry[role] = socket;
       if (
         role === "machine" &&
         entry.machine &&
@@ -1307,6 +1302,11 @@ export async function registerSessions(
         entry.machineDetachedUntil = performance.now() + HOST_RECONNECT_MS;
         old.terminate();
       }
+      if (entry[role]) {
+        socket.close(1008);
+        return;
+      }
+      entry[role] = socket;
       const resuming = role === "viewer" && entry.detachedUntil !== undefined;
       const hostResuming =
         role === "machine" && entry.machineDetachedUntil !== undefined;
