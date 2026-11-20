@@ -426,3 +426,8 @@ Until then the claim is "measured" or "different by design", never "better".
   the browser as formatted text beside the plain text. Round trip: `<b>rich-test-text</b>` went to the phone and came
   back as `text/html=<b>rich-test-text</b>` with `text/plain=rich-test-text`. Images and files are still not shared;
   they need their own decision. The phone must be in Button only or Automatic, as for plain text.
+
+- M4 baseline, Pixel 7a, unattended, relayed (TURN) over Wi-Fi, locked phone, 20 Nov (five samples from the viewer's
+  diagnostics): picture 324x720 at 0.7-2.4 fps (the designed unattended cap is 2 fps), round trip 41-125 ms, first
+  presented frame 2.5 s, approval 0.9 s. Not measured yet: attended frame rate (the screen-capture path, expected
+  well above 2 fps), tap-to-picture latency, direct (non-relayed) paths and a cellular network.
