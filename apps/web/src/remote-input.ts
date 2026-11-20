@@ -581,6 +581,7 @@ export function attachRemoteInput(
       text?: unknown;
       truncated?: unknown;
       unavailable?: unknown;
+      html?: unknown;
     };
     // A reply nobody asked for is accepted only while the phone's own setting is Automatic.
     const asked = awaitingClipboard !== null;
@@ -588,7 +589,9 @@ export function attachRemoteInput(
       (!asked && clipboardMode !== "auto") ||
       reply.type !== "clipboard" ||
       typeof reply.text !== "string" ||
-      reply.text.length > 32768
+      reply.text.length > 32768 ||
+      (reply.html !== undefined &&
+        (typeof reply.html !== "string" || reply.html.length > 32768))
     )
       throw new Error();
     if (awaitingClipboard) clearTimeout(awaitingClipboard);
@@ -603,7 +606,19 @@ export function attachRemoteInput(
       return;
     }
     try {
-      await navigator.clipboard.writeText(reply.text);
+      // Formatted text goes in as formatted text where the browser allows it, with the plain text beside it.
+      const Item = (globalThis as { ClipboardItem?: typeof ClipboardItem })
+        .ClipboardItem;
+      if (typeof reply.html === "string" && reply.html && Item) {
+        await navigator.clipboard.write([
+          new Item({
+            "text/plain": new Blob([reply.text], { type: "text/plain" }),
+            "text/html": new Blob([reply.html], { type: "text/html" }),
+          }),
+        ]);
+      } else {
+        await navigator.clipboard.writeText(reply.text);
+      }
       // What the browser now holds came from the device; sending it straight back would be a loop.
       lastSentClipboard = reply.text;
       if (asked)
@@ -623,6 +638,7 @@ export function attachRemoteInput(
   // for the channel. Button: only when pressed. Automatic: also when this page gets focus. Off: never.
   const CLIPBOARD_PIECE = 300;
   const CLIPBOARD_LIMIT = 8000;
+  const CLIPBOARD_HTML_LIMIT = 6000;
   let clipboardMode: "off" | "button" | "auto" = "button";
   let lastSentClipboard = "";
   const pushClipboard = async (explicit: boolean) => {
@@ -647,6 +663,34 @@ export function attachRemoteInput(
       return;
     }
     if (!explicit && text === lastSentClipboard) return;
+    // Formatted text, when the browser has it beside the plain text. Optional and bounded.
+    let html = "";
+    try {
+      const items = await navigator.clipboard.read?.();
+      for (const item of items ?? [])
+        if (item.types.includes("text/html"))
+          html = await (await item.getType("text/html")).text();
+    } catch {
+      html = "";
+    }
+    if (disposed || channel.readyState !== "open") return;
+    if (html && html.length <= CLIPBOARD_HTML_LIMIT) {
+      const parts = Array.from(html).filter((character) => {
+        const code = character.codePointAt(0)!;
+        return (
+          character === "\n" ||
+          character === "\t" ||
+          (code >= 32 && !(code >= 127 && code <= 159))
+        );
+      });
+      for (let at = 0; at < parts.length; at += CLIPBOARD_PIECE)
+        send({
+          type: "clipboard_write",
+          kind: "html",
+          text: parts.slice(at, at + CLIPBOARD_PIECE).join(""),
+          more: at + CLIPBOARD_PIECE < parts.length,
+        });
+    }
     const characters = Array.from(text.replace(/\r\n?/g, "\n")).filter(
       (character) => {
         const code = character.codePointAt(0)!;

@@ -42,6 +42,7 @@ class RemoteControl(
     private val lockKeys = java.util.concurrent.Executors.newSingleThreadExecutor()
     // Clipboard sharing (ADR 0021 as amended): text only, gated by the phone's own setting, never rich formats yet.
     private val clipboardParts = StringBuilder()
+    private val clipboardHtml = StringBuilder()
     private var stopClipboardListener: (() -> Unit)? = null
     private var lastClipboard = ""
 
@@ -65,7 +66,8 @@ class RemoteControl(
         lastClipboard = text
         sendJson(
             JSONObject().put("type", "clipboard").put("text", text.take(MAX_CLIPBOARD_CHARS))
-                .put("truncated", text.length > MAX_CLIPBOARD_CHARS).put("unavailable", false),
+                .put("truncated", text.length > MAX_CLIPBOARD_CHARS).put("unavailable", false)
+                .also { reply -> ControlService.instance?.readClipboardHtml()?.takeIf { it.length <= MAX_CLIPBOARD_HTML }?.let { reply.put("html", it) } },
         )
     }
 
@@ -216,6 +218,7 @@ class RemoteControl(
                         lastClipboard = text
                         JSONObject().put("type", "clipboard").put("text", text.take(MAX_CLIPBOARD_CHARS))
                             .put("truncated", text.length > MAX_CLIPBOARD_CHARS).put("unavailable", false)
+                            .also { reply -> service.readClipboardHtml()?.takeIf { it.length <= MAX_CLIPBOARD_HTML }?.let { reply.put("html", it) } }
                     }
                 sendJson(reply)
             }
@@ -226,15 +229,23 @@ class RemoteControl(
                     return
                 }
                 val piece = input.getString("text")
+                if (input.optString("kind") == "html") {
+                    // Formatted text arrives first, then the plain text that completes the write.
+                    if (clipboardHtml.length + piece.length > MAX_CLIPBOARD_HTML) clipboardHtml.setLength(0) else clipboardHtml.append(piece)
+                    return
+                }
                 if (clipboardParts.length + piece.length > MAX_CLIPBOARD_WRITE) {
                     clipboardParts.setLength(0)
+                    clipboardHtml.setLength(0)
                     return
                 }
                 clipboardParts.append(piece)
                 if (!input.optBoolean("more")) {
                     val text = clipboardParts.toString()
+                    val html = clipboardHtml.toString()
                     clipboardParts.setLength(0)
-                    if (text.isNotEmpty() && service.writeClipboardText(text)) {
+                    clipboardHtml.setLength(0)
+                    if (text.isNotEmpty() && service.writeClipboardText(text, html)) {
                         lastClipboard = text
                         Log.i(TAG, "Clipboard written from the viewer: ${text.length} characters")
                     }
@@ -323,6 +334,7 @@ class RemoteControl(
         const val MAX_PER_SECOND = 500
         const val MAX_CLIPBOARD_CHARS = 32768
         const val MAX_CLIPBOARD_WRITE = 8000
+        const val MAX_CLIPBOARD_HTML = 6000
         val LETTER_ROWS = listOf(0x10 to "qwertyuiop", 0x1e to "asdfghjkl", 0x2c to "zxcvbnm")
         val DIGITS = (2..11).toList()
         const val SHIFTED_DIGITS = "!@#$%^&*()"

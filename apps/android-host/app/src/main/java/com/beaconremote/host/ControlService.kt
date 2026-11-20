@@ -79,11 +79,19 @@ class ControlService : AccessibilityService() {
     }.getOrNull()
 
     /** Puts text on the phone's clipboard (a viewer asked, and the phone's clipboard mode allows it). */
-    fun writeClipboardText(text: String): Boolean = runCatching {
-        getSystemService(android.content.ClipboardManager::class.java)
-            .setPrimaryClip(android.content.ClipData.newPlainText("Beacon Remote", text))
+    fun writeClipboardText(text: String, html: String? = null): Boolean = runCatching {
+        getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(
+            if (html.isNullOrEmpty()) android.content.ClipData.newPlainText("Beacon Remote", text)
+            else android.content.ClipData.newHtmlText("Beacon Remote", text, html),
+        )
         true
     }.getOrDefault(false)
+
+    /** The formatted version of the phone's clipboard text, when the copy carries one. */
+    fun readClipboardHtml(): String? = runCatching {
+        val clip = getSystemService(android.content.ClipboardManager::class.java).primaryClip ?: return null
+        if (clip.itemCount == 0) null else clip.getItemAt(0).htmlText
+    }.getOrNull()
 
     /** Calls [onChange] whenever the phone's clipboard changes; returns how to stop listening. */
     fun listenForClipboard(onChange: () -> Unit): () -> Unit {

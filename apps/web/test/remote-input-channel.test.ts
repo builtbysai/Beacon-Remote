@@ -427,3 +427,52 @@ test("only digits, Delete and Enter are sent as passcode keys, and the phone's a
   assert.deepEqual(states, ["no-pad"]);
   assert.equal(f.failures(), 0);
 });
+
+test("formatted text is sent first and completed by the plain text, and the phone's formatted reply is written as formatted text", async (t) => {
+  const f = channelFixture(t);
+  const html = "<b>bold</b> text";
+  f.navigator.clipboard.readText = async () => "bold text";
+  (f.navigator.clipboard as Record<string, unknown>).read = async () => [
+    {
+      types: ["text/plain", "text/html"],
+      getType: async (type: string) =>
+        new Blob([type === "text/html" ? html : "bold text"], { type }),
+    },
+  ];
+  f.video.dispatchEvent(new Event("beacon-clipboard-write"));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const writes = f.sent
+    .map((body) => body.input)
+    .filter((input) => input.type === "clipboard_write");
+  assert.equal(writes[0]?.kind, "html");
+  assert.equal(
+    writes
+      .filter((input) => input.kind === "html")
+      .map((i) => i.text)
+      .join(""),
+    html,
+  );
+  const last = writes[writes.length - 1]!;
+  assert.equal(last.kind, undefined);
+  assert.equal(last.more, false);
+  assert.equal(last.text, "bold text");
+
+  const written: Record<string, string>[] = [];
+  (globalThis as Record<string, unknown>).ClipboardItem = class {
+    constructor(readonly parts: Record<string, Blob>) {}
+  };
+  (f.navigator.clipboard as Record<string, unknown>).write = async (
+    items: { parts: Record<string, Blob> }[],
+  ) => {
+    for (const item of items) {
+      const out: Record<string, string> = {};
+      for (const [k, v] of Object.entries(item.parts)) out[k] = await v.text();
+      written.push(out);
+    }
+  };
+  f.message({ type: "clipboard_mode", mode: "auto" });
+  f.message({ type: "clipboard", text: "hi", html: "<i>hi</i>" });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(written, [{ "text/plain": "hi", "text/html": "<i>hi</i>" }]);
+  delete (globalThis as Record<string, unknown>).ClipboardItem;
+});
