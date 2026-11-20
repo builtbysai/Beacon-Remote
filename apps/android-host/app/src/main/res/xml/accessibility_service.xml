@@ -5,7 +5,7 @@
     android:canPerformGestures="true"
     android:canTakeScreenshot="true"
     android:canRetrieveWindowContent="true"
-    android:accessibilityFlags="flagIncludeNotImportantViews|flagRetrieveInteractiveWindows"
+    android:accessibilityFlags="flagIncludeNotImportantViews|flagRetrieveInteractiveWindows|flagReportViewIds"
     android:description="@string/control_description"
     android:notificationTimeout="200"
     android:settingsActivity="com.beaconremote.host.MainActivity" />

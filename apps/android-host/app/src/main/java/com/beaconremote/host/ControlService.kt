@@ -117,7 +117,11 @@ class ControlService : AccessibilityService() {
                 if (root != null) break
             }
         }
-        val screen = root ?: return "no-pad"
+        val screen = root ?: run {
+            // Counts only: nothing about what was typed.
+            android.util.Log.i("BeaconHost", "PIN screen not found: windows=${windows.size} active=${rootInActiveWindow?.packageName}")
+            return "no-pad"
+        }
         val target: AccessibilityNodeInfo? = when (key) {
             "delete" -> screen.findAccessibilityNodeInfosByViewId("com.android.systemui:id/delete_button").firstOrNull()
             "enter" -> screen.findAccessibilityNodeInfosByViewId("com.android.systemui:id/key_enter").firstOrNull()
