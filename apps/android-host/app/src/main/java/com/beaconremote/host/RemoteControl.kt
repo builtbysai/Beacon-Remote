@@ -84,20 +84,51 @@ class RemoteControl(
     }
 
     /** If the phone's clipboard holds an image, sends it in paced pieces after the text reply. Runs off the input thread. */
-    private fun sendClipboardImage(service: ControlService) {
-        lockKeys.execute {
-            val (mime, bytes) = service.readClipboardImage(MAX_CLIPBOARD_IMAGE) ?: return@execute
-            val encoded = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
-            sendJson(JSONObject().put("type", "clipboard_image_start").put("mime", mime).put("size", bytes.size))
-            var at = 0
-            while (at < encoded.length && open) {
-                val end = minOf(encoded.length, at + 1000)
-                sendJson(JSONObject().put("type", "clipboard_image").put("text", encoded.substring(at, end)).put("more", end < encoded.length))
-                at = end
-                Thread.sleep(5)
+    /** Answers a viewer's copy request. Runs off the input thread, because reading may need a moment on screen. */
+    private fun answerClipboardRead(service: ControlService, mode: String) {
+        var text: String? = null
+        var html: String? = null
+        var image: Pair<String, ByteArray>? = null
+        if (mode != "off") {
+            text = service.readClipboardText()
+            html = service.readClipboardHtml()
+            image = service.readClipboardImage(MAX_CLIPBOARD_IMAGE)
+            if (text.isNullOrEmpty() && image == null) {
+                // Android refused a background read: bring an invisible screen forward for a moment and read there.
+                service.readClipboardViaActivity()?.let { snapshot ->
+                    text = snapshot.text
+                    html = snapshot.html
+                    if (snapshot.image != null && snapshot.imageMime != null) image = snapshot.imageMime to snapshot.image
+                }
             }
-            Log.i(TAG, "Clipboard image sent to the viewer: ${bytes.size} bytes")
         }
+        val readText = text
+        Log.i(TAG, "Clipboard read requested (mode $mode): ${readText?.length?.let { "returned $it characters" } ?: if (image != null) "an image" else "unavailable"}")
+        val reply =
+            if (readText.isNullOrEmpty()) {
+                JSONObject().put("type", "clipboard").put("text", "").put("truncated", false).put("unavailable", image == null)
+            } else {
+                lastClipboard = readText
+                JSONObject().put("type", "clipboard").put("text", readText.take(MAX_CLIPBOARD_CHARS))
+                    .put("truncated", readText.length > MAX_CLIPBOARD_CHARS).put("unavailable", false)
+                    .also { out -> html?.takeIf { it.length <= MAX_CLIPBOARD_HTML }?.let { out.put("html", it) } }
+            }
+        sendJson(reply)
+        image?.let { (mime, bytes) -> streamClipboardImage(mime, bytes) }
+    }
+
+    /** Sends an image in paced pieces after the text reply. */
+    private fun streamClipboardImage(mime: String, bytes: ByteArray) {
+        val encoded = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+        sendJson(JSONObject().put("type", "clipboard_image_start").put("mime", mime).put("size", bytes.size))
+        var at = 0
+        while (at < encoded.length && open) {
+            val end = minOf(encoded.length, at + 1000)
+            sendJson(JSONObject().put("type", "clipboard_image").put("text", encoded.substring(at, end)).put("more", end < encoded.length))
+            at = end
+            Thread.sleep(5)
+        }
+        Log.i(TAG, "Clipboard image sent to the viewer: ${bytes.size} bytes")
     }
 
     private fun onClipboardChanged() {
@@ -250,21 +281,8 @@ class RemoteControl(
             "type_text" -> service.type(input.getString("text"))
             "nav" -> service.system(input.getString("action"))
             "clipboard_read" -> {
-                // The viewer accepts at most 32768 characters; a longer copy is sent from its start and marked truncated.
                 val mode = clipboardMode()
-                val text = if (mode == "off") null else service.readClipboardText()
-                Log.i(TAG, "Clipboard read requested (mode $mode): ${text?.length?.let { "returned $it characters" } ?: "unavailable"}")
-                val reply =
-                    if (text.isNullOrEmpty()) {
-                        JSONObject().put("type", "clipboard").put("text", "").put("truncated", false).put("unavailable", true)
-                    } else {
-                        lastClipboard = text
-                        JSONObject().put("type", "clipboard").put("text", text.take(MAX_CLIPBOARD_CHARS))
-                            .put("truncated", text.length > MAX_CLIPBOARD_CHARS).put("unavailable", false)
-                            .also { reply -> service.readClipboardHtml()?.takeIf { it.length <= MAX_CLIPBOARD_HTML }?.let { reply.put("html", it) } }
-                    }
-                sendJson(reply)
-                if (mode != "off") sendClipboardImage(service)
+                runCatching { lockKeys.execute { runCatching { answerClipboardRead(service, mode) } } }
             }
             "clipboard_write" -> {
                 // The viewer sends its clipboard in small pieces (the channel carries 2 KB at most). Off ignores it.

@@ -120,6 +120,26 @@ class ControlService : AccessibilityService() {
         if (bytes.isEmpty()) null else mime to bytes
     }.getOrNull()
 
+    /**
+     * Reads the clipboard through a brief invisible Beacon screen, for when Android refuses a background read. Only on an
+     * unlocked phone; returns null if Android does not let the screen open or nothing could be read.
+     */
+    internal fun readClipboardViaActivity(timeoutMs: Long = 2500): ClipSnapshot? {
+        if (getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked) return null
+        val future = java.util.concurrent.CompletableFuture<ClipSnapshot?>()
+        ClipHandoff.pending = future
+        return try {
+            startActivity(
+                android.content.Intent(this, ClipReadActivity::class.java)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_NO_ANIMATION or android.content.Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS),
+            )
+            future.get(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (error: Exception) {
+            ClipHandoff.pending = null
+            null
+        }
+    }
+
     /** Removes images left in the clipboard cache. */
     fun clearClipboardImages() {
         runCatching { java.io.File(cacheDir, "clips").listFiles()?.forEach { it.delete() } }

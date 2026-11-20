@@ -78,6 +78,15 @@
                 android:resource="@xml/clip_paths" />
         </provider>
 
+        <!-- An invisible screen the phone shows for a moment to read the clipboard when a viewer asks. -->
+        <activity
+            android:name=".ClipReadActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <receiver android:name=".ChatReceiver" android:exported="false" />
 
         <receiver
