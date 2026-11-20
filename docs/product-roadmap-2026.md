@@ -392,3 +392,16 @@ Until then the claim is "measured" or "different by design", never "better".
   Pause with sound, long sessions, and the viewer's unmute button with a real person listening.
 - Remote unlock (type the passcode in the viewer each time) is waiting on the owner: it needs a screen lock set on the
   Pixel and the owner to type the passcode, which the agent will not do. Nothing is built.
+
+- Remote unlock (20 Nov, ADR 0055): "Unlock from the viewer" is an owner setting, off by default. Pixel with a test PIN:
+  an unattended session connected to the locked phone and showed the live lock screen, and a viewer tap was delivered
+  on it. Android shows the PIN screen as black to every screenshot, so the viewer has its own number pad ("Unlock
+  phone") that sends one key at a time (0-9, Delete, Enter); the phone presses the matching key through the
+  accessibility tree (keys readable on the Pixel). The agent never presses digits. Keys through the pad are not
+  confirmed on the device yet: the first try returned "no pad" until the service was allowed to see views Android
+  marks as not important and to search all windows (fixed, untested).
+- Bug found and fixed (20 Nov): an app update turned unattended access off, because the accessibility service
+  unbinding during the update cleared the setting. It is now cleared only when Android no longer lists the service
+  as enabled. Fixed in the build installed 20 Nov; the next update should keep the setting.
+- The isolated acceptance backend stops itself 4 hours after it starts; it had stopped overnight and phones show as
+  offline until `docker start beacon-remote-acceptance-backend` and about a minute for the phone to reconnect.
