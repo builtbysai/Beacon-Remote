@@ -531,3 +531,10 @@ Each item is built and pushed; the test needs a step only the owner can do. Pick
   a .webm; "Play last recording" appeared in the toolbar and the permissions log read "Recording: allowed on the
   device" with its time. The player itself (pressing the button and watching the clip) was not exercised. Android's
   microphone indicator was showing because the microphone switch is on.
+
+- M4, attended frame rate, Pixel 7a over the relay on Wi-Fi (20 Nov, 14:15 local): with a continuously animating page
+  on the phone, three one-second-spaced samples of WebRTC `framesDecoded` gave about 40 then 53 frames per second
+  (counts 402, 645 and 965 across two 6 s gaps), no dropped frames, picture 576x1280. A static home screen delivered
+  about 1 frame per second (the capture sends frames when the screen changes), so the viewer's own "Presented FPS"
+  reading is not a good measure on a still screen. Round trip 49-281 ms across samples. Unattended stays at its 2 fps
+  design cap. Still not measured: tap-to-picture latency, a direct (non-relayed) path, cellular.
