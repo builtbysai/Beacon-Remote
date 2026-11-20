@@ -479,3 +479,9 @@ Until then the claim is "measured" or "different by design", never "better".
   and may be blocked by Android's background-launch rules; (c) leave phone-to-viewer copy as best effort. Viewer-to-phone
   copying is unaffected (the phone writes, it does not read). Copied files are not built: a browser cannot put a file on
   the system clipboard, so a copied file would arrive as a download; this waits on the choice above.
+
+- Clipboard read via a brief invisible screen (20 Nov, built, not installed or tested): when Android refuses a
+  background read, the phone shows `ClipReadActivity` (transparent, no animation, not in recents) for a moment, reads
+  the clipboard there (text, formatted text, image up to 1.5 MB) and closes it. Only on an unlocked phone; if Android
+  blocks the launch, the phone answers "unavailable" as before. Build `28118b39`. It needs an unlocked Pixel to test
+  (the owner's unlock), including with another app in front. Copied files are still not built.
