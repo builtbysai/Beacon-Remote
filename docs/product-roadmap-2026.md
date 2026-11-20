@@ -431,3 +431,8 @@ Until then the claim is "measured" or "different by design", never "better".
   diagnostics): picture 324x720 at 0.7-2.4 fps (the designed unattended cap is 2 fps), round trip 41-125 ms, first
   presented frame 2.5 s, approval 0.9 s. Not measured yet: attended frame rate (the screen-capture path, expected
   well above 2 fps), tap-to-picture latency, direct (non-relayed) paths and a cellular network.
+
+- Decisions drafted for the owner (20 Nov): ADR 0056 (image clipboard: yes for images, button press only, no
+  files) and ADR 0057 (microphone: phone microphone to the viewer as a per-request permission, never unattended,
+  never while locked; viewer microphone to the phone later). Both are marked proposed. Nothing is built for either
+  until the owner says yes or changes them.
