@@ -755,6 +755,22 @@ export function attachRemoteInput(
           reply !== null &&
           typeof reply === "object" &&
           "type" in reply &&
+          reply.type === "chat"
+        ) {
+          const text = (reply as { text?: unknown }).text;
+          if (typeof text !== "string" || text.length > 300) {
+            onFailure();
+            return;
+          }
+          element.dispatchEvent(
+            new CustomEvent("beacon-chat", { detail: text }),
+          );
+          return;
+        }
+        if (
+          reply !== null &&
+          typeof reply === "object" &&
+          "type" in reply &&
           reply.type === "clipboard_mode"
         ) {
           const mode = (reply as { mode?: unknown }).mode;
@@ -861,6 +877,14 @@ export function attachRemoteInput(
   element.addEventListener("beacon-nav", navigate);
   element.addEventListener("beacon-clipboard-read", requestClipboard);
   element.addEventListener("beacon-clipboard-write", pushClipboardByButton);
+  // Session chat with a phone: the viewer's line goes to the phone as a notification it can answer.
+  const sendChat = (event: Event) => {
+    const text = String((event as CustomEvent).detail ?? "")
+      .trim()
+      .slice(0, 300);
+    if (text && display && !signIn) send({ type: "chat", text });
+  };
+  element.addEventListener("beacon-chat-send", sendChat);
   window.addEventListener("blur", release);
   document.addEventListener("visibilitychange", visibility);
   const heartbeat = setInterval(() => send({ type: "keep_alive" }), 400);

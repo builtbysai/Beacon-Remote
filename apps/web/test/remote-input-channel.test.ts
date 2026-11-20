@@ -384,3 +384,25 @@ test("a phone is greeted once so it can announce its clipboard setting", (t) => 
     1,
   );
 });
+
+test("chat lines go to the phone and the phone's replies reach the page", (t) => {
+  const f = channelFixture(t);
+  const heard: string[] = [];
+  f.video.addEventListener("beacon-chat", (event) =>
+    heard.push(String((event as CustomEvent).detail)),
+  );
+  f.video.dispatchEvent(
+    new CustomEvent("beacon-chat-send", { detail: "  hello phone  " }),
+  );
+  assert.deepEqual(
+    f.sent
+      .filter((body) => body.input.type === "chat")
+      .map((b) => b.input.text),
+    ["hello phone"],
+  );
+  f.message({ type: "chat", text: "hi back" });
+  assert.deepEqual(heard, ["hi back"]);
+  assert.equal(f.failures(), 0);
+  f.message({ type: "chat", text: "x".repeat(301) });
+  assert.equal(f.failures(), 1);
+});

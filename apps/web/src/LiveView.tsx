@@ -245,6 +245,26 @@ export function LiveView({
   const [clipboardMode, setClipboardMode] = useState<"off" | "button" | "auto">(
     "button",
   );
+  const [chatLines, setChatLines] = useState<
+    { from: "you" | "phone"; text: string }[]
+  >([]);
+  const [chatDraft, setChatDraft] = useState("");
+  useEffect(() => {
+    const target = video.current;
+    if (!target) return;
+    const onChat = (event: Event) =>
+      setChatLines((lines) =>
+        [
+          ...lines,
+          {
+            from: "phone" as const,
+            text: String((event as CustomEvent).detail),
+          },
+        ].slice(-50),
+      );
+    target.addEventListener("beacon-chat", onChat);
+    return () => target.removeEventListener("beacon-chat", onChat);
+  }, [transportAttempt]);
   useEffect(() => {
     const target = video.current;
     if (!target) return;
@@ -1316,6 +1336,41 @@ export function LiveView({
             >
               Send clipboard to phone
             </button>
+          )}
+          {controlReady && phoneHost && (
+            <form
+              className="viewer-chat"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const text = chatDraft.trim().slice(0, 300);
+                if (!text) return;
+                video.current?.dispatchEvent(
+                  new CustomEvent("beacon-chat-send", { detail: text }),
+                );
+                setChatLines((lines) =>
+                  [...lines, { from: "you" as const, text }].slice(-50),
+                );
+                setChatDraft("");
+              }}
+            >
+              <ul role="log" aria-label="Chat with the phone">
+                {chatLines.map((line, index) => (
+                  <li key={index}>
+                    {line.from === "you" ? "You" : "Phone"}: {line.text}
+                  </li>
+                ))}
+              </ul>
+              <input
+                aria-label="Message to the phone"
+                maxLength={300}
+                placeholder="Message to the phone"
+                value={chatDraft}
+                onChange={(event) => setChatDraft(event.target.value)}
+              />
+              <button className="viewer-control" type="submit">
+                Send message
+              </button>
+            </form>
           )}
           {controlReady && phoneHost && clipboardMode === "auto" && (
             <span className="viewer-note">Clipboard syncs automatically.</span>

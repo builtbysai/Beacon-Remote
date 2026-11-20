@@ -160,6 +160,7 @@ class RemoteControl(
         if (!open) return
         open = false
         release()
+        Chat.send = null
         runCatching { stopClipboardListener?.invoke() }
         stopClipboardListener = null
         runCatching { channel.unregisterObserver() }
@@ -238,6 +239,13 @@ class RemoteControl(
             }
             // A viewer that knows about the clipboard says so; older viewers never hear about it.
             "clipboard_hello" -> announceClipboard()
+            "chat" -> {
+                val text = input.getString("text").trim().take(Chat.MAX_CHARS)
+                if (text.isNotEmpty()) {
+                    Chat.send = { reply -> runCatching { sendJson(JSONObject().put("type", "chat").put("text", reply)) }.isSuccess }
+                    Chat.show(service, text)
+                }
+            }
             "release_all" -> release()
             "keep_alive" -> {}
         }
