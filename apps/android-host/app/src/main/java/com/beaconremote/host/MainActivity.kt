@@ -169,6 +169,11 @@ class MainActivity : Activity() {
     }
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, results: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, results)
+        if (requestCode == 2) {
+            identity.shareSound = results.firstOrNull() == PackageManager.PERMISSION_GRANTED
+            render()
+            return
+        }
         if (requestCode == 1 && permissionStartsAvailability) {
             permissionStartsAvailability = false
             if (notificationsReady() && identity.paired) AvailabilityService.start(this)
@@ -224,6 +229,28 @@ class MainActivity : Activity() {
         showClipboard()
         root.addView(clipboardButton)
         root.addView(clipboardNote)
+        root.addView(label("Phone sound", 18f, true).apply { setPadding(0, HostUi.dp(this@MainActivity, 24), 0, HostUi.dp(this@MainActivity, 8)) })
+        val soundButton = HostUi.button(this, "").apply { tag = "sound-toggle" }
+        val soundNote = HostUi.text(this, "When someone views your screen with your approval, they can also hear what your apps play. Never the microphone. Not available for unattended access.", 13f, secondary = true)
+        fun showSound() {
+            val on = identity.shareSound && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            soundButton.text = if (on) "Share phone sound: On (tap to turn off)" else "Share phone sound: Off (tap to turn on)"
+        }
+        soundButton.setOnClickListener {
+            if (identity.shareSound) {
+                identity.shareSound = false
+                showSound()
+            } else if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                identity.shareSound = true
+                showSound()
+            } else {
+                // Android needs the sound-recording permission to capture what apps play.
+                requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 2)
+            }
+        }
+        showSound()
+        root.addView(soundButton)
+        root.addView(soundNote)
         val server = HostUi.text(this, identity.server, 13f, secondary = true).apply { visibility = View.GONE }
         root.addView(HostUi.button(this, "Connection details").apply { setOnClickListener { server.visibility = if (server.visibility == View.VISIBLE) View.GONE else View.VISIBLE } })
         root.addView(server)

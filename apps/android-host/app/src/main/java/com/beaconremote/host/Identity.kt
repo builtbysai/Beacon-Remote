@@ -40,6 +40,11 @@ class Identity(private val context: Context) {
         get() = prefs.getString("clipboardMode", "button").takeIf { it in CLIPBOARD_MODES } ?: "button"
         set(value) { if (value in CLIPBOARD_MODES) prefs.edit().putString("clipboardMode", value).apply() }
 
+    /** Whether an attended screen share also sends the phone's playback sound. Off by default; never the microphone. */
+    var shareSound: Boolean
+        get() = prefs.getBoolean("shareSound", false)
+        set(value) = prefs.edit().putBoolean("shareSound", value).apply()
+
     val paired: Boolean get() = machineId.isNotEmpty() && prefs.contains("seed")
     /** Raised only by the local setup screen. Server policy alone cannot enable capture. */
     var unattended: Boolean

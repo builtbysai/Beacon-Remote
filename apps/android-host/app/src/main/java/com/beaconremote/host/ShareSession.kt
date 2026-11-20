@@ -90,6 +90,10 @@ class ShareSession(
     private var factory: PeerConnectionFactory? = null
     private var source: VideoSource? = null
     private var track: VideoTrack? = null
+    // Attended only, and only when the phone's owner turned sound sharing on: the phone's playback sound.
+    private var sound: SoundCapture? = null
+    private var soundSource: org.webrtc.AudioSource? = null
+    private var soundTrack: org.webrtc.AudioTrack? = null
     private var capturer: org.webrtc.VideoCapturer? = null
     private var helper: SurfaceTextureHelper? = null
     private var peer: PeerConnection? = null
@@ -426,12 +430,27 @@ class ShareSession(
             PeerConnectionFactory.InitializationOptions.builder(context).setEnableInternalTracer(false).createInitializationOptions(),
         )
         val eglBase = EglBase.create().also { egl = it }
-        val peerFactory =
+        val shareSound = !unattended && android.os.Build.VERSION.SDK_INT >= 29 && Identity(context).shareSound &&
+            context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val builder =
             PeerConnectionFactory.builder()
                 .setVideoEncoderFactory(DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true))
                 .setVideoDecoderFactory(DefaultVideoDecoderFactory(eglBase.eglBaseContext))
-                .createPeerConnectionFactory()
-                .also { factory = it }
+        if (shareSound) {
+            val capture = SoundCapture { (capturer as? ScreenCapturerAndroid)?.mediaProjection }.also { sound = it }
+            builder.setAudioDeviceModule(
+                org.webrtc.audio.JavaAudioDeviceModule.builder(context)
+                    .setAudioBufferCallback(capture)
+                    .setUseHardwareAcousticEchoCanceler(false)
+                    .setUseHardwareNoiseSuppressor(false)
+                    .createAudioDeviceModule(),
+            )
+        }
+        val peerFactory = builder.createPeerConnectionFactory().also { factory = it }
+        if (shareSound) {
+            soundSource = peerFactory.createAudioSource(MediaConstraints())
+            soundTrack = peerFactory.createAudioTrack("beacon-sound", soundSource).also { it.setEnabled(false) }
+        }
         val videoSource = peerFactory.createVideoSource(true).also { source = it }
         track = peerFactory.createVideoTrack("beacon-screen", videoSource).also { it.setEnabled(false) }
         val surfaces = SurfaceTextureHelper.create("screen-capture", eglBase.eglBaseContext).also { helper = it }
@@ -541,6 +560,10 @@ class ShareSession(
         val screen = track ?: return
         val sender = connection.addTrack(screen, listOf("beacon-screen"))
         connection.transceivers.firstOrNull { it.sender == sender }?.direction = RtpTransceiver.RtpTransceiverDirection.SEND_ONLY
+        soundTrack?.let { audio ->
+            val audioSender = connection.addTrack(audio, listOf("beacon-screen"))
+            connection.transceivers.firstOrNull { it.sender == audioSender }?.direction = RtpTransceiver.RtpTransceiverDirection.SEND_ONLY
+        }
         // Hardware H.264 first where the phone has it; the browser picks what both sides support.
         runCatching {
             val codecs = peerFactory.getRtpSenderCapabilities(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO).codecs
@@ -624,7 +647,9 @@ class ShareSession(
             lastLease != 0L && SystemClock.elapsedRealtime() - lastLease < MAX_AGE
 
     private fun refreshVideo() {
-        track?.setEnabled(canShare(viewer.generation) && localActionsAllowed())
+        val live = canShare(viewer.generation) && localActionsAllowed()
+        track?.setEnabled(live)
+        soundTrack?.setEnabled(live)
     }
 
     private fun closePeer() {
@@ -633,6 +658,7 @@ class ShareSession(
         dataTransportAvailable = false
         onPermissionPrompt?.invoke(null)
         track?.setEnabled(false)
+        soundTrack?.setEnabled(false)
         control?.stop()
         control = null
         onControl(false)
@@ -657,8 +683,11 @@ class ShareSession(
         runCatching { capturer?.stopCapture() }
         runCatching { capturer?.dispose() }
         runCatching { helper?.dispose() }
+        runCatching { soundTrack?.dispose() }
+        runCatching { soundSource?.dispose() }
         runCatching { track?.dispose() }
         runCatching { source?.dispose() }
+        runCatching { sound?.stop() }
         runCatching { factory?.dispose() }
         runCatching { egl?.release() }
         onEnded(reason)
