@@ -509,3 +509,8 @@ Each item is built and pushed; the test needs a step only the owner can do. Pick
    window (trusted access), and the Windows rows of the capability matrix.
 5. Not started: viewer microphone to the phone; attended frame rate and tap-to-picture latency (M4); Android
    Enterprise managed-device unlock (needs the Pixel reset, so it is the owner's call).
+
+- Permissions log in the viewer (20 Nov, M3): each device answer to a files, control or recording request is listed
+  under "Permissions this session" with the time and outcome (allowed, declined, cancelled, expired), newest last, kept
+  in the page only. Unit tests cover the wording and the 50-entry limit. It records what the device did; a server-side
+  audit export is still M5.

@@ -23,6 +23,11 @@ import {
   type DriveEntry,
 } from "./drive-client.js";
 import { lockKeyFor, type LockScreen } from "./lock-screen.js";
+import {
+  addPermissionLog,
+  permissionLogLine,
+  type PermissionLogEntry,
+} from "./permission-log.js";
 import { PrintClient } from "./print-client.js";
 import { approvedInput, approvedInputPrefix } from "./approved-input.js";
 import {
@@ -253,6 +258,8 @@ export function LiveView({
   // The phone's PIN screen cannot be captured, so this pad stands in for it. Nothing typed here is kept.
   const [padOpen, setPadOpen] = useState(false);
   const [padNote, setPadNote] = useState("");
+  // What the device allowed or refused during this session, newest last. Kept in this page only.
+  const [permissionLog, setPermissionLog] = useState<PermissionLogEntry[]>([]);
   // A pattern being chosen (cells 0-8) or a password being typed. Cleared the moment it is sent; never kept.
   const [patternCells, setPatternCells] = useState<number[]>([]);
   const [passwordDraft, setPasswordDraft] = useState("");
@@ -880,6 +887,14 @@ export function LiveView({
               break;
             case "permission-result": {
               const result = requestedPermissions.receive(message);
+              if (result)
+                setPermissionLog((log) =>
+                  addPermissionLog(log, {
+                    at: Date.now(),
+                    scope: result.scope,
+                    outcome: result.outcome,
+                  }),
+                );
               if (result?.scope === "control")
                 upgradedInput.result(result.id, result.outcome === "approved");
               break;
@@ -1590,6 +1605,16 @@ export function LiveView({
                 </p>
               </div>
             )}
+          {permissionLog.length > 0 && (
+            <ul
+              className="viewer-permission-log"
+              aria-label="Permissions this session"
+            >
+              {permissionLog.map((entry, index) => (
+                <li key={index}>{permissionLogLine(entry)}</li>
+              ))}
+            </ul>
+          )}
           {controlReady && phoneHost && (
             <form
               className="viewer-chat"
