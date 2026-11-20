@@ -7,6 +7,11 @@ type Progress = {
 };
 type Invitation = { code: string; deadline: number };
 
+// Opens the Android app with the code filled in; the person still taps Pair there.
+export function pairingLink(origin: string, code: string) {
+  return `beaconremote://pair?code=${encodeURIComponent(code)}&server=${encodeURIComponent(origin)}`;
+}
+
 export function PairComputer({
   onClose,
   onPaired,
@@ -23,7 +28,9 @@ export function PairComputer({
   const [statusError, setStatusError] = useState("");
   const [creating, setCreating] = useState(true);
   const [cancelling, setCancelling] = useState(false);
-  const [copied, setCopied] = useState<"code" | "address" | null>(null);
+  const [copied, setCopied] = useState<"code" | "address" | "link" | null>(
+    null,
+  );
   const [seconds, setSeconds] = useState(300);
   const [attempt, setAttempt] = useState(0);
   const owned = useRef<string | null>(null);
@@ -174,7 +181,7 @@ export function PairComputer({
       setCancelling(false);
     }
   }
-  async function copy(value: string, kind: "code" | "address") {
+  async function copy(value: string, kind: "code" | "address" | "link") {
     const code = owned.current;
     try {
       await navigator.clipboard.writeText(value);
@@ -274,6 +281,33 @@ export function PairComputer({
               ? `One use · expires in ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
               : "Checking whether the code was used…"}
           </p>
+          <div className="pairing-field">
+            <span>On an Android phone with the app</span>
+            <div className="pairing-code-row">
+              <a
+                href={pairingLink(window.location.origin, invitation.code)}
+                aria-disabled={seconds <= 0}
+              >
+                Open this link on the phone
+              </a>
+              <button
+                className="secondary"
+                disabled={seconds <= 0}
+                onClick={() =>
+                  void copy(
+                    pairingLink(window.location.origin, invitation.code),
+                    "link",
+                  )
+                }
+              >
+                {copied === "link" ? "Copied" : "Copy link"}
+              </button>
+            </div>
+            <p className="note">
+              The link fills in the address and code. Tap Pair on the phone to
+              finish.
+            </p>
+          </div>
           <a href="#downloads">Get the Windows or Android app →</a>
         </>
       ) : (

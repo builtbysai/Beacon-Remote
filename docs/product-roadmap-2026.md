@@ -365,3 +365,8 @@ Until then the claim is "measured" or "different by design", never "better".
 - Pixel run: all four steps showed as done; with the background permission removed the list showed "3 of 4 done"
   and a "Keep Beacon running" button. Not yet run on a freshly reset phone, so first-time pairing from the link and
   the accessibility step on a clean install are untested.
+
+- The workspace "Add a computer" panel now shows "Open this link on the phone" and "Copy link" under the code. The link
+  carries the address and the one-use code. Opening it on the paired Pixel resolves to the app and is ignored without
+  a crash (a paired phone never re-pairs from a link). Filling the code on an unpaired phone is not device-tested yet;
+  a QR code is not built (it would add a dependency).
