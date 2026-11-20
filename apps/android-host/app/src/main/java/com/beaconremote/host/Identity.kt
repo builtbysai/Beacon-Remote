@@ -45,6 +45,14 @@ class Identity(private val context: Context) {
         get() = prefs.getBoolean("shareSound", false)
         set(value) = prefs.edit().putBoolean("shareSound", value).apply()
 
+    /**
+     * Whether an unattended viewer may keep working while the phone is locked, so its person can type the passcode in
+     * the viewer. Off by default. The passcode is typed by the person each time and is never stored or logged.
+     */
+    var unlockFromViewer: Boolean
+        get() = prefs.getBoolean("unlockFromViewer", false)
+        set(value) = prefs.edit().putBoolean("unlockFromViewer", value).apply()
+
     val paired: Boolean get() = machineId.isNotEmpty() && prefs.contains("seed")
     /** Raised only by the local setup screen. Server policy alone cannot enable capture. */
     var unattended: Boolean

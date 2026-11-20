@@ -8,7 +8,8 @@ object UnattendedAccess {
     fun ready(context: Context): Boolean = Build.VERSION.SDK_INT >= 30 &&
         ControlService.enabled(context) && ControlService.instance != null &&
         SharingNotifications.ready(context) &&
-        context.getSystemService(KeyguardManager::class.java).let { !it.isDeviceLocked && !it.isKeyguardLocked }
+        (Identity(context).unlockFromViewer ||
+            context.getSystemService(KeyguardManager::class.java).let { !it.isDeviceLocked && !it.isKeyguardLocked })
 
     // Policy approval of remembered helpers must never inherit the owner's unattended opt-in.
     fun accepts(local: Boolean, policy: Boolean, helper: Boolean, ready: Boolean): Boolean = local && policy && !helper && ready

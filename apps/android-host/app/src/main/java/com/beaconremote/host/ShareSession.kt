@@ -201,7 +201,8 @@ class ShareSession(
     }
 
     private fun deviceUnlocked(): Boolean =
-        context.getSystemService(KeyguardManager::class.java).let { !it.isDeviceLocked && !it.isKeyguardLocked }
+        Identity(context).unlockFromViewer ||
+            context.getSystemService(KeyguardManager::class.java).let { !it.isDeviceLocked && !it.isKeyguardLocked }
 
     private fun refreshPermissionOptions() {
         val available = availablePermissions(viewer.generation)

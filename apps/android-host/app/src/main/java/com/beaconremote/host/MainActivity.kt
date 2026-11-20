@@ -229,6 +229,13 @@ class MainActivity : Activity() {
         showClipboard()
         root.addView(clipboardButton)
         root.addView(clipboardNote)
+        root.addView(label("Unlock from the viewer", 18f, true).apply { setPadding(0, HostUi.dp(this@MainActivity, 24), 0, HostUi.dp(this@MainActivity, 8)) })
+        val unlockButton = HostUi.button(this, "").apply { tag = "unlock-toggle" }
+        fun showUnlock() { unlockButton.text = if (identity.unlockFromViewer) "Unlock from the viewer: On (tap to turn off)" else "Unlock from the viewer: Off (tap to turn on)" }
+        unlockButton.setOnClickListener { identity.unlockFromViewer = !identity.unlockFromViewer; showUnlock() }
+        showUnlock()
+        root.addView(unlockButton)
+        root.addView(HostUi.text(this, "When on, a viewer with unattended access can still see and use this phone while it is locked, so you can type your passcode in the viewer. Beacon never stores or logs the passcode.", 13f, secondary = true))
         root.addView(label("Phone sound", 18f, true).apply { setPadding(0, HostUi.dp(this@MainActivity, 24), 0, HostUi.dp(this@MainActivity, 8)) })
         val soundButton = HostUi.button(this, "").apply { tag = "sound-toggle" }
         val soundNote = HostUi.text(this, "When someone views your screen with your approval, they can also hear what your apps play. Never the microphone. Not available for unattended access.", 13f, secondary = true)
