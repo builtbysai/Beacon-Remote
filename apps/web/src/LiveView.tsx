@@ -172,10 +172,15 @@ export function LiveView({
       const url = URL.createObjectURL(new Blob(chunks, { type }));
       const link = document.createElement("a");
       const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+      const name = `beacon-session-${stamp}.${type.startsWith("video/mp4") ? "mp4" : "webm"}`;
       link.href = url;
-      link.download = `beacon-session-${stamp}.${type.startsWith("video/mp4") ? "mp4" : "webm"}`;
+      link.download = name;
       link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      // Kept in this page so it can be played back here; released when replaced or when the page closes.
+      if (lastRecordingUrl.current)
+        URL.revokeObjectURL(lastRecordingUrl.current);
+      lastRecordingUrl.current = url;
+      setLastRecording({ url, name });
     };
     // The computer is told first, so it never records unannounced.
     sender.current?.announceRecording(true);
@@ -258,6 +263,20 @@ export function LiveView({
   // The phone's PIN screen cannot be captured, so this pad stands in for it. Nothing typed here is kept.
   const [padOpen, setPadOpen] = useState(false);
   const [padNote, setPadNote] = useState("");
+  // The most recent recording of this session, played back in the page. Never uploaded.
+  const [lastRecording, setLastRecording] = useState<{
+    url: string;
+    name: string;
+  } | null>(null);
+  const [playback, setPlayback] = useState(false);
+  const lastRecordingUrl = useRef<string | null>(null);
+  useEffect(
+    () => () => {
+      if (lastRecordingUrl.current)
+        URL.revokeObjectURL(lastRecordingUrl.current);
+    },
+    [],
+  );
   // What the device allowed or refused during this session, newest last. Kept in this page only.
   const [permissionLog, setPermissionLog] = useState<PermissionLogEntry[]>([]);
   // A pattern being chosen (cells 0-8) or a password being typed. Cleared the moment it is sent; never kept.
@@ -1605,6 +1624,23 @@ export function LiveView({
                 </p>
               </div>
             )}
+          {lastRecording && (
+            <button
+              className="viewer-control"
+              aria-expanded={playback}
+              onClick={() => setPlayback((open) => !open)}
+            >
+              {playback ? "Hide recording" : "Play last recording"}
+            </button>
+          )}
+          {lastRecording && playback && (
+            <div className="viewer-playback">
+              <video controls src={lastRecording.url} />
+              <a href={lastRecording.url} download={lastRecording.name}>
+                Save again
+              </a>
+            </div>
+          )}
           {permissionLog.length > 0 && (
             <ul
               className="viewer-permission-log"

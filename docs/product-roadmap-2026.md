@@ -514,3 +514,8 @@ Each item is built and pushed; the test needs a step only the owner can do. Pick
   under "Permissions this session" with the time and outcome (allowed, declined, cancelled, expired), newest last, kept
   in the page only. Unit tests cover the wording and the 50-entry limit. It records what the device did; a server-side
   audit export is still M5.
+
+- Recording playback (20 Nov, M3, built, not device-tested): after a recording stops, the viewer still saves the file and
+  now also offers "Play last recording" (a player in the page with "Save again"). The recording stays in the page only
+  and is released when replaced or when the page closes. Not yet tried on a real recording, which needs the device
+  owner's approval on the phone.

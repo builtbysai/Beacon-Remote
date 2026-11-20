@@ -2705,3 +2705,15 @@ button.danger {
   font-size: 0.8rem;
   opacity: 0.85;
 }
+
+/* Playback of the session's last recording, in this page only. */
+.viewer-playback {
+  display: grid;
+  gap: 0.4rem;
+}
+.viewer-playback video {
+  max-width: 22rem;
+  max-height: 14rem;
+  border-radius: 0.5rem;
+  background: #000;
+}
