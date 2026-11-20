@@ -106,7 +106,7 @@ class ControlService : AccessibilityService() {
         fun pad(): AccessibilityNodeInfo? =
             (listOfNotNull(rootInActiveWindow) + windows.mapNotNull { it.root })
                 .firstOrNull {
-                    it.packageName == "com.android.systemui" &&
+                    it.packageName?.toString() == "com.android.systemui" &&
                         (it.findAccessibilityNodeInfosByViewId(PIN_PAD).isNotEmpty() || it.findAccessibilityNodeInfosByText("Enter PIN").isNotEmpty())
                 }
         var root = pad()
