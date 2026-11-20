@@ -549,3 +549,10 @@ Each item is built and pushed; the test needs a step only the owner can do. Pick
   "Sharing is paused", Resume and Stop actions); tapping Resume returned the viewer to "viewing" and the microphone
   to the room's background level (peak 0.0045, matching the 0.0046 measured before pausing). The tone was not playing for
   this run, so the comparison is silence (0) against background noise (about 0.005), not against a loud sound.
+
+- File transfer resume, phone to viewer (20 Nov, built, not tested): the viewer already asks to carry on from a byte
+  offset with the hash of what it holds; the Android sender ignored that and always started over. It now skips the
+  first bytes only if their SHA-256 matches what the viewer sent, otherwise it answers "failed / resume" (the viewer
+  tells the person to ask again). Build `82ffe422` compiles, passes the Android unit tests, installs, and a normal file
+  send from the viewer still works on the Pixel. An interrupted phone-to-viewer transfer that is then resumed has not
+  been run; it needs a deliberate break (for example Wi-Fi off mid-transfer) and the viewer's Resume download button.
