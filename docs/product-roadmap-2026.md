@@ -556,3 +556,11 @@ Each item is built and pushed; the test needs a step only the owner can do. Pick
   tells the person to ask again). Build `82ffe422` compiles, passes the Android unit tests, installs, and a normal file
   send from the viewer still works on the Pixel. An interrupted phone-to-viewer transfer that is then resumed has not
   been run; it needs a deliberate break (for example Wi-Fi off mid-transfer) and the viewer's Resume download button.
+
+- File transfer resume, phone to viewer: a real interrupted run (20 Nov, 14:30, Pixel) showed the viewer never offered
+  "Resume download". A 120 MB file offered by the phone was cut by turning Wi-Fi off for 10 s; the session resumed itself,
+  but the viewer discarded the partial copy and showed a fresh Save, because its resume logic needs the phone to give
+  each offer a stable `transferId` and to report it in the files channel's ready message (`downloadTransferId`) after
+  reconnecting, and the Android sender sent neither. Fixed in `6b8679bb` (same file, same id; the id is cleared when the
+  viewer finishes, declines or cancels it), on top of the earlier sender-side resume at an offset with a hash check.
+  A second interrupted run on the new build is pending (the relay had to clear first).
