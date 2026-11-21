@@ -262,6 +262,9 @@ class ControlService : AccessibilityService() {
     /** One swipe up from the lock screen, which brings up the PIN screen. */
     fun swipeUpToPin() {
         val metrics = resources.displayMetrics
+        // An ambient screensaver over the lock screen swallows the swipe, so a touch ends it first.
+        stroke(listOf(metrics.widthPixels / 2 to metrics.heightPixels / 2, metrics.widthPixels / 2 to metrics.heightPixels / 2), 40)
+        Thread.sleep(700)
         stroke(listOf(metrics.widthPixels / 2 to (metrics.heightPixels * 0.78).toInt(), metrics.widthPixels / 2 to (metrics.heightPixels * 0.25).toInt()), 300)
     }
 
