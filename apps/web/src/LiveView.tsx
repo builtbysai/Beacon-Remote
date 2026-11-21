@@ -1090,8 +1090,17 @@ export function LiveView({
     >
       <header className={`viewer-toolbar${compact ? " compact" : ""}`}>
         <div className="viewer-identity">
+          <span className="viewer-dot" aria-hidden="true" />
           <strong>{name}</strong>
           <span>
+            {ended
+              ? "Ended"
+              : peerPaused
+                ? "Paused"
+                : frames > 0
+                  ? "Connected"
+                  : "Connecting"}
+            {" · "}
             {grant.source === "desktop"
               ? controlling || controlReady
                 ? "Mouse and keyboard"
@@ -1100,16 +1109,30 @@ export function LiveView({
             {grant.expiresAtMillis === 0 ? " · Until stopped" : ""}
           </span>
         </div>
-        {compact && (
-          <button
-            className="viewer-control viewer-menu"
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((open) => !open)}
-          >
-            {menuOpen ? "Hide" : "Menu"}
-          </button>
-        )}
-        <div className="viewer-actions" hidden={compact && !menuOpen}>
+        <button
+          className="viewer-control viewer-menu"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          {menuOpen ? "Close tools" : "Tools"}
+        </button>
+        <button
+          className="viewer-stop"
+          onClick={() => {
+            stop.current();
+            onClose();
+          }}
+        >
+          {ended
+            ? "Close"
+            : grant.source === "desktop"
+              ? controlling || controlReady
+                ? "Stop control"
+                : "Stop viewing"
+              : "Stop video test"}
+        </button>
+        <div className="viewer-actions" hidden={!menuOpen}>
+          <p className="viewer-actions-title">Tools</p>
           <label className="viewer-scale">
             Scale
             <select
@@ -1803,21 +1826,6 @@ export function LiveView({
               {iceError !== null && <p>ICE server error code: {iceError}</p>}
             </div>
           </details>
-          <button
-            className="viewer-stop"
-            onClick={() => {
-              stop.current();
-              onClose();
-            }}
-          >
-            {ended
-              ? "Close"
-              : grant.source === "desktop"
-                ? controlling || controlReady
-                  ? "Stop control"
-                  : "Stop viewing"
-                : "Stop video test"}
-          </button>
         </div>
       </header>
       <div

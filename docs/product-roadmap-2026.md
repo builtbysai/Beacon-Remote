@@ -550,6 +550,15 @@ Each item is built and pushed; the test needs a step only the owner can do. Pick
   to the room's background level (peak 0.0045, matching the 0.0046 measured before pausing). The tone was not playing for
   this run, so the comparison is silence (0) against background noise (about 0.005), not against a loud sound.
 
+First pass done (20 Nov): the toolbar is now a slim header (status dot, device name, "Connected / Paused / Connecting /
+Ended" and access in plain words, a Tools button and the one red Stop button, always visible). Every other control moved
+into a Tools drawer that slides in from the right (full width on phones), one control per row with large touch targets;
+Scale, Sound, Keyboard, access request, Back/Home/Recents, clipboard, Unlock phone, chat, Full screen, Send file,
+recording and Connection details are all there, so the picture now has the whole screen. Checked on the live Pixel at a
+desktop window and at 390x844. Still to do from the plan: group the drawer into labelled sections (Navigate, Clipboard,
+Files, Chat, Record, Unlock), permission requests as a sheet, clearer paused/ended overlays, a light theme, and
+before/after screenshots kept with the docs.
+
 - File transfer resume, phone to viewer (20 Nov, built, not tested): the viewer already asks to carry on from a byte
   offset with the hash of what it holds; the Android sender ignored that and always started over. It now skips the
   first bytes only if their SHA-256 matches what the viewer sent, otherwise it answers "failed / resume" (the viewer
@@ -597,7 +606,7 @@ Each item is built and pushed; the test needs a step only the owner can do. Pick
   Not yet tried on the device: the paste button, a fresh install with the "restricted setting" block, and the
   notification and access steps from the card.
 
-## Viewer redesign (added 20 Nov at the owner's request, not started)
+## Viewer redesign (added 20 Nov at the owner's request; first pass done 20 Nov)
 
 Redesign the whole web viewer screen, its buttons, UX and UI, in the same system as the new Android app (paper and ink,
 one blue, large tight headlines, bottom sheets, one clear action per step). The owner's screenshot of a live phone
