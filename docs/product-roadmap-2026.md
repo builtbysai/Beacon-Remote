@@ -620,3 +620,9 @@ device name, state and one Stop control; (3) grouped, collapsible tools (Navigat
 Unlock) in a side panel or sheets instead of a toolbar; (4) the picture centred and sized to fit, with a clear
 connecting, paused and ended state; (5) permission requests as a sheet with plain wording; (6) keyboard and touch
 targets checked, light and dark; (7) before and after screenshots on a desktop window and a phone-width window.
+
+- File transfer resume, phone to viewer, PASSED on the Pixel (20 Nov, build 6b8679bb+): a 120 MB file offered by the
+  phone was cut mid-transfer by turning Wi-Fi off for 10 s. The viewer showed "Download interrupted... Reconnect to
+  resume", the session resumed by itself, the phone offered the same file again and the viewer's button read "Resume
+  download" (earlier builds showed "Save" and threw the partial copy away). Pressing it finished the file: the viewer
+  reported "Received" and the phone logged "done" after the SHA-256 check. This closes the earlier open item.
