@@ -1,88 +1,103 @@
 /*
- * The remote viewer. One calm frame around the device's picture:
- *   header   device, state, connection quality, Tools, End session
- *   stage    the picture, centred, as large as fits
- *   dock     the controls used all the time, floating over the bottom of the picture
- *   tools    everything else, in one panel that opens on demand (grouped, one control per row)
- *   footer   one line of status
- * It follows the app's light or dark appearance (data-theme); the picture area is always dark.
+ * The remote viewer: one dark, quiet workspace built around the device's picture.
+ *
+ *   ┌─ top bar: back · device · state ·············· Details · End session ─┐
+ *   │ notices (only when something needs saying)                            │
+ *   ├────────┬──────────────────────────────────────────┬───────────────────┤
+ *   │  rail  │            the picture, as large          │  side panel       │
+ *   │  icons │            as it fits                     │  session + tools  │
+ *   └────────┴──────────────────────────────────────────┴───────────────────┘
+ *
+ * Everything sits beside the picture, nothing floats over it. The viewer is always dark, like a video surface;
+ * the workspace around it keeps the app's own light or dark appearance.
  */
 .live-view {
-  --stage: #0d0f11;
-  --stage-ink: #c3c8c8;
-  --pop: 0 18px 48px rgb(0 0 0 / 0.28), 0 2px 8px rgb(0 0 0 / 0.12);
+  --v-bg: #0c0e11;
+  --v-panel: #14171b;
+  --v-raise: #1b1f25;
+  --v-hover: #232830;
+  --v-line: #262b33;
+  --v-text: #e9ecf0;
+  --v-muted: #8d96a2;
+  --v-faint: #606872;
+  --v-accent: #6a96ff;
+  --v-accent-wash: rgb(106 150 255 / 0.15);
+  --v-red: #e5484d;
+  --v-green: #3ad29f;
+  --v-amber: #e6b04c;
   position: fixed;
   inset: 0;
   z-index: 20;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   margin: 0;
   padding: 0;
-  background: var(--bg);
-  color: var(--text);
+  background: var(--v-bg);
+  color: var(--v-text);
   font-size: 13px;
   line-height: 1.4;
+  color-scheme: dark;
 }
 .live-view.minimized {
   display: none;
 }
+.live-view button {
+  font-family: inherit;
+}
 
-/* ---- Header ------------------------------------------------------------------------------------------------- */
+/* ---- Top bar ------------------------------------------------------------------------------------------------ */
 .live-view .viewer-toolbar {
-  position: relative;
-  z-index: 3;
-  flex: none;
   display: flex;
   align-items: center;
-  gap: 10px;
   flex-wrap: nowrap;
-  height: 56px;
-  padding: 0 14px 0 10px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--line);
+  gap: 10px;
+  height: 52px;
+  padding: 0 12px 0 8px;
+  background: var(--v-panel);
+  border-bottom: 1px solid var(--v-line);
 }
 .live-view .viewer-back {
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 36px;
+  gap: 2px;
+  height: 34px;
+  min-height: 0;
   padding: 0 12px 0 6px;
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--muted);
+  color: var(--v-muted);
   font-weight: 600;
 }
 .live-view .viewer-back:hover {
-  background: var(--soft);
-  color: var(--text);
+  background: var(--v-hover);
+  color: var(--v-text);
 }
 .live-view .viewer-identity {
-  flex: 0 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 10px;
-}
-.live-view .viewer-back + .viewer-identity {
-  padding-left: 12px;
-  border-left: 1px solid var(--line);
 }
 .live-view .viewer-dot {
   flex: none;
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: #d9a441;
+  background: var(--v-amber);
+  box-shadow: 0 0 0 4px rgb(230 176 76 / 0.16);
 }
 .live-view[data-state="viewing"] .viewer-dot {
-  background: var(--green);
+  background: var(--v-green);
+  box-shadow: 0 0 0 4px rgb(58 210 159 / 0.16);
 }
 .live-view[data-state="ended"] .viewer-dot {
-  background: var(--faint);
+  background: var(--v-faint);
+  box-shadow: none;
 }
 .live-view .viewer-identity-text {
   min-width: 0;
@@ -101,105 +116,162 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--muted);
+  color: var(--v-muted);
   font-size: 12px;
 }
-.live-view .viewer-live {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 12px;
-  border-radius: 999px;
-  background: var(--soft);
-  color: var(--muted);
-  font-size: 12px;
-  white-space: nowrap;
-}
-.live-view .viewer-live strong {
-  color: var(--text);
-  font-weight: 650;
-}
-.live-view .viewer-live-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--green);
+.live-view .viewer-spacer {
+  flex: 1;
 }
 .live-view .viewer-menu {
-  margin-left: auto;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  min-height: 0;
+  padding: 0 12px;
+  border: 1px solid var(--v-line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--v-muted);
+  font-weight: 600;
+}
+.live-view .viewer-menu:hover {
+  background: var(--v-hover);
+  color: var(--v-text);
 }
 .live-view .viewer-menu[aria-expanded="true"] {
-  background: var(--bluewash);
+  background: var(--v-accent-wash);
   border-color: transparent;
-  color: var(--blue);
+  color: var(--v-accent);
 }
 .live-view .viewer-stop {
   flex: none;
-  height: 36px;
-  padding: 0 14px;
-  border: 1px solid color-mix(in srgb, var(--red) 40%, transparent);
+  height: 34px;
+  min-height: 0;
+  padding: 0 16px;
+  border: 0;
   border-radius: 8px;
-  background: var(--redwash);
-  color: var(--red);
+  background: var(--v-red);
+  color: #fff;
   font-weight: 650;
 }
 .live-view .viewer-stop:hover {
-  background: color-mix(in srgb, var(--red) 16%, var(--surface));
+  background: #f0555a;
+}
+.live-view .stop-short {
+  display: none;
 }
 
-/* ---- Buttons ------------------------------------------------------------------------------------------------ */
-.live-view .viewer-control,
-.live-view .viewer-diagnostics summary {
-  display: inline-flex;
+/* ---- Notices: only when something needs saying -------------------------------------------------------------- */
+.live-view .viewer-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding: 8px 16px;
+  background: var(--v-raise);
+  border-bottom: 1px solid var(--v-line);
+  color: var(--v-muted);
+  font-size: 12.5px;
+}
+.live-view .viewer-status[hidden] {
+  display: none;
+}
+.live-view .viewer-status [role="alert"] {
+  color: var(--v-red);
+}
+.live-view .viewer-recording {
+  color: var(--v-red);
+  font-weight: 650;
+}
+
+/* ---- Body: rail, picture, side panel ------------------------------------------------------------------------ */
+.live-view .v-body {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* The rail: controls used all the time, one icon and one word each. */
+.live-view .viewer-rail {
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 78px;
+  padding: 10px 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--v-panel);
+  border-right: 1px solid var(--v-line);
+}
+.live-view .rail-button {
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  min-height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text);
+  gap: 5px;
+  width: 62px;
+  min-height: 0;
+  padding: 9px 0 7px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--v-muted);
+  font-size: 10.5px;
   font-weight: 600;
-  font-size: 13px;
-  white-space: nowrap;
+  line-height: 1.1;
 }
-.live-view .viewer-control:hover,
-.live-view .viewer-diagnostics summary:hover {
-  background: var(--soft);
+.live-view .rail-button svg {
+  width: 22px;
+  height: 22px;
 }
-.live-view .viewer-control:disabled {
-  opacity: 0.45;
+.live-view .rail-button:hover {
+  background: var(--v-hover);
+  color: var(--v-text);
+}
+.live-view .rail-button[aria-pressed="true"] {
+  background: var(--v-accent-wash);
+  color: var(--v-accent);
+}
+.live-view .rail-button.danger[aria-pressed="true"] {
+  background: rgb(229 72 77 / 0.16);
+  color: #ff777c;
+}
+.live-view .rail-button:disabled {
+  opacity: 0.35;
   cursor: not-allowed;
 }
-.live-view .viewer-control svg {
-  color: var(--muted);
+.live-view .rail-rule {
+  width: 34px;
+  height: 1px;
+  margin: 7px 0;
+  background: var(--v-line);
 }
 
-/* ---- Stage -------------------------------------------------------------------------------------------------- */
+/* The picture */
 .live-view .viewer-stage {
+  grid-column: 2;
   position: relative;
-  flex: 1;
+  min-width: 0;
   min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 14px 14px 76px;
+  padding: 18px;
   overflow: hidden;
-  background: radial-gradient(
-    120% 90% at 50% 40%,
-    #1a1e21 0%,
-    var(--stage) 70%
-  );
+  background: var(--v-bg);
 }
 .live-view .viewer-stage video {
   display: block;
   background: #000;
-  border-radius: 12px;
-  box-shadow: 0 10px 40px rgb(0 0 0 / 0.55);
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 1px var(--v-line),
+    0 24px 64px rgb(0 0 0 / 0.55);
 }
 .live-view .viewer-stage.fit video {
   height: 100%;
@@ -219,14 +291,16 @@
   max-height: none;
   margin: auto;
 }
+
+/* States and prompts over the picture */
 .live-view .viewer-placeholder,
 .live-view .viewer-paused,
 .live-view .viewer-sheet {
-  border: 1px solid var(--line);
+  border: 1px solid var(--v-line);
   border-radius: 16px;
-  background: var(--surface);
-  color: var(--text);
-  box-shadow: var(--pop);
+  background: var(--v-raise);
+  color: var(--v-text);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.5);
 }
 .live-view .viewer-placeholder {
   position: absolute;
@@ -237,7 +311,7 @@
   flex-direction: column;
   align-items: center;
   gap: 14px;
-  width: min(360px, calc(100% - 32px));
+  width: min(340px, calc(100% - 32px));
   padding: 28px;
   text-align: center;
   font-size: 15px;
@@ -248,8 +322,8 @@
   content: "";
   width: 28px;
   height: 28px;
-  border: 3px solid var(--line);
-  border-top-color: var(--blue);
+  border: 3px solid var(--v-line);
+  border-top-color: var(--v-accent);
   border-radius: 50%;
   animation: viewer-spin 0.9s linear infinite;
 }
@@ -258,7 +332,7 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: var(--faint);
+  background: var(--v-faint);
 }
 @keyframes viewer-spin {
   to {
@@ -272,47 +346,47 @@
 }
 .live-view .viewer-paused {
   position: absolute;
-  inset: 50% auto auto 50%;
+  left: 50%;
+  top: 50%;
   transform: translate(-50%, -50%);
-  width: min(380px, calc(100% - 32px));
+  width: min(360px, calc(100% - 32px));
   margin: 0;
   padding: 22px 24px;
-  font-size: 15px;
+  font-size: 14px;
   text-align: center;
 }
 .live-view .viewer-paused::before {
   content: "Paused";
   display: block;
   margin-bottom: 6px;
-  color: #b9852a;
-  font-size: 12px;
+  color: var(--v-amber);
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 .live-view .viewer-play {
   position: absolute;
   left: 50%;
-  bottom: 88px;
+  bottom: 28px;
   transform: translateX(-50%);
   padding: 11px 22px;
   border: 0;
   border-radius: 999px;
-  background: var(--blue);
-  color: #fff;
+  background: var(--v-accent);
+  color: #0c0e11;
   font-size: 14px;
-  font-weight: 650;
-  box-shadow: var(--pop);
+  font-weight: 700;
 }
 .live-view .viewer-sheet {
   position: absolute;
   left: 50%;
-  bottom: 88px;
+  bottom: 24px;
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   gap: 8px;
-  width: min(460px, calc(100% - 24px));
+  width: min(440px, calc(100% - 32px));
   padding: 18px 20px;
   font-size: 14px;
 }
@@ -320,83 +394,25 @@
   font-size: 15px;
 }
 .live-view .viewer-sheet span {
-  color: var(--muted);
+  color: var(--v-muted);
 }
 .live-view .viewer-sheet .viewer-control {
   align-self: flex-start;
 }
 
-/* ---- Dock: the controls used all the time ------------------------------------------------------------------- */
-.live-view .viewer-dock {
-  position: fixed;
-  left: 50%;
-  bottom: 44px;
-  transform: translateX(-50%);
-  z-index: 6;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  max-width: calc(100vw - 16px);
-  padding: 6px;
-  overflow-x: auto;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--surface);
-  box-shadow: var(--pop);
-}
-.live-view .dock-button {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--muted);
-}
-.live-view .dock-button:hover {
-  background: var(--soft);
-  color: var(--text);
-}
-.live-view .dock-button[aria-pressed="true"] {
-  background: var(--bluewash);
-  color: var(--blue);
-}
-.live-view .dock-button.danger[aria-pressed="true"] {
-  background: var(--redwash);
-  color: var(--red);
-}
-.live-view .dock-button:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-.live-view .dock-rule {
-  flex: none;
-  width: 1px;
-  height: 22px;
-  margin: 0 6px;
-  background: var(--line);
-}
-
-/* ---- Tools panel: everything else, grouped ------------------------------------------------------------------ */
+/* ---- Side panel: the session, then the tools ---------------------------------------------------------------- */
 .live-view .viewer-actions {
-  position: fixed;
-  z-index: 8;
-  top: 64px;
-  right: 14px;
-  bottom: 44px;
-  width: 348px;
+  grid-column: 3;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 8px;
-  padding: 16px;
+  width: 340px;
+  min-height: 0;
+  padding: 18px 16px 24px;
   overflow-y: auto;
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  background: var(--surface);
-  box-shadow: var(--pop);
+  background: var(--v-panel);
+  border-left: 1px solid var(--v-line);
 }
 .live-view .viewer-actions[hidden] {
   display: none;
@@ -405,21 +421,46 @@
   order: 90;
   flex-shrink: 0;
 }
-.live-view .viewer-actions-title {
-  order: 0 !important;
-  margin: 0 0 2px;
-  font-size: 16px;
+.live-view .viewer-actions > .v-session {
+  order: 0;
+}
+.live-view .v-session-title,
+.live-view .viewer-actions > .viewer-group {
+  margin: 0 0 4px;
+  color: var(--v-faint);
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.live-view .v-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0;
+}
+.live-view .v-stats > div {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--v-raise);
+  min-width: 0;
+}
+.live-view .v-stats dt {
+  margin: 0 0 3px;
+  color: var(--v-muted);
+  font-size: 11px;
+}
+.live-view .v-stats dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
 .live-view .viewer-actions > [data-g="view"] {
   order: 11;
-}
-.live-view .viewer-actions > [data-g="nav"] {
-  order: 21;
-}
-.live-view .viewer-actions > [data-g="clip"] {
-  order: 31;
 }
 .live-view .viewer-actions > [data-g="unlock"] {
   order: 41;
@@ -434,26 +475,12 @@
   order: 71;
 }
 .live-view .viewer-actions > .viewer-group {
-  margin: 12px 0 0;
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
-  color: var(--faint);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--v-line);
 }
 .live-view .viewer-actions > .viewer-group[data-g="view"] {
   order: 10;
-  margin-top: 2px;
-  padding-top: 0;
-  border-top: 0;
-}
-.live-view .viewer-actions > .viewer-group[data-g="nav"] {
-  order: 20;
-}
-.live-view .viewer-actions > .viewer-group[data-g="clip"] {
-  order: 30;
 }
 .live-view .viewer-actions > .viewer-group[data-g="unlock"] {
   order: 40;
@@ -467,36 +494,58 @@
 .live-view .viewer-actions > .viewer-group[data-g="access"] {
   order: 70;
 }
-.live-view .viewer-actions .viewer-control,
-.live-view .viewer-actions .viewer-sound,
-.live-view .viewer-actions .viewer-diagnostics summary {
-  width: 100%;
-  min-height: 40px;
+.live-view .viewer-actions [data-dup] {
+  display: none;
+}
+
+/* Controls inside the panel */
+.live-view .viewer-control,
+.live-view .viewer-diagnostics summary {
+  display: inline-flex;
+  align-items: center;
   justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
   padding: 0 14px;
-  white-space: normal;
+  border: 1px solid var(--v-line);
+  border-radius: 9px;
+  background: var(--v-raise);
+  color: var(--v-text);
+  font-weight: 600;
+  font-size: 13px;
   text-align: left;
+}
+.live-view .viewer-status .viewer-control,
+.live-view .viewer-sheet .viewer-control {
+  width: auto;
+  min-height: 30px;
+}
+.live-view .viewer-control:hover,
+.live-view .viewer-diagnostics summary:hover {
+  background: var(--v-hover);
+}
+.live-view .viewer-control:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .live-view .viewer-actions .viewer-sound {
   display: flex;
   align-items: center;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text);
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--v-line);
+  border-radius: 9px;
+  background: var(--v-raise);
+  color: var(--v-text);
   font-weight: 600;
-}
-.live-view .viewer-actions .viewer-sound[aria-pressed="true"] {
-  background: var(--bluewash);
-  color: var(--blue);
-  border-color: transparent;
 }
 .live-view .viewer-scale {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  color: var(--muted);
+  color: var(--v-muted);
   font-size: 13px;
 }
 .live-view .viewer-scale:has(button) {
@@ -508,15 +557,15 @@
 .live-view .viewer-actions .viewer-chat input {
   min-height: 38px;
   padding: 0 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text);
+  border: 1px solid var(--v-line);
+  border-radius: 9px;
+  background: var(--v-raise);
+  color: var(--v-text);
   font-size: 13px;
 }
 .live-view .viewer-scale select {
   width: auto;
-  min-width: 90px;
+  min-width: 96px;
 }
 .live-view .viewer-scale:has(button) select {
   width: 100%;
@@ -528,7 +577,7 @@
 }
 .live-view .viewer-actions .note {
   margin: 0;
-  color: var(--muted);
+  color: var(--v-muted);
   font-size: 12px;
 }
 .live-view .viewer-diagnostics summary {
@@ -541,63 +590,35 @@
 .live-view .viewer-diagnostics-panel {
   margin-top: 8px;
   padding: 14px;
-  border: 1px solid var(--line);
   border-radius: 12px;
-  background: var(--soft);
+  background: var(--v-raise);
 }
 .live-view .viewer-diagnostics-panel p {
   margin: 0 0 8px;
-  color: var(--muted);
+  color: var(--v-muted);
   font-size: 12px;
   line-height: 1.5;
 }
-
-/* The phone's lock-screen pieces, in the viewer's own colours. */
 .live-view .viewer-replica {
-  background: var(--soft);
-  border-color: var(--line);
+  background: var(--v-raise);
+  border-color: var(--v-line);
 }
 .live-view .viewer-replica .replica-key,
 .live-view .pattern-dot {
-  border-color: var(--line);
-  background: var(--surface);
-  color: var(--text);
+  border-color: var(--v-line);
+  background: var(--v-hover);
+  color: var(--v-text);
 }
 .live-view .pattern-dot[aria-pressed="true"] {
   border-color: transparent;
-  background: var(--blue);
-  color: #fff;
+  background: var(--v-accent);
+  color: #0c0e11;
 }
 .live-view .viewer-replica .replica-text {
-  color: var(--text);
+  color: var(--v-text);
 }
 
-/* ---- Footer ------------------------------------------------------------------------------------------------- */
-.live-view .viewer-status {
-  position: relative;
-  z-index: 3;
-  flex: none;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 16px;
-  min-height: 32px;
-  padding: 4px 16px calc(4px + env(safe-area-inset-bottom));
-  border-top: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--muted);
-  font-size: 12px;
-  text-align: left;
-}
-.live-view .viewer-status [role="alert"] {
-  color: var(--red);
-}
-.live-view .viewer-recording {
-  color: var(--red);
-  font-weight: 650;
-}
-
-/* ---- Back to devices: the connected pill -------------------------------------------------------------------- */
+/* ---- Back to devices: the connected pill (lives in the workspace, so it uses the app's own colours) ----------- */
 .live-pill {
   position: fixed;
   z-index: 30;
@@ -623,6 +644,7 @@
 }
 .live-pill button {
   height: 32px;
+  min-height: 0;
   padding: 0 14px;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -635,80 +657,88 @@
   background: var(--soft);
 }
 .live-pill button.live-pill-end {
-  border-color: color-mix(in srgb, var(--red) 40%, transparent);
-  background: var(--redwash);
-  color: var(--red);
+  border-color: transparent;
+  background: var(--red);
+  color: #fff;
 }
 
-/* ---- Narrow windows and phones ------------------------------------------------------------------------------ */
-@media (max-width: 1000px) {
-  .live-view .viewer-live {
-    display: none;
+/* ---- Laptops: the side panel floats over the picture's edge instead of squeezing it --------------------------- */
+@media (max-width: 1100px) {
+  .live-view .viewer-actions {
+    position: fixed;
+    z-index: 8;
+    top: 60px;
+    right: 10px;
+    bottom: 10px;
+    width: 340px;
+    border: 1px solid var(--v-line);
+    border-radius: 16px;
+    box-shadow: 0 24px 64px rgb(0 0 0 / 0.6);
   }
 }
-@media (max-width: 650px) {
+
+/* ---- Phones: picture on top, the rail along the bottom, the panel as a sheet ---------------------------------- */
+@media (max-width: 700px) {
   .live-view .viewer-toolbar {
-    padding: 0 10px 0 6px;
     gap: 6px;
+    padding: 0 10px 0 4px;
   }
   .live-view .viewer-back span,
   .live-view .viewer-menu span {
     display: none;
   }
   .live-view .viewer-back {
-    padding: 0 6px;
-  }
-  .live-view .viewer-menu {
-    min-width: 36px;
     padding: 0 8px;
   }
-  .live-view .viewer-stop {
-    padding: 0 12px;
+  .live-view .viewer-menu {
+    padding: 0 10px;
   }
-  .live-view .viewer-stage {
-    padding: 8px 8px 72px;
-  }
-  .live-view .viewer-stage video {
-    border-radius: 8px;
-  }
-  .live-view .viewer-actions {
-    top: auto;
-    right: 8px;
-    left: 8px;
-    bottom: 8px;
-    width: auto;
-    max-height: 72dvh;
-    z-index: 9;
-  }
-  .live-view .viewer-dock {
-    bottom: 38px;
-  }
-}
-
-/* Controls that already sit in the dock are not repeated in the tools panel. */
-.live-view .viewer-actions [data-dup] {
-  display: none;
-}
-.live-view .stop-short {
-  display: none;
-}
-@media (max-width: 650px) {
   .live-view .stop-long {
     display: none;
   }
   .live-view .stop-short {
     display: inline;
   }
-}
-
-/* The app's global header and button rules must not stretch the viewer's own bar. */
-.live-view .viewer-toolbar {
-  flex-wrap: nowrap;
-  gap: 10px;
-}
-.live-view .viewer-back,
-.live-view .viewer-stop,
-.live-view .dock-button,
-.live-view .live-pill button {
-  min-height: 0;
+  .live-view .v-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  .live-view .viewer-stage {
+    grid-column: 1;
+    grid-row: 1;
+    padding: 8px;
+  }
+  .live-view .viewer-stage video {
+    border-radius: 10px;
+  }
+  .live-view .viewer-rail {
+    grid-column: 1;
+    grid-row: 2;
+    flex-direction: row;
+    width: auto;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    border-top: 1px solid var(--v-line);
+  }
+  .live-view .rail-button {
+    flex: none;
+    width: 58px;
+  }
+  .live-view .rail-rule {
+    flex: none;
+    width: 1px;
+    height: 34px;
+    margin: 0 6px;
+  }
+  .live-view .viewer-actions {
+    top: auto;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: auto;
+    max-height: 72dvh;
+    z-index: 9;
+  }
 }

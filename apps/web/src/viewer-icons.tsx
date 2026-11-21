@@ -23,6 +23,8 @@ const paths: Record<string, string> = {
   device:
     "M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM11 18h2",
   end: "M6 6l12 12M18 6L6 18",
+  panel:
+    "M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM15 5v14",
 };
 
 export function ViewerIcon({ name }: { name: keyof typeof paths | string }) {

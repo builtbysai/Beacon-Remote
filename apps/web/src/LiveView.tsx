@@ -83,7 +83,24 @@ export function displayName(display: DisplayInfo): string {
   return `Display ${number} · ${display.width}×${display.height}${display.primary ? " · main" : ""}`;
 }
 
-function DockButton({
+const shortLabels: Record<string, string> = {
+  "Recent apps": "Recents",
+  "Copy from phone": "Copy",
+  "Copy from computer": "Copy",
+  "Send clipboard to phone": "Paste",
+  "Send a file": "Send file",
+  "Unlock phone": "Unlock",
+  "Talk through phone": "Talk",
+  "Stop talking": "Talking",
+  "Sound on": "Sound",
+  "Sound off": "Sound",
+  Record: "Record",
+  "Stop recording": "Stop",
+  "Full screen": "Full screen",
+  "Exit full screen": "Full screen",
+};
+
+function RailButton({
   icon,
   label,
   onClick,
@@ -100,9 +117,8 @@ function DockButton({
 }) {
   return (
     <button
-      data-dup
       type="button"
-      className={`dock-button${danger ? " danger" : ""}`}
+      className={`rail-button${danger ? " danger" : ""}`}
       aria-label={label}
       title={label}
       aria-pressed={pressed}
@@ -110,6 +126,7 @@ function DockButton({
       onClick={onClick}
     >
       <ViewerIcon name={icon} />
+      <span>{shortLabels[label] ?? label}</span>
     </button>
   );
 }
@@ -516,7 +533,9 @@ export function LiveView({
     window.matchMedia("(pointer: coarse)").matches;
   const compact = isFullscreen && touchDevice;
 
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(
+    () => typeof window !== "undefined" && window.innerWidth >= 1200,
+  );
   useEffect(() => {
     if (!compact) {
       setMenuOpen(false);
@@ -1195,17 +1214,15 @@ export function LiveView({
   // A pending transport replacement must never suppress Stop on navigation or
   // unmount. This cleanup does not run between attempts of the same grant.
   useEffect(() => () => stop.current(), [grant]);
-  const qualityLine =
-    route !== "Not established" && frames > 0
-      ? [
-          route,
-          pictureHeight ? `${pictureHeight}p` : null,
-          presentedFps === null ? null : `${Math.round(presentedFps)} fps`,
-          roundTripMillis === null ? null : `${Math.round(roundTripMillis)} ms`,
-        ]
-          .filter(Boolean)
-          .join(" · ")
-      : "";
+  const hasNotice =
+    ended ||
+    peerPaused ||
+    frames === 0 ||
+    Boolean(permissionView.status) ||
+    recordingSince !== null ||
+    Boolean(offer) ||
+    Boolean(transfer) ||
+    Boolean(displayError);
   const sendNav = (action: string) =>
     video.current?.dispatchEvent(
       new CustomEvent("beacon-nav", { detail: action }),
@@ -1273,20 +1290,15 @@ export function LiveView({
             </span>
           </div>
         </div>
-        {qualityLine && !ended && (
-          <div className="viewer-live" title="Connection quality">
-            <span className="viewer-live-dot" aria-hidden="true" />
-            <strong>Live</strong>
-            <span>{qualityLine}</span>
-          </div>
-        )}
+        <div className="viewer-spacer" />
         <button
-          className="viewer-control viewer-menu"
+          className="viewer-menu"
           aria-expanded={menuOpen}
+          title={menuOpen ? "Hide the side panel" : "Show the side panel"}
           onClick={() => setMenuOpen((open) => !open)}
         >
-          <ViewerIcon name="more" />
-          <span>{menuOpen ? "Close" : "Tools"}</span>
+          <ViewerIcon name="panel" />
+          <span>Details</span>
         </button>
         <button
           className="viewer-stop"
@@ -1304,8 +1316,287 @@ export function LiveView({
             </>
           )}
         </button>
-        <div className="viewer-actions" hidden={!menuOpen}>
-          <p className="viewer-actions-title">Tools</p>
+      </header>
+      <div className="viewer-status" hidden={!hasNotice}>
+        <span role="status" data-decoded-frames={frames}>
+          {status}
+        </span>
+        {!permissionView.canCancel && (
+          <span role="status">{permissionView.status}</span>
+        )}
+        {recordingSince !== null && (
+          <span role="status" className="viewer-recording">
+            ● Recording{" "}
+            {(() => {
+              const seconds = Math.max(
+                0,
+                Math.floor(
+                  ((recordingClock || Date.now()) - recordingSince) / 1000,
+                ),
+              );
+              return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+            })()}
+          </span>
+        )}
+        {offer && (
+          <span role="status" className="viewer-transfer">
+            {phoneHost ? "The phone" : "The computer"} wants to send{" "}
+            {offer.name} (
+            {(offer.size / 1_048_576).toFixed(offer.size < 10_485_760 ? 1 : 0)}{" "}
+            MB).{" "}
+            <button
+              className="viewer-control"
+              onClick={() => sender.current?.accept(offer)}
+            >
+              {downloads.current.has(offer) ? "Resume download" : "Save"}
+            </button>{" "}
+            <button
+              className="viewer-control"
+              onClick={() => sender.current?.decline(offer)}
+            >
+              Decline
+            </button>
+          </span>
+        )}
+        {transfer && (
+          <span role="status" className="viewer-transfer">
+            {transferLine(transfer)}
+            {transfer.status === "interrupted" && (
+              <button
+                className="viewer-control"
+                onClick={() => {
+                  downloads.current.clear();
+                  setTransfer(null);
+                }}
+              >
+                Discard partial copy
+              </button>
+            )}
+            {(transfer.status === "sending" ||
+              transfer.status === "waiting" ||
+              transfer.status === "receiving") && (
+              <>
+                {" "}
+                <button
+                  className="viewer-control"
+                  onClick={() => sender.current?.cancel()}
+                >
+                  Cancel
+                </button>
+              </>
+            )}
+          </span>
+        )}
+        {displayError && <span role="alert">{displayError}</span>}
+      </div>
+      <div className="v-body">
+        {!ended && !minimized && frames > 0 && (
+          <div
+            className="viewer-rail"
+            role="toolbar"
+            aria-label="Device controls"
+          >
+            {controlReady && phoneHost && (
+              <>
+                <RailButton
+                  icon="back"
+                  label="Back"
+                  onClick={() => sendNav("back")}
+                />
+                <RailButton
+                  icon="home"
+                  label="Home"
+                  onClick={() => sendNav("home")}
+                />
+                <RailButton
+                  icon="recents"
+                  label="Recent apps"
+                  onClick={() => sendNav("recents")}
+                />
+                <span className="rail-rule" aria-hidden="true" />
+              </>
+            )}
+            {controlReady && (
+              <RailButton
+                icon="keyboard"
+                label="Keyboard"
+                onClick={() =>
+                  video.current?.dispatchEvent(new Event("beacon-keyboard"))
+                }
+              />
+            )}
+            {controlReady && (
+              <RailButton
+                icon="copyFrom"
+                label={phoneHost ? "Copy from phone" : "Copy from computer"}
+                disabled={clipboardMode === "off"}
+                onClick={() =>
+                  video.current?.dispatchEvent(
+                    new Event("beacon-clipboard-read"),
+                  )
+                }
+              />
+            )}
+            {controlReady && phoneHost && (
+              <RailButton
+                icon="sendTo"
+                label="Send clipboard to phone"
+                disabled={clipboardMode === "off"}
+                onClick={() =>
+                  video.current?.dispatchEvent(
+                    new Event("beacon-clipboard-write"),
+                  )
+                }
+              />
+            )}
+            {fileReady && (
+              <RailButton
+                icon="file"
+                label="Send a file"
+                disabled={transfer?.status === "sending"}
+                onClick={() => fileInput.current?.click()}
+              />
+            )}
+            {controlReady && phoneHost && (
+              <>
+                <span className="rail-rule" aria-hidden="true" />
+                <RailButton
+                  icon="lock"
+                  label="Unlock phone"
+                  pressed={padOpen}
+                  onClick={() => {
+                    setPadOpen((open) => !open);
+                    setMenuOpen(true);
+                  }}
+                />
+                {talkReady && (
+                  <RailButton
+                    icon="mic"
+                    label={
+                      talkState === "on" ? "Stop talking" : "Talk through phone"
+                    }
+                    pressed={talkState === "on"}
+                    onClick={() => void toggleTalk()}
+                  />
+                )}
+              </>
+            )}
+            <span className="rail-rule" aria-hidden="true" />
+            {hasSound && (
+              <RailButton
+                icon={soundOn ? "sound" : "mute"}
+                label={soundOn ? "Sound on" : "Sound off"}
+                pressed={soundOn}
+                onClick={() => {
+                  const next = !soundOn;
+                  if (video.current) video.current.muted = !next;
+                  setSoundOn(next);
+                }}
+              />
+            )}
+            {recordingAllowed && (
+              <RailButton
+                icon="record"
+                label={recordingSince === null ? "Record" : "Stop recording"}
+                pressed={recordingSince !== null}
+                danger={recordingSince !== null}
+                onClick={() =>
+                  recordingSince === null ? startRecording() : stopRecording()
+                }
+              />
+            )}
+            <RailButton
+              icon="fullscreen"
+              label={isFullscreen ? "Exit full screen" : "Full screen"}
+              pressed={isFullscreen}
+              onClick={() => void toggleFullscreen()}
+            />
+          </div>
+        )}
+        <div
+          className={`viewer-stage ${scale}`}
+          onDragOver={(event) => {
+            if (fileReady) event.preventDefault();
+          }}
+          onDrop={(event) => {
+            if (!fileReady) return;
+            event.preventDefault();
+            if (event.dataTransfer.files.length)
+              void sendFiles(event.dataTransfer.files);
+          }}
+        >
+          <video
+            ref={video}
+            autoPlay
+            muted
+            playsInline
+            tabIndex={controlReady && !ended ? 0 : -1}
+            className={controlReady && !ended ? "input-enabled" : undefined}
+            aria-label={
+              grant.source === "desktop"
+                ? "Remote device video"
+                : "Synthetic test video"
+            }
+          />
+          {(frames === 0 || ended) && (
+            <p className="viewer-placeholder" aria-hidden="true">
+              {status}
+            </p>
+          )}
+          {peerPaused && !ended && (
+            <p className="viewer-paused" role="status">
+              Sharing is paused by the person using this device. Screen and
+              input resume when they choose.
+            </p>
+          )}
+          {permissionView.canCancel && !ended && (
+            <div className="viewer-sheet" role="status">
+              <strong>Waiting for the person to answer</strong>
+              <span>{permissionView.status}</span>
+              <button
+                className="viewer-control"
+                onClick={() => permissions.current?.cancel()}
+              >
+                Cancel access request
+              </button>
+            </div>
+          )}
+          {needsPlay && !ended && (
+            <button className="viewer-play" onClick={() => void play.current()}>
+              Play video
+            </button>
+          )}
+        </div>
+        <div className="viewer-actions" id="viewer-panel" hidden={!menuOpen}>
+          <div className="v-session" data-g="session">
+            <p className="v-session-title">Session</p>
+            <dl className="v-stats">
+              <div>
+                <dt>Route</dt>
+                <dd>{route === "Not established" ? "—" : route}</dd>
+              </div>
+              <div>
+                <dt>Picture</dt>
+                <dd>{pictureHeight ? `${pictureHeight}p` : "—"}</dd>
+              </div>
+              <div>
+                <dt>Speed</dt>
+                <dd>
+                  {presentedFps === null
+                    ? "—"
+                    : `${Math.round(presentedFps)} fps`}
+                </dd>
+              </div>
+              <div>
+                <dt>Delay</dt>
+                <dd>
+                  {roundTripMillis === null
+                    ? "—"
+                    : `${Math.round(roundTripMillis)} ms`}
+                </dd>
+              </div>
+            </dl>
+          </div>
           <p className="viewer-group" data-g="view" data-label>
             View
           </p>
@@ -1976,6 +2267,7 @@ export function LiveView({
             </button>
           )}
           <button
+            data-dup
             data-g="view"
             className="viewer-control"
             onClick={async () => {
@@ -2081,260 +2373,7 @@ export function LiveView({
             </div>
           </details>
         </div>
-      </header>
-      <div
-        className={`viewer-stage ${scale}`}
-        onDragOver={(event) => {
-          if (fileReady) event.preventDefault();
-        }}
-        onDrop={(event) => {
-          if (!fileReady) return;
-          event.preventDefault();
-          if (event.dataTransfer.files.length)
-            void sendFiles(event.dataTransfer.files);
-        }}
-      >
-        <video
-          ref={video}
-          autoPlay
-          muted
-          playsInline
-          tabIndex={controlReady && !ended ? 0 : -1}
-          className={controlReady && !ended ? "input-enabled" : undefined}
-          aria-label={
-            grant.source === "desktop"
-              ? "Remote device video"
-              : "Synthetic test video"
-          }
-        />
-        {(frames === 0 || ended) && (
-          <p className="viewer-placeholder" aria-hidden="true">
-            {status}
-          </p>
-        )}
-        {peerPaused && !ended && (
-          <p className="viewer-paused" role="status">
-            Sharing is paused by the person using this device. Screen and input
-            resume when they choose.
-          </p>
-        )}
-        {permissionView.canCancel && !ended && (
-          <div className="viewer-sheet" role="status">
-            <strong>Waiting for the person to answer</strong>
-            <span>{permissionView.status}</span>
-            <button
-              className="viewer-control"
-              onClick={() => permissions.current?.cancel()}
-            >
-              Cancel access request
-            </button>
-          </div>
-        )}
-        {needsPlay && !ended && (
-          <button className="viewer-play" onClick={() => void play.current()}>
-            Play video
-          </button>
-        )}
       </div>
-      {!ended && !minimized && frames > 0 && (
-        <div
-          className="viewer-dock"
-          role="toolbar"
-          aria-label="Device controls"
-        >
-          {controlReady && phoneHost && (
-            <>
-              <DockButton
-                icon="back"
-                label="Back"
-                onClick={() => sendNav("back")}
-              />
-              <DockButton
-                icon="home"
-                label="Home"
-                onClick={() => sendNav("home")}
-              />
-              <DockButton
-                icon="recents"
-                label="Recent apps"
-                onClick={() => sendNav("recents")}
-              />
-              <span className="dock-rule" aria-hidden="true" />
-            </>
-          )}
-          {controlReady && (
-            <DockButton
-              icon="keyboard"
-              label="Keyboard"
-              onClick={() =>
-                video.current?.dispatchEvent(new Event("beacon-keyboard"))
-              }
-            />
-          )}
-          {controlReady && (
-            <DockButton
-              icon="copyFrom"
-              label={phoneHost ? "Copy from phone" : "Copy from computer"}
-              disabled={clipboardMode === "off"}
-              onClick={() =>
-                video.current?.dispatchEvent(new Event("beacon-clipboard-read"))
-              }
-            />
-          )}
-          {controlReady && phoneHost && (
-            <DockButton
-              icon="sendTo"
-              label="Send clipboard to phone"
-              disabled={clipboardMode === "off"}
-              onClick={() =>
-                video.current?.dispatchEvent(
-                  new Event("beacon-clipboard-write"),
-                )
-              }
-            />
-          )}
-          {fileReady && (
-            <DockButton
-              icon="file"
-              label="Send a file"
-              disabled={transfer?.status === "sending"}
-              onClick={() => fileInput.current?.click()}
-            />
-          )}
-          {controlReady && phoneHost && (
-            <>
-              <span className="dock-rule" aria-hidden="true" />
-              <DockButton
-                icon="lock"
-                label="Unlock phone"
-                pressed={padOpen}
-                onClick={() => {
-                  setPadOpen((open) => !open);
-                  setMenuOpen(true);
-                }}
-              />
-              {talkReady && (
-                <DockButton
-                  icon="mic"
-                  label={
-                    talkState === "on" ? "Stop talking" : "Talk through phone"
-                  }
-                  pressed={talkState === "on"}
-                  onClick={() => void toggleTalk()}
-                />
-              )}
-            </>
-          )}
-          <span className="dock-rule" aria-hidden="true" />
-          {hasSound && (
-            <DockButton
-              icon={soundOn ? "sound" : "mute"}
-              label={soundOn ? "Sound on" : "Sound off"}
-              pressed={soundOn}
-              onClick={() => {
-                const next = !soundOn;
-                if (video.current) video.current.muted = !next;
-                setSoundOn(next);
-              }}
-            />
-          )}
-          {recordingAllowed && (
-            <DockButton
-              icon="record"
-              label={recordingSince === null ? "Record" : "Stop recording"}
-              pressed={recordingSince !== null}
-              danger={recordingSince !== null}
-              onClick={() =>
-                recordingSince === null ? startRecording() : stopRecording()
-              }
-            />
-          )}
-          <DockButton
-            icon="fullscreen"
-            label={isFullscreen ? "Exit full screen" : "Full screen"}
-            pressed={isFullscreen}
-            onClick={() => void toggleFullscreen()}
-          />
-          <DockButton
-            icon="more"
-            label="All tools"
-            pressed={menuOpen}
-            onClick={() => setMenuOpen((open) => !open)}
-          />
-        </div>
-      )}
-      <footer className="viewer-status">
-        <span role="status" data-decoded-frames={frames}>
-          {status}
-        </span>
-        {!permissionView.canCancel && (
-          <span role="status">{permissionView.status}</span>
-        )}
-        {recordingSince !== null && (
-          <span role="status" className="viewer-recording">
-            ● Recording{" "}
-            {(() => {
-              const seconds = Math.max(
-                0,
-                Math.floor(
-                  ((recordingClock || Date.now()) - recordingSince) / 1000,
-                ),
-              );
-              return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-            })()}
-          </span>
-        )}
-        {offer && (
-          <span role="status" className="viewer-transfer">
-            {phoneHost ? "The phone" : "The computer"} wants to send{" "}
-            {offer.name} (
-            {(offer.size / 1_048_576).toFixed(offer.size < 10_485_760 ? 1 : 0)}{" "}
-            MB).{" "}
-            <button
-              className="viewer-control"
-              onClick={() => sender.current?.accept(offer)}
-            >
-              {downloads.current.has(offer) ? "Resume download" : "Save"}
-            </button>{" "}
-            <button
-              className="viewer-control"
-              onClick={() => sender.current?.decline(offer)}
-            >
-              Decline
-            </button>
-          </span>
-        )}
-        {transfer && (
-          <span role="status" className="viewer-transfer">
-            {transferLine(transfer)}
-            {transfer.status === "interrupted" && (
-              <button
-                className="viewer-control"
-                onClick={() => {
-                  downloads.current.clear();
-                  setTransfer(null);
-                }}
-              >
-                Discard partial copy
-              </button>
-            )}
-            {(transfer.status === "sending" ||
-              transfer.status === "waiting" ||
-              transfer.status === "receiving") && (
-              <>
-                {" "}
-                <button
-                  className="viewer-control"
-                  onClick={() => sender.current?.cancel()}
-                >
-                  Cancel
-                </button>
-              </>
-            )}
-          </span>
-        )}
-        {displayError && <span role="alert">{displayError}</span>}
-      </footer>
     </section>
   );
 }

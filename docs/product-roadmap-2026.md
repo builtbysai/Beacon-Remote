@@ -637,6 +637,15 @@ Owner feedback round (21 Nov, after the first real pairing and use on production
   light and dark following the app's appearance, a phone-width layout; the computer list and inspector were also
   restyled (device avatar, one clear Remote action, details in quiet groups).
 
+Viewer and computers page rebuilt from scratch (21 Nov, after the owner called the first redesign unusable). The
+first version floated white chrome and a dock over a black stage, and the controls sat far from the picture. Now: one
+dark workspace (always dark, like a video surface) with a slim top bar (back to devices, device and state, Details, End
+session), a left rail of labelled icon controls, the picture as large as fits, and a side panel docked beside it
+(session stats, then scale, messages, files and access requests; it opens by default on wide windows and floats on
+laptops). Notices appear in a bar under the top bar only when there is something to say. On phones the rail runs along
+the bottom and the panel is a sheet. The computers page is a grid of device cards (avatar, status, access, last seen,
+one Connect button) and a device's details slide over from the right instead of squeezing the list.
+
 - File transfer resume, phone to viewer (20 Nov, built, not tested): the viewer already asks to carry on from a byte
   offset with the hash of what it holds; the Android sender ignored that and always started over. It now skips the
   first bytes only if their SHA-256 matches what the viewer sent, otherwise it answers "failed / resume" (the viewer
