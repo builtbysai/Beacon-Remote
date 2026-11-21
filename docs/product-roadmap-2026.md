@@ -646,6 +646,20 @@ laptops). Notices appear in a bar under the top bar only when there is something
 the bottom and the panel is a sheet. The computers page is a grid of device cards (avatar, status, access, last seen,
 one Connect button) and a device's details slide over from the right instead of squeezing the list.
 
+Owner direction (21 Nov, late): keep the viewer-screen redesign, undo the computers-page and inspector redesign (done,
+original restored), show Unlock only at the lock screen (done: the phone reports locked/unlocked and the viewer offers
+Unlock only while locked), and focus on speed before any more visual work. Speed: the cause of the sluggishness is that
+a no-prompt session can only take screenshots, which Android limits to about three a second. New "Fast screen sharing"
+switch on the phone's Access tab: with Android's own screen-capture confirmation given once (the prompt is forced to
+"entire screen" on Android 14+; it needs repeating after a restart) an always-on capture feeds every unattended
+session smooth video, with Android's cast icon and a Beacon notification ("Fast screen sharing is on", Turn off)
+showing the whole time; nothing leaves the phone until a viewer connects, and the newest picture is kept and resent so a
+still screen still shows. Measured on the Android Studio emulator over the test relay: tap-to-picture 161, 496, 94, 501,
+306, 93, 297, 161 ms (median about 230) against 840, 1039, 268, 510, 418, 471, 282, 349 ms (median about 430) with
+screenshots. Not measured on the Pixel yet, nor with moving video. A first build crashed (the video library was not
+loaded in this mode) and a second showed nothing on a still screen; both fixed. Remaining slowness to look at next:
+the relay hop (the viewer forces a relayed path), encoder settings under motion, and the 1.1-1.5 s outliers.
+
 - File transfer resume, phone to viewer (20 Nov, built, not tested): the viewer already asks to carry on from a byte
   offset with the hash of what it holds; the Android sender ignored that and always started over. It now skips the
   first bytes only if their SHA-256 matches what the viewer sent, otherwise it answers "failed / resume" (the viewer
