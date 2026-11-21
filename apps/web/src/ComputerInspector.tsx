@@ -1,3 +1,4 @@
+import { ViewerIcon } from "./viewer-icons";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { Machine } from "@beacon-remote/protocol";
 import { api } from "./api.js";
@@ -191,29 +192,36 @@ export function ComputerInspector({
           ×
         </button>
       </div>
-      <h2 className="inspector-name">{machine.name}</h2>
+      <div className="inspector-hero">
+        <span className="inspector-avatar" aria-hidden="true">
+          <ViewerIcon name="device" />
+        </span>
+        <div className="inspector-hero-text">
+          <h2 className="inspector-name">{machine.name}</h2>
+          <p
+            className={`inspector-state${machine.online && !stale && !machine.revokedAt ? " is-online" : ""}`}
+          >
+            <span className="inspector-status-dot" aria-hidden="true" />
+            {machine.revokedAt
+              ? "Access revoked"
+              : stale
+                ? "Status unavailable"
+                : machine.online
+                  ? "Online"
+                  : machine.bootState === "locked"
+                    ? "Locked"
+                    : machine.bootState === "signed-out"
+                      ? "Windows sign-in needed"
+                      : machine.bootState === "starting"
+                        ? "Starting desktop host"
+                        : "Offline"}
+          </p>
+        </div>
+      </div>
       <details className="inspector-identity">
         <summary>Device ID</summary>
         <p className="inspector-machine-id">{machine.id}</p>
       </details>
-      <p
-        className={`inspector-state${machine.online && !stale && !machine.revokedAt ? " is-online" : ""}`}
-      >
-        <span className="inspector-status-dot" aria-hidden="true" />
-        {machine.revokedAt
-          ? "Access revoked"
-          : stale
-            ? "Status unavailable"
-            : machine.online
-              ? "Online"
-              : machine.bootState === "locked"
-                ? "Locked"
-                : machine.bootState === "signed-out"
-                  ? "Windows sign-in needed"
-                  : machine.bootState === "starting"
-                    ? "Starting desktop host"
-                    : "Offline"}
-      </p>
       {displays.length > 1 && (
         <label className="inspector-display">
           Display

@@ -1,0 +1,714 @@
+/*
+ * The remote viewer. One calm frame around the device's picture:
+ *   header   device, state, connection quality, Tools, End session
+ *   stage    the picture, centred, as large as fits
+ *   dock     the controls used all the time, floating over the bottom of the picture
+ *   tools    everything else, in one panel that opens on demand (grouped, one control per row)
+ *   footer   one line of status
+ * It follows the app's light or dark appearance (data-theme); the picture area is always dark.
+ */
+.live-view {
+  --stage: #0d0f11;
+  --stage-ink: #c3c8c8;
+  --pop: 0 18px 48px rgb(0 0 0 / 0.28), 0 2px 8px rgb(0 0 0 / 0.12);
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.live-view.minimized {
+  display: none;
+}
+
+/* ---- Header ------------------------------------------------------------------------------------------------- */
+.live-view .viewer-toolbar {
+  position: relative;
+  z-index: 3;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: nowrap;
+  height: 56px;
+  padding: 0 14px 0 10px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.live-view .viewer-back {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 12px 0 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+}
+.live-view .viewer-back:hover {
+  background: var(--soft);
+  color: var(--text);
+}
+.live-view .viewer-identity {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.live-view .viewer-back + .viewer-identity {
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
+}
+.live-view .viewer-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #d9a441;
+}
+.live-view[data-state="viewing"] .viewer-dot {
+  background: var(--green);
+}
+.live-view[data-state="ended"] .viewer-dot {
+  background: var(--faint);
+}
+.live-view .viewer-identity-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.live-view .viewer-identity-text strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.live-view .viewer-identity-text span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
+}
+.live-view .viewer-live {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--soft);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.live-view .viewer-live strong {
+  color: var(--text);
+  font-weight: 650;
+}
+.live-view .viewer-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+}
+.live-view .viewer-menu {
+  margin-left: auto;
+}
+.live-view .viewer-menu[aria-expanded="true"] {
+  background: var(--bluewash);
+  border-color: transparent;
+  color: var(--blue);
+}
+.live-view .viewer-stop {
+  flex: none;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--red) 40%, transparent);
+  border-radius: 8px;
+  background: var(--redwash);
+  color: var(--red);
+  font-weight: 650;
+}
+.live-view .viewer-stop:hover {
+  background: color-mix(in srgb, var(--red) 16%, var(--surface));
+}
+
+/* ---- Buttons ------------------------------------------------------------------------------------------------ */
+.live-view .viewer-control,
+.live-view .viewer-diagnostics summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.live-view .viewer-control:hover,
+.live-view .viewer-diagnostics summary:hover {
+  background: var(--soft);
+}
+.live-view .viewer-control:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.live-view .viewer-control svg {
+  color: var(--muted);
+}
+
+/* ---- Stage -------------------------------------------------------------------------------------------------- */
+.live-view .viewer-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 14px 76px;
+  overflow: hidden;
+  background: radial-gradient(
+    120% 90% at 50% 40%,
+    #1a1e21 0%,
+    var(--stage) 70%
+  );
+}
+.live-view .viewer-stage video {
+  display: block;
+  background: #000;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgb(0 0 0 / 0.55);
+}
+.live-view .viewer-stage.fit video {
+  height: 100%;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+}
+.live-view .viewer-stage.actual {
+  display: block;
+  overflow: auto;
+  text-align: center;
+}
+.live-view .viewer-stage.actual video {
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  margin: auto;
+}
+.live-view .viewer-placeholder,
+.live-view .viewer-paused,
+.live-view .viewer-sheet {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--pop);
+}
+.live-view .viewer-placeholder {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: min(360px, calc(100% - 32px));
+  padding: 28px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 600;
+  pointer-events: none;
+}
+.live-view[data-state="connecting"] .viewer-placeholder::before {
+  content: "";
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--line);
+  border-top-color: var(--blue);
+  border-radius: 50%;
+  animation: viewer-spin 0.9s linear infinite;
+}
+.live-view[data-state="ended"] .viewer-placeholder::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+@keyframes viewer-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-view[data-state="connecting"] .viewer-placeholder::before {
+    animation: none;
+  }
+}
+.live-view .viewer-paused {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  width: min(380px, calc(100% - 32px));
+  margin: 0;
+  padding: 22px 24px;
+  font-size: 15px;
+  text-align: center;
+}
+.live-view .viewer-paused::before {
+  content: "Paused";
+  display: block;
+  margin-bottom: 6px;
+  color: #b9852a;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.live-view .viewer-play {
+  position: absolute;
+  left: 50%;
+  bottom: 88px;
+  transform: translateX(-50%);
+  padding: 11px 22px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 650;
+  box-shadow: var(--pop);
+}
+.live-view .viewer-sheet {
+  position: absolute;
+  left: 50%;
+  bottom: 88px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(460px, calc(100% - 24px));
+  padding: 18px 20px;
+  font-size: 14px;
+}
+.live-view .viewer-sheet strong {
+  font-size: 15px;
+}
+.live-view .viewer-sheet span {
+  color: var(--muted);
+}
+.live-view .viewer-sheet .viewer-control {
+  align-self: flex-start;
+}
+
+/* ---- Dock: the controls used all the time ------------------------------------------------------------------- */
+.live-view .viewer-dock {
+  position: fixed;
+  left: 50%;
+  bottom: 44px;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: calc(100vw - 16px);
+  padding: 6px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--pop);
+}
+.live-view .dock-button {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+}
+.live-view .dock-button:hover {
+  background: var(--soft);
+  color: var(--text);
+}
+.live-view .dock-button[aria-pressed="true"] {
+  background: var(--bluewash);
+  color: var(--blue);
+}
+.live-view .dock-button.danger[aria-pressed="true"] {
+  background: var(--redwash);
+  color: var(--red);
+}
+.live-view .dock-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.live-view .dock-rule {
+  flex: none;
+  width: 1px;
+  height: 22px;
+  margin: 0 6px;
+  background: var(--line);
+}
+
+/* ---- Tools panel: everything else, grouped ------------------------------------------------------------------ */
+.live-view .viewer-actions {
+  position: fixed;
+  z-index: 8;
+  top: 64px;
+  right: 14px;
+  bottom: 44px;
+  width: 348px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 16px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--pop);
+}
+.live-view .viewer-actions[hidden] {
+  display: none;
+}
+.live-view .viewer-actions > * {
+  order: 90;
+  flex-shrink: 0;
+}
+.live-view .viewer-actions-title {
+  order: 0 !important;
+  margin: 0 0 2px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.live-view .viewer-actions > [data-g="view"] {
+  order: 11;
+}
+.live-view .viewer-actions > [data-g="nav"] {
+  order: 21;
+}
+.live-view .viewer-actions > [data-g="clip"] {
+  order: 31;
+}
+.live-view .viewer-actions > [data-g="unlock"] {
+  order: 41;
+}
+.live-view .viewer-actions > [data-g="chat"] {
+  order: 51;
+}
+.live-view .viewer-actions > [data-g="files"] {
+  order: 61;
+}
+.live-view .viewer-actions > [data-g="access"] {
+  order: 71;
+}
+.live-view .viewer-actions > .viewer-group {
+  margin: 12px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.live-view .viewer-actions > .viewer-group[data-g="view"] {
+  order: 10;
+  margin-top: 2px;
+  padding-top: 0;
+  border-top: 0;
+}
+.live-view .viewer-actions > .viewer-group[data-g="nav"] {
+  order: 20;
+}
+.live-view .viewer-actions > .viewer-group[data-g="clip"] {
+  order: 30;
+}
+.live-view .viewer-actions > .viewer-group[data-g="unlock"] {
+  order: 40;
+}
+.live-view .viewer-actions > .viewer-group[data-g="chat"] {
+  order: 50;
+}
+.live-view .viewer-actions > .viewer-group[data-g="files"] {
+  order: 60;
+}
+.live-view .viewer-actions > .viewer-group[data-g="access"] {
+  order: 70;
+}
+.live-view .viewer-actions .viewer-control,
+.live-view .viewer-actions .viewer-sound,
+.live-view .viewer-actions .viewer-diagnostics summary {
+  width: 100%;
+  min-height: 40px;
+  justify-content: flex-start;
+  padding: 0 14px;
+  white-space: normal;
+  text-align: left;
+}
+.live-view .viewer-actions .viewer-sound {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+}
+.live-view .viewer-actions .viewer-sound[aria-pressed="true"] {
+  background: var(--bluewash);
+  color: var(--blue);
+  border-color: transparent;
+}
+.live-view .viewer-scale {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.live-view .viewer-scale:has(button) {
+  flex-direction: column;
+  align-items: stretch;
+}
+.live-view .viewer-scale select,
+.live-view .viewer-actions input[type="text"],
+.live-view .viewer-actions .viewer-chat input {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+}
+.live-view .viewer-scale select {
+  width: auto;
+  min-width: 90px;
+}
+.live-view .viewer-scale:has(button) select {
+  width: 100%;
+}
+.live-view .viewer-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.live-view .viewer-actions .note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.live-view .viewer-diagnostics summary {
+  cursor: pointer;
+  list-style: none;
+}
+.live-view .viewer-diagnostics summary::-webkit-details-marker {
+  display: none;
+}
+.live-view .viewer-diagnostics-panel {
+  margin-top: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--soft);
+}
+.live-view .viewer-diagnostics-panel p {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* The phone's lock-screen pieces, in the viewer's own colours. */
+.live-view .viewer-replica {
+  background: var(--soft);
+  border-color: var(--line);
+}
+.live-view .viewer-replica .replica-key,
+.live-view .pattern-dot {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--text);
+}
+.live-view .pattern-dot[aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--blue);
+  color: #fff;
+}
+.live-view .viewer-replica .replica-text {
+  color: var(--text);
+}
+
+/* ---- Footer ------------------------------------------------------------------------------------------------- */
+.live-view .viewer-status {
+  position: relative;
+  z-index: 3;
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  min-height: 32px;
+  padding: 4px 16px calc(4px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  text-align: left;
+}
+.live-view .viewer-status [role="alert"] {
+  color: var(--red);
+}
+.live-view .viewer-recording {
+  color: var(--red);
+  font-weight: 650;
+}
+
+/* ---- Back to devices: the connected pill -------------------------------------------------------------------- */
+.live-pill {
+  position: fixed;
+  z-index: 30;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 8px 8px 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 0.22);
+  font-size: 13px;
+}
+.live-pill-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--green);
+}
+.live-pill button {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 12px;
+}
+.live-pill button:hover {
+  background: var(--soft);
+}
+.live-pill button.live-pill-end {
+  border-color: color-mix(in srgb, var(--red) 40%, transparent);
+  background: var(--redwash);
+  color: var(--red);
+}
+
+/* ---- Narrow windows and phones ------------------------------------------------------------------------------ */
+@media (max-width: 1000px) {
+  .live-view .viewer-live {
+    display: none;
+  }
+}
+@media (max-width: 650px) {
+  .live-view .viewer-toolbar {
+    padding: 0 10px 0 6px;
+    gap: 6px;
+  }
+  .live-view .viewer-back span,
+  .live-view .viewer-menu span {
+    display: none;
+  }
+  .live-view .viewer-back {
+    padding: 0 6px;
+  }
+  .live-view .viewer-menu {
+    min-width: 36px;
+    padding: 0 8px;
+  }
+  .live-view .viewer-stop {
+    padding: 0 12px;
+  }
+  .live-view .viewer-stage {
+    padding: 8px 8px 72px;
+  }
+  .live-view .viewer-stage video {
+    border-radius: 8px;
+  }
+  .live-view .viewer-actions {
+    top: auto;
+    right: 8px;
+    left: 8px;
+    bottom: 8px;
+    width: auto;
+    max-height: 72dvh;
+    z-index: 9;
+  }
+  .live-view .viewer-dock {
+    bottom: 38px;
+  }
+}
+
+/* Controls that already sit in the dock are not repeated in the tools panel. */
+.live-view .viewer-actions [data-dup] {
+  display: none;
+}
+.live-view .stop-short {
+  display: none;
+}
+@media (max-width: 650px) {
+  .live-view .stop-long {
+    display: none;
+  }
+  .live-view .stop-short {
+    display: inline;
+  }
+}
+
+/* The app's global header and button rules must not stretch the viewer's own bar. */
+.live-view .viewer-toolbar {
+  flex-wrap: nowrap;
+  gap: 10px;
+}
+.live-view .viewer-back,
+.live-view .viewer-stop,
+.live-view .dock-button,
+.live-view .live-pill button {
+  min-height: 0;
+}

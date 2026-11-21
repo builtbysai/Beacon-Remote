@@ -613,6 +613,30 @@ Android-era backend work) replaced 5e8d5c5 on remote.builtbysai.com after an enc
 passing, both containers healthy and the new web assets served. The production database was already empty (0 accounts,
 computers, sessions), so the requested wipe deleted nothing; sign-up is open. Details: docs/deployment.md.
 
+Owner feedback round (21 Nov, after the first real pairing and use on production), all built:
+
+- Video: the unattended path (the Pixel's "Connect without asking") now converts each screenshot with libyuv instead of a
+  per-pixel loop, keeps the phone's own resolution up to 1920 on the long side (it was 720 and heavily scaled), asks for
+  the next picture straight away (Android allows about three per second) and the encoder is told to hold resolution and
+  rise to 16 Mbps (screen text was blurry at the default start rate). Attended sharing uses 1920 instead of 1280, and the
+  viewer plays each picture without extra playout delay. Not measured yet on the user's phone: the next round of owner
+  use will say. The hard limit is Android's own: a screenshot-based session cannot exceed about 3 pictures a second; a
+  smoother mode would need a standing screen-capture permission (a visible cast icon at all times), which is a product
+  decision, not built.
+- Back to the device list without ending the session: "Devices" in the viewer header hides the viewer and shows a small
+  connected pill (Return / End) on the list.
+- Setup after pairing: the pairing screen has one up-front choice ("Connect without asking", on by default); after
+  Pair, setup starts by itself (notifications, background running, accessibility), and "connect without asking" is
+  applied when those are in place. The fourth manual step is gone.
+- Pairing: the phone can show its own code (typed into Add a computer in the workspace, checked and approved there; new
+  /api/device-pairing routes, in-memory for ten minutes, covered by tests), and the phone can scan the workspace's QR
+  code (Google's code scanner; scanned link pairs at once).
+- Viewer screen redesigned again: a header (back to devices, device, live quality pill, Tools, End session), the
+  picture centred with rounded corners and a floating dock of icon controls (Back, Home, Recents, keyboard, copy and
+  send clipboard, send file, unlock, talk, sound, record, full screen, all tools), a grouped tools panel for the rest,
+  light and dark following the app's appearance, a phone-width layout; the computer list and inspector were also
+  restyled (device avatar, one clear Remote action, details in quiet groups).
+
 - File transfer resume, phone to viewer (20 Nov, built, not tested): the viewer already asks to carry on from a byte
   offset with the hash of what it holds; the Android sender ignored that and always started over. It now skips the
   first bytes only if their SHA-256 matches what the viewer sent, otherwise it answers "failed / resume" (the viewer

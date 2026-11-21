@@ -1,4 +1,5 @@
 import { talkMids } from "./talk-line";
+import { ViewerIcon } from "./viewer-icons";
 import { classifyConnectionRoute } from "./connection-route";
 import {
   FileSender,
@@ -80,6 +81,37 @@ function transferLine(transfer: Transfer): string {
 export function displayName(display: DisplayInfo): string {
   const number = display.id.replace(/^\\\\\.\\DISPLAY/, "");
   return `Display ${number} · ${display.width}×${display.height}${display.primary ? " · main" : ""}`;
+}
+
+function DockButton({
+  icon,
+  label,
+  onClick,
+  pressed,
+  disabled,
+  danger,
+}: {
+  icon: string;
+  label: string;
+  onClick: () => void;
+  pressed?: boolean;
+  disabled?: boolean;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      data-dup
+      type="button"
+      className={`dock-button${danger ? " danger" : ""}`}
+      aria-label={label}
+      title={label}
+      aria-pressed={pressed}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <ViewerIcon name={icon} />
+    </button>
+  );
 }
 
 export function LiveView({
@@ -483,6 +515,7 @@ export function LiveView({
     typeof window.matchMedia === "function" &&
     window.matchMedia("(pointer: coarse)").matches;
   const compact = isFullscreen && touchDevice;
+
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => {
     if (!compact) {
@@ -653,7 +686,7 @@ export function LiveView({
             setStatus(
               grant.source === "desktop"
                 ? controlling && controlGranted
-                  ? "Connected — click the desktop to control. Escape releases input."
+                  ? "Connected — click the screen to control it. Escape releases input."
                   : controlling
                     ? "Connected — view only. Control was not allowed on the computer."
                     : "Connected — view only."
@@ -697,7 +730,7 @@ export function LiveView({
           setControlReady(ready);
           if (upgraded && ready)
             setStatus(
-              "Connected — click the desktop to control. Escape releases input.",
+              "Connected — click the screen to control it. Escape releases input.",
             );
         },
         () => {
@@ -860,7 +893,7 @@ export function LiveView({
         setStatus(
           grant.source === "desktop"
             ? controlling && controlGranted
-              ? "Connected — click the desktop to control. Escape releases input."
+              ? "Connected — click the screen to control it. Escape releases input."
               : controlling
                 ? "Connected — view only. Control was not allowed on the computer."
                 : "Connected — view only."
@@ -1162,6 +1195,30 @@ export function LiveView({
   // A pending transport replacement must never suppress Stop on navigation or
   // unmount. This cleanup does not run between attempts of the same grant.
   useEffect(() => () => stop.current(), [grant]);
+  const qualityLine =
+    route !== "Not established" && frames > 0
+      ? [
+          route,
+          pictureHeight ? `${pictureHeight}p` : null,
+          presentedFps === null ? null : `${Math.round(presentedFps)} fps`,
+          roundTripMillis === null ? null : `${Math.round(roundTripMillis)} ms`,
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : "";
+  const sendNav = (action: string) =>
+    video.current?.dispatchEvent(
+      new CustomEvent("beacon-nav", { detail: action }),
+    );
+  const toggleFullscreen = async () => {
+    try {
+      if (isFullscreen) await document.exitFullscreen();
+      else await shell.current?.requestFullscreen();
+      setDisplayError("");
+    } catch {
+      setDisplayError("Full screen is unavailable in this browser.");
+    }
+  };
   return (
     <section
       ref={shell}
@@ -1183,42 +1240,53 @@ export function LiveView({
       <header className={`viewer-toolbar${compact ? " compact" : ""}`}>
         {onMinimize && (
           <button
-            className="viewer-control viewer-back"
+            className="viewer-back"
             title="Back to your devices. The session stays connected."
             onClick={() => {
               setMenuOpen(false);
               onMinimize();
             }}
           >
-            ← Devices
+            <ViewerIcon name="back" />
+            <span>Devices</span>
           </button>
         )}
         <div className="viewer-identity">
           <span className="viewer-dot" aria-hidden="true" />
-          <strong>{name}</strong>
-          <span>
-            {ended
-              ? "Ended"
-              : peerPaused
-                ? "Paused"
-                : frames > 0
-                  ? "Connected"
-                  : "Connecting"}
-            {" · "}
-            {grant.source === "desktop"
-              ? controlling || controlReady
-                ? "Mouse and keyboard"
-                : "View only"
-              : "Video test"}
-            {grant.expiresAtMillis === 0 ? " · Until stopped" : ""}
-          </span>
+          <div className="viewer-identity-text">
+            <strong>{name}</strong>
+            <span>
+              {ended
+                ? "Ended"
+                : peerPaused
+                  ? "Paused"
+                  : frames > 0
+                    ? "Connected"
+                    : "Connecting"}
+              {" · "}
+              {grant.source === "desktop"
+                ? controlling || controlReady
+                  ? "Mouse and keyboard"
+                  : "View only"
+                : "Video test"}
+              {grant.expiresAtMillis === 0 ? " · Until stopped" : ""}
+            </span>
+          </div>
         </div>
+        {qualityLine && !ended && (
+          <div className="viewer-live" title="Connection quality">
+            <span className="viewer-live-dot" aria-hidden="true" />
+            <strong>Live</strong>
+            <span>{qualityLine}</span>
+          </div>
+        )}
         <button
           className="viewer-control viewer-menu"
           aria-expanded={menuOpen}
           onClick={() => setMenuOpen((open) => !open)}
         >
-          {menuOpen ? "Close tools" : "Tools"}
+          <ViewerIcon name="more" />
+          <span>{menuOpen ? "Close" : "Tools"}</span>
         </button>
         <button
           className="viewer-stop"
@@ -1227,30 +1295,21 @@ export function LiveView({
             onClose();
           }}
         >
-          {ended
-            ? "Close"
-            : grant.source === "desktop"
-              ? controlling || controlReady
-                ? "Stop control"
-                : "Stop viewing"
-              : "Stop video test"}
+          {ended ? (
+            "Close"
+          ) : (
+            <>
+              <span className="stop-long">End session</span>
+              <span className="stop-short">End</span>
+            </>
+          )}
         </button>
         <div className="viewer-actions" hidden={!menuOpen}>
           <p className="viewer-actions-title">Tools</p>
           <p className="viewer-group" data-g="view" data-label>
             View
           </p>
-          {controlReady && (
-            <p className="viewer-group" data-g="nav" data-label>
-              Control
-            </p>
-          )}
-          {controlReady && (
-            <p className="viewer-group" data-g="clip" data-label>
-              Clipboard
-            </p>
-          )}
-          {controlReady && phoneHost && (
+          {controlReady && phoneHost && padOpen && (
             <p className="viewer-group" data-g="unlock" data-label>
               Lock screen
             </p>
@@ -1260,7 +1319,7 @@ export function LiveView({
               Message
             </p>
           )}
-          {(fileReady || driveReady || printReady) && (
+          {(driveReady || printReady) && (
             <p className="viewer-group" data-g="files" data-label>
               Files
             </p>
@@ -1305,6 +1364,7 @@ export function LiveView({
           )}
           {hasSound && (
             <button
+              data-dup
               data-g="view"
               className="secondary viewer-sound"
               aria-pressed={soundOn}
@@ -1320,6 +1380,7 @@ export function LiveView({
           )}
           {controlReady && (
             <button
+              data-dup
               data-g="nav"
               className="viewer-control"
               title="Open your keyboard to type on the remote computer"
@@ -1377,6 +1438,7 @@ export function LiveView({
               <button
                 key={action}
                 data-g="nav"
+                data-dup
                 className="viewer-control"
                 title={title}
                 onClick={() =>
@@ -1553,6 +1615,7 @@ export function LiveView({
           )}
           {controlReady && (
             <button
+              data-dup
               data-g="clip"
               className="viewer-control"
               disabled={clipboardMode === "off"}
@@ -1572,6 +1635,7 @@ export function LiveView({
           )}
           {controlReady && phoneHost && (
             <button
+              data-dup
               data-g="clip"
               className="viewer-control"
               disabled={clipboardMode === "off"}
@@ -1591,6 +1655,7 @@ export function LiveView({
           )}
           {controlReady && phoneHost && (
             <button
+              data-dup
               data-g="unlock"
               className="viewer-control"
               aria-expanded={padOpen}
@@ -1863,6 +1928,7 @@ export function LiveView({
           )}
           {controlReady && phoneHost && talkReady && (
             <button
+              data-dup
               data-g="chat"
               className="viewer-control"
               aria-pressed={talkState === "on"}
@@ -1890,13 +1956,13 @@ export function LiveView({
             </p>
           )}
           {controlReady && phoneHost && clipboardMode === "auto" && (
-            <span data-g="clip" className="viewer-note">
+            <span data-dup data-g="clip" className="viewer-note">
               Clipboard syncs automatically.
             </span>
           )}
           {controlReady && !phoneHost && (
             <button
-              data-g="nav"
+              data-g="view"
               className="viewer-control"
               aria-pressed={touchMode === "direct"}
               title="Trackpad moves the cursor like a laptop touchpad. Touch acts where you tap."
@@ -1926,6 +1992,7 @@ export function LiveView({
           </button>
           {recordingAllowed && (
             <button
+              data-dup
               data-g="view"
               className="viewer-control"
               title="Record this session in your browser. The person using the device is told while it records."
@@ -1939,6 +2006,7 @@ export function LiveView({
           {fileReady && (
             <>
               <button
+                data-dup
                 data-g="files"
                 className="viewer-control"
                 title="Send a file to this computer. It is saved in Downloads\Beacon Remote."
@@ -2068,6 +2136,133 @@ export function LiveView({
           </button>
         )}
       </div>
+      {!ended && !minimized && frames > 0 && (
+        <div
+          className="viewer-dock"
+          role="toolbar"
+          aria-label="Device controls"
+        >
+          {controlReady && phoneHost && (
+            <>
+              <DockButton
+                icon="back"
+                label="Back"
+                onClick={() => sendNav("back")}
+              />
+              <DockButton
+                icon="home"
+                label="Home"
+                onClick={() => sendNav("home")}
+              />
+              <DockButton
+                icon="recents"
+                label="Recent apps"
+                onClick={() => sendNav("recents")}
+              />
+              <span className="dock-rule" aria-hidden="true" />
+            </>
+          )}
+          {controlReady && (
+            <DockButton
+              icon="keyboard"
+              label="Keyboard"
+              onClick={() =>
+                video.current?.dispatchEvent(new Event("beacon-keyboard"))
+              }
+            />
+          )}
+          {controlReady && (
+            <DockButton
+              icon="copyFrom"
+              label={phoneHost ? "Copy from phone" : "Copy from computer"}
+              disabled={clipboardMode === "off"}
+              onClick={() =>
+                video.current?.dispatchEvent(new Event("beacon-clipboard-read"))
+              }
+            />
+          )}
+          {controlReady && phoneHost && (
+            <DockButton
+              icon="sendTo"
+              label="Send clipboard to phone"
+              disabled={clipboardMode === "off"}
+              onClick={() =>
+                video.current?.dispatchEvent(
+                  new Event("beacon-clipboard-write"),
+                )
+              }
+            />
+          )}
+          {fileReady && (
+            <DockButton
+              icon="file"
+              label="Send a file"
+              disabled={transfer?.status === "sending"}
+              onClick={() => fileInput.current?.click()}
+            />
+          )}
+          {controlReady && phoneHost && (
+            <>
+              <span className="dock-rule" aria-hidden="true" />
+              <DockButton
+                icon="lock"
+                label="Unlock phone"
+                pressed={padOpen}
+                onClick={() => {
+                  setPadOpen((open) => !open);
+                  setMenuOpen(true);
+                }}
+              />
+              {talkReady && (
+                <DockButton
+                  icon="mic"
+                  label={
+                    talkState === "on" ? "Stop talking" : "Talk through phone"
+                  }
+                  pressed={talkState === "on"}
+                  onClick={() => void toggleTalk()}
+                />
+              )}
+            </>
+          )}
+          <span className="dock-rule" aria-hidden="true" />
+          {hasSound && (
+            <DockButton
+              icon={soundOn ? "sound" : "mute"}
+              label={soundOn ? "Sound on" : "Sound off"}
+              pressed={soundOn}
+              onClick={() => {
+                const next = !soundOn;
+                if (video.current) video.current.muted = !next;
+                setSoundOn(next);
+              }}
+            />
+          )}
+          {recordingAllowed && (
+            <DockButton
+              icon="record"
+              label={recordingSince === null ? "Record" : "Stop recording"}
+              pressed={recordingSince !== null}
+              danger={recordingSince !== null}
+              onClick={() =>
+                recordingSince === null ? startRecording() : stopRecording()
+              }
+            />
+          )}
+          <DockButton
+            icon="fullscreen"
+            label={isFullscreen ? "Exit full screen" : "Full screen"}
+            pressed={isFullscreen}
+            onClick={() => void toggleFullscreen()}
+          />
+          <DockButton
+            icon="more"
+            label="All tools"
+            pressed={menuOpen}
+            onClick={() => setMenuOpen((open) => !open)}
+          />
+        </div>
+      )}
       <footer className="viewer-status">
         <span role="status" data-decoded-frames={frames}>
           {status}
@@ -2136,20 +2331,6 @@ export function LiveView({
                 </button>
               </>
             )}
-          </span>
-        )}
-        {route !== "Not established" && (
-          <span className="viewer-quality">
-            {[
-              route,
-              pictureHeight ? `${pictureHeight}p` : null,
-              presentedFps === null ? null : `${Math.round(presentedFps)} fps`,
-              roundTripMillis === null
-                ? null
-                : `${Math.round(roundTripMillis)} ms`,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
           </span>
         )}
         {displayError && <span role="alert">{displayError}</span>}
