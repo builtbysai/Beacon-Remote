@@ -3,6 +3,7 @@ package com.beaconremote.host
 import android.app.Activity
 import android.app.Dialog
 import android.content.res.ColorStateList
+import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
@@ -109,11 +110,23 @@ object HostUi {
     fun switch(activity: Activity, label: String) = Switch(activity).apply {
         contentDescription = label
         showText = false
-        thumbTintList = ColorStateList.valueOf(activity.getColor(R.color.beacon_surface))
-        trackTintList = ColorStateList(
-            arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-            intArrayOf(activity.getColor(R.color.beacon_accent), activity.getColor(R.color.beacon_switch_off)),
+        // Solid pill track (blue on, grey off) and a white round thumb with a small margin, as in the design.
+        val track = StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_checked), rounded(activity, activity.getColor(R.color.beacon_accent), 14).apply { setSize(dp(activity, 47), dp(activity, 28)) })
+            addState(intArrayOf(), rounded(activity, activity.getColor(R.color.beacon_switch_off), 14).apply { setSize(dp(activity, 47), dp(activity, 28)) })
+        }
+        val thumb = android.graphics.drawable.InsetDrawable(
+            GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.WHITE)
+                setSize(dp(activity, 28), dp(activity, 28))
+            },
+            dp(activity, 4),
         )
+        setTrackDrawable(track)
+        setThumbDrawable(thumb)
+        trackTintList = null
+        thumbTintList = null
         minimumHeight = dp(activity, 40)
     }
 
