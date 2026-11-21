@@ -126,7 +126,7 @@ class ShareSession(
         screenWidth = width
         screenHeight = height
         val (captureWidth, captureHeight) = captureSize(width, height)
-        runCatching { capturer?.changeCaptureFormat(captureWidth, captureHeight, 30) }
+        runCatching { capturer?.changeCaptureFormat(captureWidth, captureHeight, 60) }
         control?.resize(width, height)
     }
 
@@ -515,7 +515,7 @@ class ShareSession(
         screenWidth = realWidth
         screenHeight = realHeight
         val (width, height) = captureSize(realWidth, realHeight)
-        projection.startCapture(width, height, 30)
+        projection.startCapture(width, height, 60)
         val listener =
             object : DisplayManager.DisplayListener {
                 override fun onDisplayAdded(displayId: Int) {}
@@ -607,8 +607,9 @@ class ShareSession(
             val audioSender = connection.addTrack(audio, listOf("beacon-screen"))
             connection.transceivers.firstOrNull { it.sender.id() == audioSender.id() }?.direction = RtpTransceiver.RtpTransceiverDirection.SEND_ONLY
         }
-        // Screen text needs a high, steady bitrate: start high so the first pictures are sharp, never drop resolution.
-        runCatching { connection.setBitrate(2_000_000, 8_000_000, 16_000_000) }
+        // Bound screen-change bursts instead of letting old pictures accumulate in the sender pacer.
+        // Preserve spatial resolution while allowing congestion control to reduce the video rate.
+        runCatching { connection.setBitrate(150_000, 2_000_000, 4_000_000) }
         // Hardware H.264 first where the phone has it; the browser picks what both sides support.
         runCatching {
             val codecs = peerFactory.getRtpSenderCapabilities(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO).codecs
@@ -677,14 +678,14 @@ class ShareSession(
 
     private var talkReceiver: org.webrtc.RtpReceiver? = null
 
-    /** Keep the screen's resolution and let the bitrate rise: a screen is mostly text, so blur is the wrong trade. */
+    /** Keep text resolution within a bounded video budget; responsiveness also depends on sender queue time. */
     private fun tuneVideoSender(connection: PeerConnection) {
         val sender = connection.senders.firstOrNull { it.track()?.kind() == "video" } ?: return
         val parameters = sender.parameters
         parameters.degradationPreference = org.webrtc.RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
         for (encoding in parameters.encodings) {
-            encoding.maxBitrateBps = 16_000_000
-            encoding.minBitrateBps = 1_500_000
+            encoding.maxBitrateBps = 4_000_000
+            encoding.minBitrateBps = 150_000
             encoding.maxFramerate = 60
             encoding.scaleResolutionDownBy = 1.0
         }

@@ -242,6 +242,7 @@ export function attachRemoteInput(
   };
   // Ctrl+V types the viewer's clipboard on the computer, paced under the channel's rate limit.
   const held = new Set<number>();
+  const heldButtons = new Set<number>();
   const synthetic = new Set<number>();
   let composingText = false;
   let pasting: PasteInput[] = [];
@@ -281,6 +282,7 @@ export function attachRemoteInput(
     pasting = steps;
   };
   const release = () => {
+    heldButtons.clear();
     composingText = false;
     pasteGeneration++;
     pasting = [];
@@ -389,7 +391,11 @@ export function attachRemoteInput(
     element.focus();
     element.setPointerCapture(event.pointerId);
     flush();
-    send({ type: "button", button: buttons[event.button], down: true });
+    if (
+      send({ type: "button", button: buttons[event.button], down: true }) !==
+      undefined
+    )
+      heldButtons.add(event.button);
   };
   const up = (event: PointerEvent) => {
     if (event.pointerType !== "mouse" || !buttons[event.button]) return;
@@ -397,6 +403,7 @@ export function attachRemoteInput(
     move(event);
     flush();
     send({ type: "button", button: buttons[event.button], down: false });
+    heldButtons.delete(event.button);
     if (event.buttons === 0 && element.hasPointerCapture(event.pointerId))
       element.releasePointerCapture(event.pointerId);
   };
@@ -1075,7 +1082,9 @@ export function attachRemoteInput(
   // A touch pointer is captured implicitly and "loses" capture on every lift; only a mouse
   // losing capture means the button state is unknown.
   const lostCapture = (event: PointerEvent) => {
-    if (event.pointerType === "mouse") release();
+    // Releasing capture after a normal mouse-up is expected. Releasing all input
+    // there would also release Shift/Ctrl held across clicks and cancel queued touch work.
+    if (event.pointerType === "mouse" && heldButtons.size) release();
   };
   // Held touches become a right-click without waiting for the finger to lift.
   const longPress = setInterval(() => {

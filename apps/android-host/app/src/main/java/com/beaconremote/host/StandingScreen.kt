@@ -81,8 +81,8 @@ object StandingScreen {
             scheduler.scheduleWithFixedDelay({
                 // Keep the encoder warm on still screens. forceFrame reuses the current surface texture;
                 // never retain that texture here (doing so prevents the helper receiving the next picture).
-                if (sink != null && android.os.SystemClock.elapsedRealtime() - lastDeliveredAt >= 32) helper?.forceFrame()
-            }, 33, 33, java.util.concurrent.TimeUnit.MILLISECONDS)
+                if (sink != null && android.os.SystemClock.elapsedRealtime() - lastDeliveredAt >= 15) helper?.forceFrame()
+            }, 16, 16, java.util.concurrent.TimeUnit.MILLISECONDS)
         }
         active = true
         return true

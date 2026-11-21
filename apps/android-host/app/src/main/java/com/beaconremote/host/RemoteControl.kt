@@ -453,11 +453,11 @@ class RemoteControl(
         /**
          * How long the finger stays down on the phone. The time between the viewer's press and release also includes
          * network delay, so a tap that arrived late would otherwise become a long, slow gesture that Android reads as a
-         * long press or that cancels the next tap. A press shorter than half a second is a plain 50 ms tap; a longer
+         * long press or that cancels the next tap. A press shorter than half a second is a one-frame tap; a longer
          * one is a deliberate hold and keeps its length.
          */
         fun strokeDuration(moved: Boolean, heldMs: Long): Long =
-            if (moved) heldMs.coerceIn(80, 2000) else if (heldMs < 500) 50 else heldMs.coerceIn(500, 2000)
+            if (moved) heldMs.coerceIn(80, 2000) else if (heldMs < 500) 16 else heldMs.coerceIn(500, 2000)
         const val MAX_CLIPBOARD_CHARS = 32768
         const val MAX_CLIPBOARD_WRITE = 8000
         const val MAX_CLIPBOARD_HTML = 6000

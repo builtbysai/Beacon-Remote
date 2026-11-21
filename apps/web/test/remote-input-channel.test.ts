@@ -18,6 +18,14 @@ function channelFixture(t: TestContext) {
     focus() {},
     blur: () => video.dispatchEvent(new Event("blur")),
     setPointerCapture() {},
+    hasPointerCapture: () => true,
+    releasePointerCapture() {
+      video.dispatchEvent(
+        Object.assign(new Event("lostpointercapture"), {
+          pointerType: "mouse",
+        }),
+      );
+    },
     getBoundingClientRect() {
       return {
         left: 0,
@@ -117,6 +125,48 @@ function channelFixture(t: TestContext) {
     failures: () => failures,
   };
 }
+
+function mouse(video: EventTarget, type: string) {
+  video.dispatchEvent(
+    Object.assign(new Event(type, { cancelable: true }), {
+      pointerType: "mouse",
+      pointerId: 1,
+      clientX: 100,
+      clientY: 100,
+      button: 0,
+      buttons: type === "pointerdown" ? 1 : 0,
+    }),
+  );
+}
+
+test("normal mouse-up keeps modifiers held across clicks", (t) => {
+  const f = channelFixture(t);
+  f.key("keydown", "ShiftLeft", { shiftKey: true });
+  mouse(f.video, "pointerdown");
+  mouse(f.video, "pointerup");
+  assert.equal(
+    f.sent.some((message) => message.input.type === "release_all"),
+    false,
+  );
+  f.key("keyup", "ShiftLeft");
+  assert.equal(
+    f.sent.filter(
+      (message) =>
+        message.input.type === "key" && message.input.scanCode === 0x2a,
+    ).length,
+    2,
+  );
+});
+
+test("unexpected capture loss still releases held mouse and keyboard input", (t) => {
+  const f = channelFixture(t);
+  f.key("keydown", "ShiftLeft", { shiftKey: true });
+  mouse(f.video, "pointerdown");
+  f.video.dispatchEvent(
+    Object.assign(new Event("lostpointercapture"), { pointerType: "mouse" }),
+  );
+  assert.equal(f.sent.at(-1)?.input.type, "release_all");
+});
 
 test("Keyboard mode emits the local composition once before the next Enter", (t) => {
   t.mock.timers.enable({ apis: ["setInterval"] });

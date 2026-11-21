@@ -6,8 +6,8 @@ import org.junit.Test
 class StrokeDurationTest {
     @Test
     fun aLateArrivingTapIsStillAShortTap() {
-        assertEquals(50, RemoteControl.strokeDuration(false, 5))
-        assertEquals(50, RemoteControl.strokeDuration(false, 450))
+        assertEquals(16, RemoteControl.strokeDuration(false, 5))
+        assertEquals(16, RemoteControl.strokeDuration(false, 450))
     }
 
     @Test
