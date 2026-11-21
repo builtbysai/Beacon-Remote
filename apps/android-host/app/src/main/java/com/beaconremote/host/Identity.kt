@@ -58,6 +58,16 @@ class Identity(private val context: Context) {
         get() = prefs.getBoolean("shareMic", false)
         set(value) = prefs.edit().putBoolean("shareMic", value).apply()
 
+    /**
+     * The kind of lock screen last seen on this phone: "pin", "pattern" or "password" (empty until one was seen).
+     * Android does not tell an ordinary app the lock type, so it is learned from the credential screen itself, the
+     * first time that screen is up while a viewer unlocks, and kept for display. Never the credential.
+     */
+    var lastLockKind: String
+        get() = prefs.getString("lastLockKind", "").takeIf { it in LOCK_KINDS } ?: ""
+        set(value) { if (value in LOCK_KINDS) prefs.edit().putString("lastLockKind", value).putLong("lastLockKindAt", System.currentTimeMillis()).apply() }
+    val lastLockKindAt: Long get() = prefs.getLong("lastLockKindAt", 0L)
+
     val paired: Boolean get() = machineId.isNotEmpty() && prefs.contains("seed")
     /** Raised only by the local setup screen. Server policy alone cannot enable capture. */
     var unattended: Boolean
@@ -129,5 +139,6 @@ class Identity(private val context: Context) {
     companion object {
         private const val ALIAS = "beacon-remote-host-identity"
         val CLIPBOARD_MODES = listOf("off", "button", "auto")
+        val LOCK_KINDS = listOf("pin", "pattern", "password")
     }
 }

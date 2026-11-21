@@ -193,9 +193,15 @@ class ControlService : AccessibilityService() {
     private fun findLockRoot(): Pair<AccessibilityNodeInfo, String>? {
         for (root in listOfNotNull(rootInActiveWindow) + windows.mapNotNull { it.root }) {
             if (root.packageName?.toString() != "com.android.systemui") continue
-            if (walkTree(root, 0, ::isPinPad) != null) return root to "pin"
-            if (walkTree(root, 0, ::isPatternView) != null) return root to "pattern"
-            if (walkTree(root, 0, ::isPasswordField) != null) return root to "password"
+            val kind = when {
+                walkTree(root, 0, ::isPinPad) != null -> "pin"
+                walkTree(root, 0, ::isPatternView) != null -> "pattern"
+                walkTree(root, 0, ::isPasswordField) != null -> "password"
+                else -> null
+            } ?: continue
+            // Remember what kind of lock this phone has, for the Access tab. Only the kind, never what is entered.
+            runCatching { Identity(this).lastLockKind = kind }
+            return root to kind
         }
         return null
     }

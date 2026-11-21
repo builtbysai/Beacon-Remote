@@ -544,6 +544,7 @@ class MainActivity : Activity() {
             } else confirmUnlock()
         }
         root.addView(unlockRow)
+        root.addView(lockTypeLine())
         root.addView(HostUi.divider(this))
         val steps = setupSteps()
         val title = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(18), 0, dp(10)) }
@@ -551,6 +552,19 @@ class MainActivity : Activity() {
         title.addView(TextView(this).apply { text = "${steps.count { it.done }} of ${steps.size} complete"; textSize = 12f; setTextColor(color(R.color.beacon_muted)); tag = "setup-count" })
         root.addView(title)
         for (step in steps) root.addView(checkRow(step))
+    }
+
+    /** What kind of lock the phone has, as far as Beacon has seen: shown under the unlock switch. */
+    private fun lockTypeLine(): TextView {
+        val kind = identity.lastLockKind
+        val secure = getSystemService(android.app.KeyguardManager::class.java).isDeviceSecure
+        val text = when {
+            !secure -> "This phone has no screen lock, so there is nothing to unlock."
+            kind.isEmpty() -> "Lock type: not seen yet. Beacon learns it the first time a viewer opens the unlock pad on the lock screen."
+            else -> "Lock type: " + when (kind) { "pin" -> "PIN"; "pattern" -> "Pattern"; else -> "Password" } +
+                " (last seen " + android.text.format.DateUtils.getRelativeTimeSpanString(identity.lastLockKindAt, System.currentTimeMillis(), android.text.format.DateUtils.MINUTE_IN_MILLIS) + ")"
+        }
+        return HostUi.text(this, text, 12f, false, true).apply { tag = "lock-type"; setPadding(0, 0, 0, dp(14)) }
     }
 
     private fun checkRow(step: SetupStep): LinearLayout = LinearLayout(this).apply {
@@ -905,7 +919,7 @@ class MainActivity : Activity() {
     /** Everything on a paired screen that can change by itself. When it changes the screen is drawn again. */
     private fun currentSignature(): String = listOf(
         identity.paired, page, HostState.status, HostState.sharing, HostState.paused, HostState.controlling, identity.wantsAvailable,
-        identity.unattended, identity.unlockFromViewer, identity.clipboardMode, identity.shareSound, identity.shareMic,
+        identity.lastLockKind, identity.unattended, identity.unlockFromViewer, identity.clipboardMode, identity.shareSound, identity.shareMic,
         checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED,
         if (identity.paired) identity.name else "", notificationsReady(),
         ControlService.enabled(this) && ControlService.instance != null,
