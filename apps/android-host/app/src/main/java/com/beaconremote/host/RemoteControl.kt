@@ -19,8 +19,11 @@ class RemoteControl(
     private val allowed: () -> Boolean,
     /** Offers a copied file to the viewer through the files channel (the viewer saves it as a download). */
     private val offerFile: (android.net.Uri) -> Unit = {},
+    /** Opens or closes the viewer's voice on the phone's speaker; returns what happened: on, off, locked or disabled. */
+    private val onTalk: (Boolean) -> String = { "disabled" },
     private val onState: (Boolean) -> Unit,
 ) : DataChannel.Observer {
+    private var talking = false
     // The screen's size in pixels; changes when the phone is turned (see [resize]).
     private var width = width
     private var height = height
@@ -228,6 +231,8 @@ class RemoteControl(
     /** Called about once a second by the session: held touches are let go when the viewer goes quiet. */
     fun quietCheck() {
         val quiet = SystemClock.elapsedRealtime() - lastMessage
+        // Talking stops the moment the phone locks.
+        if (talking && ControlService.instance?.let { it.getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked } == true) setTalk(false)
         if (open && quiet >= 1500) release()
         if (open && quiet >= 30_000) stop()
     }
@@ -239,8 +244,16 @@ class RemoteControl(
         modified = false
     }
 
+    private fun setTalk(on: Boolean) {
+        val state = runCatching { onTalk(on) }.getOrDefault("disabled")
+        talking = state == "on"
+        runCatching { sendJson(JSONObject().put("type", "talk").put("state", state)) }
+    }
+
     fun stop() {
         if (!open) return
+        if (talking) runCatching { onTalk(false) }
+        talking = false
         open = false
         release()
         Chat.send = null
@@ -340,6 +353,7 @@ class RemoteControl(
             // A viewer that knows about the clipboard says so; older viewers never hear about it.
             "clipboard_hello" -> announceClipboard()
             "unlock_view" -> lockScreenView(input.optBoolean("on"))
+            "talk" -> setTalk(input.optBoolean("on"))
             "unlock_pattern" -> {
                 val list = input.optJSONArray("cells")
                 val cells = if (list == null || list.length() > 9) null else (0 until list.length()).map { list.optInt(it, -1) }

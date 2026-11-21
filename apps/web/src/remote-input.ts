@@ -954,6 +954,22 @@ export function attachRemoteInput(
           reply !== null &&
           typeof reply === "object" &&
           "type" in reply &&
+          reply.type === "talk"
+        ) {
+          const state = (reply as { state?: unknown }).state;
+          if (typeof state !== "string" || state.length > 16) {
+            onFailure();
+            return;
+          }
+          element.dispatchEvent(
+            new CustomEvent("beacon-talk", { detail: state }),
+          );
+          return;
+        }
+        if (
+          reply !== null &&
+          typeof reply === "object" &&
+          "type" in reply &&
           reply.type === "chat"
         ) {
           const text = (reply as { text?: unknown }).text;
@@ -1084,6 +1100,12 @@ export function attachRemoteInput(
     if (text && display && !signIn) send({ type: "chat", text });
   };
   element.addEventListener("beacon-chat-send", sendChat);
+  // Talking through the phone: the viewer asks the phone to unmute its speaker line, or to mute it again.
+  const sendTalk = (event: Event) => {
+    if (display && !signIn)
+      send({ type: "talk", on: (event as CustomEvent).detail === true });
+  };
+  element.addEventListener("beacon-talk-send", sendTalk);
   // The phone's PIN screen cannot be captured, so the viewer's own number pad sends one key at a time. Keys go
   // straight to the phone: not kept, not logged, not put in any field.
   const sendLockKey = (event: Event) => {
@@ -1166,6 +1188,7 @@ export function attachRemoteInput(
     );
     window.removeEventListener("focus", pushClipboardOnFocus);
     element.removeEventListener("beacon-chat-send", sendChat);
+    element.removeEventListener("beacon-talk-send", sendTalk);
     element.removeEventListener("beacon-unlock-key", sendLockKey);
     element.removeEventListener("beacon-unlock-view", lockScreenView);
     element.removeEventListener("beacon-unlock-pattern", sendLockPattern);

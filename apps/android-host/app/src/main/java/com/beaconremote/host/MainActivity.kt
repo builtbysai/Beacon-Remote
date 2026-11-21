@@ -690,6 +690,17 @@ class MainActivity : Activity() {
         }
         root.addView(micRow)
         root.addView(HostUi.divider(this))
+        val (talkRow, talkSwitch) = HostUi.switchRow(
+            this, "Talk through this phone",
+            "Trusted viewers can talk through your phone's speaker, only while it's unlocked. The sharing notification says when someone is talking.",
+            "talk-toggle", identity.talkIn,
+        )
+        talkSwitch.setOnClickListener {
+            identity.talkIn = !identity.talkIn
+            render()
+        }
+        root.addView(talkRow)
+        root.addView(HostUi.divider(this))
         root.addView(HostUi.text(this, "Receiving files is approved for each attended request. Files are saved to Downloads/Beacon Remote.", 11.5f, false, true).apply { setPadding(0, dp(14), 0, 0) })
     }
 
@@ -919,7 +930,7 @@ class MainActivity : Activity() {
     /** Everything on a paired screen that can change by itself. When it changes the screen is drawn again. */
     private fun currentSignature(): String = listOf(
         identity.paired, page, HostState.status, HostState.sharing, HostState.paused, HostState.controlling, identity.wantsAvailable,
-        identity.lastLockKind, identity.unattended, identity.unlockFromViewer, identity.clipboardMode, identity.shareSound, identity.shareMic,
+        identity.lastLockKind, identity.unattended, identity.unlockFromViewer, identity.clipboardMode, identity.shareSound, identity.shareMic, identity.talkIn,
         checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED,
         if (identity.paired) identity.name else "", notificationsReady(),
         ControlService.enabled(this) && ControlService.instance != null,

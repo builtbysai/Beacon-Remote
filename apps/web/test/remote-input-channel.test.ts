@@ -385,6 +385,26 @@ test("a phone is greeted once so it can announce its clipboard setting", (t) => 
   );
 });
 
+test("asking to talk goes to the phone and its answer reaches the page", (t) => {
+  const f = channelFixture(t);
+  const states: string[] = [];
+  f.video.addEventListener("beacon-talk", (event) =>
+    states.push(String((event as CustomEvent).detail)),
+  );
+  f.video.dispatchEvent(new CustomEvent("beacon-talk-send", { detail: true }));
+  f.video.dispatchEvent(new CustomEvent("beacon-talk-send", { detail: false }));
+  assert.deepEqual(
+    f.sent.filter((body) => body.input.type === "talk").map((b) => b.input.on),
+    [true, false],
+  );
+  f.message({ type: "talk", state: "locked" });
+  f.message({ type: "talk", state: "on" });
+  assert.deepEqual(states, ["locked", "on"]);
+  assert.equal(f.failures(), 0);
+  f.message({ type: "talk", state: "x".repeat(20) });
+  assert.equal(f.failures(), 1);
+});
+
 test("chat lines go to the phone and the phone's replies reach the page", (t) => {
   const f = channelFixture(t);
   const heard: string[] = [];

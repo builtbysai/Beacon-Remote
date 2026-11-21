@@ -22,6 +22,10 @@ object HostState {
     @Volatile var sharing: Boolean = false
     @Volatile var paused: Boolean = false
     @Volatile var controlling: Boolean = false
+    /** A viewer is talking through the phone's speaker right now. */
+    @Volatile var talking: Boolean = false
+    /** Set by the sharing service so a change here shows in its notification. */
+    @Volatile var refreshNotification: (() -> Unit)? = null
 }
 
 /**

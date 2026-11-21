@@ -125,6 +125,13 @@ export function LiveView({
   const [displayError, setDisplayError] = useState("");
   // The computer is sharing its sound (the person ticked it), and whether this viewer is listening.
   const [hasSound, setHasSound] = useState(false);
+  // Talking through the phone's speaker (ADR 0058): the line exists only when the owner allowed it.
+  const [talkReady, setTalkReady] = useState(false);
+  const [talkState, setTalkState] = useState<
+    "off" | "asking" | "on" | "locked" | "disabled" | "mic"
+  >("off");
+  const talkSender = useRef<RTCRtpSender | null>(null);
+  const talkMic = useRef<MediaStream | null>(null);
   const [soundOn, setSoundOn] = useState(false);
   const [status, setStatus] = useState(
     grant.source === "desktop"
@@ -341,6 +348,60 @@ export function LiveView({
     target.addEventListener("beacon-chat", onChat);
     return () => target.removeEventListener("beacon-chat", onChat);
   }, [transportAttempt]);
+  const stopMic = () => {
+    talkMic.current?.getTracks().forEach((t) => t.stop());
+    talkMic.current = null;
+    void talkSender.current?.replaceTrack(null).catch(() => undefined);
+  };
+  useEffect(() => {
+    const target = video.current;
+    if (!target) return;
+    const onTalk = (event: Event) => {
+      const state = String((event as CustomEvent).detail);
+      if (state === "on") setTalkState("on");
+      else {
+        stopMic();
+        setTalkState(
+          state === "locked" || state === "disabled" ? state : "off",
+        );
+      }
+    };
+    target.addEventListener("beacon-talk", onTalk);
+    return () => {
+      target.removeEventListener("beacon-talk", onTalk);
+      stopMic();
+    };
+  }, [transportAttempt]);
+  const toggleTalk = async () => {
+    if (talkState === "on" || talkState === "asking") {
+      stopMic();
+      video.current?.dispatchEvent(
+        new CustomEvent("beacon-talk-send", { detail: false }),
+      );
+      setTalkState("off");
+      return;
+    }
+    setTalkState("asking");
+    try {
+      const mic = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      const track = mic.getAudioTracks()[0];
+      if (!track || !talkSender.current) throw new Error("No microphone");
+      await talkSender.current.replaceTrack(track);
+      talkMic.current = mic;
+      video.current?.dispatchEvent(
+        new CustomEvent("beacon-talk-send", { detail: true }),
+      );
+    } catch {
+      stopMic();
+      setTalkState("mic");
+    }
+  };
   useEffect(() => {
     const target = video.current;
     if (!target) return;
@@ -952,6 +1013,16 @@ export function LiveView({
               if (closed) return;
               for (const candidate of candidates.splice(0))
                 await pc.addIceCandidate(candidate);
+              // The phone's optional receive-only audio line: ours is the one we may send on.
+              const talk = pc
+                .getTransceivers()
+                .find(
+                  (t) =>
+                    t.receiver.track.kind === "audio" &&
+                    (t.direction === "sendrecv" || t.direction === "sendonly"),
+                );
+              talkSender.current = talk?.sender ?? null;
+              setTalkReady(Boolean(talk));
               const answer = await pc.createAnswer();
               await pc.setLocalDescription(answer);
               send({ type: "answer", sdp: answer.sdp });
@@ -1756,6 +1827,34 @@ export function LiveView({
                 Send message
               </button>
             </form>
+          )}
+          {controlReady && phoneHost && talkReady && (
+            <button
+              data-g="chat"
+              className="viewer-control"
+              aria-pressed={talkState === "on"}
+              title="Talk through the phone's speaker. Only while the phone is unlocked and the owner allowed it."
+              onClick={() => void toggleTalk()}
+            >
+              {talkState === "on"
+                ? "Stop talking"
+                : talkState === "asking"
+                  ? "Starting…"
+                  : "Talk through phone"}
+            </button>
+          )}
+          {controlReady && phoneHost && talkReady && talkState !== "off" && (
+            <p data-g="chat" className="note" role="status">
+              {talkState === "on"
+                ? "The phone's speaker is playing your voice. Its notification says someone is talking."
+                : talkState === "locked"
+                  ? "The phone is locked, so it will not play your voice."
+                  : talkState === "disabled"
+                    ? "Talking is turned off on the phone."
+                    : talkState === "mic"
+                      ? "This browser could not use your microphone."
+                      : ""}
+            </p>
           )}
           {controlReady && phoneHost && clipboardMode === "auto" && (
             <span data-g="clip" className="viewer-note">

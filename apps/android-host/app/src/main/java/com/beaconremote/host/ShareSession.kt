@@ -595,6 +595,18 @@ class ShareSession(
                 }
             }
         }
+        // A trusted viewer may talk through the speaker when the owner allowed it: an extra receive-only audio line,
+        // muted until the viewer asks and the phone agrees (see setTalk).
+        if (Identity(context).talkIn && grant.capability == "desktop:control" && controlAllowed && ControlService.instance != null) {
+            runCatching {
+                val talk = connection.addTransceiver(
+                    MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO,
+                    RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY),
+                )
+                talkReceiver = talk.receiver
+                talk.receiver.track()?.setEnabled(false)
+            }
+        }
         connection.createOffer(
             object : SimpleSdpObserver() {
                 override fun onCreateSuccess(description: SessionDescription) {
@@ -625,6 +637,8 @@ class ShareSession(
         )
     }
 
+    private var talkReceiver: org.webrtc.RtpReceiver? = null
+
     private fun openInput(generation: Long, label: String, permitted: () -> Boolean) {
         Log.i("BeaconHost", "Open input requested: label=$label existing=${control != null} peer=${peer != null}")
         if (control != null) {
@@ -639,7 +653,7 @@ class ShareSession(
         Log.i("BeaconHost", "Input channel opened for an approved control request")
         control = RemoteControl(channel, grant.id, screenWidth, screenHeight, {
             permitted() && canShare(generation) && localActionsAllowed()
-        }, { uri -> files?.sendFile(uri) { reason -> if (reason.isNotEmpty()) Log.i("BeaconHost", "Copied file not offered: $reason") } }) { active -> post { if (viewer.owns(generation)) onControl(active) } }.also { it.start() }
+        }, { uri -> files?.sendFile(uri) { reason -> if (reason.isNotEmpty()) Log.i("BeaconHost", "Copied file not offered: $reason") } }, onTalk = ::setTalk) { active -> post { if (viewer.owns(generation)) onControl(active) } }.also { it.start() }
     }
 
     private fun localActionsAllowed(): Boolean = Identity(context).let { identity ->
@@ -654,13 +668,38 @@ class ShareSession(
         !paused && !ended && viewer.connected(generation) &&
             lastLease != 0L && SystemClock.elapsedRealtime() - lastLease < MAX_AGE
 
+    /**
+     * A trusted viewer's voice on the phone's speaker (ADR 0058). It is only ever on while the owner's switch is on, the
+     * phone is unlocked, and sharing is not paused; the receiving track is muted at every other moment.
+     */
+    private fun setTalk(on: Boolean): String {
+        val track = talkReceiver?.track()
+        if (!on) {
+            track?.setEnabled(false)
+            HostState.talking = false
+            HostState.refreshNotification?.invoke()
+            return "off"
+        }
+        if (track == null || !Identity(context).talkIn || paused || ended) return "disabled"
+        if (context.getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked) return "locked"
+        track.setEnabled(true)
+        HostState.talking = true
+        HostState.refreshNotification?.invoke()
+        return "on"
+    }
+
     private fun refreshVideo() {
         val live = canShare(viewer.generation) && localActionsAllowed()
         track?.setEnabled(live)
         soundTrack?.setEnabled(live)
+        // Pause, Stop or a lost viewer ends any talking at once.
+        if (!live && HostState.talking) setTalk(false)
     }
 
     private fun closePeer() {
+        talkReceiver?.track()?.setEnabled(false)
+        talkReceiver = null
+        HostState.talking = false
         permissions.detach()
         advertised = emptySet()
         dataTransportAvailable = false

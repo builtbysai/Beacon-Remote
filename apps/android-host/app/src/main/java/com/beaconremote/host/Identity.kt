@@ -58,6 +58,11 @@ class Identity(private val context: Context) {
         get() = prefs.getBoolean("shareMic", false)
         set(value) = prefs.edit().putBoolean("shareMic", value).apply()
 
+    /** The owner lets a trusted viewer talk through this phone's speaker (ADR 0058). Off in a fresh install. */
+    var talkIn: Boolean
+        get() = prefs.getBoolean("talkIn", false)
+        set(value) = prefs.edit().putBoolean("talkIn", value).apply()
+
     /**
      * The kind of lock screen last seen on this phone: "pin", "pattern" or "password" (empty until one was seen).
      * Android does not tell an ordinary app the lock type, so it is learned from the credential screen itself, the

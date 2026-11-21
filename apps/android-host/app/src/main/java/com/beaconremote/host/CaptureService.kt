@@ -110,6 +110,8 @@ class CaptureService : Service() {
                 },
                 ::showPermissionPrompt,
             ) { _ ->
+                HostState.talking = false
+                HostState.refreshNotification = null
                 HostState.sharing = false
                 HostState.paused = false
                 HostState.controlling = false
@@ -118,6 +120,7 @@ class CaptureService : Service() {
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }.also { it.start() }
+        HostState.refreshNotification = { Handler(Looper.getMainLooper()).post { if (session != null) refresh() } }
         return START_NOT_STICKY
     }
 
@@ -211,7 +214,10 @@ class CaptureService : Service() {
                     else -> "Sharing your screen"
                 },
             )
-            .setContentText(if (microphoneOn()) "$controller · Microphone is on" else controller)
+            .setContentText(
+                listOfNotNull(controller, if (microphoneOn()) "Microphone is on" else null, if (HostState.talking) "Someone is talking" else null)
+                    .joinToString(" · "),
+            )
             .setOngoing(true)
             // Stop must stay reachable, and visible, even on a locked screen.
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
