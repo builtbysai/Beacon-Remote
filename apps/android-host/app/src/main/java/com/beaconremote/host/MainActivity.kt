@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
@@ -48,6 +49,8 @@ class MainActivity : Activity() {
     private var renderedPaired = false
     private var permissionStartsAvailability = false
     private var signature = ""
+    // Guided setup: after a step the person is sent to Android for, the next one starts by itself on return.
+    private var guidedFrom: String? = null
     private val refreshTask = object : Runnable {
         override fun run() {
             if (isDestroyed || isFinishing) return
@@ -101,16 +104,43 @@ class MainActivity : Activity() {
     private fun prefillFromLink(link: Intent?) {
         val uri = link?.data ?: return
         if (uri.scheme != "beaconremote" || uri.host != "pair" || identity.paired) return
-        uri.getQueryParameter("code")?.take(32)?.let { code -> root.findViewById<EditText>(R.id.pair_code)?.setText(code) }
-        uri.getQueryParameter("server")?.let { server ->
-            Api.validServer(server)?.let { origin -> root.findViewById<EditText>(R.id.pair_server)?.apply { setText(origin); visibility = View.VISIBLE } }
+        applyPairing(uri.getQueryParameter("code")?.take(32), uri.getQueryParameter("server"))
+    }
+
+    /** Puts a code (and the workspace address, when known) into the pairing form. The person still taps Pair. */
+    private fun applyPairing(code: String?, server: String?) {
+        code?.let { root.findViewById<EditText>(R.id.pair_code)?.setText(it) }
+        server?.let { address ->
+            Api.validServer(address)?.let { origin -> root.findViewById<EditText>(R.id.pair_server)?.apply { setText(origin) } }
         }
+    }
+
+    private fun pasteFromClipboard() {
+        val text = getSystemService(ClipboardManager::class.java).primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
+        val parsed = PairingText.parse(text)
+        if (parsed == null) {
+            Toast.makeText(this, "Nothing to paste. In your workspace choose Add a computer, then Copy code or Copy link.", Toast.LENGTH_LONG).show()
+            return
+        }
+        applyPairing(parsed.code, parsed.server)
+        root.findViewWithTag<TextView>("pair-notice")?.text = "Code pasted. Tap Pair device."
     }
 
     override fun onResume() {
         super.onResume()
         handler.removeCallbacks(refreshTask)
         refreshTask.run()
+        continueGuidedSetup()
+    }
+
+    /** Back from an Android settings screen: if that step got done, go straight to the next one. */
+    private fun continueGuidedSetup() {
+        val from = guidedFrom ?: return
+        if (!identity.paired) { guidedFrom = null; return }
+        val next = setupSteps().firstOrNull { !it.done }
+        if (next == null || next.title == from) { guidedFrom = null; return }
+        guidedFrom = next.title
+        handler.postDelayed({ if (!isDestroyed && !isFinishing) next.action() }, 500)
     }
 
     override fun onPause() {
@@ -231,7 +261,9 @@ class MainActivity : Activity() {
     private fun renderPairing() {
         root.addView(HostUi.kicker(this, "Set up"))
         root.addView(HostUi.headline(this, "Pair this device."))
-        root.addView(HostUi.text(this, "In your workspace, choose Add a computer and enter its one-use code here.", 13f, false, true).apply { setPadding(0, dp(4), 0, dp(8)) })
+        root.addView(HostUi.text(this, "In your workspace, choose Add a computer, then copy its code or link and paste it here.", 13f, false, true).apply { setPadding(0, dp(4), 0, dp(8)) })
+        root.addView(HostUi.button(this, "Paste code from clipboard").apply { tag = "pair-paste"; setOnClickListener { pasteFromClipboard() } },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         val name = fieldBox(R.id.pair_name, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS, 80).apply { setText(Build.MODEL) }
         val code = fieldBox(R.id.pair_code, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS, 32).apply {
             hint = "One-use code"
@@ -333,6 +365,7 @@ class MainActivity : Activity() {
             setOnClickListener { toggleAvailability() }
         })
         root.addView(meta)
+        setupCard()?.let { root.addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(14) }) }
         root.addView(sessionCard(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         root.addView(overviewRow("Unattended access", "Connect without asking", if (identity.unattended) "Enabled" else "Off") { selectPage("access") }.also { (it.layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(14) })
         root.addView(overviewRow("Clipboard", "How copied content moves between devices", clipboardName(identity.clipboardMode)) { selectPage("privacy") })
@@ -540,7 +573,7 @@ class MainActivity : Activity() {
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         if (!step.done) {
             addView(TextView(context).apply {
-                text = step.button
+                text = "Set up"
                 textSize = 12f
                 typeface = Typeface.DEFAULT_BOLD
                 paintFlags = paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
@@ -743,23 +776,86 @@ class MainActivity : Activity() {
 
     private fun stopCapture() { startService(Intent(this, CaptureService::class.java).setAction(CaptureService.ACTION_STOP)) }
 
-    private class SetupStep(val title: String, val button: String, val done: Boolean, val action: () -> Unit)
+    private class SetupStep(val title: String, val button: String, val done: Boolean, val why: String, val hint: String? = null, val action: () -> Unit)
 
-    /** The few things this phone needs, in order. Tapping an unfinished one does it. */
+    /** The few things this phone needs, in the order that works. Each one is a single action. */
     private fun setupSteps(): List<SetupStep> {
         val list = ArrayList<SetupStep>()
-        list += SetupStep("Notifications allowed", "Allow", SharingNotifications.ready(this)) { notificationSettings() }
+        list += SetupStep(
+            "Notifications allowed", "Allow notifications", SharingNotifications.ready(this),
+            "So Pause and Stop stay visible whenever your screen is shared.",
+        ) { notificationSettings() }
         if (Build.VERSION.SDK_INT >= 30) {
-            list += SetupStep("Beacon accessibility enabled", "Turn on", ControlService.enabled(this) && ControlService.instance != null) {
-                startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            }
+            list += SetupStep(
+                "Beacon accessibility enabled", "Turn on accessibility", ControlService.enabled(this) && ControlService.instance != null,
+                "Lets an approved viewer touch and type. It does nothing outside a session you approve.",
+                hint = "If Android says the setting is restricted: open App info, tap ⋮ (top right), choose Allow restricted settings, then come back.",
+            ) { openAccessibilityPage() }
         }
-        list += SetupStep("Access without asking allowed", "Allow", identity.unattended) { changeAccess() }
         val power = getSystemService(android.os.PowerManager::class.java)
-        list += SetupStep("Background running allowed", "Allow", power.isIgnoringBatteryOptimizations(packageName)) {
-            startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-        }
+        list += SetupStep(
+            "Background running allowed", "Allow background running", power.isIgnoringBatteryOptimizations(packageName),
+            "Keeps this phone reachable when the screen is off.",
+        ) { requestBatteryExemption() }
+        list += SetupStep(
+            "Access without asking allowed", "Allow access without asking", identity.unattended,
+            "Lets your account connect without a prompt while this phone is unlocked. Pause and Stop stay visible.",
+        ) { changeAccess() }
         return list
+    }
+
+    /** Opens Beacon's own accessibility page, not the long list of apps; falls back to the list. */
+    private fun openAccessibilityPage() {
+        val component = ComponentName(this, ControlService::class.java).flattenToString()
+        val direct = Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS").putExtra("android.provider.extra.COMPONENT_NAME", component)
+        if (runCatching { startActivity(direct) }.isFailure) startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
+    }
+
+    /** Android's one-tap "let this app run in the background" dialog; the settings list is the fallback. */
+    private fun requestBatteryExemption() {
+        val ask = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, android.net.Uri.parse("package:$packageName"))
+        if (runCatching { startActivity(ask) }.isFailure) startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+    }
+
+    private fun openAppInfo() {
+        startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:$packageName")))
+    }
+
+    /** The card on the Device tab until setup is done: where you are, what is next, and one button that does it. */
+    private fun setupCard(): LinearLayout? {
+        val steps = setupSteps()
+        val next = steps.firstOrNull { !it.done } ?: return null
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            tag = "setup-card"
+            setPadding(dp(18), dp(16), dp(18), dp(18))
+            background = HostUi.rounded(this@MainActivity, color(R.color.beacon_surface), 4, color(R.color.beacon_line))
+        }
+        val top = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        top.addView(TextView(this).apply { text = "Finish setup"; textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(color(R.color.beacon_text)) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        top.addView(TextView(this).apply { text = "${steps.count { it.done }} of ${steps.size}"; textSize = 12f; setTextColor(color(R.color.beacon_muted)) })
+        card.addView(top)
+        val bars = LinearLayout(this).apply { setPadding(0, dp(12), 0, dp(14)) }
+        for ((index, step) in steps.withIndex()) {
+            bars.addView(View(this).apply {
+                setBackgroundColor(color(if (step.done) R.color.beacon_accent else R.color.beacon_line))
+            }, LinearLayout.LayoutParams(0, dp(4), 1f).apply { if (index > 0) marginStart = dp(4) })
+        }
+        card.addView(bars)
+        card.addView(TextView(this).apply { text = next.title.replace(" allowed", "").replace(" enabled", ""); textSize = 17f; typeface = Typeface.DEFAULT_BOLD; letterSpacing = -0.02f; setTextColor(color(R.color.beacon_text)) })
+        card.addView(HostUi.text(this, next.why, 12.5f, false, true).apply { setPadding(0, dp(6), 0, dp(14)) })
+        next.hint?.let { hint ->
+            card.addView(HostUi.text(this, hint, 11.5f, false, true).apply { setPadding(0, 0, 0, dp(4)) })
+            card.addView(HostUi.link(this, "Open app info").apply { gravity = Gravity.START or Gravity.CENTER_VERTICAL; setOnClickListener { openAppInfo() } })
+        }
+        card.addView(HostUi.button(this, next.button, true).apply {
+            tag = "setup-next"
+            setOnClickListener {
+                guidedFrom = next.title
+                next.action()
+            }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        return card
     }
 
     private fun changeAccess() {
