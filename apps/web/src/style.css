@@ -2888,3 +2888,176 @@ button.danger {
 .live-view .viewer-actions .viewer-chat input::placeholder {
   color: #9fb3c9;
 }
+
+/* Tools drawer groups: a label, then its controls, in a fixed reading order. */
+.live-view .viewer-actions > * {
+  order: 90;
+  flex-shrink: 0;
+}
+.live-view .viewer-actions > .viewer-actions-title {
+  order: 0;
+}
+.live-view .viewer-actions > [data-g="view"] {
+  order: 11;
+}
+.live-view .viewer-actions > [data-g="nav"] {
+  order: 21;
+}
+.live-view .viewer-actions > [data-g="clip"] {
+  order: 31;
+}
+.live-view .viewer-actions > [data-g="unlock"] {
+  order: 41;
+}
+.live-view .viewer-actions > [data-g="chat"] {
+  order: 51;
+}
+.live-view .viewer-actions > [data-g="files"] {
+  order: 61;
+}
+.live-view .viewer-actions > [data-g="access"] {
+  order: 71;
+}
+.live-view .viewer-actions > .viewer-group {
+  margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid #2c3e52;
+  color: #8fa8c4;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.live-view .viewer-actions > [data-label][data-g="view"] {
+  order: 10;
+  margin-top: 4px;
+  border-top: 0;
+  padding-top: 0;
+}
+.live-view .viewer-actions > [data-label][data-g="nav"] {
+  order: 20;
+}
+.live-view .viewer-actions > [data-label][data-g="clip"] {
+  order: 30;
+}
+.live-view .viewer-actions > [data-label][data-g="unlock"] {
+  order: 40;
+}
+.live-view .viewer-actions > [data-label][data-g="chat"] {
+  order: 50;
+}
+.live-view .viewer-actions > [data-label][data-g="files"] {
+  order: 60;
+}
+.live-view .viewer-actions > [data-label][data-g="access"] {
+  order: 70;
+}
+.live-view .viewer-actions > .viewer-stop-spacer {
+  display: none;
+}
+
+/* Stage states: connecting, paused and ended read as one calm card in the middle of the picture. */
+.live-view .viewer-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 26px 28px;
+  border: 1px solid #2c3e52;
+  border-radius: 16px;
+  background: rgba(23, 35, 49, 0.92);
+  color: #eef4fc;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.live-view[data-state="connecting"] .viewer-placeholder::before {
+  content: "";
+  width: 28px;
+  height: 28px;
+  border: 3px solid #35506e;
+  border-top-color: #7ca5de;
+  border-radius: 50%;
+  animation: viewer-spin 0.9s linear infinite;
+}
+.live-view[data-state="ended"] .viewer-placeholder::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #8a97a6;
+}
+@keyframes viewer-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-view[data-state="connecting"] .viewer-placeholder::before {
+    animation: none;
+  }
+}
+.live-view .viewer-paused {
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  width: min(380px, calc(100% - 32px));
+  padding: 22px 24px;
+  border: 1px solid #2c3e52;
+  border-radius: 16px;
+  background: rgba(23, 35, 49, 0.94);
+  font-size: 15px;
+  line-height: 1.45;
+}
+.live-view .viewer-paused::before {
+  content: "Paused";
+  display: block;
+  margin-bottom: 6px;
+  color: #e0a63a;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.live-view .viewer-play {
+  top: auto;
+  bottom: 28px;
+  padding: 11px 22px;
+  border-radius: 999px;
+  font-size: 14px;
+  box-shadow: 0 8px 24px #0007;
+}
+.live-view .viewer-status {
+  min-height: 34px;
+  gap: 16px;
+  font-size: 12px;
+}
+.live-view .viewer-quality {
+  margin-left: auto;
+  color: #8fa8c4;
+}
+.live-view .viewer-menu[aria-expanded="true"] {
+  background: #304760;
+}
+.live-view .viewer-identity {
+  min-width: 0;
+}
+.live-view .viewer-identity > span:not(.viewer-dot) {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 650px) {
+  .live-view .viewer-toolbar,
+  .live-view .viewer-toolbar.compact {
+    gap: 6px;
+  }
+  .live-view .viewer-identity {
+    flex: 1 1 0;
+  }
+  .live-view .viewer-menu,
+  .live-view .viewer-stop {
+    flex: none;
+    min-height: 36px;
+    padding-inline: 10px;
+  }
+}

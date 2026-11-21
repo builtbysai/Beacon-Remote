@@ -1133,7 +1133,40 @@ export function LiveView({
         </button>
         <div className="viewer-actions" hidden={!menuOpen}>
           <p className="viewer-actions-title">Tools</p>
-          <label className="viewer-scale">
+          <p className="viewer-group" data-g="view" data-label>
+            View
+          </p>
+          {controlReady && (
+            <p className="viewer-group" data-g="nav" data-label>
+              Control
+            </p>
+          )}
+          {controlReady && (
+            <p className="viewer-group" data-g="clip" data-label>
+              Clipboard
+            </p>
+          )}
+          {controlReady && phoneHost && (
+            <p className="viewer-group" data-g="unlock" data-label>
+              Lock screen
+            </p>
+          )}
+          {controlReady && phoneHost && (
+            <p className="viewer-group" data-g="chat" data-label>
+              Message
+            </p>
+          )}
+          {(fileReady || driveReady || printReady) && (
+            <p className="viewer-group" data-g="files" data-label>
+              Files
+            </p>
+          )}
+          {!ended && frames > 0 && permissionView.options.length > 0 && (
+            <p className="viewer-group" data-g="access" data-label>
+              Access
+            </p>
+          )}
+          <label data-g="view" className="viewer-scale">
             Scale
             <select
               aria-label="Video scale"
@@ -1147,7 +1180,7 @@ export function LiveView({
             </select>
           </label>
           {displays.length > 1 && onSwitchDisplay && (
-            <label className="viewer-scale">
+            <label data-g="view" className="viewer-scale">
               Display
               <select
                 aria-label="Display"
@@ -1168,6 +1201,7 @@ export function LiveView({
           )}
           {hasSound && (
             <button
+              data-g="view"
               className="secondary viewer-sound"
               aria-pressed={soundOn}
               title="Hear what is playing on the remote computer"
@@ -1182,6 +1216,7 @@ export function LiveView({
           )}
           {controlReady && (
             <button
+              data-g="nav"
               className="viewer-control"
               title="Open your keyboard to type on the remote computer"
               onClick={() =>
@@ -1192,7 +1227,7 @@ export function LiveView({
             </button>
           )}
           {!ended && frames > 0 && permissionView.options.length > 0 && (
-            <div className="viewer-scale">
+            <div data-g="access" className="viewer-scale">
               <select
                 aria-label="Access to request"
                 value={selectedScope ?? ""}
@@ -1237,6 +1272,7 @@ export function LiveView({
             ).map(([action, label, title]) => (
               <button
                 key={action}
+                data-g="nav"
                 className="viewer-control"
                 title={title}
                 onClick={() =>
@@ -1250,6 +1286,7 @@ export function LiveView({
             ))}
           {driveReady && (
             <button
+              data-g="files"
               className="viewer-control"
               title="List the folder the owner shared. Asks for the Shared folder access first."
               onClick={() => {
@@ -1268,6 +1305,7 @@ export function LiveView({
           )}
           {printReady && (
             <button
+              data-g="files"
               className="viewer-control"
               title="Send a file to the printer chosen on the computer"
               onClick={() => {
@@ -1314,7 +1352,7 @@ export function LiveView({
           {printStatus && <p role="status">{printStatus}</p>}
           {driveError && <p role="status">{driveError}</p>}
           {driveEntries && (
-            <ul aria-label="Shared folder">
+            <ul data-g="files" aria-label="Shared folder">
               {driveEntries.map((entry) => (
                 <li key={entry.name}>
                   {entry.name}
@@ -1391,6 +1429,7 @@ export function LiveView({
           )}
           {driveEntries && (
             <button
+              data-g="files"
               className="viewer-control"
               onClick={() => {
                 const client = drive.current;
@@ -1410,6 +1449,7 @@ export function LiveView({
           )}
           {controlReady && (
             <button
+              data-g="clip"
               className="viewer-control"
               disabled={clipboardMode === "off"}
               title={
@@ -1428,6 +1468,7 @@ export function LiveView({
           )}
           {controlReady && phoneHost && (
             <button
+              data-g="clip"
               className="viewer-control"
               disabled={clipboardMode === "off"}
               title={
@@ -1446,6 +1487,7 @@ export function LiveView({
           )}
           {controlReady && phoneHost && (
             <button
+              data-g="unlock"
               className="viewer-control"
               aria-expanded={padOpen}
               title="Type the phone's passcode here. It is sent to the phone and not saved."
@@ -1460,6 +1502,7 @@ export function LiveView({
             lockScreen?.state === "pad" &&
             lockScreen.lock === "pattern" && (
               <div
+                data-g="unlock"
                 className="viewer-pattern"
                 role="group"
                 aria-label="Pattern entry"
@@ -1518,6 +1561,7 @@ export function LiveView({
             lockScreen?.state === "pad" &&
             lockScreen.lock === "password" && (
               <form
+                data-g="unlock"
                 className="viewer-password"
                 onSubmit={(event) => {
                   event.preventDefault();
@@ -1552,6 +1596,7 @@ export function LiveView({
             lockScreen?.state === "pad" &&
             lockScreen.lock === "pin" && (
               <div
+                data-g="unlock"
                 className="viewer-replica"
                 role="group"
                 aria-label="Stand-in for the phone's PIN screen"
@@ -1610,6 +1655,7 @@ export function LiveView({
             padOpen &&
             lockScreen?.state !== "pad" && (
               <div
+                data-g="unlock"
                 className="viewer-unlock"
                 role="group"
                 aria-label="Passcode pad"
@@ -1657,7 +1703,7 @@ export function LiveView({
             </button>
           )}
           {lastRecording && playback && (
-            <div className="viewer-playback">
+            <div data-g="view" className="viewer-playback">
               <video controls src={lastRecording.url} />
               <a href={lastRecording.url} download={lastRecording.name}>
                 Save again
@@ -1666,6 +1712,7 @@ export function LiveView({
           )}
           {permissionLog.length > 0 && (
             <ul
+              data-g="access"
               className="viewer-permission-log"
               aria-label="Permissions this session"
             >
@@ -1676,6 +1723,7 @@ export function LiveView({
           )}
           {controlReady && phoneHost && (
             <form
+              data-g="chat"
               className="viewer-chat"
               onSubmit={(event) => {
                 event.preventDefault();
@@ -1710,10 +1758,13 @@ export function LiveView({
             </form>
           )}
           {controlReady && phoneHost && clipboardMode === "auto" && (
-            <span className="viewer-note">Clipboard syncs automatically.</span>
+            <span data-g="clip" className="viewer-note">
+              Clipboard syncs automatically.
+            </span>
           )}
           {controlReady && !phoneHost && (
             <button
+              data-g="nav"
               className="viewer-control"
               aria-pressed={touchMode === "direct"}
               title="Trackpad moves the cursor like a laptop touchpad. Touch acts where you tap."
@@ -1727,6 +1778,7 @@ export function LiveView({
             </button>
           )}
           <button
+            data-g="view"
             className="viewer-control"
             onClick={async () => {
               try {
@@ -1742,6 +1794,7 @@ export function LiveView({
           </button>
           {recordingAllowed && (
             <button
+              data-g="view"
               className="viewer-control"
               title="Record this session in your browser. The person using the device is told while it records."
               onClick={() =>
@@ -1754,6 +1807,7 @@ export function LiveView({
           {fileReady && (
             <>
               <button
+                data-g="files"
                 className="viewer-control"
                 title="Send a file to this computer. It is saved in Downloads\Beacon Remote."
                 disabled={transfer?.status === "sending"}

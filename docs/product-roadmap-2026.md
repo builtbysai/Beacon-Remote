@@ -562,6 +562,14 @@ before/after screenshots kept with the docs.
 - Pairing screen seen (20 Nov) on an Android Studio emulator (Beacon_Phone, fresh install of build 34008453): "Pair this
   device." headline, Paste code from clipboard, Device name, Pairing code, Server address link and a Pair device button,
   all in the light palette. Actual pairing was not done there; the Pixel's pairing was not touched.
+  Second pass (20 Nov): the drawer is grouped under labels (View, Control, Clipboard, Lock screen, Message, Files, Access)
+  in a fixed reading order, connecting, paused and ended are one calm card in the middle of the picture (spinner while
+  connecting, "Paused" label), the Play button is a pill at the bottom, and the phone-width header no longer overlaps.
+  Deliberately still dark only: the viewer is a video surface. Emulator check: an Android Studio emulator paired to the
+  test workspace (not production) shows the lock type "PIN" after a viewer opened its unlock pad; its pattern lock was
+  not detected by the viewer (the Android emulator's lock screen is not the Pixel's), so the pattern path stays proven on
+  the Pixel only.
+
 - File transfer resume, phone to viewer (20 Nov, built, not tested): the viewer already asks to carry on from a byte
   offset with the hash of what it holds; the Android sender ignored that and always started over. It now skips the
   first bytes only if their SHA-256 matches what the viewer sent, otherwise it answers "failed / resume" (the viewer
@@ -609,7 +617,7 @@ before/after screenshots kept with the docs.
   Not yet tried on the device: the paste button, a fresh install with the "restricted setting" block, and the
   notification and access steps from the card.
 
-## Viewer redesign (added 20 Nov at the owner's request; first pass done 20 Nov)
+## Viewer redesign (added 20 Nov at the owner's request; second pass done 20 Nov)
 
 Redesign the whole web viewer screen, its buttons, UX and UI, in the same system as the new Android app (paper and ink,
 one blue, large tight headlines, bottom sheets, one clear action per step). The owner's screenshot of a live phone
