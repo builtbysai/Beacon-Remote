@@ -1,5 +1,10 @@
 # Deployment gates
 
+November 21 (fourth rollout, web only): `5da796f0142c77e68f9515c6308b78d6d09d7ef8` is the current Remote production release:
+the computers page and inspector are back to their original look, the viewer keeps its rebuilt layout, and Unlock is
+offered only at the lock screen. Only the web container changed; the backend stays on the unchanged `975fc76` image
+(re-tagged to this release). Encrypted backup first, rollback tag `rollback-4061636`, health and served assets checked.
+
 November 21 (third rollout of the day, web only): `4061636fafefb04077a30223cafe1925affb6feb` is the current Remote production
 release. Only the web container changed (the rebuilt viewer and computers page); the backend image is the unchanged
 `975fc76` build, re-tagged to this release so the operations wrapper finds it, and keeps running. Encrypted backup
