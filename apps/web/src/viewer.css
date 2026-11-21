@@ -50,6 +50,7 @@
 
 /* ---- Top bar ------------------------------------------------------------------------------------------------ */
 .live-view .viewer-toolbar {
+  grid-row: 1;
   display: flex;
   align-items: center;
   flex-wrap: nowrap;
@@ -165,6 +166,7 @@
 
 /* ---- Notices: only when something needs saying -------------------------------------------------------------- */
 .live-view .viewer-status {
+  grid-row: 2;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -188,6 +190,7 @@
 
 /* ---- Body: rail, picture, side panel ------------------------------------------------------------------------ */
 .live-view .v-body {
+  grid-row: 3;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   min-height: 0;
