@@ -586,6 +586,15 @@ phone touches the screen first (ending the screensaver), waits, then swipes; wit
 screen the pad then came up and read pad:pattern. Viewer: the access-request sheet (a card over
 the picture while the person decides) and a light appearance for the header and tools drawer are done.
 
+Attended taps investigated (21 Nov, Pixel over the relay): the phone held each tap down for as long as the viewer's press
+and release took to arrive, so a late release became a long, slow gesture (read as a long press, or cancelling the next
+tap). Build a94530c4 sends any press shorter than half a second as a plain 50 ms tap (a longer press keeps its length;
+unit test StrokeDurationTest, and the Android unit tests all pass in the build). Measured with the viewer's 8-tap
+frame-change test: attended 789, 1518, 203, 258, 292, 384, 1166, 67 ms and 882, 583, 392, 412, 494, 393, 387, 364 ms;
+no tap went missing in 16 (earlier runs lost several); unattended 840, 1039, 268, 510, 418, 471, 282, 349 ms. The first
+tap of a run and about one tap in eight still take 1.1-1.5 s; that looks like picture pacing (a frame only goes out when
+the screen changes) rather than input, but that is not proven. Direct-path and cellular are still unmeasured.
+
 - File transfer resume, phone to viewer (20 Nov, built, not tested): the viewer already asks to carry on from a byte
   offset with the hash of what it holds; the Android sender ignored that and always started over. It now skips the
   first bytes only if their SHA-256 matches what the viewer sent, otherwise it answers "failed / resume" (the viewer
