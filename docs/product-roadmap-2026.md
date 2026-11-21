@@ -626,3 +626,14 @@ targets checked, light and dark; (7) before and after screenshots on a desktop w
   resume", the session resumed by itself, the phone offered the same file again and the viewer's button read "Resume
   download" (earlier builds showed "Save" and threw the partial copy away). Pressing it finished the file: the viewer
   reported "Received" and the phone logged "done" after the SHA-256 check. This closes the earlier open item.
+
+- M4 tap-to-picture latency, Pixel 7a over the relay on Wi-Fi (20 Nov, 20:00 local): a viewer tap on the phone's tab bar
+  until the picture changed (frame-hash change in the viewer, 10 ms polling). Unattended (2 fps cap): 327, 439, 438,
+  416, 456, 359, 462, 627 ms, median about 440 ms. Attended: one run 160 ms for the first tap but the next taps did not
+  change the picture or took 2.4 s (taps lost or delayed); a second run 595, 283, 716, 492, 476, 481, 1518, 1425 ms.
+  So a typical attended tap shows in about 0.3-0.7 s, with occasional 1.4-2.4 s outliers and some lost taps that need
+  a look (the viewer's tap is a down/up with no hold). Still not measured: a direct (non-relayed) path and cellular.
+- Redesigned Android sheets checked on the Pixel (20 Nov): Connection details and the "Allow remote unlocking?"
+  confirmation both render correctly in dark mode and work; the unlock setting was restored afterwards. The pairing
+  screen is still unseen (it needs the phone unpaired), and copied files from the phone's clipboard still need a source
+  app that can put a file on the clipboard: adb cannot set the clipboard on this Pixel.
