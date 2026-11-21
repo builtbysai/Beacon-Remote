@@ -577,3 +577,10 @@ Each item is built and pushed; the test needs a step only the owner can do. Pick
   in light and dark, the more sheet, the unattended switch end to end. Not yet seen on the device: the request screen,
   the sharing and paused states, the pairing screen and the remove and unlock confirmation sheets (the Pixel lost its
   Wi-Fi, so no request could be made). Left out of the mockup on purpose: the "Preview" items, which were mockup only.
+
+- Android redesign, device check (20 Nov, Wi-Fi back): the request screen ("Someone wants to see your screen", Allow
+  touch and typing, Allow receiving files, Decline / Approve once), the Device tab while sharing (blue card, "Connected",
+  Pause and Stop sharing) and while paused (grey card, Stop and Resume, and the viewer showed "paused") all work on the
+  Pixel, and the Access tab shows the unlock row dimmed while access without asking is off. Fixed from that run: the
+  light "Stop sharing" and "Resume" labels were invisible in dark mode. Still not seen on the device: the pairing screen,
+  and the Connection details and unlock-confirmation sheets.
