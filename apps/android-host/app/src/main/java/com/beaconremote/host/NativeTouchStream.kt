@@ -53,44 +53,77 @@ internal class NativeTouchStream(
     private fun dispatch(segment: TouchStream.Segment, done: (Boolean) -> Unit): Boolean {
         if (segment.beginning) startedAt = SystemClock.elapsedRealtime()
         val prior = previous
-        val stroke = if (segment.beginning) {
-            GestureDescription.StrokeDescription(path(segment.from, segment.to), 0, segment.durationMs, segment.continues)
-        } else {
-            prior?.continueStroke(path(segment.from, segment.to), 0, segment.durationMs, segment.continues) ?: return false
+        val stroke = runCatching {
+            if (segment.beginning) GestureDescription.StrokeDescription(path(segment.from, segment.to), 0, segment.durationMs, segment.continues)
+            else prior?.continueStroke(path(segment.from, segment.to), 0, segment.durationMs, segment.continues)
+        }.getOrNull()
+        if (stroke == null) {
+            releaseOwned { done(false); rejected() }
+            return true
         }
-        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        var finished = false
+        lateinit var watchdog: Runnable
+        fun finish(success: Boolean) {
+            if (finished) return
+            finished = true
+            handler.removeCallbacks(watchdog)
+            previous = if (success && segment.continues) stroke else null
+            previousPoint = if (success && segment.continues) segment.to else null
+            if (success && !segment.continues && Log.isLoggable("BeaconPerformance", Log.DEBUG))
+                Log.d("BeaconPerformance", "streamTouch completedMs=${SystemClock.elapsedRealtime() - startedAt}")
+            done(success)
+        }
+        watchdog = Runnable {
+            if (!finished) {
+                finished = true
+                releaseOwned { done(false); rejected() }
+            }
+        }
         val callback = object : AccessibilityService.GestureResultCallback() {
-            override fun onCompleted(gestureDescription: GestureDescription) {
-                previous = if (segment.continues) stroke else null
-                previousPoint = if (segment.continues) segment.to else null
-                if (!segment.continues && Log.isLoggable("BeaconPerformance", Log.DEBUG))
-                    Log.d("BeaconPerformance", "streamTouch completedMs=${SystemClock.elapsedRealtime() - startedAt}")
-                done(true)
-            }
-            override fun onCancelled(gestureDescription: GestureDescription) {
-                previous = null
-                previousPoint = null
-                done(false)
-            }
+            override fun onCompleted(gestureDescription: GestureDescription) = finish(true)
+            override fun onCancelled(gestureDescription: GestureDescription) = finish(false)
         }
-        if (service.dispatchGesture(gesture, callback, handler)) return true
-        // A rejected continuation must not strand the preceding held contact. Only lift at
-        // its already committed point; never turn this cleanup into a fresh tap or movement.
+        val accepted = runCatching {
+            service.dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), callback, handler)
+        }.getOrDefault(false)
+        if (accepted) {
+            // Keep the accepted continuation even before its callback, so an OS callback
+            // lost during teardown cannot strand this contact or the owned handler thread.
+            previous = if (segment.continues) stroke else null
+            previousPoint = if (segment.continues) segment.to else null
+            handler.postDelayed(watchdog, 250)
+        } else {
+            finished = true
+            releaseOwned { done(false); rejected() }
+        }
+        return true
+    }
+
+    /** Only lift our existing contact at its accepted endpoint; never create a cleanup tap. */
+    private fun releaseOwned(after: () -> Unit) {
+        val stroke = previous
         val point = previousPoint
-        if (prior != null && point != null) {
-            val release = prior.continueStroke(path(point, point), 0, 1, false)
-            val cleanup = GestureDescription.Builder().addStroke(release).build()
-            val cleanupCallback = object : AccessibilityService.GestureResultCallback() {
-                private fun finish() { previous = null; previousPoint = null; done(false); rejected() }
-                override fun onCompleted(gestureDescription: GestureDescription) = finish()
-                override fun onCancelled(gestureDescription: GestureDescription) = finish()
-            }
-            if (service.dispatchGesture(cleanup, cleanupCallback, handler)) return true
+        if (stroke == null || point == null) { after(); return }
+        var finished = false
+        lateinit var watchdog: Runnable
+        fun finish() {
+            if (finished) return
+            finished = true
+            handler.removeCallbacks(watchdog)
+            previous = null
+            previousPoint = null
+            after()
         }
-        previous = null
-        previousPoint = null
-        Log.w("BeaconHost", "Android refused touch dispatch")
-        rejected()
-        return false
+        watchdog = Runnable { finish() }
+        handler.postDelayed(watchdog, 250)
+        val callback = object : AccessibilityService.GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription) = finish()
+            override fun onCancelled(gestureDescription: GestureDescription) = finish()
+        }
+        val accepted = runCatching {
+            val lift = stroke.continueStroke(path(point, point), 0, 1, false)
+            service.dispatchGesture(GestureDescription.Builder().addStroke(lift).build(), callback, handler)
+        }.getOrDefault(false)
+        if (!accepted) finish()
     }
 }
