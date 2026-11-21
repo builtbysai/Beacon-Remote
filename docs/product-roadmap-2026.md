@@ -608,6 +608,11 @@ shown: a request made while the phone is already locked, because a viewer cannot
 locked; that refusal is in the code (state "locked") but not seen. Not heard by a person: the emulator has no speaker
 check, and a real microphone was not used. Pixel check of this feature is still to do by the owner.
 
+Production rollout (21 Nov, owner-authorized): release 104e005 (this branch's viewer redesign, talk through the phone, all
+Android-era backend work) replaced 5e8d5c5 on remote.builtbysai.com after an encrypted backup, with migrate and verify
+passing, both containers healthy and the new web assets served. The production database was already empty (0 accounts,
+computers, sessions), so the requested wipe deleted nothing; sign-up is open. Details: docs/deployment.md.
+
 - File transfer resume, phone to viewer (20 Nov, built, not tested): the viewer already asks to carry on from a byte
   offset with the hash of what it holds; the Android sender ignored that and always started over. It now skips the
   first bytes only if their SHA-256 matches what the viewer sent, otherwise it answers "failed / resume" (the viewer

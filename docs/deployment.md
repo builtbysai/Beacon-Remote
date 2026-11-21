@@ -1,5 +1,14 @@
 # Deployment gates
 
+November 21 manual rollout (owner-authorized, "wipe the database and rollout the new"): `104e005a8cb5038b1ebb28b1f321cb678e2803c6`
+is the current Remote production release, after an encrypted backup (passed), rollback tags `rollback-5e8d5c5` for
+the predecessor `5e8d5c5`, the predecessor backend stopped, migrate and schema/role verify passed (no schema change
+needed), backend and web recreated, and public health, readiness and the served web assets checked. The owner asked for
+the database to be cleared; every table that holds accounts, computers, sessions, enrollments, audit events and support
+data was already empty (0 rows) before the rollout, so nothing was deleted. Rollback is the documented one: retag
+`rollback-5e8d5c5`, `up -d --no-deps backend web` without `--build`, repoint `current`. Beacon View's containers were
+not touched.
+
 October 12 (evening) manual rollout: merged main
 `410a7d19cb0eec2fc0032b8c3e09854b8d4f699a` (PR 34: ADRs 0021-0024) is the current
 Remote production release, after encrypted backup/integrity check, rollback tags
