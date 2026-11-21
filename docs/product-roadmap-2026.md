@@ -570,6 +570,12 @@ before/after screenshots kept with the docs.
   not detected by the viewer (the Android emulator's lock screen is not the Pixel's), so the pattern path stays proven on
   the Pixel only.
 
+Test deployment (20 Nov, 53c219bb): the isolated acceptance backend and web on the VM now run this commit (images
+`beacon-remote-acceptance-*:53c219bb...`, source in /opt/beacon-remote/acceptance/20261120-53c219bb, override
+/etc/beacon-remote/acceptance-images-53c219bb....override.yaml; https://remote-test.builtbysai.com serves the new viewer
+assets). Production (remote.builtbysai.com, release 5e8d5c5) was not touched: a production rollout needs the
+backup, migration and rollback steps in docs/deployment.md and the owner's go-ahead.
+
 - File transfer resume, phone to viewer (20 Nov, built, not tested): the viewer already asks to carry on from a byte
   offset with the hash of what it holds; the Android sender ignored that and always started over. It now skips the
   first bytes only if their SHA-256 matches what the viewer sent, otherwise it answers "failed / resume" (the viewer
