@@ -878,6 +878,17 @@ export function LiveView({
         return;
       }
       if (event.track.kind !== "video") return;
+      // Show each picture the moment it arrives: no extra playout delay, so the screen feels live.
+      const receiver = event.receiver as RTCRtpReceiver & {
+        jitterBufferTarget?: number | null;
+        playoutDelayHint?: number | null;
+      };
+      try {
+        receiver.jitterBufferTarget = 0;
+        receiver.playoutDelayHint = 0;
+      } catch {
+        // Older browsers ignore the hint.
+      }
       const stream =
         element.srcObject instanceof MediaStream
           ? element.srcObject

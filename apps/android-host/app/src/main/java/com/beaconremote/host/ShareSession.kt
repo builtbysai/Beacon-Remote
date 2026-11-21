@@ -112,9 +112,9 @@ class ShareSession(
         return metrics.widthPixels to metrics.heightPixels
     }
 
-    /** What is sent to the helper: at most 1280 on the long side, even numbers (the encoder needs them). */
+    /** What is sent to the helper: at most 1920 on the long side (sharp text), even numbers (the encoder needs them). */
     private fun captureSize(width: Int, height: Int): Pair<Int, Int> {
-        val scale = minOf(1.0, 1280.0 / maxOf(width, height))
+        val scale = minOf(1.0, 1920.0 / maxOf(width, height))
         return ((width * scale).toInt() / 2 * 2) to ((height * scale).toInt() / 2 * 2)
     }
 
@@ -572,6 +572,8 @@ class ShareSession(
             val audioSender = connection.addTrack(audio, listOf("beacon-screen"))
             connection.transceivers.firstOrNull { it.sender == audioSender }?.direction = RtpTransceiver.RtpTransceiverDirection.SEND_ONLY
         }
+        // Screen text needs a high, steady bitrate: start high so the first pictures are sharp, never drop resolution.
+        runCatching { connection.setBitrate(2_000_000, 8_000_000, 16_000_000) }
         // Hardware H.264 first where the phone has it; the browser picks what both sides support.
         runCatching {
             val codecs = peerFactory.getRtpSenderCapabilities(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO).codecs
@@ -616,6 +618,7 @@ class ShareSession(
                             object : SimpleSdpObserver() {
                                 override fun onSetSuccess() {
                                     post {
+                                        runCatching { tuneVideoSender(connection) }
                                         if (viewer.owns(thisGeneration)) {
                                             socket?.send(
                                                 JSONObject()
@@ -638,6 +641,20 @@ class ShareSession(
     }
 
     private var talkReceiver: org.webrtc.RtpReceiver? = null
+
+    /** Keep the screen's resolution and let the bitrate rise: a screen is mostly text, so blur is the wrong trade. */
+    private fun tuneVideoSender(connection: PeerConnection) {
+        val sender = connection.senders.firstOrNull { it.track()?.kind() == "video" } ?: return
+        val parameters = sender.parameters
+        parameters.degradationPreference = org.webrtc.RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
+        for (encoding in parameters.encodings) {
+            encoding.maxBitrateBps = 16_000_000
+            encoding.minBitrateBps = 1_500_000
+            encoding.maxFramerate = 60
+            encoding.scaleResolutionDownBy = 1.0
+        }
+        sender.parameters = parameters
+    }
 
     private fun openInput(generation: Long, label: String, permitted: () -> Boolean) {
         Log.i("BeaconHost", "Open input requested: label=$label existing=${control != null} peer=${peer != null}")
