@@ -596,3 +596,27 @@ Each item is built and pushed; the test needs a step only the owner can do. Pick
   itself). Pixel run: background and accessibility steps were done from the card; unit tests cover the code parser.
   Not yet tried on the device: the paste button, a fresh install with the "restricted setting" block, and the
   notification and access steps from the card.
+
+## Viewer redesign (added 20 Nov at the owner's request, not started)
+
+Redesign the whole web viewer screen, its buttons, UX and UI, in the same system as the new Android app (paper and ink,
+one blue, large tight headlines, bottom sheets, one clear action per step). The owner's screenshot of a live phone
+session shows what is wrong today:
+
+- One crowded toolbar holds about 20 controls in a row (Sound, Keyboard, Choose access, Request access, Back, Home,
+  Recents, Copy from phone, Send clipboard to phone, Unlock phone, a message box, Full screen, Send file, Connection,
+  Stop control) with no grouping, so nothing says which matter most, and it wraps ("Send message" drops to a second line).
+- Controls that belong together are scattered: phone navigation (Back, Home, Recents), clipboard (two buttons), lock
+  screen (Unlock phone), chat (a text box in the toolbar), files and recording.
+- A blue "Play video" button sits on top of the phone's picture, covering part of it; the device name is cut off
+  ("Pi...") and the session facts are tiny grey text.
+- The phone picture is a narrow strip in the middle of a large black area; the controls do not follow the picture.
+- Sound shows as a big white button while the rest are small dark ones; the primary action (Stop control) is red and
+  alone at the far end, away from the picture.
+- Permission requests, the passcode pad, the permissions log and recordings appear as extra rows under the toolbar.
+
+Plan: (1) a design pass from the owner's mockup style for desktop and phone-width browsers; (2) a header with the
+device name, state and one Stop control; (3) grouped, collapsible tools (Navigate, Clipboard, Files, Chat, Record,
+Unlock) in a side panel or sheets instead of a toolbar; (4) the picture centred and sized to fit, with a clear
+connecting, paused and ended state; (5) permission requests as a sheet with plain wording; (6) keyboard and touch
+targets checked, light and dark; (7) before and after screenshots on a desktop window and a phone-width window.
