@@ -89,10 +89,15 @@ export function LiveView({
   displays = [],
   displayId,
   onSwitchDisplay,
+  onMinimize,
+  minimized = false,
 }: {
   grant: ViewGrant;
   name: string;
   onClose: () => void;
+  // Hide the viewer and show the device list while the session stays connected.
+  onMinimize?: () => void;
+  minimized?: boolean;
   // The computer's displays and the one being viewed. Switching asks the computer's person again, because each display
   // is approved on its own; it never widens what was already approved.
   displays?: DisplayInfo[];
@@ -1160,7 +1165,8 @@ export function LiveView({
   return (
     <section
       ref={shell}
-      className="live-view"
+      className={`live-view${minimized ? " minimized" : ""}`}
+      aria-hidden={minimized}
       data-session-id={grant.id}
       data-control={controlReady ? "granted" : "none"}
       data-state={
@@ -1175,6 +1181,18 @@ export function LiveView({
       aria-label={`${name} remote viewer`}
     >
       <header className={`viewer-toolbar${compact ? " compact" : ""}`}>
+        {onMinimize && (
+          <button
+            className="viewer-control viewer-back"
+            title="Back to your devices. The session stays connected."
+            onClick={() => {
+              setMenuOpen(false);
+              onMinimize();
+            }}
+          >
+            ← Devices
+          </button>
+        )}
         <div className="viewer-identity">
           <span className="viewer-dot" aria-hidden="true" />
           <strong>{name}</strong>

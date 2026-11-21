@@ -58,6 +58,11 @@ class Identity(private val context: Context) {
         get() = prefs.getBoolean("shareMic", false)
         set(value) = prefs.edit().putBoolean("shareMic", value).apply()
 
+    /** Chosen on the pairing screen: turn on "connect without asking" automatically once setup finishes. */
+    var unattendedAfterSetup: Boolean
+        get() = prefs.getBoolean("unattendedAfterSetup", false)
+        set(value) = prefs.edit().putBoolean("unattendedAfterSetup", value).apply()
+
     /** The owner lets a trusted viewer talk through this phone's speaker (ADR 0058). Off in a fresh install. */
     var talkIn: Boolean
         get() = prefs.getBoolean("talkIn", false)

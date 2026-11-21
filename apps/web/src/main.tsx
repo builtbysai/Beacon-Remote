@@ -160,6 +160,7 @@ function App() {
   const [, setClock] = useState(Date.now());
   const [mediaEnabled, setMediaEnabled] = useState(false);
   const [controlEnabled, setControlEnabled] = useState(false);
+  const [minimized, setMinimized] = useState(false);
   const [view, setView] = useState<{
     grant: ViewGrant;
     name: string;
@@ -1314,12 +1315,35 @@ function App() {
                 )}
             </div>
           )}
+          {view && minimized && (
+            <div className="live-pill" role="status">
+              <span className="live-pill-dot" aria-hidden="true" />
+              <span>
+                <strong>{view.name}</strong> is connected
+              </span>
+              <button onClick={() => setMinimized(false)}>Return</button>
+              <button
+                className="live-pill-end"
+                onClick={() => {
+                  setView(null);
+                  setMinimized(false);
+                }}
+              >
+                End
+              </button>
+            </div>
+          )}
           {view && (
             <LiveView
               key={view.grant.id}
               grant={view.grant}
               name={view.name}
-              onClose={() => setView(null)}
+              minimized={minimized}
+              onMinimize={() => setMinimized(true)}
+              onClose={() => {
+                setView(null);
+                setMinimized(false);
+              }}
               displays={
                 machines?.find((entry) => entry.id === view.machineId)
                   ?.displays ?? []

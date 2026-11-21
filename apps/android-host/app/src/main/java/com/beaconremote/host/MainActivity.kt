@@ -131,6 +131,7 @@ class MainActivity : Activity() {
         handler.removeCallbacks(refreshTask)
         refreshTask.run()
         continueGuidedSetup()
+        finishAccessIfWanted()
     }
 
     /** Back from an Android settings screen: if that step got done, go straight to the next one. */
@@ -138,7 +139,8 @@ class MainActivity : Activity() {
         val from = guidedFrom ?: return
         if (!identity.paired) { guidedFrom = null; return }
         val next = setupSteps().firstOrNull { !it.done }
-        if (next == null || next.title == from) { guidedFrom = null; return }
+        if (next == null) { guidedFrom = null; finishAccessIfWanted(); return }
+        if (next.title == from) { guidedFrom = null; return }
         guidedFrom = next.title
         handler.postDelayed({ if (!isDestroyed && !isFinishing) next.action() }, 500)
     }
@@ -284,6 +286,13 @@ class MainActivity : Activity() {
         })
         root.addView(serverLabel)
         root.addView(server)
+        // One choice up front, so setup is the same few taps whether or not this phone should be reachable unattended.
+        val (autoRow, autoSwitch) = HostUi.switchRow(
+            this, "Connect without asking",
+            "Let your account view and control this phone while it's unlocked, with no prompt each time. Pause and Stop stay visible. You can change it later.",
+            "pair-unattended", true,
+        )
+        root.addView(autoRow.apply { setPadding(0, dp(14), 0, 0) })
         val message = HostUi.text(this, pairingNotice.orEmpty(), 14f).apply { tag = "pair-notice"; accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE; setPadding(0, dp(12), 0, 0) }
         val pair = HostUi.button(this, "Pair device", true).apply { tag = "pair-submit" }
         pair.setOnClickListener {
@@ -304,6 +313,7 @@ class MainActivity : Activity() {
                     try {
                         val machine = Api.enroll(origin, pairingCode, deviceName, publicKey)
                         identity.savePairing(origin, machine, deviceName, seed)
+                        identity.unattendedAfterSetup = autoSwitch.isChecked
                     } finally { seed.fill(0) }
                 }
                 pairingNotice = result.exceptionOrNull()?.let { (it as? PairingFailed)?.message ?: "Could not reach the server. Try again." }
@@ -312,7 +322,10 @@ class MainActivity : Activity() {
                     if (!isDestroyed && !isFinishing) {
                         if (result.isSuccess) {
                             if (notificationsReady()) AvailabilityService.start(this)
+                            // Setup starts by itself: the first system prompt appears without another tap.
+                            guidedFrom = ""
                             render()
+                            handler.postDelayed({ continueGuidedSetup() }, 400)
                         } else {
                             listOf(server, name, code, pair).forEach { it.isEnabled = true }
                             message.text = pairingNotice
@@ -822,11 +835,15 @@ class MainActivity : Activity() {
             "Background running allowed", "Allow background running", power.isIgnoringBatteryOptimizations(packageName),
             "Keeps this phone reachable when the screen is off.",
         ) { requestBatteryExemption() }
-        list += SetupStep(
-            "Access without asking allowed", "Allow access without asking", identity.unattended,
-            "Lets your account connect without a prompt while this phone is unlocked. Pause and Stop stay visible.",
-        ) { changeAccess() }
         return list
+    }
+
+    /** The pairing screen's "Connect without asking" choice is applied once the permissions above are in place. */
+    private fun finishAccessIfWanted() {
+        if (!identity.paired || !identity.unattendedAfterSetup || identity.unattended) return
+        if (setupSteps().any { !it.done }) return
+        identity.unattendedAfterSetup = false
+        changeAccess()
     }
 
     /** Opens Beacon's own accessibility page, not the long list of apps; falls back to the list. */
