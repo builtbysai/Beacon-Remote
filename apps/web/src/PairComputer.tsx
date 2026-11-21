@@ -38,6 +38,99 @@ export function pairingLink(origin: string, code: string) {
   return `beaconremote://pair?code=${encodeURIComponent(code)}&server=${encodeURIComponent(origin)}`;
 }
 
+// The other way round: the device shows a short code, and the person types it here and approves it.
+function DeviceCodeApproval({
+  onApproved,
+}: {
+  onApproved: (id: string, name: string) => void;
+}) {
+  const [text, setText] = useState("");
+  const [found, setFound] = useState<{ name: string } | null>(null);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const compact = text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+
+  async function check() {
+    setBusy(true);
+    setMessage("");
+    setFound(null);
+    try {
+      setFound(
+        await api<{ name: string }>("device-pairing/lookup", {
+          userCode: compact,
+        }),
+      );
+    } catch {
+      setMessage(
+        "That code was not found. Check it on the device; codes last ten minutes.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function approve() {
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await api<{ machineId: string; name: string }>(
+        "device-pairing/approve",
+        { userCode: compact },
+      );
+      onApproved(result.machineId, result.name);
+    } catch {
+      setMessage("Could not approve it. Ask the device for a new code.");
+      setFound(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="pairing-field pairing-device-code">
+      <span>Or type the code the device is showing</span>
+      <div className="pairing-code-row">
+        <input
+          aria-label="Code shown on the device"
+          placeholder="XXXX-XXXX"
+          value={text}
+          maxLength={9}
+          autoComplete="off"
+          spellCheck={false}
+          onChange={(event) => {
+            setText(event.target.value);
+            setFound(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && compact.length === 8 && !busy)
+              void check();
+          }}
+        />
+        <button
+          className="secondary"
+          disabled={compact.length !== 8 || busy}
+          onClick={() => void check()}
+        >
+          Check code
+        </button>
+      </div>
+      {found && (
+        <p role="status">
+          <strong>{found.name}</strong> wants to join your account. Only approve
+          it if you are looking at that device right now.{" "}
+          <button disabled={busy} onClick={() => void approve()}>
+            Approve {found.name}
+          </button>
+        </p>
+      )}
+      {message && (
+        <p className="error" role="alert">
+          {message}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function PairComputer({
   onClose,
   onPaired,
@@ -339,6 +432,20 @@ export function PairComputer({
               in the address and code. Tap Pair on the phone to finish.
             </p>
           </div>
+          <DeviceCodeApproval
+            onApproved={(id, name) => {
+              // The device was approved directly, so the one-use code above is no longer needed.
+              void api(
+                "enrollments/cancel",
+                { code: invitation.code },
+                AbortSignal.timeout(5000),
+              ).catch(() => undefined);
+              owned.current = null;
+              settled.current = true;
+              setProgress({ state: "claimed", machine: { id, name } });
+              paired.current(id);
+            }}
+          />
           <a href="#downloads">Get the Windows or Android app →</a>
         </>
       ) : (

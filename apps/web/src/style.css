@@ -3204,3 +3204,10 @@ button.danger {
 .live-view .viewer-back {
   flex: none;
 }
+.pairing-device-code input {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}

@@ -38,6 +38,7 @@ import { registerSupportWorkflow } from "./support-workflow.js";
 import { registerMfa } from "./mfa.js";
 import { createMailer, type Mailer } from "./mail.js";
 import { registerSignup } from "./signup.js";
+import { registerDevicePairing } from "./device-pairing.js";
 import { registerBootAvailability } from "./boot-availability.js";
 import { registerSigninAuthority } from "./signin-authority.js";
 import { interactiveReadySql } from "./machine-readiness.js";
@@ -241,6 +242,7 @@ export async function createApp(
     owner,
     sessionRequests.stopSession,
   );
+  registerDevicePairing(app, pool, owner, sameOrigin);
   registerTeam(
     app,
     pool,

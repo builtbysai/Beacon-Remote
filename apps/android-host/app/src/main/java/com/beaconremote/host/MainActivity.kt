@@ -115,6 +115,106 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Google's QR scanner: it needs no camera permission here. A scanned pairing link fills the form and pairs at once. */
+    private fun scanPairingQr() {
+        val options = com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions.Builder()
+            .setBarcodeFormats(com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE)
+            .build()
+        com.google.mlkit.vision.codescanner.GmsBarcodeScanning.getClient(this, options).startScan()
+            .addOnSuccessListener { barcode ->
+                val parsed = PairingText.parse(barcode.rawValue)
+                if (parsed == null) {
+                    Toast.makeText(this, "That is not a Beacon pairing code.", Toast.LENGTH_LONG).show()
+                } else {
+                    applyPairing(parsed.code, parsed.server)
+                    root.findViewWithTag<Button>("pair-submit")?.performClick()
+                }
+            }
+            .addOnFailureListener { Toast.makeText(this, "Could not scan. Use Paste code instead.", Toast.LENGTH_LONG).show() }
+    }
+
+    // The phone's own code: shown here, typed into the signed-in workspace, approved there.
+    private var deviceCode: Api.DevicePairing? = null
+    private var deviceCodeSeed: ByteArray? = null
+    @Volatile private var deviceCodeActive = false
+
+    private fun startDeviceCode(origin: String, deviceName: String) {
+        if (!pairing.compareAndSet(false, true)) return
+        pairingNotice = null
+        thread(name = "device-code") {
+            val started = runCatching {
+                val (seed, publicKey) = identity.newKey()
+                deviceCodeSeed = seed
+                Api.startDevicePairing(origin, deviceName, publicKey)
+            }
+            handler.post {
+                if (isDestroyed || isFinishing) return@post
+                val code = started.getOrNull()
+                if (code == null) {
+                    deviceCodeSeed?.fill(0); deviceCodeSeed = null
+                    pairing.set(false)
+                    pairingNotice = (started.exceptionOrNull() as? PairingFailed)?.message ?: "Could not reach the server. Try again."
+                    render()
+                    return@post
+                }
+                deviceCode = code
+                deviceCodeActive = true
+                renderDeviceCode(origin, deviceName, code)
+                pollDeviceCode(origin, deviceName, code)
+            }
+        }
+    }
+
+    private fun renderDeviceCode(origin: String, deviceName: String, code: Api.DevicePairing) {
+        root.removeAllViews()
+        root.addView(HostUi.kicker(this, "Set up"))
+        root.addView(HostUi.headline(this, code.userCode))
+        root.addView(HostUi.text(this, "On a computer, open ${origin.removePrefix("https://")}, sign in, choose Add a computer, and type this code. Then approve $deviceName.", 13f, false, true).apply { setPadding(0, dp(8), 0, dp(16)) })
+        root.addView(HostUi.text(this, "Waiting for you to approve it…", 14f).apply { tag = "device-code-status"; accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE })
+        root.addView(HostUi.button(this, "Cancel").apply {
+            setOnClickListener { stopDeviceCode(); render() }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(22) })
+    }
+
+    private fun stopDeviceCode() {
+        deviceCodeActive = false
+        deviceCode = null
+        deviceCodeSeed?.fill(0); deviceCodeSeed = null
+        pairing.set(false)
+    }
+
+    private fun pollDeviceCode(origin: String, deviceName: String, code: Api.DevicePairing) {
+        thread(name = "device-code-poll") {
+            val deadline = System.currentTimeMillis() + code.expiresInSeconds * 1000L
+            var failure: String? = null
+            var machineId: String? = null
+            while (deviceCodeActive && machineId == null && System.currentTimeMillis() < deadline) {
+                try {
+                    machineId = Api.pollDevicePairing(origin, code.pollToken)
+                } catch (error: PairingFailed) {
+                    failure = error.message; break
+                } catch (_: Exception) { /* the network blinked: keep trying until the code expires */ }
+                if (machineId == null) Thread.sleep(2000)
+            }
+            handler.post {
+                if (isDestroyed || isFinishing || !deviceCodeActive) return@post
+                val seed = deviceCodeSeed
+                if (machineId != null && seed != null) {
+                    runCatching { identity.savePairing(origin, machineId, deviceName, seed) }
+                    stopDeviceCode()
+                    if (notificationsReady()) AvailabilityService.start(this)
+                    guidedFrom = ""
+                    render()
+                    handler.postDelayed({ continueGuidedSetup() }, 400)
+                } else {
+                    stopDeviceCode()
+                    pairingNotice = failure ?: "That code expired. Try again."
+                    render()
+                }
+            }
+        }
+    }
+
     private fun pasteFromClipboard() {
         val text = getSystemService(ClipboardManager::class.java).primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
         val parsed = PairingText.parse(text)
@@ -264,8 +364,10 @@ class MainActivity : Activity() {
         root.addView(HostUi.kicker(this, "Set up"))
         root.addView(HostUi.headline(this, "Pair this device."))
         root.addView(HostUi.text(this, "In your workspace, choose Add a computer, then copy its code or link and paste it here.", 13f, false, true).apply { setPadding(0, dp(4), 0, dp(8)) })
-        root.addView(HostUi.button(this, "Paste code from clipboard").apply { tag = "pair-paste"; setOnClickListener { pasteFromClipboard() } },
+        root.addView(HostUi.button(this, "Scan the QR code", true).apply { tag = "pair-scan"; setOnClickListener { scanPairingQr() } },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        root.addView(HostUi.button(this, "Paste code from clipboard").apply { tag = "pair-paste"; setOnClickListener { pasteFromClipboard() } },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
         val name = fieldBox(R.id.pair_name, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS, 80).apply { setText(Build.MODEL) }
         val code = fieldBox(R.id.pair_code, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS, 32).apply {
             hint = "One-use code"
@@ -337,6 +439,17 @@ class MainActivity : Activity() {
         code.setOnEditorActionListener { _, action, _ -> if (action == EditorInfo.IME_ACTION_DONE) { pair.performClick(); true } else false }
         root.addView(pair, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(22) })
         root.addView(message)
+        root.addView(HostUi.link(this, "Show a code on this phone instead").apply {
+            tag = "pair-show-code"
+            gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            setPadding(0, dp(18), 0, 0)
+            setOnClickListener {
+                val origin = Api.validServer(server.text.toString())
+                if (origin == null) { server.visibility = View.VISIBLE; serverLabel.visibility = View.VISIBLE; server.error = "Enter a server origin, such as https://remote.builtbysai.com"; server.requestFocus(); return@setOnClickListener }
+                identity.unattendedAfterSetup = autoSwitch.isChecked
+                startDeviceCode(origin, name.text.toString().trim().ifEmpty { Build.MODEL })
+            }
+        })
         listOf(server, name, code, pair).forEach { it.isEnabled = !pairing.get() }
     }
 
