@@ -1,5 +1,7 @@
 # Beacon Remote: next-chat development and acceptance handoff
 
+Latest state: see [the 21 November handoff](handoff-2026-11-21.md). The notes below are older evidence.
+
 November 17, 2026. Read the workspace instructions, then this file, the
 [parity roadmap](rdp-vnc-parity-roadmap.md), [test ledger](testing-remaining.md)
 and [development status](development-status.md). The preceding chat ended with
