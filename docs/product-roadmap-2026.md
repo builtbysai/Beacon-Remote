@@ -662,3 +662,11 @@ targets checked, light and dark; (7) before and after screenshots on a desktop w
 - Lock type line, confirmed on the Pixel (20 Nov): after a locked unattended session with the unlock pad open, the
   Access tab reads "Lock type: PIN (last seen 1 hour ago)". Pattern and password detection are still to be seen on a
   real lock (the owner changes the Pixel's lock).
+
+- Pattern lock detection, Pixel (20 Nov): with the Pixel's lock switched to a pattern by the owner, the first test showed
+  the viewer still waiting ("Bringing up the PIN screen"): on this Pixel the pattern grid's id is `bouncer_pattern_root`
+  (title "Draw pattern"), not the `lockPatternView` the code looked for. Fixed (build 34008453) and, for the password
+  screen, the text box is now found by class as well. Retest: a locked unattended session with the unlock pad open now
+  shows the viewer's 3x3 dot grid with "Draw pattern" and "Clear" instead of the number pad. Not yet done: drawing the
+  pattern (the owner enters it), the Access tab reading "Lock type: Pattern" (needs the phone unlocked), and the password
+  lock.
