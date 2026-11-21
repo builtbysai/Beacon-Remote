@@ -374,7 +374,7 @@ class RemoteControl(
         // Up to 24 points of the path are enough to reproduce a swipe; a tap or long press is one point.
         val step = maxOf(1, path.size / 24)
         val points = if (moved) path.filterIndexed { index, _ -> index % step == 0 || index == path.lastIndex } else listOf(path[0])
-        service.stroke(points, if (moved) held.coerceIn(80, 2000) else held.coerceIn(40, 2000))
+        service.stroke(points, strokeDuration(moved, held))
         path.clear()
     }
 
@@ -424,10 +424,19 @@ class RemoteControl(
         return if (scan == 0x39) ' ' else null
     }
 
-    private companion object {
+    companion object {
         const val TAG = "BeaconHost"
         const val MAX_MESSAGE = 2048
         const val MAX_PER_SECOND = 500
+
+        /**
+         * How long the finger stays down on the phone. The time between the viewer's press and release also includes
+         * network delay, so a tap that arrived late would otherwise become a long, slow gesture that Android reads as a
+         * long press or that cancels the next tap. A press shorter than half a second is a plain 50 ms tap; a longer
+         * one is a deliberate hold and keeps its length.
+         */
+        fun strokeDuration(moved: Boolean, heldMs: Long): Long =
+            if (moved) heldMs.coerceIn(80, 2000) else if (heldMs < 500) 50 else heldMs.coerceIn(500, 2000)
         const val MAX_CLIPBOARD_CHARS = 32768
         const val MAX_CLIPBOARD_WRITE = 8000
         const val MAX_CLIPBOARD_HTML = 6000
