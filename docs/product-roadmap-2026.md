@@ -559,6 +559,9 @@ desktop window and at 390x844. Still to do from the plan: group the drawer into 
 Files, Chat, Record, Unlock), permission requests as a sheet, clearer paused/ended overlays, a light theme, and
 before/after screenshots kept with the docs.
 
+- Pairing screen seen (20 Nov) on an Android Studio emulator (Beacon_Phone, fresh install of build 34008453): "Pair this
+  device." headline, Paste code from clipboard, Device name, Pairing code, Server address link and a Pair device button,
+  all in the light palette. Actual pairing was not done there; the Pixel's pairing was not touched.
 - File transfer resume, phone to viewer (20 Nov, built, not tested): the viewer already asks to carry on from a byte
   offset with the hash of what it holds; the Android sender ignored that and always started over. It now skips the
   first bytes only if their SHA-256 matches what the viewer sent, otherwise it answers "failed / resume" (the viewer
