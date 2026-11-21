@@ -652,3 +652,9 @@ targets checked, light and dark; (7) before and after screenshots on a desktop w
   clipboard (needs an app that can copy a file), a direct (non-relayed) path and cellular measurements, attended taps that
   are sometimes lost or slow (needs a closer look), Android Enterprise managed unlock (resets the Pixel), and the viewer
   microphone to the phone (not requested by the owner). Surfiena (Windows) is separate and was unreachable all day.
+
+- Lock type on the Access tab (20 Nov, build 3e3c9a54): Android does not tell an ordinary app which kind of lock a phone
+  has (only whether it is secure), so Beacon learns it from the credential screen: each time it finds the PIN, pattern or
+  password screen it remembers the kind (never the credential) and the Access tab shows "Lock type: PIN (last seen ...)",
+  "not seen yet", or "no screen lock". Pixel: installed; before any lock the line read "not seen yet". A locked unattended
+  session with the unlock pad open was run so it should now read PIN; reading it needs the phone unlocked (owner).
