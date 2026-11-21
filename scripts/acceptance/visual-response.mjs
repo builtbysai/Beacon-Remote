@@ -101,10 +101,13 @@ export async function createVisualResponseProbe(browser, options) {
       browser.evaluate(
         `window.__beaconVisualResponse.reference(${JSON.stringify(name)})`,
       ),
-    arm: (name) =>
-      browser.evaluate(
-        `window.__beaconVisualResponse.arm(${JSON.stringify(name)})`,
-      ),
+    arm: async (name) => {
+      const result = await browser.evaluate(
+        `window.__beaconVisualResponse.arm(${JSON.stringify(name)}).catch(error => ({error: error.message}))`,
+      );
+      if (result.error) throw Error(`Visual response probe: ${result.error}`);
+      return result;
+    },
     result: () => browser.evaluate("window.__beaconVisualResponse.response"),
     dispose: () => browser.evaluate("window.__beaconVisualResponse.dispose()"),
   };

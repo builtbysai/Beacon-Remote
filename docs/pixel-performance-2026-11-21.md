@@ -14,7 +14,7 @@ Enabled Fast screen sharing through its switch and Android's entire-screen
 approval. No factory reset, production change or identity transplant occurred.
 The existing isolated backend was started; it retains its four-hour bound.
 
-## Baseline
+## Initial exploratory baseline
 
 Installed Android: `2cb39493`. Viewer: locally compiled source based on `1e9c903`
 with the new receiver diagnostics. Actual backend authorization and signaling;
@@ -33,7 +33,9 @@ Twelve samples in milliseconds:
 
 `263, 334, 269, 343, 264, 280, 269, 219, 285, 268, 254, 281`
 
-Median 269 ms; range 219–343 ms. A nearby receiver sample reported network RTT
+Median 269 ms; range 219–343 ms. This initial hash-based method was subsequently
+replaced: compression noise can change pixels without a page transition. Do not
+compare it directly with the page-recognition measurements below. A nearby receiver sample reported network RTT
 59 ms, jitter buffer 14.0 ms, decode 5.5 ms, receive-to-decode 19.6 ms, no dropped
 frames in the interval. These are different measurements: receive-to-decode
 includes buffering and decoding, and network RTT is not tap-to-picture delay.
@@ -45,7 +47,7 @@ events. Also avoid `uiautomator dump` during a connected session: its automation
 can suppress accessibility and legitimately end sharing. Inspect before/after,
 or use capture without accessibility automation while connected.
 
-## Candidate under development
+## Implemented candidates and physical results
 
 Continuous capture currently converts each GPU texture to I420 CPU memory and
 resends a cached still at intervals of 400–600 ms. The candidate shares capture's
@@ -57,7 +59,70 @@ delivery. Detach drains the observer call before source disposal.
 The pinned WebRTC library exposes `forceFrame`; its
 [upstream implementation](https://webrtc.googlesource.com/src/+/refs/heads/main/sdk/android/api/org/webrtc/SurfaceTextureHelper.java)
 describes both forced still frames and the single in-flight texture requirement.
-Performance and lifecycle improvement remain unproven until physical comparison.
+`15ffb6b` implements this path. Physical video output reached approximately
+28–30 presented fps, including still screens. Tap latency did not demonstrably
+improve; higher receiver buffering was observed. This is a continuity improvement,
+not accepted end-to-end latency.
+
+`71d187c` fixes another concrete bug: transceiver lookup compared Java sender
+wrapper objects by identity. Matching their stable `id()` applies the intended
+SEND_ONLY direction and H.264 preference. The pinned library exposes `id()` and
+does not override sender equality. The actual Pixel changed from
+`c2.exynos.vp8.encoder` / negotiated VP8 to `c2.exynos.h264.encoder` / negotiated
+H.264. Receiver decode samples fell from roughly 6–9 ms to 0.7–1.3 ms.
+
+The acceptance backend alone was recreated with its exact existing Compose chain
+plus `/etc/beacon-remote/acceptance-pixel-direct-20261121.override.yaml`, setting
+only `ICE_TRANSPORT_POLICY=all`. Same image/schema/credentials and four-hour bound;
+production and shared relay configuration were untouched. Actual direct video
+passed with host/prflx candidates and TURN still available as fallback. Direct
+RTT varied approximately 43–95 ms here; direct connectivity alone did not remove
+the latency.
+
+The reusable `scripts/acceptance/visual-response.mjs` replaces changed-bit hashes.
+It captures settled Device/Access heading references in browser memory and times
+trusted pointer-down to a recognizable transition toward the expected heading.
+It rejects indistinguishable targets and returns null on timeout. Its recognition
+criterion is intentionally stronger than the initial first-changed-pixel probe.
+The private `pixel-speed.mjs` harness's `bench` command runs it and writes numeric
+receipts in the existing private preparation directory. Bring Beacon's main
+activity to the foreground first; wait for video/control before running it.
+
+Completed H.264 direct/headless heading-recognition run:
+
+`424, 382, 342, 310, 344, 310, 344, 325, 281, 311, 377, 341` ms
+
+Median 341.5 ms; range 281–424 ms. Nearby receiver sample: 27.6 fps, RTT 85 ms,
+buffer 81.4 ms, decode 0.7 ms, receive-to-decode 82.2 ms. Numeric receipt:
+`pixel-speed-71d187c3-direct-headless-1795301477276.json` in the private preparation
+directory. This does **not**
+meet the owner's immediate-response goal. The earlier GPU/VP8 direct heading run
+was `289,306,280,356,311,311,364,419,322,319,294,325` ms; differing browser mode,
+timing/network samples and probe implementations prevent a controlled codec
+comparison. Do not claim a latency win from these samples.
+
+Some exploratory runs closed with the interrupted browser, some were on the
+phone's Home screen, and some failed the target-distinctness guard before any
+sample. Those are not passing performance runs. One initial tap produced no
+observed outgoing input while the next did; first-input readiness/targeting needs
+a controlled reproduction before attributing it to product or fixture.
+
+On the installed H.264 candidate, local Pause froze decoded output after one
+in-flight frame (3696 → 3697, then stable). A viewer tap on Access during Pause
+left the physical phone on Device. Local Resume restored frames (3741 at the
+first later sample) and control. Portrait → landscape → portrait remained live
+at 864×1920 → 1920×864 → 864×1920, approximately 29 fps. Original rotation settings
+were restored. Browser/API Stop ended the session, the owned browser/profile
+closed, and CaptureService disappeared. AvailabilityService and the explicitly
+enabled StandingCaptureService remain, as expected. Thermal status was 0 in
+spot checks; no sustained thermal/resource acceptance is claimed.
+
+Validation: Android unit tests/lint/debug build passed for the texture candidate;
+unit tests/lint and signed release build passed after the sender-ID change. The
+web suite, typecheck, targeted lint, build, formatting and diff checks passed.
+The web build retains its bundle-size warning. No Windows tests were needed or
+run for these Android/web changes. Two implementation commits are local; no push
+or production release was performed in this continuation.
 
 Viewer diagnostics now calculate recent bitrate, jitter-buffer time, decode time,
 receive-to-decode time and dropped frames using counter deltas. Missing counters,
@@ -66,9 +131,14 @@ than invented zero latency. These extra measurements remain local to the viewer.
 
 ## Remaining checks
 
-- Compare the signed candidate against this baseline with the same method.
-- Verify moving content, static first picture, Pause/Resume, Stop, reconnect and
-  rotation; check CPU/thermal behaviour and encoder selection.
-- Measure direct connectivity separately from relay and cellular. Current results
-  do not establish either, sustained performance or subjective owner acceptance.
+- Establish a controlled page-recognition comparison with matched browser/network
+  conditions; measure capture/encode and input dispatch separately. Receiver
+  buffering remains material even with target/hint zero confirmed supported.
+- Investigate input continuity: Android currently accumulates a mouse drag path
+  and dispatches its gesture on release (`RemoteControl.finishStroke`), so live
+  dragging cannot yet feel like direct use. Any continued-gesture implementation
+  needs correct local Stop, Pause, lease loss and touch release.
+- Resolve first-input observations, verify moving content and reconnect, and
+  measure sustained CPU/thermal behaviour. Compare relay with the proven direct
+  path under matched conditions; cellular and subjective acceptance remain open.
 - Finish Pixel responsiveness before beginning the requested website redesign.
