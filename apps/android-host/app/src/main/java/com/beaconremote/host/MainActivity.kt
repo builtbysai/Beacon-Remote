@@ -526,7 +526,7 @@ class MainActivity : Activity() {
             textSize = 10f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
+            setTextColor(color(R.color.beacon_background))
             background = if (step.done) HostUi.rounded(this@MainActivity, color(R.color.beacon_text), 9)
             else GradientDrawableRing(this@MainActivity)
         }, LinearLayout.LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(10) })
