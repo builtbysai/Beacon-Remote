@@ -660,6 +660,16 @@ screenshots. Not measured on the Pixel yet, nor with moving video. A first build
 loaded in this mode) and a second showed nothing on a still screen; both fixed. Remaining slowness to look at next:
 the relay hop (the viewer forces a relayed path), encoder settings under motion, and the 1.1-1.5 s outliers.
 
+Sessions ending after about two seconds (21 Nov, owner report): the phone build that reports its lock state sent a new
+message type on the input channel, and a page loaded before the matching web release treated any message it did not
+recognise as a protocol failure and closed the session. Fix: the viewer now ignores message types it does not know
+(only a message that is not shaped like one still fails), with a test, so phone and web releases can no longer break
+each other; deployed to production and the test stack (release 05a12e2). A tab opened before that needs one refresh.
+Surfiena (21 Nov, 15:35 local): reachable again over SSH; its paired fixture host (the Nov 18 candidate) was started in
+the signed-in session and shows online in the test workspace. The Windows rows still need the device-side owner click
+(trusted access in the host window: More options, "They can view and control without asking"); without it every run
+waits for a local approval click.
+
 - File transfer resume, phone to viewer (20 Nov, built, not tested): the viewer already asks to carry on from a byte
   offset with the hash of what it holds; the Android sender ignored that and always started over. It now skips the
   first bytes only if their SHA-256 matches what the viewer sent, otherwise it answers "failed / resume" (the viewer
