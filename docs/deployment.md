@@ -1,5 +1,10 @@
 # Deployment gates
 
+November 21 (third rollout of the day, web only): `4061636fafefb04077a30223cafe1925affb6feb` is the current Remote production
+release. Only the web container changed (the rebuilt viewer and computers page); the backend image is the unchanged
+`975fc76` build, re-tagged to this release so the operations wrapper finds it, and keeps running. Encrypted backup
+first, rollback tag `rollback-975fc76`, public health and the served assets checked.
+
 November 21 (second rollout of the day): `975fc76fab3bd19541b7cc2f9a55f23bea6ea9db` replaced `104e005` as the current Remote
 production release (new phone-made pairing routes, viewer and workspace redesign, no schema change), with an encrypted
 backup first, rollback tags `rollback-104e005`, migrate and schema/role verify passed, both containers healthy, and the
