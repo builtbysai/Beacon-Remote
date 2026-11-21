@@ -37,14 +37,13 @@ class RemoteControl(
         private set
     private var pointerX = width / 2
     private var pointerY = height / 2
-    private var down = false
-    private var downAt = 0L
-    private val path = ArrayList<Pair<Int, Int>>()
+    @Volatile private var down = false
+    @Volatile private var touch: NativeTouchStream? = null
     private var lastScroll = 0L
     private var shift = false
     private var capsLock = false
     private var modified = false
-    private var open = false
+    @Volatile private var open = false
     // Passcode keys are pressed one at a time on their own thread, because finding the PIN screen can take a moment.
     private val lockKeys = java.util.concurrent.Executors.newSingleThreadExecutor()
     // While the viewer shows its stand-in for the PIN screen, the screen's layout is sent about once a second.
@@ -245,8 +244,11 @@ class RemoteControl(
     }
 
     fun release() {
+        val wasDown = down
         down = false
-        path.clear()
+        // Older viewers send release_all after a normal mouse-up. Keep that
+        // completed click, but cancel any contact whose button is still down.
+        if (wasDown) touch?.cancel()
         shift = false
         modified = false
     }
@@ -258,11 +260,14 @@ class RemoteControl(
     }
 
     fun stop() {
-        if (!open) return
-        if (talking) runCatching { onTalk(false) }
-        talking = false
+        val wasOpen = open
         open = false
         release()
+        touch?.close()
+        touch = null
+        if (!wasOpen) return
+        if (talking) runCatching { onTalk(false) }
+        talking = false
         Chat.send = null
         runCatching { ControlService.instance?.clearClipboardImages() }
         runCatching { lockKeys.shutdownNow() }
@@ -285,19 +290,21 @@ class RemoteControl(
             "move_pointer" -> {
                 pointerX = input.getInt("x").coerceIn(0, width - 1)
                 pointerY = input.getInt("y").coerceIn(0, height - 1)
-                if (down && (path.isEmpty() || path.last() != (pointerX to pointerY))) path.add(pointerX to pointerY)
+                if (down) touch?.move(pointerX, pointerY)
             }
             "button" -> {
                 val isDown = input.getBoolean("down")
                 when (input.getString("button")) {
-                    "left" -> if (isDown) {
-                        down = true
-                        downAt = SystemClock.elapsedRealtime()
-                        path.clear()
-                        path.add(pointerX to pointerY)
+                    "left" -> if (isDown && !down) {
+                        val stream = touch ?: NativeTouchStream(service, { open && allowed() },
+                            { release() }, { fail("Android refused touch dispatch") }).also { touch = it }
+                        down = stream.press(pointerX, pointerY)
+                        if (!down) fail("Touch input is unavailable")
                     } else if (down) {
-                        down = false
-                        finishStroke(service)
+                        if (!isDown) {
+                            down = false
+                            touch?.lift(pointerX, pointerY)
+                        }
                     }
                     // A mouse's right button is Back on Android.
                     "right" -> if (isDown) service.system("back")
@@ -387,16 +394,6 @@ class RemoteControl(
             "release_all" -> release()
             "keep_alive" -> {}
         }
-    }
-
-    private fun finishStroke(service: ControlService) {
-        val held = SystemClock.elapsedRealtime() - downAt
-        val moved = path.size > 1
-        // Up to 24 points of the path are enough to reproduce a swipe; a tap or long press is one point.
-        val step = maxOf(1, path.size / 24)
-        val points = if (moved) path.filterIndexed { index, _ -> index % step == 0 || index == path.lastIndex } else listOf(path[0])
-        service.stroke(points, strokeDuration(moved, held))
-        path.clear()
     }
 
     private fun scroll(service: ControlService, horizontal: Int, vertical: Int) {
