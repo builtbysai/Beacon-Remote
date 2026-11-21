@@ -670,6 +670,17 @@ the signed-in session and shows online in the test workspace. The Windows rows s
 (trusted access in the host window: More options, "They can view and control without asking"); without it every run
 waits for a local approval click.
 
+Surfiena run (21 Nov, 16:10-16:30 local, owner had turned on trusted access): with the Nov 18 candidate host started in the
+signed-in session, a viewer session connected with no local approval click (trusted access, Windows: passed) and showed
+the live desktop (960x540 to 1280x720 stream of a 3:2 screen, so the picture is pillarboxed inside the video). The
+control step did not pass: clicks sent from the viewer (browser-driven mouse events) did not reach the input test box,
+and in a pointer-move experiment the remote cursor stayed at one spot (x fixed, y followed) while the viewer pointer
+moved across the picture, which points at the viewer's pointer mapping for a stream whose picture does not fill the
+video (the 3:2 screen inside the 16:9 stream) or at the host dropping horizontal moves. Not resolved; typing and
+modifier release on Windows are therefore still untested. Next: print the viewer's mapped coordinates for the same
+moves and compare them with the host's reported display size. Surfiena also drops off the network when it sleeps; its
+fixture host needs Stop then Show -Resume after a sleep.
+
 - File transfer resume, phone to viewer (20 Nov, built, not tested): the viewer already asks to carry on from a byte
   offset with the hash of what it holds; the Android sender ignored that and always started over. It now skips the
   first bytes only if their SHA-256 matches what the viewer sent, otherwise it answers "failed / resume" (the viewer
