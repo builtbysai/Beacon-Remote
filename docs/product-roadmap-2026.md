@@ -584,3 +584,15 @@ Each item is built and pushed; the test needs a step only the owner can do. Pick
   Pixel, and the Access tab shows the unlock row dimmed while access without asking is off. Fixed from that run: the
   light "Stop sharing" and "Resume" labels were invisible in dark mode. Still not seen on the device: the pairing screen,
   and the Connection details and unlock-confirmation sheets.
+
+- Android guided setup (20 Nov): the Device tab now shows a "Finish setup" card until setup is done: a four-segment
+  progress bar, the next step named with one sentence on why, and one button that does it. Steps run in the order
+  notifications, accessibility, background running, access without asking. Background running uses Android's own
+  one-tap "Let app always run in background?" dialog (Pixel: tap, Allow, done; the settings list is the fallback).
+  Accessibility asks Android for Beacon's own page (this Pixel ignored that and showed the general list, where Beacon
+  is the first entry; the fallback is built in), and the card carries a "restricted setting" hint with an Open app info
+  link for sideloaded installs. After each step Android sends the person back, and the next step starts by itself.
+  Pairing has "Paste code from clipboard", which reads either the whole link or just the one-use code (never pairs by
+  itself). Pixel run: background and accessibility steps were done from the card; unit tests cover the code parser.
+  Not yet tried on the device: the paste button, a fresh install with the "restricted setting" block, and the
+  notification and access steps from the card.
