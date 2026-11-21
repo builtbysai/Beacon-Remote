@@ -63,20 +63,15 @@ class ConsentActivity : Activity() {
         val density = resources.displayMetrics.density
         fun dp(value: Int) = (value * density).toInt()
         val layout = HostUi.column(this)
-        layout.addView(HostUi.text(this, "Beacon Remote", 15f, true, true))
-        layout.addView(
-            TextView(this).apply {
-                text = "Request to see your screen"
-                textSize = 24f
-                typeface = Typeface.DEFAULT_BOLD
-            },
-        )
+        layout.addView(HostUi.text(this, "Incoming request", 12f, true, true).apply { setPadding(0, dp(24), 0, dp(4)) })
+        layout.addView(HostUi.headline(this, "Someone wants to see your screen.", 40f))
         layout.addView(
             TextView(this).apply {
                 text = grant.controller
-                textSize = 17f
-                setPadding(0, dp(16), 0, dp(4))
+                textSize = 14f
                 typeface = Typeface.DEFAULT_BOLD
+                setTextColor(getColor(R.color.beacon_text))
+                setPadding(0, dp(12), 0, dp(2))
             },
         )
         layout.addView(
@@ -87,20 +82,34 @@ class ConsentActivity : Activity() {
                     } else {
                         "wants to see this screen."
                     }
+                textSize = 13f
+                setTextColor(getColor(R.color.beacon_muted))
+                setPadding(0, 0, 0, dp(28))
+            },
+        )
+        layout.addView(HostUi.divider(this))
+        if (grant.capability == "desktop:control") {
+                        "wants to see this screen, and asked to control it."
+                    } else {
+                        "wants to see this screen."
+                    }
                 textSize = 16f
             },
         )
         if (grant.capability == "desktop:control") {
             control =
                 CheckBox(this).apply {
-                    text = "Also let them touch and type on this phone"
-                    textSize = 16f
+                    text = "Allow touch and typing"
+                    textSize = 15f
+                    typeface = Typeface.DEFAULT_BOLD
+                    buttonTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.beacon_accent))
+                    setPadding(dp(8), dp(10), 0, dp(10))
                     // They asked for control, so it starts selected; nothing is shared until Allow once, and
                     // the box clears itself when the accessibility service that performs it is off.
                     isChecked = savedInstanceState?.getBoolean("control") ?: true
                     minHeight = dp(48)
                 }
-            controlNote = TextView(this).apply { textSize = 13f }
+            controlNote = TextView(this).apply { textSize = 12f; setTextColor(getColor(R.color.beacon_muted)); setPadding(dp(40), 0, 0, dp(14)) }
             controlSettings =
                 Button(this).apply {
                     text = "Turn on control in Settings"
@@ -113,19 +122,30 @@ class ConsentActivity : Activity() {
         if (FileReceiver.supported) {
             files =
                 CheckBox(this).apply {
-                    text = "Also allow receiving files (saved in Downloads/Beacon Remote)"
-                    textSize = 16f
+                    text = "Allow receiving files"
+                    textSize = 15f
+                    typeface = Typeface.DEFAULT_BOLD
+                    buttonTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.beacon_accent))
+                    setPadding(dp(8), dp(10), 0, dp(10))
                     isChecked = savedInstanceState?.getBoolean("files") == true
                     minHeight = dp(48)
                 }
             layout.addView(files)
+            layout.addView(TextView(this).apply {
+                text = "Files are saved to Downloads/Beacon Remote."
+                textSize = 12f
+                setTextColor(getColor(R.color.beacon_muted))
+                setPadding(dp(40), 0, 0, dp(14))
+            })
+            layout.addView(HostUi.divider(this))
         }
         layout.addView(
             TextView(this).apply {
                 text =
                     "Android will ask you to confirm screen capture. Pause and Stop stay visible while sharing."
-                textSize = 14f
-                setPadding(0, dp(20), 0, dp(24))
+                textSize = 12f
+                setTextColor(getColor(R.color.beacon_muted))
+                setPadding(0, dp(18), 0, dp(18))
             },
         )
         notificationNote = HostUi.text(this, "", 14f).apply { accessibilityLiveRegion = android.view.View.ACCESSIBILITY_LIVE_REGION_POLITE }
@@ -137,31 +157,57 @@ class ConsentActivity : Activity() {
         val buttons = LinearLayout(this).apply {
             gravity = Gravity.END
             val horizontal = maxOf(20, (resources.configuration.screenWidthDp - 600) / 2)
-            setPadding(dp(horizontal), dp(8), dp(horizontal), dp(8))
-            setBackgroundColor(getColor(R.color.beacon_surface))
+            setPadding(dp(horizontal), dp(4), dp(horizontal), dp(12))
+            setBackgroundColor(getColor(R.color.beacon_background))
         }
         buttons.addView(
             HostUi.button(this, "Decline").apply {
                 tag = "consent-decline"
                 setOnClickListener { decline() }
             },
-            LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+            LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) },
         )
-        allowButton = HostUi.button(this, "Allow once", true).apply { tag = "consent-allow"; setOnClickListener { allow() } }
-        buttons.addView(allowButton, LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        allowButton = HostUi.button(this, "Approve once", true).apply { tag = "consent-allow"; setOnClickListener { allow() } }
+        buttons.addView(allowButton, LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4) })
         scopeSummary = HostUi.text(this, "View only", 14f, true).apply {
             gravity = Gravity.CENTER
             accessibilityLiveRegion = android.view.View.ACCESSIBILITY_LIVE_REGION_POLITE
         }
         val footer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(getColor(R.color.beacon_surface))
-            addView(scopeSummary)
+            setBackgroundColor(getColor(R.color.beacon_background))
+            addView(HostUi.divider(this@ConsentActivity))
+            addView(scopeSummary.apply { setPadding(0, dp(10), 0, dp(2)) })
             addView(buttons)
         }
         control?.setOnCheckedChangeListener { _, _ -> refreshScope() }
         files?.setOnCheckedChangeListener { _, _ -> refreshScope() }
-        HostUi.screen(this, layout, footer)
+        val header = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            val horizontal = maxOf(25, (resources.configuration.screenWidthDp - 600) / 2)
+            setPadding(dp(horizontal), dp(8), dp(horizontal - 8), dp(4))
+            addView(
+                TextView(this@ConsentActivity).apply {
+                    text = "Beacon Remote"
+                    textSize = 14f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(getColor(R.color.beacon_text))
+                },
+                LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+            )
+            addView(
+                TextView(this@ConsentActivity).apply {
+                    text = "×"
+                    textSize = 26f
+                    gravity = Gravity.CENTER
+                    contentDescription = "Decline request"
+                    setTextColor(getColor(R.color.beacon_text))
+                    setOnClickListener { decline() }
+                },
+                LinearLayout.LayoutParams(dp(48), dp(48)),
+            )
+        }
+        HostUi.screen(this, layout, footer, header)
         refreshControl()
         // The accessibility service can connect a moment after this screen opens; keep the control box in step with it.
         handler.post(refreshControlTick)

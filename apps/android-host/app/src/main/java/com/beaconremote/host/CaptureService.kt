@@ -54,6 +54,7 @@ class CaptureService : Service() {
             }
             ACTION_PAUSE -> {
                 paused = !paused
+                HostState.paused = paused
                 session?.setPaused(paused)
                 refresh()
                 return START_NOT_STICKY
@@ -110,6 +111,7 @@ class CaptureService : Service() {
                 ::showPermissionPrompt,
             ) { _ ->
                 HostState.sharing = false
+                HostState.paused = false
                 HostState.controlling = false
                 HostState.status = "Available"
                 session = null
