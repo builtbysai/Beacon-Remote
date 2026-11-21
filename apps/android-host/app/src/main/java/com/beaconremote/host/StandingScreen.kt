@@ -67,6 +67,10 @@ object StandingScreen {
         context.getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY).getRealMetrics(metrics)
         dpi = metrics.densityDpi
         val (width, height) = fit(metrics.widthPixels, metrics.heightPixels)
+        // The native video library is otherwise only loaded when a session starts.
+        org.webrtc.PeerConnectionFactory.initialize(
+            org.webrtc.PeerConnectionFactory.InitializationOptions.builder(context.applicationContext).setEnableInternalTracer(false).createInitializationOptions(),
+        )
         val base = EglBase.create().also { egl = it }
         val surfaces = SurfaceTextureHelper.create("standing-screen", base.eglBaseContext).also { helper = it }
         surfaces.setTextureSize(width, height)
@@ -88,7 +92,7 @@ object StandingScreen {
         val now = android.os.SystemClock.elapsedRealtime()
         val receiver = sink
         if (receiver == null && now - lastCachedAt < 1000) return
-        val i420 = frame.buffer.toI420() ?: return
+        val i420 = runCatching { frame.buffer.toI420() }.getOrNull() ?: return
         synchronized(lock) {
             last?.release()
             last = i420
