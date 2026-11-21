@@ -500,6 +500,8 @@ class MainActivity : Activity() {
             "unlock-toggle", identity.unlockFromViewer,
         )
         unlockSwitch.isEnabled = identity.unattended
+        // Without access-without-asking there is nothing to unlock for, so the row is dimmed like the design.
+        unlockRow.alpha = if (identity.unattended) 1f else 0.45f
         unlockSwitch.setOnClickListener {
             unlockSwitch.isChecked = identity.unlockFromViewer
             if (identity.unlockFromViewer) {
