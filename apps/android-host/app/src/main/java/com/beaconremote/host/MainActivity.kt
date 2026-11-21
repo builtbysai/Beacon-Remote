@@ -672,6 +672,23 @@ class MainActivity : Activity() {
         root.addView(unlockRow)
         root.addView(lockTypeLine())
         root.addView(HostUi.divider(this))
+        val (fastRow, fastSwitch) = HostUi.switchRow(
+            this, "Fast screen sharing",
+            "Smooth, low-delay video when someone connects without asking. Android shows its cast icon while this is on and asks you to confirm once (again after the phone restarts).",
+            "fast-toggle", StandingScreen.active,
+        )
+        fastSwitch.setOnClickListener {
+            fastSwitch.isChecked = StandingScreen.active
+            if (StandingScreen.active) {
+                startService(Intent(this, StandingCaptureService::class.java).setAction(StandingCaptureService.ACTION_STOP))
+                handler.postDelayed({ if (!isDestroyed && !isFinishing) render() }, 400)
+            } else {
+                @Suppress("DEPRECATION")
+                startActivityForResult(getSystemService(android.media.projection.MediaProjectionManager::class.java).createScreenCaptureIntent(), REQUEST_FAST)
+            }
+        }
+        root.addView(fastRow)
+        root.addView(HostUi.divider(this))
         val steps = setupSteps()
         val title = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(18), 0, dp(10)) }
         title.addView(TextView(this).apply { text = "Device setup"; textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(color(R.color.beacon_text)) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -907,6 +924,19 @@ class MainActivity : Activity() {
         } else startActivity(SharingNotifications.settings(this))
     }
 
+    @Suppress("DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_FAST && resultCode == RESULT_OK && data != null) {
+            startForegroundService(
+                Intent(this, StandingCaptureService::class.java)
+                    .putExtra(StandingCaptureService.EXTRA_CODE, resultCode)
+                    .putExtra(StandingCaptureService.EXTRA_DATA, data),
+            )
+            handler.postDelayed({ if (!isDestroyed && !isFinishing) render() }, 800)
+        }
+    }
+
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, results: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, results)
         if (requestCode == 3) {
@@ -1060,7 +1090,7 @@ class MainActivity : Activity() {
     /** Everything on a paired screen that can change by itself. When it changes the screen is drawn again. */
     private fun currentSignature(): String = listOf(
         identity.paired, page, HostState.status, HostState.sharing, HostState.paused, HostState.controlling, identity.wantsAvailable,
-        identity.lastLockKind, identity.unattended, identity.unlockFromViewer, identity.clipboardMode, identity.shareSound, identity.shareMic, identity.talkIn,
+        identity.lastLockKind, identity.unattended, identity.unlockFromViewer, identity.clipboardMode, identity.shareSound, identity.shareMic, identity.talkIn, StandingScreen.active,
         checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED,
         if (identity.paired) identity.name else "", notificationsReady(),
         ControlService.enabled(this) && ControlService.instance != null,
@@ -1091,6 +1121,7 @@ class MainActivity : Activity() {
 
     private companion object {
         val pairing = AtomicBoolean(false)
+        private const val REQUEST_FAST = 21
         @Volatile var pairingNotice: String? = null
         @Volatile var page = "device"
     }

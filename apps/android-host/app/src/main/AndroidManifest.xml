@@ -113,6 +113,11 @@
         </service>
 
         <service
+            android:name=".StandingCaptureService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
+        <service
             android:name=".CaptureService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection|specialUse|microphone">

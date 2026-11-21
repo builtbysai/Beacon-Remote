@@ -462,7 +462,10 @@ class ShareSession(
         val videoSource = peerFactory.createVideoSource(true).also { source = it }
         track = peerFactory.createVideoTrack("beacon-screen", videoSource).also { it.setEnabled(false) }
         val surfaces = SurfaceTextureHelper.create("screen-capture", eglBase.eglBaseContext).also { helper = it }
-        val projection = if (unattended && android.os.Build.VERSION.SDK_INT >= 30) {
+        val projection = if (unattended && StandingScreen.active) {
+            // Fast sharing is on: smooth video from the always-on capture instead of screenshots.
+            PersistentCapturer({ canShare(viewer.generation) }, { reason -> post { end(reason) } })
+        } else if (unattended && android.os.Build.VERSION.SDK_INT >= 30) {
             AccessibilityCapturer(context, {
                 canShare(viewer.generation)
             }, { reason -> post { end(reason) } })
