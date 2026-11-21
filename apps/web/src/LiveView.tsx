@@ -2,6 +2,11 @@ import { talkMids } from "./talk-line";
 import { ViewerIcon } from "./viewer-icons";
 import { classifyConnectionRoute } from "./connection-route";
 import {
+  videoPerformance,
+  type VideoCounters,
+  type VideoPerformance,
+} from "./video-performance.js";
+import {
   FileSender,
   DownloadResume,
   type Offer,
@@ -309,6 +314,9 @@ export function LiveView({
   const recorder = useRef<MediaRecorder | null>(null);
   const sending = useRef(false);
   const [roundTripMillis, setRoundTripMillis] = useState<number | null>(null);
+  const [videoStats, setVideoStats] = useState<VideoPerformance>(() =>
+    videoPerformance({ id: "", timestamp: 0 }),
+  );
   const [lossPct, setLossPct] = useState<number | null>(null);
   const [transportAttempt, setTransportAttempt] = useState(0);
   // Relay credentials are short; each resume brings fresh ones for the next transport.
@@ -573,6 +581,7 @@ export function LiveView({
     setFrames(0);
     setNeedsPlay(false);
     setTimings({});
+    setVideoStats(videoPerformance({ id: "", timestamp: 0 }));
     // A reconnect brings a new files channel; the sender belongs to the channel that was lost.
     sender.current = null;
     setFileReady(false);
@@ -1157,6 +1166,7 @@ export function LiveView({
     const onPageHide = () => finish("Reconnecting…", resumable);
     window.addEventListener("pagehide", onPageHide);
     let inspecting = false;
+    let previousVideo: VideoCounters | undefined;
     const diagnostics = setInterval(() => {
       if (closed || inspecting || pc.connectionState !== "connected") return;
       inspecting = true;
@@ -1177,6 +1187,10 @@ export function LiveView({
           stats.forEach((report) => {
             reports.set(report.id, report);
             if (report.type === "inbound-rtp" && report.kind === "video") {
+              setVideoStats(
+                videoPerformance(report as VideoCounters, previousVideo),
+              );
+              previousVideo = report as VideoCounters;
               const lost = Number(report.packetsLost) || 0;
               const received = Number(report.packetsReceived) || 0;
               if (lost + received > 0)
@@ -1605,7 +1619,7 @@ export function LiveView({
                 </dd>
               </div>
               <div>
-                <dt>Delay</dt>
+                <dt>Network RTT</dt>
                 <dd>
                   {roundTripMillis === null
                     ? "—"
@@ -2351,6 +2365,39 @@ export function LiveView({
                 {roundTripMillis === null
                   ? "Not measured"
                   : `${Math.round(roundTripMillis)} ms`}
+              </p>
+              <p>
+                Video buffer:{" "}
+                {videoStats.jitterBufferMs === null
+                  ? "Not measured"
+                  : `${videoStats.jitterBufferMs.toFixed(1)} ms`}
+              </p>
+              <p>
+                Decode:{" "}
+                {videoStats.decodeMs === null
+                  ? "Not measured"
+                  : `${videoStats.decodeMs.toFixed(1)} ms`}
+              </p>
+              <p>
+                Receive to decode:{" "}
+                {videoStats.receiveToDecodeMs === null
+                  ? "Not measured"
+                  : `${videoStats.receiveToDecodeMs.toFixed(1)} ms`}
+              </p>
+              <p>
+                Video bitrate:{" "}
+                {videoStats.bitrateMbps === null
+                  ? "Not measured"
+                  : `${videoStats.bitrateMbps.toFixed(2)} Mbps`}
+              </p>
+              <p>
+                Dropped frames in sample:{" "}
+                {videoStats.droppedFrames ?? "Not measured"}
+              </p>
+              <p>
+                Video figures describe the latest sample. Receive to decode
+                includes buffering and decoding; these times overlap. Network
+                RTT is not tap-to-picture latency.
               </p>
               <p>
                 {grant.source === "desktop"
