@@ -1,5 +1,29 @@
 # Deployment gates
 
+November 21 (fourth rollout, web only): `5da796f0142c77e68f9515c6308b78d6d09d7ef8` is the current Remote production release:
+the computers page and inspector are back to their original look, the viewer keeps its rebuilt layout, and Unlock is
+offered only at the lock screen. Only the web container changed; the backend stays on the unchanged `975fc76` image
+(re-tagged to this release). Encrypted backup first, rollback tag `rollback-4061636`, health and served assets checked.
+
+November 21 (third rollout of the day, web only): `4061636fafefb04077a30223cafe1925affb6feb` is the current Remote production
+release. Only the web container changed (the rebuilt viewer and computers page); the backend image is the unchanged
+`975fc76` build, re-tagged to this release so the operations wrapper finds it, and keeps running. Encrypted backup
+first, rollback tag `rollback-975fc76`, public health and the served assets checked.
+
+November 21 (second rollout of the day): `975fc76fab3bd19541b7cc2f9a55f23bea6ea9db` replaced `104e005` as the current Remote
+production release (new phone-made pairing routes, viewer and workspace redesign, no schema change), with an encrypted
+backup first, rollback tags `rollback-104e005`, migrate and schema/role verify passed, both containers healthy, and the
+public health, readiness, served assets and the new `/api/device-pairing/start` route checked.
+
+November 21 manual rollout (owner-authorized, "wipe the database and rollout the new"): `104e005a8cb5038b1ebb28b1f321cb678e2803c6`
+is the current Remote production release, after an encrypted backup (passed), rollback tags `rollback-5e8d5c5` for
+the predecessor `5e8d5c5`, the predecessor backend stopped, migrate and schema/role verify passed (no schema change
+needed), backend and web recreated, and public health, readiness and the served web assets checked. The owner asked for
+the database to be cleared; every table that holds accounts, computers, sessions, enrollments, audit events and support
+data was already empty (0 rows) before the rollout, so nothing was deleted. Rollback is the documented one: retag
+`rollback-5e8d5c5`, `up -d --no-deps backend web` without `--build`, repoint `current`. Beacon View's containers were
+not touched.
+
 October 12 (evening) manual rollout: merged main
 `410a7d19cb0eec2fc0032b8c3e09854b8d4f699a` (PR 34: ADRs 0021-0024) is the current
 Remote production release, after encrypted backup/integrity check, rollback tags

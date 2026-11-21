@@ -6,6 +6,7 @@
 
 const CHUNK = 16 * 1024;
 const HIGH_WATER = 4 * 1024 * 1024;
+const BUFFER_DRAIN_TIMEOUT_MS = 30_000;
 
 /** Incremental SHA-256: the browser's crypto API only hashes a whole buffer at once. */
 export class Sha256 {
@@ -281,6 +282,7 @@ export class FileSender {
   private accepting = false;
   private generation = 0;
   private waiter: ((reply: Record<string, unknown>) => void) | null = null;
+  private uploading: AbortController | null = null;
   private receiving: Receiving | null = null;
 
   constructor(
@@ -363,6 +365,7 @@ export class FileSender {
         this.offered(null);
       } else if (message.t === "paused") {
         this.cancelled = true;
+        this.uploading?.abort();
         this.extras.downloads?.clear();
         if (this.receiving)
           this.stopReceive("cancelled", "Sharing is paused on the computer.");
@@ -399,6 +402,7 @@ export class FileSender {
             : "Connection closed; the partial copy was discarded.",
         });
       this.receiving = null;
+      this.uploading?.abort();
       this.waiter?.({ t: "failed", reason: "closed" });
       this.readyChanged(false);
     };
@@ -406,6 +410,7 @@ export class FileSender {
 
   cancel() {
     this.cancelled = true;
+    this.uploading?.abort();
     this.generation++;
     this.extras.downloads?.clear();
     this.waiter?.({ t: "cancel" });
@@ -671,16 +676,41 @@ export class FileSender {
 
   /** Sends a file, carrying on from where an interrupted attempt stopped if the computer kept the start of it. */
   async send(file: File): Promise<Transfer["status"]> {
-    return this.upload(file, false);
+    if (this.uploading) return "failed";
+    const upload = new AbortController();
+    this.uploading = upload;
+    try {
+      return await this.upload(file, false, upload.signal);
+    } finally {
+      this.uploading = null;
+      this.waiter = null;
+    }
+  }
+
+  private bufferedAmountLow(signal: AbortSignal): Promise<boolean> {
+    return new Promise((resolve) => {
+      const finish = (drained: boolean) => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", abort);
+        this.channel.onbufferedamountlow = null;
+        resolve(drained);
+      };
+      const abort = () => finish(false);
+      const timer = setTimeout(abort, BUFFER_DRAIN_TIMEOUT_MS);
+      this.channel.onbufferedamountlow = () => finish(true);
+      signal.addEventListener("abort", abort, { once: true });
+      if (signal.aborted || this.channel.readyState !== "open") abort();
+      else if (this.channel.bufferedAmount <= HIGH_WATER) finish(true);
+    });
   }
 
   private async upload(
     file: File,
     fresh: boolean,
+    signal: AbortSignal,
   ): Promise<Transfer["status"]> {
     const id = this.next;
     this.next += 2;
-    this.cancelled = false;
     const state: Transfer = {
       name: file.name,
       size: file.size,
@@ -701,6 +731,22 @@ export class FileSender {
       return show({ status: "failed", note: "That file is empty." });
     if (this.maxFile && file.size > this.maxFile)
       return show({ status: "failed", note: REASONS["too-large"] });
+    const cancelOffer = () => {
+      if (this.channel.readyState !== "open") return;
+      try {
+        this.channel.send(JSON.stringify({ t: "cancel", id }));
+      } catch {
+        // A closing or saturated channel may refuse the cancellation message.
+        // The viewer still stops reading and queuing file data.
+      }
+    };
+    const stopped = () => {
+      if (this.channel.readyState !== "open") {
+        return show({ status: "failed", note: "The file connection closed." });
+      }
+      cancelOffer();
+      return show({ status: "cancelled" });
+    };
     show({});
     this.channel.send(
       JSON.stringify({
@@ -712,6 +758,7 @@ export class FileSender {
       }),
     );
     const answer = await this.reply();
+    if (signal.aborted) return stopped();
     if (answer.t !== "accept" || answer.id !== id)
       return show({
         status: answer.t === "cancel" ? "cancelled" : "failed",
@@ -732,47 +779,58 @@ export class FileSender {
         // file's first bytes; otherwise ask it to throw the part away and begin again.
         const check = new Sha256();
         const head = file.slice(0, offset).stream().getReader();
-        for (;;) {
-          const { value, done } = await head.read();
-          if (done) break;
-          check.update(value);
+        try {
+          while (!signal.aborted) {
+            const { value, done } = await head.read();
+            if (done) break;
+            check.update(value);
+          }
+        } finally {
+          head.releaseLock();
         }
+        if (signal.aborted) return stopped();
         if (check.hex() === String(kept.sha256 ?? "").toLowerCase()) {
           hash = check;
           from = offset;
           state.sent = offset;
           show({ note: "Resuming" });
         } else {
-          this.channel.send(JSON.stringify({ t: "cancel", id }));
-          return this.upload(file, true);
+          cancelOffer();
+          return this.upload(file, true, signal);
         }
       } else if (kept) {
-        this.channel.send(JSON.stringify({ t: "cancel", id }));
-        return this.upload(file, true);
+        cancelOffer();
+        return this.upload(file, true, signal);
       }
     }
     show({ status: "sending" });
     const reader = file.slice(from).stream().getReader();
     let pending = new Uint8Array(0);
+    let stalled = false;
     const flush = async (bytes: Uint8Array) => {
       const frame = new Uint8Array(4 + bytes.length);
       new DataView(frame.buffer).setUint32(0, id);
       frame.set(bytes, 4);
-      while (this.channel.bufferedAmount > HIGH_WATER) {
-        await new Promise<void>((resolve) => {
-          this.channel.onbufferedamountlow = () => resolve();
-        });
-        if (this.cancelled) return;
+      if (signal.aborted) return;
+      if (
+        this.channel.bufferedAmount > HIGH_WATER &&
+        !(await this.bufferedAmountLow(signal))
+      ) {
+        stalled = !signal.aborted && this.channel.readyState === "open";
+        return;
       }
-      if (this.channel.readyState !== "open") return;
+      if (signal.aborted || this.channel.readyState !== "open") return;
       this.channel.send(frame);
       hash.update(bytes);
       state.sent += bytes.length;
       this.changed({ ...state });
     };
     try {
-      for (;;) {
-        if (this.cancelled) break;
+      while (
+        !signal.aborted &&
+        !stalled &&
+        this.channel.readyState === "open"
+      ) {
         const { value, done } = await reader.read();
         if (done) break;
         let chunk = value;
@@ -787,22 +845,26 @@ export class FileSender {
         while (chunk.length - offset >= CHUNK) {
           await flush(chunk.subarray(offset, offset + CHUNK));
           offset += CHUNK;
-          if (this.cancelled) break;
+          if (signal.aborted || stalled) break;
         }
         pending = chunk.slice(offset);
       }
-      if (!this.cancelled && pending.length) await flush(pending);
+      if (!signal.aborted && !stalled && pending.length) await flush(pending);
     } finally {
       reader.releaseLock?.();
     }
-    if (this.cancelled || this.channel.readyState !== "open") {
-      if (this.channel.readyState === "open")
-        this.channel.send(JSON.stringify({ t: "cancel", id }));
-      return show({ status: "cancelled" });
+    if (signal.aborted || this.channel.readyState !== "open") return stopped();
+    if (stalled) {
+      cancelOffer();
+      return show({
+        status: "failed",
+        note: "The connection stopped sending file data. Try again.",
+      });
     }
     const finished = this.reply();
     this.channel.send(JSON.stringify({ t: "end", id, sha256: hash.hex() }));
     const result = await finished;
+    if (signal.aborted) return stopped();
     if (result.t === "done")
       return show({
         status: "done",

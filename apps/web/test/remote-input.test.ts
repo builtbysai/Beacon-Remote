@@ -1,6 +1,24 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseDisplay, physicalPoint } from "../src/remote-input.js";
+import {
+  parseDisplay,
+  physicalPoint,
+  wheelUnits,
+} from "../src/remote-input.js";
+
+test("one ordinary mouse notch scrolls one Windows notch, and trackpads stay fine-grained", () => {
+  // Chrome reports a mouse notch as 100 pixels; Windows counts 120 units per notch.
+  assert.equal(wheelUnits(-100, 0), -120);
+  assert.equal(wheelUnits(100, 0), 120);
+  assert.equal(wheelUnits(-3, 0), -4);
+  assert.equal(wheelUnits(0, 0), 0);
+  // Line and page deltas (Firefox and some Linux setups) map to notches.
+  assert.equal(wheelUnits(3, 1), 360);
+  assert.equal(wheelUnits(1, 2), 2880);
+  // Huge deltas are bounded, as the protocol requires.
+  assert.equal(wheelUnits(1e9, 0), 32767);
+  assert.equal(wheelUnits(-1e9, 2), -32767);
+});
 
 test("input coordinates exclude letterboxing and map encoded video to physical monitor pixels", () => {
   // A 2560x1440 display encoded as 1280x720, fitted inside a square CSS element.

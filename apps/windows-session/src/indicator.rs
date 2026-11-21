@@ -1,5 +1,6 @@
 //! Native visible Stop control and active-sharing card (ADR 0029). The window thread owns its atomic
 //! state lifetime. It shows who is connected and what they can do, with Pause and a hard Stop.
+use crate::files_transport::Permissions;
 use crate::native_ui::{self as ui, Icon, Role};
 use std::{
     io,
@@ -34,6 +35,8 @@ const STOP_ID: i32 = 1001;
 const STATUS_ID: i32 = 1002;
 const PAUSE_ID: i32 = 1003;
 const SEND_ID: i32 = 1004;
+const REVOKE_ID: i32 = 1005;
+const MUTE_ID: i32 = 1019;
 const HEADING_ID: i32 = 1010;
 const NAME_ID: i32 = 1011;
 const SESSION_ID: i32 = 1012;
@@ -48,10 +51,9 @@ struct WindowState {
     active: Arc<AtomicBool>,
     connected: Arc<AtomicBool>,
     desktop: bool,
-    control: bool,
+    control: Arc<AtomicBool>,
     // The helper may send files (chosen in the consent window); received files are announced here.
-    files: bool,
-    recording: bool,
+    extras: Arc<AtomicU8>,
     // The helper hears what this computer plays; said plainly in the permissions row.
     audio: bool,
     deadline: Option<Instant>,
@@ -69,7 +71,7 @@ impl WindowState {
         active: Arc<AtomicBool>,
         connected: Arc<AtomicBool>,
         desktop: bool,
-        control: bool,
+        control: Arc<AtomicBool>,
         deadline: Option<Instant>,
     ) -> Self {
         Self {
@@ -77,8 +79,7 @@ impl WindowState {
             connected,
             desktop,
             control,
-            files: false,
-            recording: false,
+            extras: Arc::default(),
             audio: false,
             deadline,
             controller: String::new(),
@@ -98,8 +99,12 @@ impl WindowState {
             && (!self.desktop || crate::capture::desktop_receives_input())
     }
     fn mode(&self) -> u8 {
+        let extras = Permissions::read(&self.extras);
         u8::from(self.connected.load(Ordering::Acquire))
             | (u8::from(crate::pause::is_paused()) << 1)
+            | (u8::from(self.control.load(Ordering::Acquire)) << 2)
+            | (u8::from(extras.files) << 3)
+            | (u8::from(extras.recording) << 4)
     }
 }
 pub struct Indicator {
@@ -162,7 +167,7 @@ unsafe fn paint(window: HWND, state: &WindowState) {
         canvas.fill(28.0, 178.0, 464.0, 120.0, 10.0, p.subtle);
         canvas.stroke(28.0, 178.0, 464.0, 120.0, 10.0, p.line, 1.0);
         let live_view = state.desktop && !paused;
-        let live_input = state.desktop && state.control && !paused;
+        let live_input = state.desktop && state.control.load(Ordering::Acquire) && !paused;
         ui::icon(
             &canvas,
             Icon::Eye,
@@ -182,7 +187,7 @@ unsafe fn paint(window: HWND, state: &WindowState) {
             Icon::Lock,
             44.0,
             270.0,
-            if state.files || state.recording || state.audio {
+            if Permissions::read(&state.extras) != Permissions::default() || state.audio {
                 p.accent
             } else {
                 p.faint
@@ -228,12 +233,35 @@ unsafe fn draw_item(state: &WindowState, item: &DRAWITEMSTRUCT) {
             Role::Secondary,
             flags,
         );
+    } else if id == MUTE_ID {
+        let label = if crate::audio::muted() {
+            "Unmute sound"
+        } else {
+            "Mute sound"
+        };
+        ui::button(
+            &canvas,
+            &state.palette,
+            (w, h),
+            label,
+            Role::Secondary,
+            flags,
+        );
     } else if id == SEND_ID {
         ui::button(
             &canvas,
             &state.palette,
             (w, h),
             "Send a file…",
+            Role::Secondary,
+            flags,
+        );
+    } else if id == REVOKE_ID {
+        ui::button(
+            &canvas,
+            &state.palette,
+            (w, h),
+            "Turn off file and recording access",
             Role::Secondary,
             flags,
         );
@@ -311,13 +339,13 @@ unsafe fn track_hover(window: HWND, state: &WindowState) {
     } else {
         GetDlgCtrlID(over)
     };
-    let hot = if matches!(id, STOP_ID | PAUSE_ID | SEND_ID) {
+    let hot = if matches!(id, STOP_ID | PAUSE_ID | SEND_ID | MUTE_ID) {
         (id - 1000) as u8
     } else {
         0
     };
     if state.hot.swap(hot, Ordering::AcqRel) != hot {
-        for button in [STOP_ID, PAUSE_ID, SEND_ID] {
+        for button in [STOP_ID, PAUSE_ID, SEND_ID, MUTE_ID] {
             InvalidateRect(GetDlgItem(window, button), std::ptr::null(), 0);
         }
     }
@@ -350,7 +378,10 @@ unsafe extern "system" fn procedure(
                 let color = match GetDlgCtrlID(lparam as HWND) {
                     HEADING_ID | NAME_ID | PANEL_ID => p.strong,
                     STATUS_ID | SESSION_ID | FOOTER_ID => p.muted,
-                    ROW_LIMITS_ID if (*state).files || (*state).recording || (*state).audio => {
+                    ROW_LIMITS_ID
+                        if Permissions::read(&(*state).extras) != Permissions::default()
+                            || (*state).audio =>
+                    {
                         p.text
                     }
                     TAG_ID | ROW_LIMITS_ID => p.faint,
@@ -373,9 +404,38 @@ unsafe extern "system" fn procedure(
         && (wparam & 0xffff) as i32 == SEND_ID
         && !state.is_null()
     {
-        if let Some(path) = choose_file(window) {
-            crate::files::request_send(path);
+        let can_send = || {
+            (*state).live()
+                && (*state).connected.load(Ordering::Acquire)
+                && Permissions::read(&(*state).extras).files
+                && !crate::pause::is_paused()
+        };
+        if can_send() {
+            if let Some(path) = choose_file(window).filter(|_| can_send()) {
+                crate::files::request_send(path);
+            }
         }
+        return 0;
+    }
+    if message == WM_COMMAND
+        && wparam >> 16 == BN_CLICKED as usize
+        && (wparam & 0xffff) as i32 == REVOKE_ID
+        && !state.is_null()
+    {
+        // Clears only the file and recording permissions added during this connection. The transport
+        // stops any transfer and tells the viewer; screen and input continue as before.
+        Permissions::default().publish(&(*state).extras);
+        InvalidateRect(window, std::ptr::null(), 0);
+        return 0;
+    }
+    if message == WM_COMMAND
+        && wparam >> 16 == BN_CLICKED as usize
+        && (wparam & 0xffff) as i32 == MUTE_ID
+        && !state.is_null()
+    {
+        // Mute only stops sound toward the viewer; the picture, control and the session carry on.
+        crate::audio::set_muted(!crate::audio::muted());
+        InvalidateRect(GetDlgItem(window, MUTE_ID), std::ptr::null(), 0);
         return 0;
     }
     if message == WM_COMMAND
@@ -419,7 +479,7 @@ unsafe extern "system" fn procedure(
             "Sharing is paused · Screen and input are off"
         } else if (*state).connected.load(Ordering::Acquire) {
             if (*state).desktop {
-                if (*state).control {
+                if (*state).control.load(Ordering::Acquire) {
                     "Sharing your screen · Mouse and keyboard control"
                 } else {
                     "Sharing your screen · View only"
@@ -443,10 +503,11 @@ unsafe extern "system" fn procedure(
             SetWindowTextW(control, text.as_ptr());
             InvalidateRect(window, std::ptr::null(), 0);
         }
-        if (*state).files || (*state).recording || (*state).audio {
+        {
+            let extras = Permissions::read(&(*state).extras);
             let line = wide(&extras_line(
-                (*state).files,
-                (*state).recording,
+                extras.files,
+                extras.recording,
                 (*state).audio,
                 &crate::files::status(),
             ));
@@ -467,13 +528,21 @@ unsafe extern "system" fn procedure(
             } else {
                 "Screen view enabled"
             });
-            let input = wide(if (*state).control && !paused_now {
+            let input = wide(if mode & 4 != 0 && !paused_now {
                 "Keyboard and mouse enabled"
             } else {
                 "Keyboard and mouse disabled"
             });
             SetWindowTextW(GetDlgItem(window, ROW_VIEW_ID), view.as_ptr());
             SetWindowTextW(GetDlgItem(window, ROW_INPUT_ID), input.as_ptr());
+            ShowWindow(
+                GetDlgItem(window, SEND_ID),
+                if mode & 8 != 0 { SW_SHOWNA } else { SW_HIDE },
+            );
+            ShowWindow(
+                GetDlgItem(window, REVOKE_ID),
+                if mode & 24 != 0 { SW_SHOWNA } else { SW_HIDE },
+            );
             InvalidateRect(window, std::ptr::null(), 0);
             InvalidateRect(GetDlgItem(window, PAUSE_ID), std::ptr::null(), 0);
         }
@@ -505,16 +574,20 @@ impl Indicator {
         desktop: bool,
         controller: String,
         deadline: Option<Instant>,
-        control: bool,
-        files: bool,
-        recording: bool,
+        control: Arc<AtomicBool>,
+        extras: Arc<AtomicU8>,
         audio: bool,
         session: String,
     ) -> Result<Self, Error> {
         let (ready, received) = mpsc::channel();
-        let mut state = WindowState::new(active.clone(), connected, desktop, control, deadline);
-        state.files = files && desktop;
-        state.recording = recording && desktop;
+        let mut state = WindowState::new(
+            active.clone(),
+            connected,
+            desktop,
+            control.clone(),
+            deadline,
+        );
+        state.extras = extras;
         state.audio = audio && desktop;
         state.controller = controller
             .chars()
@@ -560,7 +633,7 @@ impl Indicator {
                         left: 0,
                         top: 0,
                         right: scale(520),
-                        bottom: scale(436),
+                        bottom: scale(480),
                     };
                     if AdjustWindowRectEx(&mut bounds, style, 0, WS_EX_TOPMOST) == 0 {
                         UnregisterClassW(class.as_ptr(), instance);
@@ -663,7 +736,7 @@ impl Indicator {
                     );
                     let row_input = make_text(
                         ROW_INPUT_ID,
-                        if control && desktop {
+                        if control.load(Ordering::Acquire) && desktop {
                             "Keyboard and mouse enabled"
                         } else {
                             "Keyboard and mouse disabled"
@@ -674,9 +747,10 @@ impl Indicator {
                         20,
                         0,
                     );
+                    let extras = Permissions::read(&state.extras);
                     let row_limits = make_text(
                         ROW_LIMITS_ID,
-                        &extras_line(state.files, state.recording, state.audio, ""),
+                        &extras_line(extras.files, extras.recording, state.audio, ""),
                         70,
                         268,
                         410,
@@ -687,20 +761,20 @@ impl Indicator {
                         FOOTER_ID,
                         "Stop sharing immediately revokes screen and input permission for this session.",
                         28,
-                        384,
+                        420,
                         464,
                         38,
                         0,
                     );
                     let button = wide("BUTTON");
-                    let make_button = |id: i32, label: &str, x: i32, w: i32| {
+                    let make_button = |id: i32, label: &str, x: i32, y: i32, w: i32| {
                         CreateWindowExW(
                             0,
                             button.as_ptr(),
                             wide(label).as_ptr(),
                             WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW as u32,
                             scale(x),
-                            scale(314),
+                            scale(y),
                             scale(w),
                             scale(40),
                             window,
@@ -709,10 +783,10 @@ impl Indicator {
                             std::ptr::null(),
                         )
                     };
-                    let pause = make_button(PAUSE_ID, "Pause sharing", 236, 140);
+                    let pause = make_button(PAUSE_ID, "Pause sharing", 236, 314, 140);
                     // Offering a file to the helper is only there when file transfer was allowed.
-                    let send_file = if state.files {
-                        make_button(SEND_ID, "Send a file…", 28, 196)
+                    let send_file = if desktop {
+                        make_button(SEND_ID, "Send a file…", 28, 314, 196)
                     } else {
                         std::ptr::null_mut()
                     };
@@ -724,8 +798,33 @@ impl Indicator {
                             "Stop video test"
                         },
                         388,
+                        314,
                         104,
                     );
+                    // Ends only the live file and recording permissions; the session and its screen stay as they are.
+                    let revoke = make_button(
+                        REVOKE_ID,
+                        "Turn off file and recording access",
+                        28,
+                        364,
+                        300,
+                    );
+                    // Mute stops sound toward the viewer only; video and control continue. Shown on the desktop sharing window.
+                    let mute = if desktop {
+                        make_button(
+                            MUTE_ID,
+                            if crate::audio::muted() {
+                                "Unmute sound"
+                            } else {
+                                "Mute sound"
+                            },
+                            340,
+                            364,
+                            152,
+                        )
+                    } else {
+                        std::ptr::null_mut()
+                    };
                     let controls = [
                         heading,
                         status_control,
@@ -739,14 +838,21 @@ impl Indicator {
                         footer,
                         pause,
                         stop,
+                        revoke,
                     ];
                     if controls.iter().any(|handle| handle.is_null())
-                        || (state.files && send_file.is_null())
+                        || (desktop && (send_file.is_null() || mute.is_null()))
                         || SetTimer(window, 1, 100, None) == 0
                     {
                         DestroyWindow(window);
                         UnregisterClassW(class.as_ptr(), instance);
                         return Err(io::Error::last_os_error().into());
+                    }
+                    if desktop && !extras.files {
+                        ShowWindow(send_file, SW_HIDE);
+                    }
+                    if Permissions::read(&state.extras) == Permissions::default() {
+                        ShowWindow(revoke, SW_HIDE);
                     }
                     if !state.live() {
                         DestroyWindow(window);
@@ -886,7 +992,7 @@ mod tests {
             Arc::new(AtomicBool::new(true)),
             Arc::new(AtomicBool::new(false)),
             desktop,
-            false,
+            Arc::new(AtomicBool::new(false)),
             deadline,
         ));
         let window = CreateWindowExW(

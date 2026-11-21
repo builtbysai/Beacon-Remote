@@ -20,7 +20,7 @@ use serde_json::{json, Value};
 use std::{
     io::{self, BufRead, BufReader, Read},
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering},
         Arc,
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -535,17 +535,24 @@ async fn stream(
     let deadline = (grant.expires_at_millis != 0).then_some(deadline);
     let active = parent_active;
     let connected = Arc::new(AtomicBool::new(false));
+    let indicator_control = Arc::new(AtomicBool::new(control_allowed));
     let _stop = StopOnDrop(active.clone());
     // Refuse media if a visible local Stop control cannot be created.
+    let extras = Arc::new(AtomicU8::new(
+        crate::files_transport::Permissions {
+            files: files_allowed,
+            recording: recording_allowed,
+        }
+        .bits(),
+    ));
     let _indicator = crate::indicator::Indicator::start_access(
         active.clone(),
         connected.clone(),
         desktop,
         grant.controller.clone(),
         deadline,
-        control_allowed,
-        files_allowed,
-        recording_allowed,
+        indicator_control.clone(),
+        extras.clone(),
         audio_allowed && desktop,
         format!(
             "S-{}",
@@ -569,9 +576,11 @@ async fn stream(
         downloads: Arc::default(),
         last_activity: Arc::new(AtomicU64::new(0)),
         control_allowed,
+        indicator_control,
         files_allowed,
         recording_allowed,
         audio_allowed: audio_allowed && desktop,
+        extras,
         epoch: Instant::now(),
         lease: Arc::new(AtomicU64::new(0)),
         ice: Arc::new(std::sync::Mutex::new(grant.ice_servers.clone())),
@@ -636,12 +645,126 @@ struct MediaAuthorization {
     ice: Arc<std::sync::Mutex<Vec<IceServer>>>,
     // Whether the person at the computer allowed the control that was asked for.
     control_allowed: bool,
+    indicator_control: Arc<AtomicBool>,
     // Whether they also allowed the helper to send files.
     files_allowed: bool,
     // Whether they also allowed the helper to record the session.
     recording_allowed: bool,
     // Whether they also allowed the helper to hear what this computer plays.
     audio_allowed: bool,
+    // Live file/recording permission for the current viewer connection. It starts as the consent
+    // above on every connection and is shared with the sharing window's status and revoke controls.
+    extras: Arc<AtomicU8>,
+}
+
+/// Access the viewer can ask for while connected. Audio is not requested live: it needs a new media track.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LiveScope {
+    Control,
+    Files,
+    Recording,
+    Drive,
+    Print,
+}
+
+impl LiveScope {
+    fn parse(value: &Value) -> Option<Self> {
+        match value.as_str()? {
+            "control" => Some(Self::Control),
+            "files" => Some(Self::Files),
+            "recording" => Some(Self::Recording),
+            "drive" => Some(Self::Drive),
+            "print" => Some(Self::Print),
+            _ => None,
+        }
+    }
+    fn wire(self) -> &'static str {
+        match self {
+            Self::Control => "control",
+            Self::Files => "files",
+            Self::Recording => "recording",
+            Self::Drive => "drive",
+            Self::Print => "print",
+        }
+    }
+    fn consent(self) -> crate::consent::LivePermission {
+        match self {
+            Self::Control => crate::consent::LivePermission::Control,
+            Self::Files => crate::consent::LivePermission::Files,
+            Self::Recording => crate::consent::LivePermission::Recording,
+            Self::Drive => crate::consent::LivePermission::Drive,
+            Self::Print => crate::consent::LivePermission::Print,
+        }
+    }
+}
+
+/// Snapshot used by every step of one live request: prompt, local approval and commit.
+#[derive(Clone, Copy)]
+struct LiveState {
+    desktop: bool,
+    paused: bool,
+    live: bool,
+    input_busy: bool,
+    files_channel: bool,
+    drive_channel: bool,
+    print_channel: bool,
+    extras: u8,
+}
+
+impl LiveState {
+    fn allows(self, scope: LiveScope) -> bool {
+        if !self.desktop || self.paused || !self.live {
+            return false;
+        }
+        match scope {
+            LiveScope::Control => !self.input_busy,
+            LiveScope::Files => {
+                self.files_channel && self.extras & crate::files_transport::FILES_BIT == 0
+            }
+            LiveScope::Recording => {
+                self.files_channel && self.extras & crate::files_transport::RECORDING_BIT == 0
+            }
+            LiveScope::Drive => {
+                self.drive_channel && self.extras & crate::files_transport::DRIVE_BIT == 0
+            }
+            LiveScope::Print => {
+                self.print_channel && self.extras & crate::files_transport::PRINT_BIT == 0
+            }
+        }
+    }
+}
+
+struct PermissionPrompt {
+    id: uuid::Uuid,
+    scope: LiveScope,
+    deadline: Instant,
+    open: Arc<AtomicBool>,
+    dialog: Option<tokio::task::JoinHandle<Result<bool, Error>>>,
+    locally_approved: bool,
+}
+
+impl PermissionPrompt {
+    fn accepts_commit(&self, id: uuid::Uuid, now: Instant) -> bool {
+        self.id == id && self.locally_approved && now < self.deadline
+    }
+}
+
+impl Drop for PermissionPrompt {
+    fn drop(&mut self) {
+        self.open.store(false, Ordering::Release);
+    }
+}
+
+async fn send_control_decision(
+    socket: &mut SignalSocket,
+    generation: u64,
+    id: uuid::Uuid,
+    approved: bool,
+) -> Result<(), Error> {
+    timeout(Duration::from_millis(500), socket.send(Message::Text(
+        json!({"type":"permission-decision","generation":generation,"id":id.to_string(),"approved":approved}).to_string().into()
+    ))).await??;
+    Ok(())
 }
 
 // Renewal must not wait behind peer setup, encoder creation or peer cleanup.
@@ -650,6 +773,7 @@ struct SignalSocket {
     incoming: mpsc::Receiver<Result<Message, Error>>,
     outgoing: mpsc::Sender<Message>,
     viewer_generation: Arc<AtomicU64>,
+    permission_requests: Arc<AtomicBool>,
 }
 impl SignalSocket {
     fn start(
@@ -665,6 +789,8 @@ impl SignalSocket {
         let (outgoing, mut sender) = mpsc::channel(32);
         let viewer_generation = Arc::new(AtomicU64::new(0));
         let viewer = viewer_generation.clone();
+        let permission_requests = Arc::new(AtomicBool::new(false));
+        let supports_permissions = permission_requests.clone();
         let task = tokio::spawn(async move {
             let _stop = StopOnDrop(active.clone());
             let mut renewals = Renewals::default();
@@ -730,6 +856,7 @@ impl SignalSocket {
                                         }
                                         if let Some(issued) = renewals.acknowledge(body["nonce"].as_str().ok_or("Missing lease challenge")?, epoch.elapsed().as_millis() as u64) {
                                             lease.fetch_max(issued, Ordering::Release);
+                                            supports_permissions.store(body["permissionsVersion"].as_u64() == Some(1), Ordering::Release);
                                         }
                                         continue;
                                     }
@@ -766,6 +893,7 @@ impl SignalSocket {
                 incoming: receiver,
                 outgoing,
                 viewer_generation,
+                permission_requests,
             },
             task,
         )
@@ -838,9 +966,18 @@ async fn media_cycle(
 ) -> Result<bool, Error> {
     let desktop = grant.source == "desktop";
     let control_allowed = authorization.control_allowed;
+    let indicator_control = authorization.indicator_control.clone();
+    indicator_control.store(control_allowed, Ordering::Release);
     let files_allowed = authorization.files_allowed;
     let recording_allowed = authorization.recording_allowed;
     let audio_allowed = authorization.audio_allowed;
+    // A new viewer connection starts from the original consent only: anything added live is cleared.
+    let extras = authorization.extras.clone();
+    crate::files_transport::Permissions {
+        files: files_allowed,
+        recording: recording_allowed,
+    }
+    .publish(&extras);
     let setup_started = Instant::now();
     indicator_connected.store(false, Ordering::Release);
     let connected = Arc::new(AtomicBool::new(false));
@@ -962,7 +1099,23 @@ async fn media_cycle(
     } else {
         None
     };
-    let input_worker = if grant.capability == "desktop:control" && control_allowed {
+    let socket_generation = socket.viewer_generation.clone();
+    let permission_version = socket.permission_requests.clone();
+    let input_authority = |end_session_on_input_loss| crate::input_transport::Authority {
+        last_activity: authorization.last_activity.clone(),
+        session: grant.id.clone(),
+        display_id: grant.display_id.clone(),
+        deadline,
+        epoch,
+        lease: lease.clone(),
+        session_active: session_active.clone(),
+        peer_active: active.clone(),
+        connected: connected.clone(),
+        viewer_generation: socket_generation.clone(),
+        generation,
+        end_session_on_input_loss,
+    };
+    let mut input_worker = if grant.capability == "desktop:control" && control_allowed {
         let channel = pc
             .create_data_channel(
                 "beacon-input-v1",
@@ -974,22 +1127,14 @@ async fn media_cycle(
             .await?;
         Some(crate::input_transport::start(
             channel,
-            crate::input_transport::Authority {
-                last_activity: authorization.last_activity.clone(),
-                session: grant.id.clone(),
-                display_id: grant.display_id.clone(),
-                deadline,
-                epoch,
-                lease: lease.clone(),
-                session_active: session_active.clone(),
-                peer_active: active.clone(),
-                connected: connected.clone(),
-            },
+            input_authority(true),
         ))
     } else {
         None
     };
-    let files_worker = if desktop && (files_allowed || recording_allowed) {
+    // The channel always serves the viewer. File and recording permissions are read from the shared
+    // flags, so a later local approval takes effect without renegotiating the connection.
+    let files_worker = if desktop {
         let channel = pc
             .create_data_channel(
                 "beacon-files-v1",
@@ -1001,22 +1146,59 @@ async fn media_cycle(
             .await?;
         Some(crate::files_transport::start(
             channel,
-            crate::input_transport::Authority {
-                last_activity: authorization.last_activity.clone(),
-                session: grant.id.clone(),
-                display_id: grant.display_id.clone(),
-                deadline,
-                epoch,
-                lease: lease.clone(),
-                session_active: session_active.clone(),
-                peer_active: active.clone(),
-                connected: connected.clone(),
-            },
-            crate::files_transport::Permissions {
-                files: files_allowed,
-                recording: recording_allowed,
-            },
+            input_authority(false),
+            extras.clone(),
+            true,
             authorization.downloads.clone(),
+        ))
+    } else {
+        None
+    };
+    // The shared folder: one set up in advance is used as is; otherwise the person picks it when they approve.
+    let drive_slot: crate::drive_transport::GrantSlot = Arc::new(std::sync::Mutex::new(
+        crate::drive_transport::configured_grant(Instant::now()),
+    ));
+    // Drive mapping (P1-4) gets its own channel, opened with the session and answered only while the drive
+    // permission is granted for this connection.
+    let drive_worker = if desktop {
+        let channel = pc
+            .create_data_channel(
+                "beacon-drive-v1",
+                Some(webrtc::data_channel::RTCDataChannelInit {
+                    ordered: true,
+                    ..Default::default()
+                }),
+            )
+            .await?;
+        Some(crate::drive_transport::start(
+            channel,
+            input_authority(false),
+            extras.clone(),
+            drive_slot.clone(),
+        ))
+    } else {
+        None
+    };
+    // The printers this connection may use: ones chosen in advance, or the one the person picks when they approve.
+    let print_slot: crate::print_transport::PrinterSlot = Arc::new(std::sync::Mutex::new(
+        crate::print_transport::selected_printers(),
+    ));
+    // Printing (P2-1) gets its own channel, answered only while the print permission is granted.
+    let print_worker = if desktop {
+        let channel = pc
+            .create_data_channel(
+                "beacon-print-v1",
+                Some(webrtc::data_channel::RTCDataChannelInit {
+                    ordered: true,
+                    ..Default::default()
+                }),
+            )
+            .await?;
+        Some(crate::print_transport::start(
+            channel,
+            input_authority(false),
+            extras.clone(),
+            print_slot.clone(),
         ))
     } else {
         None
@@ -1177,11 +1359,13 @@ async fn media_cycle(
             };
             let flowing = || {
                 let last = lease.load(Ordering::Acquire);
-                connected.load(Ordering::Acquire)
-                    && last != 0
-                    && remaining(last, epoch.elapsed().as_millis() as u64).is_some()
-                    && !crate::pause::is_paused()
-                    && viewer_generation.load(Ordering::Acquire) == generation
+                crate::audio::may_send(
+                    connected.load(Ordering::Acquire),
+                    last != 0 && remaining(last, epoch.elapsed().as_millis() as u64).is_some(),
+                    crate::pause::is_paused(),
+                    crate::audio::muted(),
+                    viewer_generation.load(Ordering::Acquire) == generation,
+                )
             };
             while live() {
                 if flowing() {
@@ -1200,6 +1384,24 @@ async fn media_cycle(
     });
     let mut audio_on = audio_track.is_some();
     let mut detached = false;
+    let mut permission_prompt: Option<PermissionPrompt> = None;
+    let live_state = |input_busy: bool,
+                      files_channel: bool,
+                      drive_channel: bool,
+                      print_channel: bool| LiveState {
+        desktop,
+        paused: crate::pause::is_paused(),
+        live: permission_version.load(Ordering::Acquire) && input_authority(false).live(),
+        input_busy,
+        files_channel,
+        drive_channel,
+        print_channel,
+        extras: extras.load(Ordering::Acquire),
+    };
+    // A monitor plugged in, moved or rescaled changes what the viewer sees. The check is every two seconds; a change
+    // ends this connection so the viewer reconnects and receives the new layout, rather than mapping input wrongly.
+    let layout_at_start = crate::capture::layout_snapshot();
+    let mut layout_ticks: u32 = 0;
     let result:Result<(),Error> = async {
         let mut tick=tokio::time::interval(Duration::from_millis(100));
         let mut quality_tick=tokio::time::interval(Duration::from_secs(2));
@@ -1208,6 +1410,8 @@ async fn media_cycle(
         let mut reported_first_packet=false;
         let mut requested_retry=false;
         let mut remote_candidates=Vec::<RTCIceCandidateInit>::new();
+        let mut control_advertised: Vec<&'static str> = Vec::new();
+        let mut upgraded_control = false;
 
         let mut disconnected_at=None::<Instant>;
         loop {
@@ -1251,6 +1455,51 @@ async fn media_cycle(
                 _=tick.tick()=>{
                     indicator_connected.store(connected.load(Ordering::Acquire), Ordering::Release);
                     if !active.load(Ordering::Acquire) || !session_active.load(Ordering::Acquire) || deadline.is_some_and(|end| Instant::now() >= end) {break;}
+                    layout_ticks = layout_ticks.wrapping_add(1);
+                    if layout_ticks.is_multiple_of(20) {
+                        if let (Some(before), Some(now)) = (&layout_at_start, crate::capture::layout_snapshot()) {
+                            if !beacon_remote_session::display_layout::diff(before, &now).is_empty() {
+                                println!("Display layout changed; ending this connection so the viewer reconnects with the new layout.");
+                                break;
+                            }
+                        }
+                    }
+                    if upgraded_control && input_worker.as_ref().is_some_and(|worker| worker.is_finished()) {
+                        input_worker = None;
+                        upgraded_control = false;
+                        indicator_control.store(false, Ordering::Release);
+                    }
+                    let files_channel = files_worker.as_ref().is_some_and(|worker| !worker.is_finished());
+                    let drive_channel = drive_worker.as_ref().is_some_and(|worker| !worker.is_finished());
+                    let print_channel = print_worker.as_ref().is_some_and(|worker| !worker.is_finished());
+                    let state = live_state(input_worker.is_some(), files_channel, drive_channel, print_channel);
+                    let offered: Vec<&'static str> = [LiveScope::Control, LiveScope::Files, LiveScope::Recording, LiveScope::Drive, LiveScope::Print]
+                        .into_iter()
+                        .filter(|scope| state.allows(*scope))
+                        .map(LiveScope::wire)
+                        .collect();
+                    if offered != control_advertised && permission_version.load(Ordering::Acquire) {
+                        timeout(Duration::from_millis(500), socket.send(Message::Text(
+                            json!({"type":"permission-options","generation":generation,"scopes":offered}).to_string().into(),
+                        ))).await??;
+                        control_advertised = offered;
+                    }
+                    if permission_prompt.as_ref().is_some_and(|prompt| !state.allows(prompt.scope) || Instant::now() >= prompt.deadline) {
+                        if let Some(prompt) = permission_prompt.take() {
+                            let id = prompt.id;
+                            drop(prompt);
+                            send_control_decision(socket, generation, id, false).await?;
+                        }
+                    }
+                    if let Some(prompt) = permission_prompt.as_mut() {
+                        if prompt.dialog.as_ref().is_some_and(|dialog| dialog.is_finished()) {
+                            let approved = matches!(prompt.dialog.take().expect("completed prompt").await, Ok(Ok(true)))
+                                && state.allows(prompt.scope) && Instant::now() < prompt.deadline;
+                            prompt.locally_approved = approved;
+                            send_control_decision(socket, generation, prompt.id, approved).await?;
+                            if !approved { permission_prompt = None; }
+                        }
+                    }
                     if failed.load(Ordering::Acquire) && !requested_retry {
                         timeout(Duration::from_millis(500),socket.send(Message::Text(json!({"type":"retry","generation":generation}).to_string().into()))).await??;
                         requested_retry=true;
@@ -1312,6 +1561,123 @@ async fn media_cycle(
                                 else {if remote_candidates.len()>=16 {return Err("Too many early candidates".into());} remote_candidates.push(candidate);}
                             }
                         }
+                        Some("permission-prompt" | "permission-commit" | "permission-dismiss") => {
+                            if !permission_version.load(Ordering::Acquire) || body["generation"].as_u64() != Some(generation) {continue;}
+                            let Some(id) = body["id"].as_str().and_then(|id| uuid::Uuid::parse_str(id).ok()) else {continue;};
+                            match body["type"].as_str() {
+                                Some("permission-prompt") => {
+                                    let Some(scope) = LiveScope::parse(&body["scope"]) else {continue;};
+                                    let Some(timeout_ms) = body["timeoutMs"].as_u64().filter(|ms| (1..=30_000).contains(ms)) else {continue;};
+                                    let now_state = live_state(input_worker.is_some(), files_worker.as_ref().is_some_and(|worker| !worker.is_finished()), drive_worker.as_ref().is_some_and(|worker| !worker.is_finished()), print_worker.as_ref().is_some_and(|worker| !worker.is_finished()));
+                                    if permission_prompt.is_some() || !now_state.allows(scope) {
+                                        send_control_decision(socket, generation, id, false).await?;
+                                        continue;
+                                    }
+                                    let expires = Instant::now() + Duration::from_millis(timeout_ms);
+                                    let open = Arc::new(AtomicBool::new(true));
+                                    let dialog_open = open.clone();
+                                    let controller = grant.controller.clone();
+                                    let display = crate::capture::display_label(grant.display_id.as_deref());
+                                    let session = format!("S-{}", grant.id.chars().take(4).collect::<String>().to_uppercase());
+                                    let dialog = tokio::task::spawn_blocking(move ||
+                                        crate::consent::request_live_permission(&controller, dialog_open, expires, &display, &session, scope.consent())
+                                    );
+                                    permission_prompt = Some(PermissionPrompt { id, scope, deadline: expires, open, dialog: Some(dialog), locally_approved: false });
+                                }
+                                Some("permission-dismiss") if permission_prompt.as_ref().is_some_and(|prompt| prompt.id == id) => {
+                                    permission_prompt = None;
+                                }
+                                Some("permission-commit") if permission_prompt.as_ref().is_some_and(|prompt|
+                                    prompt.accepts_commit(id, Instant::now())
+                                    && live_state(input_worker.is_some(), files_worker.as_ref().is_some_and(|worker| !worker.is_finished()), drive_worker.as_ref().is_some_and(|worker| !worker.is_finished()), print_worker.as_ref().is_some_and(|worker| !worker.is_finished())).allows(prompt.scope)
+                                ) => {
+                                    let Some(prompt) = permission_prompt.take() else {continue;};
+                                    let expires = prompt.deadline;
+                                    let scope = prompt.scope;
+                                    drop(prompt);
+                                    match scope {
+                                        LiveScope::Control => {
+                                            let label = format!("beacon-approved-input-v1:{id}");
+                                            let created = timeout(Duration::from_millis(500), pc.create_data_channel(&label, Some(webrtc::data_channel::RTCDataChannelInit {
+                                                ordered: true, ..Default::default()
+                                            }))).await;
+                                            let Ok(Ok(channel)) = created else {continue;};
+                                            let still_allowed = live_state(input_worker.is_some(), files_worker.as_ref().is_some_and(|worker| !worker.is_finished()), drive_worker.as_ref().is_some_and(|worker| !worker.is_finished()), print_worker.as_ref().is_some_and(|worker| !worker.is_finished())).allows(LiveScope::Control);
+                                            if Instant::now() >= expires || !still_allowed {
+                                                let _ = timeout(Duration::from_millis(500), channel.close()).await;
+                                                continue;
+                                            }
+                                            indicator_control.store(true, Ordering::Release);
+                                            input_worker = Some(crate::input_transport::start(channel, input_authority(false)));
+                                            upgraded_control = true;
+                                        }
+                                        LiveScope::Print => {
+                                            // With no printer chosen in advance, the person picks one in the Windows print dialog,
+                                            // in a process and task of their own so the connection keeps renewing meanwhile.
+                                            if Instant::now() < expires {
+                                                let has_printer = print_slot.lock().map(|slot| !slot.is_empty()).unwrap_or(false);
+                                                if has_printer {
+                                                    extras.fetch_or(crate::files_transport::PRINT_BIT, Ordering::AcqRel);
+                                                    println!("Viewer {} permission added for this connection.", scope.wire());
+                                                } else {
+                                                    let slot = print_slot.clone();
+                                                    let flags = extras.clone();
+                                                    tokio::spawn(async move {
+                                                        if let Ok(Some(name)) = tokio::task::spawn_blocking(crate::folder_picker::pick_printer_in_child).await {
+                                                            let installed = beacon_remote_session::printers::installed().unwrap_or_default();
+                                                            if installed.iter().any(|printer| printer == &name) {
+                                                                if let Ok(mut slot) = slot.lock() {
+                                                                    *slot = vec![name];
+                                                                    flags.fetch_or(crate::files_transport::PRINT_BIT, Ordering::AcqRel);
+                                                                    println!("Viewer print permission added for this connection.");
+                                                                }
+                                                            }
+                                                        }
+                                                    });
+                                                }
+                                            }
+                                        }
+                                        LiveScope::Drive => {
+                                            // Drive mapping only adds its own bit; file and recording permissions are untouched.
+                                            // With no folder set up in advance, the person picks the one to share now, in a task of its
+                                            // own: this loop must keep renewing the connection while the folder dialog is open.
+                                            // Cancelling the picker leaves drive access off.
+                                            if Instant::now() < expires {
+                                                let has_folder = drive_slot.lock().map(|slot| slot.is_some()).unwrap_or(false);
+                                                if has_folder {
+                                                    extras.fetch_or(crate::files_transport::DRIVE_BIT, Ordering::AcqRel);
+                                                    println!("Viewer {} permission added for this connection.", scope.wire());
+                                                } else {
+                                                    let slot = drive_slot.clone();
+                                                    let flags = extras.clone();
+                                                    tokio::spawn(async move {
+                                                        if let Ok(Some(folder)) = tokio::task::spawn_blocking(crate::folder_picker::pick_in_child).await {
+                                                            if let Some(grant) = crate::drive_transport::grant_for_chosen_folder(folder, Instant::now()) {
+                                                                if let Ok(mut slot) = slot.lock() {
+                                                                    *slot = Some(grant);
+                                                                    flags.fetch_or(crate::files_transport::DRIVE_BIT, Ordering::AcqRel);
+                                                                    println!("Viewer drive permission added for this connection.");
+                                                                }
+                                                            }
+                                                        }
+                                                    });
+                                                }
+                                            }
+                                        }
+                                        LiveScope::Files | LiveScope::Recording => {
+                                            // Only this approved scope is added; the transport reports it to the viewer.
+                                            if Instant::now() < expires {
+                                                let mut granted = crate::files_transport::Permissions::read(&extras);
+                                                if scope == LiveScope::Files { granted.files = true; } else { granted.recording = true; }
+                                                granted.publish(&extras);
+                                                println!("Viewer {} permission added for this connection.", scope.wire());
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
                         Some("ended")=>break,
                         Some("viewer-detached")=>{ detached = true; break; },
                         Some("joined")=>{},
@@ -1321,6 +1687,8 @@ async fn media_cycle(
             }
         } Ok(())
     }.await;
+    drop(permission_prompt);
+    indicator_control.store(false, Ordering::Release);
     active.store(false, Ordering::Release);
     if let Some(input_worker) = input_worker {
         let _ = timeout(Duration::from_secs(1), input_worker).await;
@@ -1364,6 +1732,137 @@ async fn media_cycle(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn live_scopes_are_granted_independently_and_never_while_paused_or_detached() {
+        use crate::files_transport::{FILES_BIT, RECORDING_BIT};
+        let open = LiveState {
+            desktop: true,
+            paused: false,
+            live: true,
+            input_busy: false,
+            files_channel: true,
+            drive_channel: true,
+            print_channel: true,
+            extras: 0,
+        };
+        assert!(open.allows(LiveScope::Control));
+        assert!(open.allows(LiveScope::Files));
+        assert!(open.allows(LiveScope::Recording));
+        assert!(open.allows(LiveScope::Drive));
+        // A drive grant is its own bit: file and recording permissions do not grant it.
+        let files_only = LiveState {
+            extras: FILES_BIT | RECORDING_BIT,
+            ..open
+        };
+        assert!(files_only.allows(LiveScope::Drive));
+        let drive_granted = LiveState {
+            extras: crate::files_transport::DRIVE_BIT,
+            ..open
+        };
+        assert!(!drive_granted.allows(LiveScope::Drive));
+        assert!(drive_granted.allows(LiveScope::Files));
+        let no_print = LiveState {
+            print_channel: false,
+            ..open
+        };
+        assert!(!no_print.allows(LiveScope::Print));
+        let no_drive = LiveState {
+            drive_channel: false,
+            ..open
+        };
+        assert!(!no_drive.allows(LiveScope::Drive));
+
+        // Control already in use does not block files, and a granted file permission does not add recording.
+        let busy = LiveState {
+            input_busy: true,
+            extras: FILES_BIT,
+            ..open
+        };
+        assert!(!busy.allows(LiveScope::Control));
+        assert!(!busy.allows(LiveScope::Files));
+        assert!(busy.allows(LiveScope::Recording));
+
+        let recording_only = LiveState {
+            extras: RECORDING_BIT,
+            ..open
+        };
+        assert!(recording_only.allows(LiveScope::Files));
+        assert!(!recording_only.allows(LiveScope::Recording));
+
+        // No file channel means nothing that depends on it can be offered.
+        let no_channel = LiveState {
+            files_channel: false,
+            ..open
+        };
+        assert!(!no_channel.allows(LiveScope::Files));
+        assert!(!no_channel.allows(LiveScope::Recording));
+        assert!(no_channel.allows(LiveScope::Control));
+
+        for blocked in [
+            LiveState {
+                paused: true,
+                ..open
+            },
+            LiveState {
+                live: false,
+                ..open
+            },
+            LiveState {
+                desktop: false,
+                ..open
+            },
+        ] {
+            for scope in [
+                LiveScope::Control,
+                LiveScope::Files,
+                LiveScope::Recording,
+                LiveScope::Drive,
+            ] {
+                assert!(!blocked.allows(scope), "{scope:?} must wait");
+            }
+        }
+    }
+
+    #[test]
+    fn live_scope_names_match_the_wire_protocol() {
+        assert_eq!(
+            LiveScope::parse(&json!("control")),
+            Some(LiveScope::Control)
+        );
+        assert_eq!(LiveScope::parse(&json!("files")), Some(LiveScope::Files));
+        assert_eq!(LiveScope::parse(&json!("drive")), Some(LiveScope::Drive));
+        assert_eq!(
+            LiveScope::parse(&json!("recording")),
+            Some(LiveScope::Recording)
+        );
+        // Audio is never requested live; it is only granted in the initial consent.
+        assert_eq!(LiveScope::parse(&json!("audio")), None);
+        assert_eq!(LiveScope::parse(&json!(null)), None);
+    }
+
+    #[test]
+    fn control_commit_requires_matching_live_local_approval_and_drop_cancels_the_prompt() {
+        let id = uuid::Uuid::new_v4();
+        let open = Arc::new(AtomicBool::new(true));
+        let now = Instant::now();
+        let deadline = now + Duration::from_secs(30);
+        let mut prompt = PermissionPrompt {
+            id,
+            scope: LiveScope::Control,
+            deadline,
+            open: open.clone(),
+            dialog: None,
+            locally_approved: false,
+        };
+        assert!(!prompt.accepts_commit(id, now));
+        prompt.locally_approved = true;
+        assert!(!prompt.accepts_commit(uuid::Uuid::new_v4(), now));
+        assert!(prompt.accepts_commit(id, now));
+        assert!(!prompt.accepts_commit(id, deadline));
+        drop(prompt);
+        assert!(!open.load(Ordering::Acquire));
+    }
 
     #[tokio::test]
     async fn renewal_continues_while_media_consumer_is_busy_then_stop_closes_signaling() {
@@ -1670,9 +2169,11 @@ mod tests {
                 downloads: Arc::default(),
                 last_activity: Arc::new(AtomicU64::new(0)),
                 control_allowed: false,
+                indicator_control: Arc::new(AtomicBool::new(false)),
                 files_allowed: false,
                 recording_allowed: false,
                 audio_allowed: false,
+                extras: Arc::default(),
                 epoch: Instant::now()
                     - Duration::from_millis(if mode == "lease" { MAX_AGE_MS + 1 } else { 10 }),
                 lease: Arc::new(AtomicU64::new(1)),

@@ -1,5 +1,7 @@
 import { z } from "zod";
 export * from "./signin.js";
+export * from "./session-permissions.js";
+export * from "./drive-mapping.js";
 
 export const PROTOCOL_VERSION = 1;
 // Separate signing domain and credential: a boot agent never receives a session grant.
@@ -43,10 +45,31 @@ export function bootHeartbeatMessage(
   return `beacon-remote:boot-heartbeat:v1\n${machine}\n${timestamp}\n${nonce}\n${state}`;
 }
 export const capability = z.enum(["desktop:view", "desktop:control"]);
+// Twelve independent base32 symbols provide 60 bits of entropy. Grouping is
+// presentation only; existing case-sensitive bearer invitations stay valid.
+export const ENROLLMENT_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+export const enrollmentCode = z
+  .string()
+  .trim()
+  .max(64)
+  .transform((value) => {
+    if (/^[A-Za-z0-9_-]{32,64}$/.test(value)) return value;
+    const compact = value.replace(/[ -]/g, "").toUpperCase();
+    return /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{12}$/.test(compact)
+      ? `${compact.slice(0, 4)}-${compact.slice(4, 8)}-${compact.slice(8)}`
+      : value;
+  })
+  .pipe(
+    z
+      .string()
+      .regex(
+        /^(?:[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}|[A-Za-z0-9_-]{32,64})$/,
+      ),
+  );
 export const enrollment = z
   .object({
     version: z.literal(PROTOCOL_VERSION),
-    code: z.string().regex(/^[A-Za-z0-9_-]{32,64}$/),
+    code: enrollmentCode,
     name: z.string().trim().min(1).max(80),
     publicKey: z.string().regex(/^[A-Za-z0-9+/]{43}=$/),
   })

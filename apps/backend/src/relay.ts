@@ -10,13 +10,20 @@ export function relayExpiry(sessionCap: Date, now = Date.now()) {
     Math.min(sessionCap.getTime(), now + RELAY_CREDENTIAL_MINUTES * 60_000),
   );
 }
-export function relayCredentials(config: Config, id: string, expiresAt: Date) {
+// A reconnect passes its own `variant` so the relay sees a new user, not the dropped connection's
+// still-allocated one (the relay refuses extra allocations per user with error 486).
+export function relayCredentials(
+  config: Config,
+  id: string,
+  expiresAt: Date,
+  variant?: string,
+) {
   if (!config.TURN_URLS || !config.TURN_SECRET)
     throw new Error("Relay unavailable");
   const expiresAtSeconds = Math.floor(expiresAt.getTime() / 1000);
   if (expiresAtSeconds <= Math.floor(Date.now() / 1000))
     throw new Error("Session expired");
-  const username = `${expiresAtSeconds}:beacon-remote:${id}`;
+  const username = `${expiresAtSeconds}:beacon-remote:${id}${variant ? `:${variant}` : ""}`;
   return {
     urls: config.TURN_URLS,
     username,

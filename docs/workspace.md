@@ -2,7 +2,84 @@
 
 Beacon Remote is the remote access product. This checkout is D:/Dev/Beacon-Remote. Continue the unattended-access work on its current feature branch; source publication does not establish release acceptance.
 
-## Current checkpoint - November 15, 2026
+## Current checkpoint - November 17, 2026
+
+Development resumed after the evening handoff. Latest application `2fd40a3` fixes
+delayed clipboard typing after release and stale modifier state; regressions,
+web suite/build, lint/typecheck/format and frozen install passed. Paste replacement
+also releases a paced Enter/Tab before clipboard permission UI. `754f585` removes
+the moderate minimatch advisory through TypeScript-ESLint 8.73.0. Full audit still
+fails on unpatched high picomatch; production audit is clean. PR #126 stays draft.
+Next bounded unit is physical Surfiena control/Stop/key release (P0-2). No device
+or hosted runtime changes ran in this continuation. The paragraph below records
+the preceding physical checkpoint; use the updated handoff before acting.
+
+Evening handoff: follow [next-agent-handoff.md](next-agent-handoff.md),
+[rdp-vnc-parity-roadmap.md](rdp-vnc-parity-roadmap.md) and
+[testing-remaining.md](testing-remaining.md). Rotation routing is fixed in `c22dc2f`
+and physically verified with local compiled viewer assets; permission revoke/
+recovery and real file receipt also passed. Android `1afcc9e` is installed.
+The hosted test viewer remains `0bba353` because its replacement was rejected by
+automatic approval review. The one-hour backend expired. At last inventory Pixel
+was unlocked, availability on, capture/accessibility off; inspect current UI before
+restoration. Dependency audit and Windows installed/sign-in acceptance remain open.
+That preceding chat ended with roadmap/handoff preparation; the owner has since
+resumed development from it.
+
+### Earlier November 17 checkpoint
+
+Pixel attended video/touch/typing and local Pause/Resume/Stop now passed with
+Android `d329066` and isolated viewer `0bba353`. The first unattended owner
+connection and remote tap passed; local Disable ended sharing and restored fresh
+approval for later requests. Later runs passed competing-controller refusal,
+paused-input rejection/Resume and real phone-lock teardown. Rotation failed twice
+with signaling/lease interruptions and remains open. Standing access was enabled
+for the later tests; the Pixel is now locked and needs owner unlock to continue.
+The original automatic rotation setting was restored. The isolated
+backend remains `8af1c43`; production remains `5e8d5c5`. Full lifecycle acceptance
+is still open. PR #126 is draft with a high dependency-audit gate: the new
+picomatch advisory currently has no published patched version. See the current
+development status/checklist before continuing; older checkpoints below retain
+their historical results.
+
+## November 16 setup checkpoint
+
+Continue on `codex/device-acceptance-preparation`. The owner resumed actual tests
+with the Pixel and Surfiena available and approved the first local view request.
+The isolated backend/web now use `5e8d5c5` with the current schema and a fresh
+random test account under the external private preparation directory. Independent
+encrypted backup/recovery passed before schema changes. Both production products
+were checked unchanged. Acceptance remains bounded to one hour per backend run;
+ordinary control is enabled there, while sign-in authority/media stay off.
+
+Surfiena's signed ordinary candidate `a6d114d` is paired in a separate private
+on-device profile and runs as the limited signed-in user in session 1. Actual
+view-only decoded video, relay connectivity, browser Stop and cleanup passed;
+no pixels were saved or input injected. The Pixel update preserved its existing
+app identity/data. Wider Windows/Pixel/unattended/lifecycle acceptance stays open.
+
+The owner reported slow initial Online status. First-request long polling was
+found to hold that acknowledgement. Startup/recovery source and focused wire
+regressions now avoid that wait and the following idle gap. Full native checks,
+signing and an actual-device comparison passed: the signed `9d377c6` candidate
+acknowledged in 208 ms and the owner confirmed Online was quick. The follow-up
+native UI/blank-console candidate `d3bd11c` passed both native configurations and
+all four GitHub jobs. The owner confirmed its Start/Stop toggle and no new terminal;
+repeat viewing/Stop passed, while media startup and control remain open. Its source and
+signed ordinary artifacts are checksum-verified on the VM; media startup and
+remaining physical acceptance remain separate. The owner requested core testing
+before further layout choices; use the visible isolated viewer for that handoff.
+See development status and the completion
+checklist; the paused legacy local fixture/identity were not started or moved.
+
+The private state root's `active-acceptance-preparation.txt` locates the current
+protected receipts/account. Never print that account's password/session/code.
+The maintained `Windows-HostFixture.ps1` uses only Surfiena, pinned artifacts,
+versioned binaries, an unchanged on-device profile and limited bounded tasks.
+Local approval remains manual. Native public feeds and production gates stay
+unchanged. The earlier release checkpoints below are historical.
+
+## Earlier checkpoint - November 15, 2026
 
 Use [completion-checklist.md](completion-checklist.md) and [roadmap.md](roadmap.md).
 PRs #115-#117 and #124 are merged. The VM runs tested application source

@@ -17,8 +17,15 @@ class RemoteControl(
     width: Int,
     height: Int,
     private val allowed: () -> Boolean,
+    /** Offers a copied file to the viewer through the files channel (the viewer saves it as a download). */
+    private val offerFile: (android.net.Uri) -> Unit = {},
+    /** Opens or closes the viewer's voice on the phone's speaker; returns what happened: on, off, locked or disabled. */
+    private val onTalk: (Boolean) -> String = { "disabled" },
     private val onState: (Boolean) -> Unit,
 ) : DataChannel.Observer {
+    private var talking = false
+    // Whether the phone is locked, told to the viewer whenever it changes (so Unlock appears only at the lock screen).
+    private var lastLocked: Boolean? = null
     // The screen's size in pixels; changes when the phone is turned (see [resize]).
     private var width = width
     private var height = height
@@ -38,14 +45,131 @@ class RemoteControl(
     private var capsLock = false
     private var modified = false
     private var open = false
+    // Passcode keys are pressed one at a time on their own thread, because finding the PIN screen can take a moment.
+    private val lockKeys = java.util.concurrent.Executors.newSingleThreadExecutor()
+    // While the viewer shows its stand-in for the PIN screen, the screen's layout is sent about once a second.
+    private var lockView: java.util.concurrent.ScheduledExecutorService? = null
+    private var lastSwipe = 0L
 
-    fun start() = channel.registerObserver(this)
+    private fun lockScreenView(on: Boolean) {
+        lockView?.shutdownNow()
+        lockView = null
+        if (!on) return
+        lockView = java.util.concurrent.Executors.newSingleThreadScheduledExecutor().also { scheduler ->
+            scheduler.scheduleWithFixedDelay({
+                runCatching {
+                    val service = ControlService.instance ?: return@runCatching
+                    val snapshot = service.lockScreenSnapshot()
+                    if (open) sendJson(snapshot)
+                    // The PIN screen is not up yet: bring it up, but not more than once every few seconds.
+                    if (snapshot.optString("state") == "no-pad" && SystemClock.elapsedRealtime() - lastSwipe > 5000) {
+                        lastSwipe = SystemClock.elapsedRealtime()
+                        service.swipeUpToPin()
+                    }
+                }
+            }, 0, 900, java.util.concurrent.TimeUnit.MILLISECONDS)
+        }
+    }
+    // Clipboard sharing (ADR 0021 as amended): text only, gated by the phone's own setting, never rich formats yet.
+    private val clipboardParts = StringBuilder()
+    private val clipboardHtml = StringBuilder()
+    private val clipboardImage = StringBuilder()
+    private var stopClipboardListener: (() -> Unit)? = null
+    private var lastClipboard = ""
+
+    private fun clipboardMode(): String = ControlService.instance?.let { Identity(it).clipboardMode } ?: "off"
+
+    private fun sendJson(message: JSONObject) {
+        channel.send(DataChannel.Buffer(ByteBuffer.wrap(message.toString().toByteArray()), false))
+    }
+
+    /** Tells the viewer what the phone's clipboard setting is, and starts watching for copies when it is automatic. */
+    private fun announceClipboard() {
+        sendJson(JSONObject().put("type", "clipboard_mode").put("mode", clipboardMode()))
+        stopClipboardListener?.invoke()
+        stopClipboardListener = ControlService.instance?.listenForClipboard { onClipboardChanged() }
+    }
+
+    /** If the phone's clipboard holds an image, sends it in paced pieces after the text reply. Runs off the input thread. */
+    /** Answers a viewer's copy request. Runs off the input thread, because reading may need a moment on screen. */
+    private fun answerClipboardRead(service: ControlService, mode: String) {
+        var text: String? = null
+        var html: String? = null
+        var image: Pair<String, ByteArray>? = null
+        var file: android.net.Uri? = null
+        if (mode != "off") {
+            text = service.readClipboardText()
+            html = service.readClipboardHtml()
+            image = service.readClipboardImage(MAX_CLIPBOARD_IMAGE)
+            if (text.isNullOrEmpty() && image == null) file = service.readClipboardFile()
+            if (text.isNullOrEmpty() && image == null && file == null) {
+                // Android refused a background read: bring an invisible screen forward for a moment and read there.
+                service.readClipboardViaActivity()?.let { snapshot ->
+                    text = snapshot.text
+                    html = snapshot.html
+                    if (snapshot.image != null && snapshot.imageMime != null) image = snapshot.imageMime to snapshot.image
+                    file = snapshot.file
+                }
+            }
+        }
+        val readText = text
+        Log.i(TAG, "Clipboard read requested (mode $mode): ${readText?.length?.let { "returned $it characters" } ?: if (image != null) "an image" else "unavailable"}")
+        val reply =
+            if (readText.isNullOrEmpty()) {
+                JSONObject().put("type", "clipboard").put("text", "").put("truncated", false).put("unavailable", image == null && file == null)
+                    .put("file", file != null)
+            } else {
+                lastClipboard = readText
+                JSONObject().put("type", "clipboard").put("text", readText.take(MAX_CLIPBOARD_CHARS))
+                    .put("truncated", readText.length > MAX_CLIPBOARD_CHARS).put("unavailable", false)
+                    .also { out -> html?.takeIf { it.length <= MAX_CLIPBOARD_HTML }?.let { out.put("html", it) } }
+            }
+        sendJson(reply)
+        image?.let { (mime, bytes) -> streamClipboardImage(mime, bytes) }
+        file?.let { offerFile(it) }
+    }
+
+    /** Sends an image in paced pieces after the text reply. */
+    private fun streamClipboardImage(mime: String, bytes: ByteArray) {
+        val encoded = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+        sendJson(JSONObject().put("type", "clipboard_image_start").put("mime", mime).put("size", bytes.size))
+        var at = 0
+        while (at < encoded.length && open) {
+            val end = minOf(encoded.length, at + 1000)
+            sendJson(JSONObject().put("type", "clipboard_image").put("text", encoded.substring(at, end)).put("more", end < encoded.length))
+            at = end
+            Thread.sleep(5)
+        }
+        Log.i(TAG, "Clipboard image sent to the viewer: ${bytes.size} bytes")
+    }
+
+    private fun onClipboardChanged() {
+        if (!open || clipboardMode() != "auto") return
+        val text = ControlService.instance?.readClipboardText()?.takeIf { it.isNotEmpty() } ?: return
+        if (text == lastClipboard) return
+        lastClipboard = text
+        sendJson(
+            JSONObject().put("type", "clipboard").put("text", text.take(MAX_CLIPBOARD_CHARS))
+                .put("truncated", text.length > MAX_CLIPBOARD_CHARS).put("unavailable", false)
+                .also { reply -> ControlService.instance?.readClipboardHtml()?.takeIf { it.length <= MAX_CLIPBOARD_HTML }?.let { reply.put("html", it) } },
+        )
+    }
+
+    fun start() {
+        channel.registerObserver(this)
+        // The channel can already be open before the observer is registered; no change event follows then.
+        onStateChange()
+    }
 
     override fun onBufferedAmountChange(previous: Long) {}
 
+    @Synchronized
     override fun onStateChange() {
-        when (channel.state()) {
+        val state = channel.state()
+        Log.i("BeaconHost", "Input channel state: $state")
+        when (state) {
             DataChannel.State.OPEN -> {
+                if (open) return
                 open = true
                 lastMessage = SystemClock.elapsedRealtime()
                 sendGeometry()
@@ -109,6 +233,13 @@ class RemoteControl(
     /** Called about once a second by the session: held touches are let go when the viewer goes quiet. */
     fun quietCheck() {
         val quiet = SystemClock.elapsedRealtime() - lastMessage
+        val locked = ControlService.instance?.let { it.getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked }
+        if (locked != null && locked != lastLocked) {
+            lastLocked = locked
+            runCatching { sendJson(JSONObject().put("type", "lock").put("locked", locked)) }
+        }
+        // Talking stops the moment the phone locks.
+        if (talking && ControlService.instance?.let { it.getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked } == true) setTalk(false)
         if (open && quiet >= 1500) release()
         if (open && quiet >= 30_000) stop()
     }
@@ -120,10 +251,24 @@ class RemoteControl(
         modified = false
     }
 
+    private fun setTalk(on: Boolean) {
+        val state = runCatching { onTalk(on) }.getOrDefault("disabled")
+        talking = state == "on"
+        runCatching { sendJson(JSONObject().put("type", "talk").put("state", state)) }
+    }
+
     fun stop() {
         if (!open) return
+        if (talking) runCatching { onTalk(false) }
+        talking = false
         open = false
         release()
+        Chat.send = null
+        runCatching { ControlService.instance?.clearClipboardImages() }
+        runCatching { lockKeys.shutdownNow() }
+        lockScreenView(false)
+        runCatching { stopClipboardListener?.invoke() }
+        stopClipboardListener = null
         runCatching { channel.unregisterObserver() }
         runCatching { channel.close() }
         onState(false)
@@ -163,9 +308,81 @@ class RemoteControl(
             "type_text" -> service.type(input.getString("text"))
             "nav" -> service.system(input.getString("action"))
             "clipboard_read" -> {
-                // Android does not let a background service read the clipboard.
-                val reply = JSONObject().put("type", "clipboard").put("text", "").put("truncated", false).put("unavailable", true)
-                channel.send(DataChannel.Buffer(ByteBuffer.wrap(reply.toString().toByteArray()), false))
+                val mode = clipboardMode()
+                runCatching { lockKeys.execute { runCatching { answerClipboardRead(service, mode) } } }
+            }
+            "clipboard_write" -> {
+                // The viewer sends its clipboard in small pieces (the channel carries 2 KB at most). Off ignores it.
+                if (clipboardMode() == "off") {
+                    clipboardParts.setLength(0)
+                    return
+                }
+                val piece = input.getString("text")
+                if (input.optString("kind") == "image") {
+                    // An image arrives as base64 pieces and is written once the last one is in.
+                    if (clipboardImage.length + piece.length > MAX_CLIPBOARD_IMAGE_BASE64) {
+                        clipboardImage.setLength(0)
+                        return
+                    }
+                    clipboardImage.append(piece)
+                    if (!input.optBoolean("more")) {
+                        val encoded = clipboardImage.toString()
+                        clipboardImage.setLength(0)
+                        val bytes = runCatching { android.util.Base64.decode(encoded, android.util.Base64.DEFAULT) }.getOrNull()
+                        if (bytes != null && bytes.isNotEmpty() && service.writeClipboardImage(bytes, input.optString("mime", "image/png"))) {
+                            Log.i(TAG, "Clipboard image written from the viewer: ${bytes.size} bytes")
+                        }
+                    }
+                    return
+                }
+                if (input.optString("kind") == "html") {
+                    // Formatted text arrives first, then the plain text that completes the write.
+                    if (clipboardHtml.length + piece.length > MAX_CLIPBOARD_HTML) clipboardHtml.setLength(0) else clipboardHtml.append(piece)
+                    return
+                }
+                if (clipboardParts.length + piece.length > MAX_CLIPBOARD_WRITE) {
+                    clipboardParts.setLength(0)
+                    clipboardHtml.setLength(0)
+                    return
+                }
+                clipboardParts.append(piece)
+                if (!input.optBoolean("more")) {
+                    val text = clipboardParts.toString()
+                    val html = clipboardHtml.toString()
+                    clipboardParts.setLength(0)
+                    clipboardHtml.setLength(0)
+                    if (text.isNotEmpty() && service.writeClipboardText(text, html)) {
+                        lastClipboard = text
+                        Log.i(TAG, "Clipboard written from the viewer: ${text.length} characters")
+                    }
+                }
+            }
+            // A viewer that knows about the clipboard says so; older viewers never hear about it.
+            "clipboard_hello" -> announceClipboard()
+            "unlock_view" -> lockScreenView(input.optBoolean("on"))
+            "talk" -> setTalk(input.optBoolean("on"))
+            "unlock_pattern" -> {
+                val list = input.optJSONArray("cells")
+                val cells = if (list == null || list.length() > 9) null else (0 until list.length()).map { list.optInt(it, -1) }
+                if (cells != null) runCatching { lockKeys.execute { sendJson(JSONObject().put("type", "unlock").put("state", runCatching { service.drawLockPattern(cells) }.getOrDefault("error"))) } }
+            }
+            "unlock_password" -> {
+                val text = input.optString("text")
+                if (text.isNotEmpty() && text.length <= 64) runCatching { lockKeys.execute { sendJson(JSONObject().put("type", "unlock").put("state", runCatching { service.enterLockPassword(text) }.getOrDefault("error"))) } }
+            }
+            "unlock_key" -> {
+                val key = input.getString("key")
+                if (key.length == 1 && key[0] in '0'..'9' || key == "delete" || key == "enter") {
+                    // Nothing here logs or keeps the key. Only the outcome goes back, so the viewer can say what happened.
+                    runCatching { lockKeys.execute { sendJson(JSONObject().put("type", "unlock").put("state", runCatching { service.pressLockKey(key) }.getOrDefault("error"))) } }
+                }
+            }
+            "chat" -> {
+                val text = input.getString("text").trim().take(Chat.MAX_CHARS)
+                if (text.isNotEmpty()) {
+                    Chat.send = { reply -> runCatching { sendJson(JSONObject().put("type", "chat").put("text", reply)) }.isSuccess }
+                    Chat.show(service, text)
+                }
             }
             "release_all" -> release()
             "keep_alive" -> {}
@@ -178,7 +395,7 @@ class RemoteControl(
         // Up to 24 points of the path are enough to reproduce a swipe; a tap or long press is one point.
         val step = maxOf(1, path.size / 24)
         val points = if (moved) path.filterIndexed { index, _ -> index % step == 0 || index == path.lastIndex } else listOf(path[0])
-        service.stroke(points, if (moved) held.coerceIn(80, 2000) else held.coerceIn(40, 2000))
+        service.stroke(points, strokeDuration(moved, held))
         path.clear()
     }
 
@@ -228,10 +445,24 @@ class RemoteControl(
         return if (scan == 0x39) ' ' else null
     }
 
-    private companion object {
+    companion object {
         const val TAG = "BeaconHost"
         const val MAX_MESSAGE = 2048
         const val MAX_PER_SECOND = 500
+
+        /**
+         * How long the finger stays down on the phone. The time between the viewer's press and release also includes
+         * network delay, so a tap that arrived late would otherwise become a long, slow gesture that Android reads as a
+         * long press or that cancels the next tap. A press shorter than half a second is a plain 50 ms tap; a longer
+         * one is a deliberate hold and keeps its length.
+         */
+        fun strokeDuration(moved: Boolean, heldMs: Long): Long =
+            if (moved) heldMs.coerceIn(80, 2000) else if (heldMs < 500) 50 else heldMs.coerceIn(500, 2000)
+        const val MAX_CLIPBOARD_CHARS = 32768
+        const val MAX_CLIPBOARD_WRITE = 8000
+        const val MAX_CLIPBOARD_HTML = 6000
+        const val MAX_CLIPBOARD_IMAGE = 1_500_000
+        const val MAX_CLIPBOARD_IMAGE_BASE64 = 2_100_000
         val LETTER_ROWS = listOf(0x10 to "qwertyuiop", 0x1e to "asdfghjkl", 0x2c to "zxcvbnm")
         val DIGITS = (2..11).toList()
         const val SHIFTED_DIGITS = "!@#$%^&*()"

@@ -1,6 +1,7 @@
 // Browser events become bounded physical-pixel input, only on an approved channel.
 import { isModifierCode, modifierChanges } from "./modifiers.js";
 import { pasteSteps, type PasteInput } from "./paste.js";
+import { lockScreenShape } from "./lock-screen.js";
 import { TouchPad, type TouchAction, type TouchMode } from "./touch-input.js";
 import {
   signInInput,
@@ -83,6 +84,21 @@ const extended: Record<string, number> = {
     scans[`Numpad${n}`] = scan;
   },
 );
+
+/**
+ * Converts one browser wheel delta into Windows wheel units (WHEEL_DELTA = 120 is one notch). A typical
+ * mouse notch is 100 CSS pixels in Chrome, so pixel deltas are scaled by 120/100 instead of being sent raw,
+ * which under-scrolled ordinary wheels; line and page deltas map to notches directly.
+ */
+export function wheelUnits(delta: number, deltaMode: number): number {
+  const perPixel = 1.2;
+  const perLine = 120;
+  const perPage = 120 * 24;
+  const scale =
+    deltaMode === 1 ? perLine : deltaMode === 2 ? perPage : perPixel;
+  const units = Math.round(delta * scale);
+  return Math.max(-32767, Math.min(32767, units));
+}
 
 /** Validates the computer's description of what is being controlled; null if it is not one. */
 export function parseDisplay(raw: string): {
@@ -227,7 +243,9 @@ export function attachRemoteInput(
   // Ctrl+V types the viewer's clipboard on the computer, paced under the channel's rate limit.
   const held = new Set<number>();
   const synthetic = new Set<number>();
+  let composingText = false;
   let pasting: PasteInput[] = [];
+  let pasteGeneration = 0;
   const pasteTimer = setInterval(() => {
     const step = pasting.shift();
     if (step) send(step);
@@ -237,22 +255,37 @@ export function attachRemoteInput(
       onNotice("Clipboard is unavailable during Windows sign-in.");
       return;
     }
+    const generation = ++pasteGeneration;
+    pasting = [];
+    const current = () =>
+      generation === pasteGeneration &&
+      !disposed &&
+      channel.readyState === "open" &&
+      !document.hidden;
     let text: string;
     try {
       text = await navigator.clipboard.readText();
     } catch {
+      if (!current()) return;
       onNotice(
         "Allow clipboard access in your browser to paste to the computer.",
       );
       return;
     }
+    // Browser permission UI can outlive focus, Stop or a later paste. Its
+    // eventual result must never restart input after that intent was released.
+    if (!current()) return;
     const { steps, truncated } = pasteSteps(text);
     if (!steps.length) return;
     if (truncated) onNotice("Only the first 4,000 characters were pasted.");
     pasting = steps;
   };
   const release = () => {
+    composingText = false;
+    pasteGeneration++;
     pasting = [];
+    held.clear();
+    synthetic.clear();
     touchPad?.release();
     fingers.clear();
     pending = null;
@@ -371,25 +404,18 @@ export function attachRemoteInput(
     if (!display || document.activeElement !== element) return;
     event.preventDefault();
     flush();
-    const unit = event.deltaMode === 1 ? 40 : event.deltaMode === 2 ? 800 : 1;
     send({
       type: "scroll",
-      horizontal: Math.max(
-        -32767,
-        Math.min(32767, Math.round(event.deltaX * unit)),
-      ),
-      vertical: Math.max(
-        -32767,
-        Math.min(32767, Math.round(-event.deltaY * unit)),
-      ),
+      horizontal: wheelUnits(event.deltaX, event.deltaMode),
+      vertical: wheelUnits(-event.deltaY, event.deltaMode),
     });
   };
-  const key = (event: KeyboardEvent) => {
+  const key = (event: KeyboardEvent, textMode = false) => {
     if (event.code === "Escape") {
       event.preventDefault();
       event.stopPropagation();
       release();
-      element.blur();
+      (event.currentTarget as HTMLElement | null)?.blur();
       return;
     }
     const scan = scans[event.code] ?? extended[event.code];
@@ -404,21 +430,24 @@ export function attachRemoteInput(
       !event.altKey &&
       !event.shiftKey
     ) {
-      // Lift held modifiers on the computer first, so the typed text is not read as shortcuts.
-      for (const code of held)
-        send({
-          type: "key",
-          scanCode: code & 0xff,
-          extended: code > 0xff,
-          down: false,
-        });
-      held.clear();
+      // A replaced paste may have Enter/Tab held between paced steps. Release
+      // those too, so cancelled clipboard UI cannot strand a key or modifier.
+      release();
       void paste();
       return;
     }
     const heldCode = scan | (event.code in extended ? 0x100 : 0);
-    const sendKey = (code: number, down: boolean) =>
-      send({ type: "key", scanCode: code & 0xff, extended: code > 0xff, down });
+    const sendKey = (code: number, down: boolean) => {
+      const input = {
+        type: "key" as const,
+        scanCode: code & 0xff,
+        extended: code > 0xff,
+        down,
+      };
+      // Enter and navigation in the text field must follow queued text.
+      if (textMode) pasting.push(input);
+      else send(input);
+    };
     if (!isModifierCode(heldCode)) {
       // Line the computer's modifiers up with this event's flags before the key itself.
       for (const change of modifierChanges(held, {
@@ -438,12 +467,7 @@ export function attachRemoteInput(
     else held.delete(heldCode);
     if (event.type === "keyup" && !isModifierCode(heldCode)) {
       // A modifier added only to match this event's flags ends with the key.
-      send({
-        type: "key",
-        scanCode: scan,
-        extended: event.code in extended,
-        down: false,
-      });
+      sendKey(heldCode, false);
       for (const code of synthetic) {
         sendKey(code, false);
         held.delete(code);
@@ -451,20 +475,46 @@ export function attachRemoteInput(
       synthetic.clear();
       return;
     }
-    send({
-      type: "key",
-      scanCode: scan,
-      extended: event.code in extended,
-      down: event.type === "keydown",
-    });
+    sendKey(heldCode, event.type === "keydown");
   };
-  // A phone's soft keyboard sends text, not physical key codes. A hidden field takes its input
-  // (a toolbar button asks for it with a "beacon-keyboard" event) and types it as text; keys it does
-  // identify (Backspace, Enter, arrows) go through the normal key path.
+  // The Keyboard action gives local layouts, IMEs and soft keyboards a text
+  // field. The video keeps its separate physical scan-code path.
   let sink: HTMLTextAreaElement | null = null;
+  const textFocused = () =>
+    !disposed &&
+    !document.hidden &&
+    document.hasFocus() &&
+    document.activeElement === sink;
   const typed = (text: string) => {
+    if (!textFocused()) return;
     const { steps } = pasteSteps(text);
     pasting.push(...steps);
+  };
+  const textKey = (event: KeyboardEvent) => {
+    if (!textFocused()) return;
+    if (event.code === "Escape") {
+      key(event);
+      return;
+    }
+    if (
+      composingText ||
+      event.isComposing ||
+      event.key === "Dead" ||
+      event.key === "Process"
+    )
+      return;
+    // Modifier flags on a shortcut synthesize the needed remote modifier.
+    // Standalone local modifiers belong to the browser's text composition.
+    const scan = scans[event.code] ?? extended[event.code];
+    if (scan && isModifierCode(scan | (event.code in extended ? 0x100 : 0)))
+      return;
+    if (
+      Array.from(event.key).length === 1 &&
+      ((!event.ctrlKey && !event.metaKey && !event.altKey) ||
+        event.getModifierState("AltGraph"))
+    )
+      return;
+    key(event, true);
   };
   const openKeyboard = () => {
     if (!display) return;
@@ -480,21 +530,27 @@ export function attachRemoteInput(
       sink.spellcheck = false;
       sink.style.cssText =
         "position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0;border:0;padding:0";
-      sink.addEventListener("keydown", key);
-      sink.addEventListener("keyup", key);
+      sink.addEventListener("keydown", textKey);
+      sink.addEventListener("keyup", textKey);
+      sink.addEventListener("compositionstart", () => {
+        composingText = textFocused();
+      });
       sink.addEventListener("beforeinput", (event) => {
         // Composition (predictive text, IME) is sent once it is committed.
         if (
           event.inputType === "insertText" &&
           event.data &&
-          !event.isComposing
+          !event.isComposing &&
+          !composingText
         ) {
           event.preventDefault();
           typed(event.data);
         }
       });
       sink.addEventListener("compositionend", (event) => {
-        if (event.data) typed(event.data);
+        const active = composingText;
+        composingText = false;
+        if (active && event.data) typed(event.data);
         if (sink) sink.value = "";
       });
       sink.addEventListener("blur", release);
@@ -511,9 +567,15 @@ export function attachRemoteInput(
   // Copy from the computer: the viewer asks, the computer answers once with its clipboard text, and
   // that text goes to this browser's clipboard. Nothing is sent unasked.
   let awaitingClipboard: ReturnType<typeof setTimeout> | null = null;
+  // An image follows the text reply, so it is accepted for a while after a request (or any time in Automatic).
+  let imageUntil = 0;
+  let incomingImage: { mime: string; parts: string[]; length: number } | null =
+    null;
+  const IMAGE_LIMIT = 1_500_000;
   const requestClipboard = () => {
     if (signIn) return;
     if (!display || awaitingClipboard) return;
+    imageUntil = Date.now() + 30_000;
     awaitingClipboard = setTimeout(() => {
       awaitingClipboard = null;
       onNotice("The computer did not answer. Try again.");
@@ -526,33 +588,250 @@ export function attachRemoteInput(
       text?: unknown;
       truncated?: unknown;
       unavailable?: unknown;
+      html?: unknown;
+      file?: unknown;
     };
+    // A reply nobody asked for is accepted only while the phone's own setting is Automatic.
+    const asked = awaitingClipboard !== null;
     if (
-      !awaitingClipboard ||
+      (!asked && clipboardMode !== "auto") ||
       reply.type !== "clipboard" ||
       typeof reply.text !== "string" ||
-      reply.text.length > 32768
+      reply.text.length > 32768 ||
+      (reply.html !== undefined &&
+        (typeof reply.html !== "string" || reply.html.length > 32768))
     )
       throw new Error();
-    clearTimeout(awaitingClipboard);
+    if (awaitingClipboard) clearTimeout(awaitingClipboard);
     awaitingClipboard = null;
+    if (reply.file === true && !reply.text) {
+      // A copied file arrives through the files channel as an offer to save.
+      if (asked)
+        onNotice("The phone offered the copied file. Use Save to keep it.");
+      return;
+    }
     if (reply.unavailable === true || !reply.text) {
-      onNotice("The computer's clipboard has no text to copy.");
+      if (asked)
+        onNotice(
+          clipboardMode === "off"
+            ? "Clipboard sharing is turned off on the device."
+            : "Nothing could be copied. A phone shares its clipboard only while it is unlocked with Beacon in front.",
+        );
       return;
     }
     try {
-      await navigator.clipboard.writeText(reply.text);
-      onNotice(
-        reply.truncated
-          ? "Copied the start of the computer's clipboard."
-          : "Copied from the computer.",
-      );
+      // Formatted text goes in as formatted text where the browser allows it, with the plain text beside it.
+      const Item = (globalThis as { ClipboardItem?: typeof ClipboardItem })
+        .ClipboardItem;
+      if (typeof reply.html === "string" && reply.html && Item) {
+        await navigator.clipboard.write([
+          new Item({
+            "text/plain": new Blob([reply.text], { type: "text/plain" }),
+            "text/html": new Blob([reply.html], { type: "text/html" }),
+          }),
+        ]);
+      } else {
+        await navigator.clipboard.writeText(reply.text);
+      }
+      // What the browser now holds came from the device; sending it straight back would be a loop.
+      lastSentClipboard = reply.text;
+      if (asked)
+        onNotice(
+          reply.truncated
+            ? "Copied the start of the computer's clipboard."
+            : "Copied from the computer.",
+        );
     } catch {
-      onNotice(
-        "Allow clipboard access in your browser to copy from the computer.",
-      );
+      if (asked)
+        onNotice(
+          "Allow clipboard access in your browser to copy from the computer.",
+        );
     }
   };
+  // Send to the device: the browser's clipboard text goes to the device's clipboard, in pieces small enough
+  // for the channel. Button: only when pressed. Automatic: also when this page gets focus. Off: never.
+  const CLIPBOARD_PIECE = 300;
+  const CLIPBOARD_LIMIT = 8000;
+  const CLIPBOARD_HTML_LIMIT = 6000;
+  let clipboardMode: "off" | "button" | "auto" = "button";
+  let lastSentClipboard = "";
+  let lastSentImage = "";
+  const readClipboardImage = async (): Promise<Blob | null> => {
+    try {
+      const items = await navigator.clipboard.read?.();
+      for (const item of items ?? [])
+        if (item.types.includes("image/png"))
+          return await item.getType("image/png");
+    } catch {
+      return null;
+    }
+    return null;
+  };
+  const sendClipboardImage = async (image: Blob, explicit: boolean) => {
+    if (image.size > IMAGE_LIMIT) {
+      if (explicit) onNotice("That image is larger than 1.5 MB.");
+      return;
+    }
+    const bytes = new Uint8Array(await image.arrayBuffer());
+    let binary = "";
+    for (let at = 0; at < bytes.length; at += 0x8000)
+      binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+    const encoded = btoa(binary);
+    for (let at = 0; at < encoded.length; at += 1000) {
+      if (disposed || channel.readyState !== "open") return;
+      send({
+        type: "clipboard_write",
+        kind: "image",
+        mime: "image/png",
+        text: encoded.slice(at, at + 1000),
+        more: at + 1000 < encoded.length,
+      });
+      // Stay well under the channel's rate limit.
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    lastSentImage = `${image.size}`;
+    if (explicit) onNotice("Sent the image to the device.");
+  };
+  const receiveClipboardImage = async (reply: {
+    type?: unknown;
+    text?: unknown;
+    more?: unknown;
+    mime?: unknown;
+    size?: unknown;
+  }) => {
+    if (clipboardMode === "off") return;
+    if (reply.type === "clipboard_image_start") {
+      const size = Number(reply.size);
+      if (
+        (Date.now() > imageUntil && clipboardMode !== "auto") ||
+        typeof reply.mime !== "string" ||
+        !/^image\/(png|jpeg|webp|gif)$/.test(reply.mime) ||
+        !Number.isSafeInteger(size) ||
+        size <= 0 ||
+        size > IMAGE_LIMIT
+      ) {
+        incomingImage = null;
+        return;
+      }
+      incomingImage = { mime: reply.mime, parts: [], length: 0 };
+      return;
+    }
+    if (!incomingImage || typeof reply.text !== "string") return;
+    incomingImage.length += reply.text.length;
+    if (incomingImage.length > 2_100_000) {
+      incomingImage = null;
+      return;
+    }
+    incomingImage.parts.push(reply.text);
+    if (reply.more === true) return;
+    const done = incomingImage;
+    incomingImage = null;
+    try {
+      const binary = atob(done.parts.join(""));
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index++)
+        bytes[index] = binary.charCodeAt(index);
+      const Item = (globalThis as { ClipboardItem?: typeof ClipboardItem })
+        .ClipboardItem;
+      if (!Item || done.mime !== "image/png") {
+        onNotice("This browser can only copy PNG images.");
+        return;
+      }
+      await navigator.clipboard.write([
+        new Item({ "image/png": new Blob([bytes], { type: "image/png" }) }),
+      ]);
+      lastSentImage = `${bytes.length}`;
+      onNotice("Copied the image from the device.");
+    } catch {
+      onNotice("Allow clipboard access in your browser to copy the image.");
+    }
+  };
+  const pushClipboard = async (explicit: boolean) => {
+    if (signIn || !display || disposed) return;
+    if (clipboardMode === "off") {
+      if (explicit) onNotice("Clipboard sharing is turned off on the device.");
+      return;
+    }
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      if (explicit)
+        onNotice(
+          "Allow clipboard access in your browser to send to the device.",
+        );
+      return;
+    }
+    if (disposed || channel.readyState !== "open") return;
+    const image = await readClipboardImage();
+    if (image) {
+      if (explicit || `${image.size}` !== lastSentImage)
+        await sendClipboardImage(image, explicit);
+      return;
+    }
+    if (!text) {
+      if (explicit) onNotice("Your clipboard has no text to send.");
+      return;
+    }
+    if (!explicit && text === lastSentClipboard) return;
+    // Formatted text, when the browser has it beside the plain text. Optional and bounded.
+    let html = "";
+    try {
+      const items = await navigator.clipboard.read?.();
+      for (const item of items ?? [])
+        if (item.types.includes("text/html"))
+          html = await (await item.getType("text/html")).text();
+    } catch {
+      html = "";
+    }
+    if (disposed || channel.readyState !== "open") return;
+    if (html && html.length <= CLIPBOARD_HTML_LIMIT) {
+      const parts = Array.from(html).filter((character) => {
+        const code = character.codePointAt(0)!;
+        return (
+          character === "\n" ||
+          character === "\t" ||
+          (code >= 32 && !(code >= 127 && code <= 159))
+        );
+      });
+      for (let at = 0; at < parts.length; at += CLIPBOARD_PIECE)
+        send({
+          type: "clipboard_write",
+          kind: "html",
+          text: parts.slice(at, at + CLIPBOARD_PIECE).join(""),
+          more: at + CLIPBOARD_PIECE < parts.length,
+        });
+    }
+    const characters = Array.from(text.replace(/\r\n?/g, "\n")).filter(
+      (character) => {
+        const code = character.codePointAt(0)!;
+        return (
+          character === "\n" ||
+          character === "\t" ||
+          (code >= 32 && !(code >= 127 && code <= 159))
+        );
+      },
+    );
+    const sent = characters.slice(0, CLIPBOARD_LIMIT);
+    for (let at = 0; at < sent.length; at += CLIPBOARD_PIECE)
+      send({
+        type: "clipboard_write",
+        text: sent.slice(at, at + CLIPBOARD_PIECE).join(""),
+        more: at + CLIPBOARD_PIECE < sent.length,
+      });
+    lastSentClipboard = text;
+    if (explicit)
+      onNotice(
+        characters.length > CLIPBOARD_LIMIT
+          ? "Sent the start of your clipboard to the device."
+          : "Sent to the device.",
+      );
+  };
+  const pushClipboardByButton = () => void pushClipboard(true);
+  const pushClipboardOnFocus = () => {
+    if (clipboardMode === "auto" && !document.hidden) void pushClipboard(false);
+  };
+  window.addEventListener("focus", pushClipboardOnFocus);
   channel.onmessage = (event) => {
     if (signIn) {
       if (
@@ -614,11 +893,143 @@ export function attachRemoteInput(
       event.data.length <= 120_000
     ) {
       try {
-        void receiveClipboard(JSON.parse(event.data)).catch(onFailure);
+        const reply: unknown = JSON.parse(event.data);
+        // Display geometry can change during a live session. Only clipboard
+        // replies belong to the pending clipboard request; later display
+        // messages must reach the validation and remapping below.
+        if (
+          reply !== null &&
+          typeof reply === "object" &&
+          "type" in reply &&
+          reply.type === "clipboard"
+        ) {
+          void receiveClipboard(reply).catch(onFailure);
+          return;
+        }
+        if (
+          reply !== null &&
+          typeof reply === "object" &&
+          "type" in reply &&
+          (reply.type === "clipboard_image_start" ||
+            reply.type === "clipboard_image")
+        ) {
+          void receiveClipboardImage(reply as Record<string, unknown>).catch(
+            onFailure,
+          );
+          return;
+        }
+        if (
+          reply !== null &&
+          typeof reply === "object" &&
+          "type" in reply &&
+          reply.type === "lockscreen"
+        ) {
+          const shape = lockScreenShape(reply);
+          if (!shape) {
+            onFailure();
+            return;
+          }
+          element.dispatchEvent(
+            new CustomEvent("beacon-lockscreen", { detail: shape }),
+          );
+          return;
+        }
+        if (
+          reply !== null &&
+          typeof reply === "object" &&
+          "type" in reply &&
+          reply.type === "unlock"
+        ) {
+          const state = (reply as { state?: unknown }).state;
+          if (typeof state !== "string" || state.length > 16) {
+            onFailure();
+            return;
+          }
+          element.dispatchEvent(
+            new CustomEvent("beacon-unlock", { detail: state }),
+          );
+          return;
+        }
+        if (
+          reply !== null &&
+          typeof reply === "object" &&
+          "type" in reply &&
+          reply.type === "lock"
+        ) {
+          const locked = (reply as { locked?: unknown }).locked;
+          if (typeof locked !== "boolean") {
+            onFailure();
+            return;
+          }
+          element.dispatchEvent(
+            new CustomEvent("beacon-lock", { detail: locked }),
+          );
+          return;
+        }
+        if (
+          reply !== null &&
+          typeof reply === "object" &&
+          "type" in reply &&
+          reply.type === "talk"
+        ) {
+          const state = (reply as { state?: unknown }).state;
+          if (typeof state !== "string" || state.length > 16) {
+            onFailure();
+            return;
+          }
+          element.dispatchEvent(
+            new CustomEvent("beacon-talk", { detail: state }),
+          );
+          return;
+        }
+        if (
+          reply !== null &&
+          typeof reply === "object" &&
+          "type" in reply &&
+          reply.type === "chat"
+        ) {
+          const text = (reply as { text?: unknown }).text;
+          if (typeof text !== "string" || text.length > 300) {
+            onFailure();
+            return;
+          }
+          element.dispatchEvent(
+            new CustomEvent("beacon-chat", { detail: text }),
+          );
+          return;
+        }
+        if (
+          reply !== null &&
+          typeof reply === "object" &&
+          "type" in reply &&
+          reply.type === "clipboard_mode"
+        ) {
+          const mode = (reply as { mode?: unknown }).mode;
+          if (mode !== "off" && mode !== "button" && mode !== "auto") {
+            onFailure();
+            return;
+          }
+          clipboardMode = mode;
+          element.dispatchEvent(
+            new CustomEvent("beacon-clipboard-mode", { detail: mode }),
+          );
+          pushClipboardOnFocus();
+          return;
+        }
+        // A newer phone or computer may say things this page does not know yet. Ignore them instead of ending the
+        // session; only a message that is not even shaped like one (below) is a failure.
+        if (
+          reply !== null &&
+          typeof reply === "object" &&
+          "type" in reply &&
+          typeof reply.type === "string" &&
+          reply.type !== "display"
+        )
+          return;
       } catch {
         onFailure();
+        return;
       }
-      return;
     }
     if (disposed || typeof event.data !== "string" || event.data.length > 512) {
       onFailure();
@@ -644,6 +1055,9 @@ export function attachRemoteInput(
       .catch(() => undefined);
     onState(true);
     send({ type: "keep_alive" });
+    // Only a phone knows this message; it answers with its clipboard setting. A host that never hears
+    // it (every older one) stays silent about the clipboard, so older and newer pieces keep working together.
+    if (next.platform === "android") send({ type: "clipboard_hello" });
   };
   channel.onclose = () => {
     onState(false);
@@ -703,6 +1117,63 @@ export function attachRemoteInput(
   element.addEventListener("beacon-secure-attention", secureAttention);
   element.addEventListener("beacon-nav", navigate);
   element.addEventListener("beacon-clipboard-read", requestClipboard);
+  element.addEventListener("beacon-clipboard-write", pushClipboardByButton);
+  // Session chat with a phone: the viewer's line goes to the phone as a notification it can answer.
+  const sendChat = (event: Event) => {
+    const text = String((event as CustomEvent).detail ?? "")
+      .trim()
+      .slice(0, 300);
+    if (text && display && !signIn) send({ type: "chat", text });
+  };
+  element.addEventListener("beacon-chat-send", sendChat);
+  // Talking through the phone: the viewer asks the phone to unmute its speaker line, or to mute it again.
+  const sendTalk = (event: Event) => {
+    if (display && !signIn)
+      send({ type: "talk", on: (event as CustomEvent).detail === true });
+  };
+  element.addEventListener("beacon-talk-send", sendTalk);
+  // The phone's PIN screen cannot be captured, so the viewer's own number pad sends one key at a time. Keys go
+  // straight to the phone: not kept, not logged, not put in any field.
+  const sendLockKey = (event: Event) => {
+    const key = String((event as CustomEvent).detail ?? "");
+    if (display && !signIn && /^([0-9]|delete|enter)$/.test(key))
+      send({ type: "unlock_key", key });
+  };
+  element.addEventListener("beacon-unlock-key", sendLockKey);
+  // The viewer's stand-in for the PIN screen asks the phone to send its layout while it is open.
+  const lockScreenView = (event: Event) => {
+    if (display && !signIn)
+      send({ type: "unlock_view", on: (event as CustomEvent).detail === true });
+  };
+  element.addEventListener("beacon-unlock-view", lockScreenView);
+  // A pattern (cells 0-8, top left to bottom right) or a password, typed by the person at the viewer. Sent straight
+  // to the phone: not kept, not logged, not put in any field.
+  const sendLockPattern = (event: Event) => {
+    const cells = (event as CustomEvent).detail as unknown;
+    if (
+      display &&
+      !signIn &&
+      Array.isArray(cells) &&
+      cells.length >= 2 &&
+      cells.length <= 9 &&
+      new Set(cells).size === cells.length &&
+      cells.every((cell) => Number.isInteger(cell) && cell >= 0 && cell <= 8)
+    )
+      send({ type: "unlock_pattern", cells });
+  };
+  const sendLockPassword = (event: Event) => {
+    const text = (event as CustomEvent).detail as unknown;
+    if (
+      display &&
+      !signIn &&
+      typeof text === "string" &&
+      text.length > 0 &&
+      text.length <= 64
+    )
+      send({ type: "unlock_password", text });
+  };
+  element.addEventListener("beacon-unlock-pattern", sendLockPattern);
+  element.addEventListener("beacon-unlock-password", sendLockPassword);
   window.addEventListener("blur", release);
   document.addEventListener("visibilitychange", visibility);
   const heartbeat = setInterval(() => send({ type: "keep_alive" }), 400);
@@ -737,6 +1208,17 @@ export function attachRemoteInput(
     element.removeEventListener("beacon-secure-attention", secureAttention);
     element.removeEventListener("beacon-nav", navigate);
     element.removeEventListener("beacon-clipboard-read", requestClipboard);
+    element.removeEventListener(
+      "beacon-clipboard-write",
+      pushClipboardByButton,
+    );
+    window.removeEventListener("focus", pushClipboardOnFocus);
+    element.removeEventListener("beacon-chat-send", sendChat);
+    element.removeEventListener("beacon-talk-send", sendTalk);
+    element.removeEventListener("beacon-unlock-key", sendLockKey);
+    element.removeEventListener("beacon-unlock-view", lockScreenView);
+    element.removeEventListener("beacon-unlock-pattern", sendLockPattern);
+    element.removeEventListener("beacon-unlock-password", sendLockPassword);
     if (awaitingClipboard) clearTimeout(awaitingClipboard);
     sink?.remove();
     sink = null;

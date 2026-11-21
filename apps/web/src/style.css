@@ -1643,234 +1643,6 @@ footer {
   grid-column: 1/-1;
   text-align: center;
 }
-.live-view {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  margin: 0;
-  padding: 0;
-  background: #0b1119;
-  color: #eef4fc;
-}
-.live-view .viewer-toolbar {
-  min-height: 58px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 8px 16px;
-  background: #172331;
-  border: 0;
-  border-bottom: 1px solid #34475c;
-  color: #eef4fc;
-}
-.viewer-identity {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  min-width: 0;
-}
-.viewer-identity strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 14px;
-}
-.viewer-identity span {
-  color: #aac0d8;
-  font-size: 11px;
-  white-space: nowrap;
-}
-.viewer-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.viewer-scale {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: #b7c7d9;
-  font-size: 11px;
-  white-space: nowrap;
-}
-.viewer-scale select {
-  width: auto;
-  min-width: 64px;
-  padding: 6px 9px;
-  background: #22344a;
-  border-color: #40536a;
-  color: #fff;
-}
-.viewer-control,
-.viewer-diagnostics summary,
-.viewer-stop {
-  min-height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  padding: 6px 11px;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.viewer-control,
-.viewer-diagnostics summary {
-  background: #22344a;
-  border: 1px solid #40536a;
-  color: #eef4fc;
-}
-.viewer-control:hover,
-.viewer-diagnostics summary:hover {
-  background: #304760;
-}
-.viewer-stop {
-  border: 1px solid #d55b62;
-  background: #b6373d;
-  color: #fff;
-}
-.viewer-stop:hover {
-  background: #982c33;
-}
-.viewer-diagnostics {
-  position: relative;
-}
-.viewer-diagnostics summary {
-  cursor: pointer;
-  list-style: none;
-}
-.viewer-diagnostics summary::-webkit-details-marker {
-  display: none;
-}
-.viewer-diagnostics-panel {
-  position: absolute;
-  z-index: 2;
-  right: 0;
-  top: calc(100% + 10px);
-  width: min(330px, calc(100vw - 24px));
-  max-height: min(560px, calc(100dvh - 95px));
-  overflow: auto;
-  padding: 16px;
-  border: 1px solid #40536a;
-  border-radius: 8px;
-  background: #172331;
-  box-shadow: 0 18px 48px #0008;
-}
-.viewer-diagnostics-panel p {
-  margin: 0 0 9px;
-  color: #d0dce9;
-  font-size: 11px;
-  line-height: 1.5;
-}
-.viewer-stage {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #080c12;
-}
-.viewer-stage video {
-  display: block;
-  background: #000;
-}
-.viewer-stage.fit video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-.viewer-stage.actual {
-  display: block;
-  text-align: center;
-}
-.viewer-stage.actual video {
-  width: auto;
-  height: auto;
-  max-width: none;
-  max-height: none;
-  margin: auto;
-}
-.viewer-placeholder {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: min(360px, calc(100% - 32px));
-  text-align: center;
-  color: #d0dce9;
-  font-size: 13px;
-  pointer-events: none;
-}
-.viewer-play {
-  position: absolute;
-  left: 50%;
-  top: calc(50% + 34px);
-  transform: translateX(-50%);
-  padding: 9px 16px;
-  border: 1px solid #7ca5de;
-  border-radius: 6px;
-  background: #2158bd;
-  color: #fff;
-  font-weight: 650;
-}
-.live-view .viewer-status {
-  min-height: 38px;
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  flex-wrap: wrap;
-  padding: 7px 16px;
-  background: #172331;
-  border: 0;
-  border-top: 1px solid #34475c;
-  color: #c1d0e1;
-  font-size: 11px;
-  text-align: left;
-}
-.viewer-status [role="alert"] {
-  color: #ffb8bd;
-}
-@media (max-width: 650px) {
-  .live-view .viewer-toolbar {
-    flex-wrap: wrap;
-    gap: 7px;
-    padding: 7px 10px;
-  }
-  .viewer-identity {
-    width: 100%;
-  }
-  .viewer-actions {
-    width: 100%;
-    flex-wrap: wrap;
-    justify-content: flex-start;
-    gap: 5px;
-  }
-  .viewer-scale {
-    font-size: 0;
-  }
-  .viewer-scale select {
-    font-size: 12px;
-  }
-  .viewer-control,
-  .viewer-diagnostics summary,
-  .viewer-stop {
-    padding-inline: 8px;
-    font-size: 11px;
-  }
-  .viewer-diagnostics-panel {
-    right: -64px;
-  }
-  .live-view .viewer-status {
-    padding-bottom: calc(7px + env(safe-area-inset-bottom));
-  }
-}
 li {
   margin: 10px 0;
 }
@@ -2267,39 +2039,6 @@ li {
   user-select: all;
 }
 
-/* Phone full screen: one slim bar, with the controls behind a Menu button. */
-.live-view .viewer-toolbar.compact {
-  min-height: 0;
-  flex-wrap: wrap;
-  padding: 4px 10px;
-}
-.viewer-toolbar.compact .viewer-identity span {
-  display: none;
-}
-.viewer-toolbar.compact .viewer-identity {
-  width: auto;
-  flex: 1;
-}
-.viewer-toolbar.compact .viewer-actions {
-  width: 100%;
-  flex-wrap: wrap;
-}
-.viewer-toolbar.compact .viewer-actions[hidden] {
-  display: none;
-}
-
-.viewer-paused {
-  position: absolute;
-  inset: auto 16px 16px 16px;
-  margin: 0;
-  padding: 12px 16px;
-  border-radius: 10px;
-  background: rgba(20, 34, 56, 0.92);
-  color: #eef4fc;
-  font-size: 13px;
-  text-align: center;
-}
-
 .device-row:hover button.device-open:not(:disabled),
 .device-row.is-selected button.device-open:not(:disabled) {
   background: var(--blue);
@@ -2618,4 +2357,117 @@ button.danger {
   color: var(--muted, #5b6677);
   font-size: 12px;
   line-height: 1.35;
+}
+
+/* The phone's passcode pad: a compact phone-style grid, shown only on request. */
+.viewer-unlock {
+  display: grid;
+  grid-template-columns: repeat(3, 3.4rem);
+  gap: 0.4rem;
+  align-items: stretch;
+}
+.viewer-unlock .viewer-control {
+  min-height: 2.8rem;
+  font-size: 1.1rem;
+}
+.viewer-unlock .note {
+  grid-column: 1 / -1;
+  margin: 0.2rem 0 0;
+  max-width: 11.5rem;
+  white-space: normal;
+}
+
+/* A stand-in for the phone's PIN screen, drawn from the layout the phone sends (Android hides the real picture). */
+.viewer-replica {
+  position: relative;
+  width: 15rem;
+  max-height: 26rem;
+  border: 1px solid var(--line, #3a4a63);
+  border-radius: 0.8rem;
+  background: #0d1522;
+  overflow: hidden;
+}
+.viewer-replica .replica-key,
+.viewer-replica .replica-text {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  font-size: 0.8rem;
+  color: #e8eefc;
+  text-align: center;
+}
+.viewer-replica .replica-key {
+  border: 1px solid #3a4a63;
+  border-radius: 999px;
+  background: #1c2a40;
+  cursor: pointer;
+  padding: 0;
+}
+.viewer-replica .replica-key:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Pattern and password entry for the phone's lock screen, drawn by the viewer (Android hides the real screen). */
+.viewer-pattern,
+.viewer-password {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: start;
+}
+.pattern-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 3rem);
+  gap: 0.6rem;
+}
+.pattern-dot {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  border: 1px solid #3a4a63;
+  background: #1c2a40;
+  color: #e8eefc;
+  font-weight: 700;
+  cursor: pointer;
+}
+.pattern-dot[aria-pressed="true"] {
+  background: #3b6fd8;
+}
+
+/* What the device allowed or refused during this session. */
+.viewer-permission-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.8rem;
+  opacity: 0.85;
+}
+
+/* Playback of the session's last recording, in this page only. */
+.viewer-playback {
+  display: grid;
+  gap: 0.4rem;
+}
+.viewer-playback video {
+  max-width: 22rem;
+  max-height: 14rem;
+  border-radius: 0.5rem;
+  background: #000;
+}
+
+/* The phone pairing QR code. */
+.pairing-qr {
+  width: 11rem;
+  height: 11rem;
+  border: 1px solid var(--line, #3a4a63);
+  border-radius: 0.5rem;
+}
+.pairing-device-code input {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }

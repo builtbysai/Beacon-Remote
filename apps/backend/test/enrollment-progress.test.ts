@@ -64,7 +64,13 @@ test(
         const response = await post("enrollments", {}, cookies[0]);
         assert.equal(response.statusCode, 200);
         assert.equal(response.headers["cache-control"], "no-store");
-        return response.json().code as string;
+        assert.equal(response.json().expiresInSeconds, 300);
+        const code = response.json().code as string;
+        assert.match(
+          code,
+          /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}(?:-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}){2}$/,
+        );
+        return code;
       };
       const native = (
         code: string,
@@ -81,7 +87,10 @@ test(
       const cancel = (code: string, cookie = cookies[0]) =>
         post("enrollments/cancel", { code }, cookie);
       const first = await create();
-      assert.equal((await status(first)).json().state, "waiting");
+      assert.equal(
+        (await status(first.toLowerCase().replaceAll("-", " "))).json().state,
+        "waiting",
+      );
       assert.equal((await status(first, cookies[1])).statusCode, 404);
       assert.equal((await cancel(first, cookies[1])).statusCode, 404);
       assert.equal(
@@ -109,7 +118,10 @@ test(
         ).statusCode,
         400,
       );
-      assert.equal((await cancel(first)).json().state, "cancelled");
+      assert.equal(
+        (await cancel(first.replaceAll("-", "").toLowerCase())).json().state,
+        "cancelled",
+      );
       // A rollback to a backend that only checks the original expiry guard
       // must still reject a cancelled invitation.
       const legacyClaim = await pool.query(
@@ -122,7 +134,10 @@ test(
 
       const claimed = await create();
       const key = randomBytes(32).toString("base64");
-      const enrolled = await native(claimed, key);
+      const enrolled = await native(
+        claimed.replaceAll("-", "").toLowerCase(),
+        key,
+      );
       assert.equal(enrolled.statusCode, 200);
       const snapshot = await status(claimed);
       assert.equal(snapshot.headers["cache-control"], "no-store");
@@ -133,6 +148,26 @@ test(
       });
       assert.equal((await cancel(claimed)).json().state, "claimed");
       assert.equal((await native(claimed)).statusCode, 403);
+
+      // Previously issued case-sensitive invitations still work. Normalizing
+      // readable codes must never change the bytes of legacy bearer tokens.
+      const legacy = "aB3_dE6-gH9_jK2-mN5_pQ8-rS1_tU4v";
+      await pool.query(
+        "INSERT INTO enrollments(code_hash,account_id,expires_at) VALUES ($1,$2,now()+interval '5 minutes')",
+        [createHash("sha256").update(legacy).digest("hex"), ids[0]],
+      );
+      assert.equal((await native(legacy.toUpperCase())).statusCode, 403);
+      assert.equal((await status(legacy)).json().state, "waiting");
+      assert.equal((await native(legacy)).statusCode, 200);
+      assert.equal((await native(legacy)).statusCode, 403);
+      for (const malformed of [
+        "AAAA-BBBB-0000",
+        "AAAA-BBBB-1111",
+        "abcd!efgh!jklm",
+      ]) {
+        // Ambiguous symbols and arbitrary punctuation are not readable codes.
+        assert.equal((await native(malformed)).statusCode, 400);
+      }
 
       const expired = await create();
       await pool.query(

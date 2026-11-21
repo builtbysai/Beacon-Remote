@@ -86,7 +86,7 @@ class AccessibilityCapturer(
                                     }.onFailure { failed("Screen access failed"); return@execute }
                                 }
                             }
-                            if (running && epoch == generation) handler.postDelayed({ capture(epoch) }, 500)
+                            if (running && epoch == generation) handler.post { capture(epoch) }
                         }
                     } catch (_: RejectedExecutionException) {
                         result.hardwareBuffer.close()
@@ -97,37 +97,55 @@ class AccessibilityCapturer(
                     completed = true; handler.removeCallbacks(timeout)
                     if (!running || epoch != generation) return
                     if (errorCode == AccessibilityService.ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT) {
-                        handler.postDelayed({ capture(epoch) }, 1000)
+                        handler.postDelayed({ capture(epoch) }, 120)
                     } else { failed("This screen cannot be shared (protected content or permission unavailable)") }
                 }
             })
         } catch (_: Exception) { completed = true; handler.removeCallbacks(timeout); failed("Screen access is unavailable") }
     }
 
+    // Reused between pictures so a full-size frame does not allocate a new buffer each time.
+    private var staging: java.nio.ByteBuffer? = null
+
+    /**
+     * Turns one screenshot into a video frame. libyuv does the colour conversion (the earlier per-pixel loop took longer
+     * than the interval between pictures), and the picture keeps the phone's own resolution up to 1920 on its long side.
+     */
     private fun emit(original: Bitmap) {
-        val scale = minOf(1.0, 720.0 / maxOf(original.width, original.height))
-        val width = maxOf(2, (original.width * scale).toInt() / 2 * 2)
-        val height = maxOf(2, (original.height * scale).toInt() / 2 * 2)
-        val bitmap = Bitmap.createScaledBitmap(original, width, height, true)
-        val pixels = IntArray(width * height)
-        try { bitmap.getPixels(pixels, 0, width, 0, 0, width, height) } finally { if (bitmap !== original) bitmap.recycle() }
-        val buffer = JavaI420Buffer.allocate(width, height)
+        val width = original.width / 2 * 2
+        val height = original.height / 2 * 2
+        if (width < 2 || height < 2) return
+        val needed = original.rowBytes * original.height
+        val bytes = staging?.takeIf { it.capacity() >= needed } ?: java.nio.ByteBuffer.allocateDirect(needed).also { staging = it }
+        bytes.clear()
+        original.copyPixelsToBuffer(bytes)
+        val full = JavaI420Buffer.allocate(width, height)
         try {
-            for (y in 0 until height) for (x in 0 until width) {
-                val rgb = pixels[y * width + x]
-                val r = (rgb shr 16) and 255; val g = (rgb shr 8) and 255; val b = rgb and 255
-                buffer.dataY.put(y * buffer.strideY + x, (((66*r + 129*g + 25*b + 128) shr 8) + 16).coerceIn(0,255).toByte())
-                if (y % 2 == 0 && x % 2 == 0) {
-                    buffer.dataU.put(y/2 * buffer.strideU + x/2, (((-38*r - 74*g + 112*b + 128) shr 8) + 128).coerceIn(0,255).toByte())
-                    buffer.dataV.put(y/2 * buffer.strideV + x/2, (((112*r - 94*g - 18*b + 128) shr 8) + 128).coerceIn(0,255).toByte())
-                }
+            // The bitmap's memory order is R, G, B, A, which libyuv calls ABGR.
+            org.webrtc.YuvHelper.ABGRToI420(
+                bytes, original.rowBytes,
+                full.dataY, full.strideY, full.dataU, full.strideU, full.dataV, full.strideV,
+                width, height,
+            )
+            val scale = minOf(1.0, 1920.0 / maxOf(width, height))
+            val out: org.webrtc.VideoFrame.I420Buffer
+            if (scale < 1.0) {
+                val sw = maxOf(2, (width * scale).toInt() / 2 * 2)
+                val sh = maxOf(2, (height * scale).toInt() / 2 * 2)
+                out = full.cropAndScale(0, 0, width, height, sw, sh) as org.webrtc.VideoFrame.I420Buffer
+            } else {
+                out = full
             }
-            synchronized(delivery) {
-                if (running && locallyAllowed() && allowed()) {
-                    val frame = VideoFrame(buffer, 0, System.nanoTime())
-                    observer?.onFrameCaptured(frame)
+            try {
+                synchronized(delivery) {
+                    if (running && locallyAllowed() && allowed()) {
+                        val frame = VideoFrame(out, 0, System.nanoTime())
+                        observer?.onFrameCaptured(frame)
+                    }
                 }
+            } finally {
+                if (out !== full) out.release()
             }
-        } finally { buffer.release(); pixels.fill(0) }
+        } finally { full.release() }
     }
 }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import type { Machine } from "@beacon-remote/protocol";
 import "./style.css";
+import "./viewer.css";
 import { LiveView, type ViewGrant } from "./LiveView.js";
 import { SignInView } from "./SignInView.js";
 import { Brand, Monitor, ProductPage, pageFromHash } from "./Product.js";
@@ -160,6 +161,7 @@ function App() {
   const [, setClock] = useState(Date.now());
   const [mediaEnabled, setMediaEnabled] = useState(false);
   const [controlEnabled, setControlEnabled] = useState(false);
+  const [minimized, setMinimized] = useState(false);
   const [view, setView] = useState<{
     grant: ViewGrant;
     name: string;
@@ -1208,17 +1210,27 @@ function App() {
                           className="device-open"
                           disabled={!canView}
                           onClick={() => {
-                            void testVideo(machine);
+                            // One click: ask for viewing and control together. The person at the
+                            // computer sees both and can choose View only; nothing is granted until
+                            // they approve. Open the details for a view-only request.
+                            void testVideo(
+                              machine,
+                              controlEnabled
+                                ? "desktop:control"
+                                : "desktop:view",
+                            );
                           }}
                           title={
                             !mediaEnabled
                               ? "Desktop access is unavailable on this server"
-                              : machine.accessMode === "trusted"
-                                ? "View only; this computer is set to trusted access"
+                              : controlEnabled
+                                ? machine.accessMode === "trusted"
+                                  ? "View and control; this computer is set to trusted access"
+                                  : "View and control; requires approval on this device"
                                 : "View only; requires approval on this device"
                           }
                         >
-                          View
+                          Connect
                         </button>
                       ) : (
                         <span />
@@ -1304,12 +1316,35 @@ function App() {
                 )}
             </div>
           )}
+          {view && minimized && (
+            <div className="live-pill" role="status">
+              <span className="live-pill-dot" aria-hidden="true" />
+              <span>
+                <strong>{view.name}</strong> is connected
+              </span>
+              <button onClick={() => setMinimized(false)}>Return</button>
+              <button
+                className="live-pill-end"
+                onClick={() => {
+                  setView(null);
+                  setMinimized(false);
+                }}
+              >
+                End
+              </button>
+            </div>
+          )}
           {view && (
             <LiveView
               key={view.grant.id}
               grant={view.grant}
               name={view.name}
-              onClose={() => setView(null)}
+              minimized={minimized}
+              onMinimize={() => setMinimized(true)}
+              onClose={() => {
+                setView(null);
+                setMinimized(false);
+              }}
               displays={
                 machines?.find((entry) => entry.id === view.machineId)
                   ?.displays ?? []

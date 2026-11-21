@@ -35,6 +35,49 @@ class Identity(private val context: Context) {
         get() = prefs.getBoolean("available", false)
         set(value) = prefs.edit().putBoolean("available", value).apply()
 
+    /** Clipboard sharing with a viewer: "off", "button" (only when the viewer presses a button, the default) or "auto". */
+    var clipboardMode: String
+        get() = prefs.getString("clipboardMode", "button").takeIf { it in CLIPBOARD_MODES } ?: "button"
+        set(value) { if (value in CLIPBOARD_MODES) prefs.edit().putString("clipboardMode", value).apply() }
+
+    /** Whether an attended screen share also sends the phone's playback sound. Off by default; never the microphone. */
+    var shareSound: Boolean
+        get() = prefs.getBoolean("shareSound", false)
+        set(value) = prefs.edit().putBoolean("shareSound", value).apply()
+
+    /**
+     * Whether an unattended viewer may keep working while the phone is locked, so its person can type the passcode in
+     * the viewer. Off by default. The passcode is typed by the person each time and is never stored or logged.
+     */
+    var unlockFromViewer: Boolean
+        get() = prefs.getBoolean("unlockFromViewer", false)
+        set(value) = prefs.edit().putBoolean("unlockFromViewer", value).apply()
+
+    /** Whether a trusted viewer may hear this phone's microphone (ADR 0057). Off in a fresh install. */
+    var shareMic: Boolean
+        get() = prefs.getBoolean("shareMic", false)
+        set(value) = prefs.edit().putBoolean("shareMic", value).apply()
+
+    /** Chosen on the pairing screen: turn on "connect without asking" automatically once setup finishes. */
+    var unattendedAfterSetup: Boolean
+        get() = prefs.getBoolean("unattendedAfterSetup", false)
+        set(value) = prefs.edit().putBoolean("unattendedAfterSetup", value).apply()
+
+    /** The owner lets a trusted viewer talk through this phone's speaker (ADR 0058). Off in a fresh install. */
+    var talkIn: Boolean
+        get() = prefs.getBoolean("talkIn", false)
+        set(value) = prefs.edit().putBoolean("talkIn", value).apply()
+
+    /**
+     * The kind of lock screen last seen on this phone: "pin", "pattern" or "password" (empty until one was seen).
+     * Android does not tell an ordinary app the lock type, so it is learned from the credential screen itself, the
+     * first time that screen is up while a viewer unlocks, and kept for display. Never the credential.
+     */
+    var lastLockKind: String
+        get() = prefs.getString("lastLockKind", "").takeIf { it in LOCK_KINDS } ?: ""
+        set(value) { if (value in LOCK_KINDS) prefs.edit().putString("lastLockKind", value).putLong("lastLockKindAt", System.currentTimeMillis()).apply() }
+    val lastLockKindAt: Long get() = prefs.getLong("lastLockKindAt", 0L)
+
     val paired: Boolean get() = machineId.isNotEmpty() && prefs.contains("seed")
     /** Raised only by the local setup screen. Server policy alone cannot enable capture. */
     var unattended: Boolean
@@ -103,7 +146,9 @@ class Identity(private val context: Context) {
         return cipher.doFinal(bytes, 12, bytes.size - 12)
     }
 
-    private companion object {
-        const val ALIAS = "beacon-remote-host-identity"
+    companion object {
+        private const val ALIAS = "beacon-remote-host-identity"
+        val CLIPBOARD_MODES = listOf("off", "button", "auto")
+        val LOCK_KINDS = listOf("pin", "pattern", "password")
     }
 }

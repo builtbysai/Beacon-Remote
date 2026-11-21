@@ -1,9 +1,313 @@
 # Development status
 
-Current checkpoint: November 15, 2026. PRs #115-#117 and #124 are merged; VM application
+## CI audit gate — November 17, 2026
+
+The owner approved narrowing the control-plane dependency gate to production
+dependencies: CI now runs `pnpm audit --prod --audit-level high`. Local result:
+"No known vulnerabilities found". The remaining high advisory GHSA-fc5q-39xc-vjpf
+(picomatch 4.0.7, no published patch) is in the dev-only tool chain and is not
+waived by a silent exception. Re-review it by 2026-12-31 and restore the full
+audit once a patched release exists.
+
+## Latest development continuation — November 17, 2026
+
+The owner resumed development from the handoff. Application source `2fd40a3`
+invalidates delayed clipboard typing on focus release/Escape/Stop, clears stale
+modifier bookkeeping and makes the latest paste supersede an older pending read.
+Focused channel regressions reproduced stale typing/missing Shift before the fix
+and passed afterward. Queued paste cancellation and a fresh paste after release
+also passed, as did the full web suite/build, workspace typechecking, lint,
+formatting and frozen dependency installation. Physical Windows input/release
+acceptance remains open; no new device or server actions ran. The follow-up also
+releases a paced Enter/Tab before replacing a paste, even if clipboard permission
+is then denied; its regression and the same local web checks passed.
+
+CI [44196184046](https://github.com/builtbysai/Beacon-Remote/actions/runs/44196184046)
+at initial fix `be832b2` passed native/Android/security and full `pnpm check`;
+only high dependency audit failed. Check latest PR-head CI independently for the
+follow-up and documentation commit.
+
+Dependency revision `754f585` updates TypeScript-ESLint to 8.73.0 and removes
+vulnerable minimatch 10.2.6 without an override. Production audit is clean; full
+audit still fails on high picomatch GHSA-fc5q-39xc-vjpf. Registry latest remains
+4.0.7 with no published patch. The audit gate is unchanged and PR #126 stays draft.
+See [the handoff](next-agent-handoff.md) for the next bounded P0-2 unit and the
+historical runtime/device map. Production, native feeds and sign-in gates are
+unchanged. These source changes are pushed on `codex/device-acceptance-preparation`.
+
+## Earlier handoff — November 17, 2026, evening
+
+Use the [RDP/VNC parity plan](rdp-vnc-parity-roadmap.md),
+[remaining-test ledger](testing-remaining.md) and [next-chat handoff](next-agent-handoff.md).
+The owner changed this chat to a documentation/handoff task; no additional feature
+implementation or device testing is required by that final request.
+
+Rotation's cause is now established: ordinary input routed any later channel
+message to clipboard handling, rejecting updated display geometry and closing
+the viewer. `c22dc2f` discriminates clipboard replies before allowing geometry
+validation/remapping. Regressions reproduced the failure before the fix and
+passed afterward; web typecheck/lint/suite/build/format passed. A real Pixel
+unattended session stayed live across portrait/landscape/portrait, with observed
+324x720/720x324/324x720 frames, exact landscape typing and a remapped far-right tap.
+The test used owned-browser local compiled static assets against the actual
+isolated backend; API/authorization responses were not replaced.
+
+Accessibility revocation during that session ended control/video and removed
+capture. Re-enabling accessibility did not enable standing access; a fresh request
+required approval and was declined, with terminal/profile cleanup confirmed.
+The stale earlier enabled notice was separately corrected in Android `1afcc9e`;
+unit/lint/signing passed and repeated real revoke displayed the new off message.
+The same-signer update preserved pairing. A later real Beacon 3 MiB transfer
+reported Sent and matched the Pixel file's SHA256; the benign test file remains.
+All completed connected runs were ended and their owned profiles closed.
+
+Application HEAD before this documentation update is `1afcc9e`. Its exact CI run
+`44144389550` passed Android/native/security and functional control-plane checks,
+but failed dependency audit. Production remains `5e8d5c5`. The isolated backend's
+one-hour run has expired; its image is `8af1c43`, web remains `0bba353`. Automatic
+approval review rejected replacement by the built `c22dc2f` image with only
+“blocked by policy”; the denied command was not retried by another route.
+Newer APK `dist/BeaconRemoteHost-1afcc9e3.apk` SHA256 is
+`7985f06318ed409c1b0a1cd0872d2bd3b9aa0f6e6087f08fe900f5c459fd9912`.
+It is installed locally but still needs private VM staging. No public feed changed.
+
+At the evening documentation inventory the Pixel was unlocked, availability on,
+capture off and accessibility off. Restoration had not been confirmed; the owner
+may use the phone between calls, so never replay old coordinates without observing
+the current screen. The owner-supplied development unlock credential is sealed
+outside Git; its location and bounded continuation steps are in the handoff.
+
+## Earlier November 17 Pixel automated acceptance
+
+The Pixel 7a is paired to the isolated account using the new readable invitation.
+The installed same-signer Android candidate is `d329066`; the isolated backend
+runs `8af1c43`, the isolated viewer runs `0bba353`, and production remains
+`5e8d5c5`. Actual Pixel view-only video and
+viewer Stop passed on November 16: 576x1280 decoded video, relay/relay, 65 ms RTT,
+1467 ms approval-to-first-frame; capture stopped while availability remained on.
+This was a short sample, not sustained performance acceptance. No viewer input
+was injected in that view-only test.
+
+The owner explicitly authorized unattended ADB testing and ordinary Android UI
+permission setup. Beacon accessibility is enabled; no other service was changed.
+Physical control testing exposed a duplicate-delivery bug: idle responses cleared
+`handled`, causing a pending request to reopen and dismiss Android's capture
+dialog. The fix retains the delivered request across idle polls and defers a new
+request while an earlier capture is stopping. Unit regressions, Android lint and
+same-key signing passed. On the actual Pixel, the Android screen-sharing dialog
+remained open for 41.399 seconds across idle polls and could then be approved.
+
+Control acceptance initially failed with TURN error 486 before the viewer gathered
+a relay candidate. A single diagnostic allocation using the actual session's
+credentials succeeded and was released; this did not establish the root cause.
+Android now bundles media/control on one ICE transport; the viewer also bundles
+and no longer gathers eagerly before approval. With both candidates installed,
+actual attended control passed: 576x1280 video, relay/relay, first presented frame
+853 ms after approval, and observed RTT 50–65 ms in the short sample. Browser
+mouse events toggled Connection details on the phone; browser key events typed
+the exact test word into Android Settings search. ADB only arranged/observed those
+targets, rather than supplying the tested input. Local notification Pause reached
+the viewer, Resume restored viewing, and local Stop ended the session and removed
+CaptureService while AvailabilityService remained. This does not establish
+paused-input rejection, sustained frame rate or all keyboard/gesture mappings.
+
+The first real unattended owner test also passed without another Beacon or
+MediaProjection prompt: 324x720 accessibility video, relay/relay, first picture
+2032 ms after viewer setup (971 ms after automatic approval), and a verified remote
+tap. Turning unattended access off locally ended that live connection, removed
+capture and left availability on. A subsequent request required fresh local
+approval with optional permissions off; Decline ended it with no video/control.
+The private fixture's cleanup assertion expected `ended` and rejected the valid
+`denied` terminal status in this refusal test; that assertion is not a product
+failure or a successful control test. Successful connected runs confirmed backend
+end and owned browser-profile cleanup.
+
+Repeated unattended connections passed; a competing controller was refused with
+HTTP 409. A later unattended Pause test kept the decoded-frame count at 141 and
+blocked the test word in a focused empty Settings field. After local Resume,
+frames advanced and the same browser key sequence produced the exact word.
+Locking the real phone ended the session with the local locked/permission reason;
+the viewer ended with input disabled and CaptureService absent, while availability
+remained on. The device reported keyguard showing and input restricted. No unlock
+or lock-screen input was attempted; owner PIN/fingerprint is needed to continue.
+Standing access was re-enabled for these tests and currently remains enabled on
+the locked isolated-test pairing. Restore the intended local setting after unlock.
+
+Rotation acceptance failed twice: after the real display changed to landscape,
+the viewer ended, once with local `Authorization lapsed` and once `Connection lost`;
+the Android signaling log reported Broken pipe. Automatic rotation was restored
+to its original `free` mode. Fresh portrait connections passed again, including
+the longer paused/resumed test. Do not infer a rotation root cause or change lease
+limits from this evidence. Diagnose display-change timing and signaling/network
+lifetime before marking rotation accepted. Permission revocation, network recovery,
+files and wider lifecycle acceptance remain open. Full unattended release acceptance
+is not complete.
+
+Exact-head CI run `44135128255` passed the functional control-plane checks,
+Android, native and security jobs, but its dependency audit failed on the newly
+updated high-severity picomatch advisory GHSA-fc5q-39xc-vjpf. On November 17 the
+official registry still publishes 4.0.7 and rejects 4.0.8; GitHub lists no patched
+version. A normal recursive update made no lockfile change. Keep the release gate
+open; no audit exception was added. The isolated viewer image was checksum-verified
+and deployed for these tests, with protected production container IDs/images
+unchanged and all three readiness endpoints returning 200.
+
+The tested `d329066` APK (SHA256
+`0649b3e2a75098d5198506a76f344e92431c80a22b48bd94f4c62fb5c589f084`)
+is hash-verified on the VM in a root-only candidate directory (0700; APK 0600).
+The `aff4f34` source archive and extracted acceptance documentation are also
+verified there. Neither staging operation advanced a native feed or production
+release. Temporary test credentials remain protected for the unfinished tests.
+
+Do not use stock `uiautomator dump` during accessibility/capture acceptance: its
+automation connection can suppress services and contaminate the result. Use ADB
+screen snapshots for physical observation. Existing guarded emulator runners use
+`FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES`; never run those emulator-only setup
+runners on the owner's phone. Two setup attempts ended denied before video;
+they are not successful control evidence. Keep automatic test runs bounded and
+rotate/delete temporary credentials only after full completion.
+
+Current checkpoint: November 16, 2026. PRs #115-#117 and #124 are merged; VM application
 source `5e8d5c5` is deployed. The [completion checklist](completion-checklist.md) records
 publication, encrypted recovery, migration and browser/MCP verification. Older
 dated entries below are historical, including their local-only release statements.
+
+## November 16 isolated device acceptance and startup latency
+
+The paused acceptance environment now uses verified backend/web application
+source `5e8d5c5`, the existing separate acceptance database/role and protected
+session/relay configuration. Its old empty account baseline was encrypted to the
+independent C: repository, restored and checksum-checked, then recovered into a
+new local disposable database before migration. Production databases were not
+used for tests. Current schema/role verification passed; only the acceptance
+services were started, with the existing one-hour backend lifetime. Remote/View
+production container IDs, images and start times stayed unchanged. Ordinary view/
+control is enabled only in acceptance; sign-in authority/media remain disabled.
+
+A fresh random temporary acceptance account and browser session are stored under
+the existing external private root. The password and prior Pixel APK were also
+independently encrypted/recovered. Actual sign-in, secure HTTP-only SameSite
+cookie, empty account scope, wrong-password refusal, cross-Origin refusal and
+anonymous enrollment refusal passed. No actual password, cookie or pairing code
+is recorded here. Rotate/delete this account and retained sessions at full completion.
+
+The Pixel 7a (API 37) candidate update used the same verified APK signer and
+preserved installed app data/identity. Surfiena's signed default candidate
+`a6d114d` was hash/signer/timestamp verified in a separate private fixture; its
+Ed25519 key was generated/sealed on Surfiena. An explicitly limited interactive
+task launched the host in signed-in session 1. No installed identity, service,
+certificate store, Windows startup entry or system permission was changed.
+The old local acceptance STOP marker/identity remained untouched. The owner
+started the host locally, reported Online was slow, and approved a real view-only
+request; the owner reported that approval prompt appeared promptly.
+
+Actual native WebRTC viewing and browser Stop passed. Decoded frames advanced
+from 2 to 134 over the 15-second sample; the adaptive picture changed from
+1280x720 to 960x540. Selected candidates were relay/relay, with measured RTT
+124-191 ms. Approval-to-first-presented-frame was 5209 ms. Approval timing includes
+the person's response and is not prompt arrival latency. This mostly static,
+brief desktop sample is not sustained-FPS or subjective-picture acceptance.
+No pixels were saved, recording started or input injected. Backend session end
+and owned browser-profile cleanup were verified (`windows-view-result.json` in
+the private preparation directory).
+
+The first host request currently uses a 15-second long poll before publishing
+Online. Follow-up source now requests an immediate signed acknowledgement for
+startup/recovery, then opens the long poll without an intervening 15-second idle
+sleep. Established connections preserve server backoff and existing authorization.
+A real loopback HTTP regression verifies readiness before work arrives and that
+the following request is already listening. Recovery/idle-backoff regressions
+also pass. A timing-only log line supports the next actual-device measurement;
+it contains no identity, grant, screen or input data. Full native checks, signing
+and the signed `9d377c6` candidate passed. Surfiena recorded its first successful
+acknowledgement in **208 ms**; the owner confirmed "Online quickly now." This is
+startup acknowledgement evidence, not a completed media-performance result.
+
+The owner's follow-up UI review requested one Start/Stop control, applicable
+actions only, and no blank terminal window. Follow-up source uses one primary
+host toggle, shows its stopping/pairing progress, hides file permission until
+trusted access is on, and removes the setup shortcut once its settings are already
+complete. Revocation/repair remain reachable. The sharing helper uses
+`CREATE_NO_WINDOW`; a real console-child regression passes without suppressing
+consent/sharing windows. The test fixture also launches its bounded PowerShell
+wrapper through the inbox windowless script host because an early console can
+otherwise trigger Windows Terminal. Signing passed: ordinary candidate `d3bd11c` is signed, hash/signer/
+timestamp-verified and running as the limited user in Surfiena session 1 with
+the same private profile. Both native configurations and all four GitHub jobs
+passed (run `43925818548`). Source and ordinary signed ZIP/installer are also
+checksum-verified on the VM, outside public feeds. The owner confirmed Start
+changed to Stop and no new blank terminal appeared. Its first acknowledgement
+was 252 ms. A second real view-only session decoded advancing video, stopped and
+cleaned its browser profile. It used relay/relay, measured 92-247 ms RTT and
+11800 ms approval-to-first-frame. Native timing showed a 99 ms offer setup,
+3033 ms peer connection and 4706 ms first outgoing packet. These are separate
+clock/stage measurements, not a proof of the remaining delay's cause. Media
+startup performance remains open. No input or pixels were retained by this view test.
+
+The owner saw connection-time window blinking once, then none on the repeat;
+its source is unresolved. Per the owner, defer further design choices until
+core acceptance. An initial control attempt never became input-ready and ended
+without injecting input. The harmless input-test window also encountered a
+state-file sharing violation; its snapshot writer now preserves the previous
+complete snapshot and retries after a reader releases it. A real held-reader
+regression verifies refusal without damage and subsequent recovery. This was
+a test-fixture failure, not evidence that actual control works. A visible isolated
+viewer is open for an owner handoff; control and key-release acceptance remain open.
+
+After a deliberately bounded acceptance-backend restart, the earlier candidate
+logged a 15410 ms recovery sample including network retry/backoff. Do not treat
+the 208 ms initial acknowledgement as an all-reconnect latency guarantee. The
+restart had no active sessions; acceptance readiness recovered after a transient
+502, and both production products remained ready.
+
+The maintained Windows fixture refuses other devices, checks pinned archives/
+signers, retains versioned binaries, preserves its on-device profile and never
+approves local consent. Its generated limited launcher and wrong-device guard
+have a separate regression. It uses bounded owned processes/tasks and requires
+explicit resume of its own STOP guard. Existing broad automated consent actions
+in the older temporary-support fixture were not used.
+
+## November 16 Android pairing and further permission requests
+
+November 16 follow-up: the owner requested additional permissions from a live
+view-only session (control/files/audio/recording). This is an implementation gap;
+increasing access must require fresh local approval and preserve input release
+and single-controller rules. It has been added to the roadmap. Windows testing
+was set aside while the owner charges the laptop; the owned visible viewer was
+closed with session/profile cleanup confirmed.
+
+Pixel testing found the installed app unpaired, accessibility off. Automatic
+approval review rejected ADB entry of its server/pairing fields with "blocked by
+policy"; no alternate automation route was used. The owner is entering pairing
+details manually, with the code shown only in a local isolated browser. Source
+inspection then found a real blocker: the app uppercased the case-sensitive
+base64url code. The fix preserves case/keyboard entry and changes the guarded
+dummy-emulator enrollment regression to a mixed-case 32-character code.
+Validation/signing/update and actual pairing remain in progress.
+
+Android `b17549a` passed unit tests, lint, debug/instrumentation builds and an
+existing-key release build; all four GitHub jobs passed (run `43932341191`). The
+APK SHA-256 is `fcc21fa4327d3ad38b5eed76b76568dca3d1b89108220eb0c14ab9f3ce2de774`.
+Its signer matches the installed app. `adb install -r` succeeded with capture
+inactive, without clearing data. The guarded read-only emulator did not finish
+cold boot within the bounded readiness check; mixed-case instrumentation was not
+run, and that owned emulator was stopped. Actual Pixel pairing remains pending.
+
+The owner found the 32-character invitation impractical. Follow-up source now
+issues 12 readable base32 symbols grouped four/four/four, with 60 random bits,
+the same five-minute expiry and existing rate/owner/pending-device bounds.
+New-format case/grouping normalize before hashing; legacy bearer codes preserve
+their exact case. The real local test-database enrollment regression passed,
+including normalized claim/status/cancel, expiry, replay, cross-account/Origin,
+cancel/claim races and legacy compatibility. Full control-plane checks and the
+isolated service update are pending. The unused long code was explicitly cancelled.
+The second owned pairing-browser profile was removed. The first browser's exit
+was not confirmed within its old two-second bound; no arbitrary profile sweep
+was attempted. The helper now allows ten seconds before reporting retained cleanup.
+
+The fixture-only `78b8c79` CI failed its formatting check on `viewer.mjs`; its
+security/native/Android jobs passed. The file is formatted in the follow-up;
+fresh complete CI is still required before merging PR #126.
 
 ## Latest publication and device readiness - November 15
 

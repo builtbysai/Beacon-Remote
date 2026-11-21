@@ -1,5 +1,5 @@
 // Ctrl+V in the viewer types the viewer's clipboard text on the computer (ADR 0021). The computer's
-// own clipboard is never read or sent anywhere. Text becomes the same bounded input the channel
+// own clipboard is shared only as ADR 0053 sets. Text becomes the same bounded input the channel
 // already accepts: short type_text pieces, with Enter and Tab as real keys.
 export type PasteInput =
   | { type: "type_text"; text: string }

@@ -1,11 +1,135 @@
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "./api.js";
+import { qrModules } from "./qr.js";
 
 type Progress = {
   state: "waiting" | "claimed" | "expired" | "cancelled" | "unavailable";
   machine: { id: string; name: string } | null;
 };
 type Invitation = { code: string; deadline: number };
+
+// Opens the Android app with the code filled in; the person still taps Pair there.
+/** The pairing link drawn as a QR code (an SVG of dark squares). A phone's camera opens it in the Beacon app. */
+export function PairingQr({ link }: { link: string }) {
+  const modules = qrModules(link);
+  if (!modules) return null;
+  const quiet = 4;
+  const size = modules.length + quiet * 2;
+  const path = modules
+    .flatMap((row, y) =>
+      row.map((dark, x) => (dark ? `M${x + quiet} ${y + quiet}h1v1h-1z` : "")),
+    )
+    .join("");
+  return (
+    <svg
+      className="pairing-qr"
+      viewBox={`0 0 ${size} ${size}`}
+      role="img"
+      aria-label="QR code for the phone pairing link"
+      shapeRendering="crispEdges"
+    >
+      <rect width={size} height={size} fill="#fff" />
+      <path d={path} fill="#171a19" />
+    </svg>
+  );
+}
+
+export function pairingLink(origin: string, code: string) {
+  return `beaconremote://pair?code=${encodeURIComponent(code)}&server=${encodeURIComponent(origin)}`;
+}
+
+// The other way round: the device shows a short code, and the person types it here and approves it.
+function DeviceCodeApproval({
+  onApproved,
+}: {
+  onApproved: (id: string, name: string) => void;
+}) {
+  const [text, setText] = useState("");
+  const [found, setFound] = useState<{ name: string } | null>(null);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const compact = text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+
+  async function check() {
+    setBusy(true);
+    setMessage("");
+    setFound(null);
+    try {
+      setFound(
+        await api<{ name: string }>("device-pairing/lookup", {
+          userCode: compact,
+        }),
+      );
+    } catch {
+      setMessage(
+        "That code was not found. Check it on the device; codes last ten minutes.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function approve() {
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await api<{ machineId: string; name: string }>(
+        "device-pairing/approve",
+        { userCode: compact },
+      );
+      onApproved(result.machineId, result.name);
+    } catch {
+      setMessage("Could not approve it. Ask the device for a new code.");
+      setFound(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="pairing-field pairing-device-code">
+      <span>Or type the code the device is showing</span>
+      <div className="pairing-code-row">
+        <input
+          aria-label="Code shown on the device"
+          placeholder="XXXX-XXXX"
+          value={text}
+          maxLength={9}
+          autoComplete="off"
+          spellCheck={false}
+          onChange={(event) => {
+            setText(event.target.value);
+            setFound(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && compact.length === 8 && !busy)
+              void check();
+          }}
+        />
+        <button
+          className="secondary"
+          disabled={compact.length !== 8 || busy}
+          onClick={() => void check()}
+        >
+          Check code
+        </button>
+      </div>
+      {found && (
+        <p role="status">
+          <strong>{found.name}</strong> wants to join your account. Only approve
+          it if you are looking at that device right now.{" "}
+          <button disabled={busy} onClick={() => void approve()}>
+            Approve {found.name}
+          </button>
+        </p>
+      )}
+      {message && (
+        <p className="error" role="alert">
+          {message}
+        </p>
+      )}
+    </div>
+  );
+}
 
 export function PairComputer({
   onClose,
@@ -23,7 +147,9 @@ export function PairComputer({
   const [statusError, setStatusError] = useState("");
   const [creating, setCreating] = useState(true);
   const [cancelling, setCancelling] = useState(false);
-  const [copied, setCopied] = useState<"code" | "address" | null>(null);
+  const [copied, setCopied] = useState<"code" | "address" | "link" | null>(
+    null,
+  );
   const [seconds, setSeconds] = useState(300);
   const [attempt, setAttempt] = useState(0);
   const owned = useRef<string | null>(null);
@@ -174,7 +300,7 @@ export function PairComputer({
       setCancelling(false);
     }
   }
-  async function copy(value: string, kind: "code" | "address") {
+  async function copy(value: string, kind: "code" | "address" | "link") {
     const code = owned.current;
     try {
       await navigator.clipboard.writeText(value);
@@ -274,6 +400,52 @@ export function PairComputer({
               ? `One use · expires in ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
               : "Checking whether the code was used…"}
           </p>
+          <div className="pairing-field">
+            <span>On an Android phone with the app</span>
+            <div className="pairing-code-row">
+              <a
+                href={pairingLink(window.location.origin, invitation.code)}
+                aria-disabled={seconds <= 0}
+              >
+                Open this link on the phone
+              </a>
+              <button
+                className="secondary"
+                disabled={seconds <= 0}
+                onClick={() =>
+                  void copy(
+                    pairingLink(window.location.origin, invitation.code),
+                    "link",
+                  )
+                }
+              >
+                {copied === "link" ? "Copied" : "Copy link"}
+              </button>
+            </div>
+            {seconds > 0 && (
+              <PairingQr
+                link={pairingLink(window.location.origin, invitation.code)}
+              />
+            )}
+            <p className="note">
+              Point the phone's camera at the square, or open the link. It fills
+              in the address and code. Tap Pair on the phone to finish.
+            </p>
+          </div>
+          <DeviceCodeApproval
+            onApproved={(id, name) => {
+              // The device was approved directly, so the one-use code above is no longer needed.
+              void api(
+                "enrollments/cancel",
+                { code: invitation.code },
+                AbortSignal.timeout(5000),
+              ).catch(() => undefined);
+              owned.current = null;
+              settled.current = true;
+              setProgress({ state: "claimed", machine: { id, name } });
+              paired.current(id);
+            }}
+          />
           <a href="#downloads">Get the Windows or Android app →</a>
         </>
       ) : (

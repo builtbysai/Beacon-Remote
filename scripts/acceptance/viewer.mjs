@@ -30,12 +30,18 @@ function chromePath() {
   throw new Error("No Chrome found. Set CHROME_PATH.");
 }
 
-export async function openViewer({ origin, cookie, port = 9555 }) {
+export async function openViewer({
+  origin,
+  cookie,
+  port = 9555,
+  headless = true,
+}) {
   const profile = mkdtempSync(join(tmpdir(), "beacon-viewer-"));
   const chrome = spawn(
     chromePath(),
     [
-      "--headless=new",
+      // Physical acceptance can hand the same isolated viewer to its owner.
+      ...(headless ? ["--headless=new"] : []),
       `--remote-debugging-port=${port}`,
       "--remote-debugging-address=127.0.0.1",
       "--no-first-run",
@@ -44,7 +50,7 @@ export async function openViewer({ origin, cookie, port = 9555 }) {
       "--window-size=1280,900",
       "about:blank",
     ],
-    { stdio: "ignore", windowsHide: true },
+    { stdio: "ignore", windowsHide: headless },
   );
   let socket,
     closing,
@@ -65,7 +71,7 @@ export async function openViewer({ origin, cookie, port = 9555 }) {
           chrome.kill();
           await Promise.race([
             stopped,
-            new Promise((done) => setTimeout(done, 2000)),
+            new Promise((done) => setTimeout(done, 10000)),
           ]);
         }
         // The profile contains the login cookie. Delete only this invocation's

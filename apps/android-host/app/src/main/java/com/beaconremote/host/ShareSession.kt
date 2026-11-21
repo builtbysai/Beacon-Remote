@@ -2,6 +2,7 @@ package com.beaconremote.host
 
 import android.content.Context
 import android.content.Intent
+import android.app.KeyguardManager
 import android.hardware.display.DisplayManager
 import android.os.Handler
 import android.os.Looper
@@ -11,6 +12,7 @@ import android.media.projection.MediaProjection
 import android.os.SystemClock
 import android.util.Log
 import java.util.ArrayDeque
+import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ScheduledFuture
@@ -56,26 +58,42 @@ class ShareSession(
     private val filesAllowed: Boolean = false,
     private val unattended: Boolean = false,
     private val onControl: (Boolean) -> Unit = {},
+    private val onPermissionPrompt: ((LivePermissionPrompt?) -> Unit)? = null,
     private val onEnded: (String) -> Unit,
 ) {
     private val worker = Executors.newSingleThreadScheduledExecutor()
     private var socket: WebSocket? = null
     @Volatile private var ended = false
-    private var generation = 0L
+    private val viewer = ViewerConnection()
+    private val permissions = LivePermissionRequest()
+    private var permissionsVersion = 0
+    private var advertised = emptySet<LivePermission>()
+    private var dataTransportAvailable = false
     @Volatile private var paused = false
-    @Volatile private var viewerAttached = false
 
     // Lease bookkeeping, in SystemClock.elapsedRealtime milliseconds.
     private val started = SystemClock.elapsedRealtime()
     private var sequence = 0L
     private val challenges = ArrayDeque<Pair<String, Long>>()
     @Volatile private var lastLease = 0L
+    // The lease clock starts here: at the session start, and again after a re-attach.
+    @Volatile private var leaseEpoch = started
+    // Unattended sessions survive a short loss of this phone's connection (docs/host-reconnect-design.md).
+    // While reconnecting, nothing is captured or injected and the lease must be earned again.
+    @Volatile private var reconnectDeadline = 0L
+    private var lastReconnectAttempt = 0L
+    private var connectedOnce = false
+    @Volatile private var iceOverride: org.json.JSONArray? = null
     private var ticker: ScheduledFuture<*>? = null
 
     private var egl: EglBase? = null
     private var factory: PeerConnectionFactory? = null
     private var source: VideoSource? = null
     private var track: VideoTrack? = null
+    // Attended only, and only when the phone's owner turned sound sharing on: the phone's playback sound.
+    private var sound: SoundCapture? = null
+    private var soundSource: org.webrtc.AudioSource? = null
+    private var soundTrack: org.webrtc.AudioTrack? = null
     private var capturer: org.webrtc.VideoCapturer? = null
     private var helper: SurfaceTextureHelper? = null
     private var peer: PeerConnection? = null
@@ -94,9 +112,9 @@ class ShareSession(
         return metrics.widthPixels to metrics.heightPixels
     }
 
-    /** What is sent to the helper: at most 1280 on the long side, even numbers (the encoder needs them). */
+    /** What is sent to the helper: at most 1920 on the long side (sharp text), even numbers (the encoder needs them). */
     private fun captureSize(width: Int, height: Int): Pair<Int, Int> {
-        val scale = minOf(1.0, 1280.0 / maxOf(width, height))
+        val scale = minOf(1.0, 1920.0 / maxOf(width, height))
         return ((width * scale).toInt() / 2 * 2) to ((height * scale).toInt() / 2 * 2)
     }
 
@@ -132,22 +150,79 @@ class ShareSession(
     }
 
     fun stop() {
+        // Diagnostic: the stack shows which path asked the session to stop.
+        Log.w("BeaconHost", "Sharing stop requested", Throwable("stop caller"))
         post {
             socket?.send(JSONObject().put("type", "stop").toString())
             end("Sharing stopped")
         }
     }
 
+    /** Offers a file the person picked on this phone. [onResult] receives a reason when nothing was offered. */
+    fun sendFile(uri: android.net.Uri, onResult: (String) -> Unit) = post {
+        val receiver = files
+        if (receiver == null) onResult("File sending is not available in this session.") else receiver.sendFile(uri, onResult)
+    }
+
+    /** Whether the notification should offer Send file now. Advisory: the transfer checks again when it starts. */
+    fun canSendFile(): Boolean = files?.canSend() == true
+
     fun setPaused(value: Boolean) {
         post {
             paused = value
             if (value) control?.release()
-            track?.setEnabled(!value)
+            refreshVideo()
+            refreshPermissionOptions()
             socket?.send(JSONObject().put("type", "paused").put("paused", value).toString())
         }
     }
 
-    private fun connect(accepted: Boolean) {
+    fun decidePermission(sessionId: String, id: String, generation: Long, allow: Boolean) {
+        post {
+            if (sessionId != grant.id) return@post
+            val request = permissions.find(id, generation) ?: return@post
+            val approved = allow && request.scope in availablePermissions(generation)
+            val prompt = permissions.respond(id, generation, approved, SystemClock.elapsedRealtime()) ?: return@post
+            onPermissionPrompt?.invoke(null)
+            sendPermissionDecision(prompt, approved)
+            refreshPermissionOptions()
+        }
+    }
+
+    private fun availablePermissions(generation: Long): Set<LivePermission> {
+        if (permissionsVersion != 1 || onPermissionPrompt == null || !canShare(generation) || !localActionsAllowed()) return emptySet()
+        if (!deviceUnlocked()) return emptySet()
+        return buildSet {
+            if (!filesAllowed && files?.isOpen() == true && !permissions.allowed(generation, LivePermission.FILES)) add(LivePermission.FILES)
+            if (files?.isOpen() == true && !permissions.allowed(generation, LivePermission.RECORDING)) add(LivePermission.RECORDING)
+            if (dataTransportAvailable && control == null && ControlService.enabled(context) && ControlService.instance != null &&
+                !permissions.allowed(generation, LivePermission.CONTROL)) add(LivePermission.CONTROL)
+        }
+    }
+
+    private fun deviceUnlocked(): Boolean =
+        Identity(context).unlockFromViewer ||
+            context.getSystemService(KeyguardManager::class.java).let { !it.isDeviceLocked && !it.isKeyguardLocked }
+
+    private fun refreshPermissionOptions() {
+        val available = availablePermissions(viewer.generation)
+        permissions.cancelIfUnavailable(SystemClock.elapsedRealtime(), available)?.let {
+            onPermissionPrompt?.invoke(null)
+            sendPermissionDecision(it, false)
+        }
+        if (!viewer.owns(viewer.generation) || available == advertised) return
+        advertised = available
+        socket?.send(JSONObject().put("type", "permission-options")
+            .put("generation", viewer.generation)
+            .put("scopes", org.json.JSONArray(available.map { it.wire })).toString())
+    }
+
+    private fun sendPermissionDecision(prompt: LivePermissionPrompt, approved: Boolean) {
+        socket?.send(JSONObject().put("type", "permission-decision")
+            .put("generation", prompt.generation).put("id", prompt.id).put("approved", approved).toString())
+    }
+
+    private fun connect(accepted: Boolean, resume: Boolean = false) {
         val url = server.replaceFirst("http", "ws") + "/api/sessions/${grant.id}/signal?role=machine"
         val request = Request.Builder().url(url).header("Authorization", "Bearer ${grant.token}").build()
         socket =
@@ -156,9 +231,25 @@ class ShareSession(
                 object : WebSocketListener() {
                     override fun onOpen(webSocket: WebSocket, response: Response) {
                         post {
-                            if (!accepted) {
+                            if (resume) {
+                                // Same bearer, same session. The server drops the old viewer so it reconnects and
+                                // asks for a fresh offer; the lease restarts from zero.
+                                if (webSocket !== socket || ended) return@post
+                                if (!(Identity(context).wantsAvailable && Identity(context).unattended && UnattendedAccess.ready(context))) {
+                                    end("Unattended access was turned off or the phone was locked")
+                                    return@post
+                                }
+                                leaseEpoch = SystemClock.elapsedRealtime()
+                                lastLease = 0L
+                                challenges.clear()
+                                reconnectDeadline = 0L
+                                Log.i(TAG, "Reconnected after a short network loss")
+                                return@post
+                            }
+                            connectedOnce = true
+                            if (!accepted || !SharingNotifications.ready(context)) {
                                 webSocket.send(JSONObject().put("type", "consent").put("accepted", false).toString())
-                                end("Declined")
+                                end(if (accepted) "Sharing notifications are unavailable" else "Declined")
                                 return@post
                             }
                             val consent = JSONObject().put("type", "consent").put("accepted", true).put("resumable", true)
@@ -178,19 +269,47 @@ class ShareSession(
                     }
 
                     override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                        post { end("Connection closed") }
+                        post { if (webSocket === socket) end("Connection closed") }
                     }
 
                     override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                         Log.w(TAG, "Signaling failed", t)
-                        post { end("Connection lost") }
+                        // The server answering "no" (stopped, revoked, expired) is final; only silence is waited out.
+                        val refused = response?.code in listOf(401, 403, 404, 410)
+                        post {
+                            if (webSocket !== socket) return@post
+                            if (refused && reconnectDeadline != 0L) end("The session is over") else connectionLost()
+                        }
                     }
                 },
             )
     }
 
+    /** The signaling socket failed. An unattended session waits briefly for the network instead of ending. */
+    private fun connectionLost() {
+        if (ended) return
+        // A retry that failed while already waiting just keeps waiting until the window closes.
+        if (reconnectDeadline != 0L) return
+        if (unattended && connectedOnce) {
+            reconnectDeadline = SystemClock.elapsedRealtime() + RECONNECT_WINDOW
+            lastReconnectAttempt = SystemClock.elapsedRealtime()
+            // Stop sending and release input now; the capture keeps its place but the lease is not fresh.
+            viewer.detach()
+            closePeer()
+            control?.release()
+            Log.i(TAG, "Connection lost; waiting up to ${RECONNECT_WINDOW / 1000} s for the network")
+            return
+        }
+        end("Connection lost")
+    }
+
     private fun tick() {
         if (ended) return
+        if (!SharingNotifications.ready(context)) {
+            socket?.send(JSONObject().put("type", "stop").toString())
+            end("Sharing notifications are unavailable")
+            return
+        }
         val now = SystemClock.elapsedRealtime()
         if (unattended && now - maxOf(started, control?.lastActivity ?: 0L, files?.lastActivity ?: 0L) >= 30 * 60 * 1000L) {
             end("Unattended session ended after 30 minutes without input")
@@ -200,12 +319,23 @@ class ShareSession(
             end("Unattended access was turned off or the phone was locked")
             return
         }
+        if (reconnectDeadline != 0L) {
+            if (now >= reconnectDeadline) {
+                end("Connection lost")
+            } else if (now - lastReconnectAttempt >= RECONNECT_RETRY) {
+                lastReconnectAttempt = now
+                runCatching { socket?.cancel() }
+                connect(accepted = true, resume = true)
+            }
+            return
+        }
         // Authorization lapses without a fresh reply: nothing keeps sharing on its own.
-        if (now - started >= MAX_AGE && (lastLease == 0L || now - lastLease >= MAX_AGE)) {
+        if (now - leaseEpoch >= MAX_AGE && (lastLease == 0L || now - lastLease >= MAX_AGE)) {
             end("Authorization lapsed")
             return
         }
         control?.quietCheck()
+        refreshPermissionOptions()
         sequence += 1
         challenges.addLast(sequence.toString() to now)
         while (challenges.size > 4) challenges.removeFirst()
@@ -215,21 +345,67 @@ class ShareSession(
     private fun handle(message: JSONObject) {
         if (ended) return
         when (message.optString("type")) {
+            "joined" -> {
+                permissionsVersion = message.optInt("permissionsVersion")
+                // After a re-attach the server hands out a fresh relay user; the old allocation may still be held.
+                message.optJSONArray("iceServers")?.let { iceOverride = it }
+            }
+            "permission-prompt" -> {
+                if (permissionsVersion != 1) return
+                val scope = LivePermission.entries.firstOrNull { it.wire == message.optString("scope") } ?: return
+                val generation = message.optLong("generation", -1)
+                val id = message.optString("id")
+                if (runCatching { UUID.fromString(id).toString() }.getOrNull() != id) return
+                val prompt = LivePermissionPrompt(grant.id, id, generation, message.optLong("timeoutMs"), scope)
+                if (scope !in availablePermissions(generation) || !permissions.begin(prompt, SystemClock.elapsedRealtime())) {
+                    sendPermissionDecision(prompt, false)
+                    return
+                }
+                onPermissionPrompt?.invoke(prompt)
+            }
+            "permission-dismiss" -> {
+                if (permissions.cancel(message.optString("id"), message.optLong("generation", -1))) onPermissionPrompt?.invoke(null)
+            }
+            "permission-commit" -> {
+                val generation = message.optLong("generation", -1)
+                val id = message.optString("id")
+                val prompt = permissions.find(id, generation)
+                if (prompt == null) {
+                    Log.w("BeaconHost", "Permission commit for an unknown or expired request")
+                    return
+                }
+                val stillAvailable = prompt.scope in availablePermissions(generation)
+                Log.i("BeaconHost", "Permission commit for ${prompt.scope.wire}: available=$stillAvailable")
+                if (stillAvailable &&
+                    permissions.commit(id, generation, SystemClock.elapsedRealtime())) {
+                    when (prompt.scope) {
+                        LivePermission.FILES, LivePermission.RECORDING -> files?.publishReady()
+                        LivePermission.CONTROL -> openInput(generation, "beacon-approved-input-v1:$id") {
+                            permissions.allowed(generation, LivePermission.CONTROL) && deviceUnlocked()
+                        }
+                    }
+                    refreshPermissionOptions()
+                }
+            }
             "lease" -> {
                 val nonce = message.optString("nonce")
                 val entry = challenges.firstOrNull { it.first == nonce } ?: return
                 challenges.remove(entry)
-                if (SystemClock.elapsedRealtime() - entry.second < MAX_AGE) lastLease = maxOf(lastLease, entry.second)
+                if (SystemClock.elapsedRealtime() - entry.second < MAX_AGE) {
+                    lastLease = maxOf(lastLease, entry.second)
+                    refreshVideo()
+                    refreshPermissionOptions()
+                }
             }
             "answer" -> {
-                if (message.optLong("generation", 0) != generation) return
+                if (!viewer.owns(message.optLong("generation", 0))) return
                 peer?.setRemoteDescription(
                     object : SimpleSdpObserver() {},
                     SessionDescription(SessionDescription.Type.ANSWER, message.getString("sdp")),
                 )
             }
             "candidate" -> {
-                if (message.optLong("generation", 0) != generation) return
+                if (!viewer.owns(message.optLong("generation", 0))) return
                 peer?.addIceCandidate(
                     IceCandidate(
                         if (message.isNull("sdpMid")) "" else message.getString("sdpMid"),
@@ -240,11 +416,11 @@ class ShareSession(
             }
             "viewer-detached" -> {
                 // Nothing is sent while nobody is watching; the capture keeps its place for a quick return.
+                viewer.detach()
                 closePeer()
             }
             "viewer-resumed" -> {
-                generation = message.optLong("generation", generation + 1)
-                openPeer()
+                if (viewer.resume(message.optLong("generation", -1))) openPeer()
             }
             "ended" -> end("Ended")
         }
@@ -255,18 +431,43 @@ class ShareSession(
             PeerConnectionFactory.InitializationOptions.builder(context).setEnableInternalTracer(false).createInitializationOptions(),
         )
         val eglBase = EglBase.create().also { egl = it }
-        val peerFactory =
+        val canRecord = context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val shareSound = !unattended && android.os.Build.VERSION.SDK_INT >= 29 && Identity(context).shareSound && canRecord
+        // A trusted viewer hears the microphone when the owner allowed it (ADR 0057), in any kind of session.
+        val shareMic = Identity(context).shareMic && canRecord
+        val builder =
             PeerConnectionFactory.builder()
                 .setVideoEncoderFactory(DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true))
                 .setVideoDecoderFactory(DefaultVideoDecoderFactory(eglBase.eglBaseContext))
-                .createPeerConnectionFactory()
-                .also { factory = it }
+        if (shareSound) {
+            val capture = SoundCapture({ (capturer as? ScreenCapturerAndroid)?.mediaProjection }, mixMicrophone = shareMic).also { sound = it }
+            builder.setAudioDeviceModule(
+                org.webrtc.audio.JavaAudioDeviceModule.builder(context)
+                    .setAudioBufferCallback(capture)
+                    .setUseHardwareAcousticEchoCanceler(false)
+                    .setUseHardwareNoiseSuppressor(false)
+                    .createAudioDeviceModule(),
+            )
+        }
+        val peerFactory = builder.createPeerConnectionFactory().also { factory = it }
+        if (shareSound || shareMic) {
+            // What the phone plays is not speech: no echo cancelling, noise suppression, gain or high-pass filtering.
+            val raw = MediaConstraints().apply {
+                for (name in listOf("googEchoCancellation", "googAutoGainControl", "googNoiseSuppression", "googHighpassFilter", "googTypingNoiseDetection"))
+                    mandatory.add(MediaConstraints.KeyValuePair(name, "false"))
+            }
+            soundSource = peerFactory.createAudioSource(raw)
+            soundTrack = peerFactory.createAudioTrack("beacon-sound", soundSource).also { it.setEnabled(false) }
+        }
         val videoSource = peerFactory.createVideoSource(true).also { source = it }
-        track = peerFactory.createVideoTrack("beacon-screen", videoSource)
+        track = peerFactory.createVideoTrack("beacon-screen", videoSource).also { it.setEnabled(false) }
         val surfaces = SurfaceTextureHelper.create("screen-capture", eglBase.eglBaseContext).also { helper = it }
-        val projection = if (unattended && android.os.Build.VERSION.SDK_INT >= 30) {
+        val projection = if (unattended && StandingScreen.active) {
+            // Fast sharing is on: smooth video from the always-on capture instead of screenshots.
+            PersistentCapturer({ canShare(viewer.generation) }, { reason -> post { end(reason) } })
+        } else if (unattended && android.os.Build.VERSION.SDK_INT >= 30) {
             AccessibilityCapturer(context, {
-                !ended && !paused && viewerAttached && lastLease != 0L && SystemClock.elapsedRealtime() - lastLease < MAX_AGE
+                canShare(viewer.generation)
             }, { reason -> post { end(reason) } })
         } else {
             ScreenCapturerAndroid(
@@ -303,9 +504,10 @@ class ShareSession(
     private fun openPeer() {
         closePeer()
         val peerFactory = factory ?: return
+        val iceList = iceOverride ?: grant.iceServers
         val servers =
-            (0 until grant.iceServers.length()).map { index ->
-                val entry = grant.iceServers.getJSONObject(index)
+            (0 until iceList.length()).map { index ->
+                val entry = iceList.getJSONObject(index)
                 // The server sends one URL as a string and several as an array.
                 val urls = entry.optJSONArray("urls")?.let { list -> (0 until list.length()).map { list.getString(it) } }
                     ?: listOf(entry.getString("urls"))
@@ -319,16 +521,19 @@ class ShareSession(
         val configuration =
             PeerConnection.RTCConfiguration(servers).apply {
                 sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+                // Video and optional control/files share one ICE transport;
+                // gathering each separately can exhaust a bounded TURN session.
+                bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
                 if (grant.relayOnly) iceTransportsType = PeerConnection.IceTransportsType.RELAY
             }
-        val thisGeneration = generation
+        val thisGeneration = viewer.generation
         val connection =
             peerFactory.createPeerConnection(
                 configuration,
                 object : PeerConnection.Observer {
                     override fun onIceCandidate(candidate: IceCandidate) {
                         post {
-                            if (thisGeneration != generation) return@post
+                            if (!viewer.owns(thisGeneration)) return@post
                             socket?.send(
                                 JSONObject()
                                     .put("type", "candidate")
@@ -342,6 +547,15 @@ class ShareSession(
                     }
 
                     override fun onSignalingChange(state: PeerConnection.SignalingState) {}
+                    override fun onConnectionChange(state: PeerConnection.PeerConnectionState) {
+                        post {
+                            val connected = state == PeerConnection.PeerConnectionState.CONNECTED
+                            if (!viewer.connectionChanged(thisGeneration, connected)) return@post
+                            if (!connected) control?.release()
+                            refreshVideo()
+                            refreshPermissionOptions()
+                        }
+                    }
                     override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {}
                     override fun onIceConnectionReceivingChange(receiving: Boolean) {}
                     override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {}
@@ -354,66 +568,167 @@ class ShareSession(
                 },
             ) ?: return
         peer = connection
-        viewerAttached = true
         val screen = track ?: return
-        screen.setEnabled(!paused)
         val sender = connection.addTrack(screen, listOf("beacon-screen"))
         connection.transceivers.firstOrNull { it.sender == sender }?.direction = RtpTransceiver.RtpTransceiverDirection.SEND_ONLY
+        soundTrack?.let { audio ->
+            val audioSender = connection.addTrack(audio, listOf("beacon-screen"))
+            connection.transceivers.firstOrNull { it.sender == audioSender }?.direction = RtpTransceiver.RtpTransceiverDirection.SEND_ONLY
+        }
+        // Screen text needs a high, steady bitrate: start high so the first pictures are sharp, never drop resolution.
+        runCatching { connection.setBitrate(2_000_000, 8_000_000, 16_000_000) }
         // Hardware H.264 first where the phone has it; the browser picks what both sides support.
         runCatching {
             val codecs = peerFactory.getRtpSenderCapabilities(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO).codecs
             val ordered = codecs.filter { it.name == "H264" } + codecs.filter { it.name != "H264" }
             connection.transceivers.firstOrNull { it.sender == sender }?.setCodecPreferences(ordered)
         }
+        Log.i("BeaconHost", "Control decision: capability=${grant.capability} allowed=$controlAllowed service=${ControlService.instance != null}")
         if (grant.capability == "desktop:control" && controlAllowed && ControlService.instance != null) {
             // The input channel is made here, before the offer, as the Windows host does.
-            connection.createDataChannel("beacon-input-v1", DataChannel.Init().apply { ordered = true })?.let { channel ->
-                control =
-                    RemoteControl(channel, grant.id, screenWidth, screenHeight, {
-                        !paused && !ended && lastLease != 0L && SystemClock.elapsedRealtime() - lastLease < MAX_AGE &&
-                            Identity(context).wantsAvailable && (!unattended || (Identity(context).unattended && UnattendedAccess.ready(context)))
-                    }) { active -> onControl(active) }
-                        .also { it.start() }
+            openInput(thisGeneration, "beacon-input-v1") { true }
+        }
+        // Negotiate SCTP with the first offer so an approved input lane can open later.
+        if (filesAllowed || onPermissionPrompt != null) {
+            connection.createDataChannel("beacon-files-v1", DataChannel.Init().apply { ordered = true })?.let { channel ->
+                dataTransportAvailable = true
+                if (FileReceiver.supported) {
+                    val permitted = { filesAllowed || permissions.allowed(thisGeneration, LivePermission.FILES) }
+                    files = FileReceiver(context, channel, permitted, {
+                        permitted() && canShare(thisGeneration) && localActionsAllowed()
+                    }, { permissions.allowed(thisGeneration, LivePermission.RECORDING) && canShare(thisGeneration) }).also { it.start() }
+                }
             }
         }
-        if (filesAllowed && FileReceiver.supported) {
-            connection.createDataChannel("beacon-files-v1", DataChannel.Init().apply { ordered = true })?.let { channel ->
-                files = FileReceiver(context, channel) {
-                    !paused && !ended && lastLease != 0L && SystemClock.elapsedRealtime() - lastLease < MAX_AGE &&
-                        Identity(context).wantsAvailable && (!unattended || (Identity(context).unattended && UnattendedAccess.ready(context)))
-                }.also { it.start() }
+        // A trusted viewer may talk through the speaker when the owner allowed it: an extra receive-only audio line,
+        // muted until the viewer asks and the phone agrees (see setTalk).
+        if (Identity(context).talkIn && grant.capability == "desktop:control" && controlAllowed && ControlService.instance != null) {
+            runCatching {
+                val talk = connection.addTransceiver(
+                    MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO,
+                    RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY),
+                )
+                talkReceiver = talk.receiver
+                talk.receiver.track()?.setEnabled(false)
             }
         }
         connection.createOffer(
             object : SimpleSdpObserver() {
                 override fun onCreateSuccess(description: SessionDescription) {
-                    connection.setLocalDescription(
-                        object : SimpleSdpObserver() {
-                            override fun onSetSuccess() {
-                                post {
-                                    if (thisGeneration != generation) return@post
-                                    socket?.send(
-                                        JSONObject()
-                                            .put("type", "offer")
-                                            .put("sdp", description.description)
-                                            .put("generation", thisGeneration)
-                                            .toString(),
-                                    )
+                    post {
+                        if (!viewer.owns(thisGeneration)) return@post
+                        connection.setLocalDescription(
+                            object : SimpleSdpObserver() {
+                                override fun onSetSuccess() {
+                                    post {
+                                        runCatching { tuneVideoSender(connection) }
+                                        if (viewer.owns(thisGeneration)) {
+                                            socket?.send(
+                                                JSONObject()
+                                                    .put("type", "offer")
+                                                    .put("sdp", description.description)
+                                                    .put("generation", thisGeneration)
+                                                    .toString(),
+                                            )
+                                        }
+                                    }
                                 }
-                            }
-                        },
-                        description,
-                    )
+                            },
+                            description,
+                        )
+                    }
                 }
             },
             MediaConstraints(),
         )
     }
 
+    private var talkReceiver: org.webrtc.RtpReceiver? = null
+
+    /** Keep the screen's resolution and let the bitrate rise: a screen is mostly text, so blur is the wrong trade. */
+    private fun tuneVideoSender(connection: PeerConnection) {
+        val sender = connection.senders.firstOrNull { it.track()?.kind() == "video" } ?: return
+        val parameters = sender.parameters
+        parameters.degradationPreference = org.webrtc.RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
+        for (encoding in parameters.encodings) {
+            encoding.maxBitrateBps = 16_000_000
+            encoding.minBitrateBps = 1_500_000
+            encoding.maxFramerate = 60
+            encoding.scaleResolutionDownBy = 1.0
+        }
+        sender.parameters = parameters
+    }
+
+    private fun openInput(generation: Long, label: String, permitted: () -> Boolean) {
+        Log.i("BeaconHost", "Open input requested: label=$label existing=${control != null} peer=${peer != null}")
+        if (control != null) {
+            Log.w("BeaconHost", "Input channel not opened: control is already active")
+            return
+        }
+        val channel = peer?.createDataChannel(label, DataChannel.Init().apply { ordered = true })
+        if (channel == null) {
+            Log.w("BeaconHost", "Input channel not opened: no peer connection")
+            return
+        }
+        Log.i("BeaconHost", "Input channel opened for an approved control request")
+        control = RemoteControl(channel, grant.id, screenWidth, screenHeight, {
+            permitted() && canShare(generation) && localActionsAllowed()
+        }, { uri -> files?.sendFile(uri) { reason -> if (reason.isNotEmpty()) Log.i("BeaconHost", "Copied file not offered: $reason") } }, onTalk = ::setTalk) { active -> post { if (viewer.owns(generation)) onControl(active) } }.also { it.start() }
+    }
+
+    private fun localActionsAllowed(): Boolean = Identity(context).let { identity ->
+        identity.wantsAvailable && if (unattended) {
+            identity.unattended && UnattendedAccess.ready(context)
+        } else {
+            SharingNotifications.ready(context)
+        }
+    }
+
+    private fun canShare(generation: Long): Boolean =
+        !paused && !ended && viewer.connected(generation) &&
+            lastLease != 0L && SystemClock.elapsedRealtime() - lastLease < MAX_AGE
+
+    /**
+     * A trusted viewer's voice on the phone's speaker (ADR 0058). It is only ever on while the owner's switch is on, the
+     * phone is unlocked, and sharing is not paused; the receiving track is muted at every other moment.
+     */
+    private fun setTalk(on: Boolean): String {
+        val track = talkReceiver?.track()
+        if (!on) {
+            track?.setEnabled(false)
+            HostState.talking = false
+            HostState.refreshNotification?.invoke()
+            return "off"
+        }
+        if (track == null || !Identity(context).talkIn || paused || ended) return "disabled"
+        if (context.getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked) return "locked"
+        track.setEnabled(true)
+        HostState.talking = true
+        HostState.refreshNotification?.invoke()
+        return "on"
+    }
+
+    private fun refreshVideo() {
+        val live = canShare(viewer.generation) && localActionsAllowed()
+        track?.setEnabled(live)
+        soundTrack?.setEnabled(live)
+        // Pause, Stop or a lost viewer ends any talking at once.
+        if (!live && HostState.talking) setTalk(false)
+    }
+
     private fun closePeer() {
-        viewerAttached = false
+        talkReceiver?.track()?.setEnabled(false)
+        talkReceiver = null
+        HostState.talking = false
+        permissions.detach()
+        advertised = emptySet()
+        dataTransportAvailable = false
+        onPermissionPrompt?.invoke(null)
+        track?.setEnabled(false)
+        soundTrack?.setEnabled(false)
         control?.stop()
         control = null
+        onControl(false)
         files?.stop()
         files = null
         peer?.let {
@@ -427,6 +742,7 @@ class ShareSession(
         if (ended) return
         Log.i(TAG, "Session ended: $reason")
         ended = true
+        viewer.detach()
         displayListener?.let { runCatching { context.getSystemService(DisplayManager::class.java).unregisterDisplayListener(it) } }
         ticker?.cancel(false)
         runCatching { socket?.close(1000, null) }
@@ -434,8 +750,11 @@ class ShareSession(
         runCatching { capturer?.stopCapture() }
         runCatching { capturer?.dispose() }
         runCatching { helper?.dispose() }
+        runCatching { soundTrack?.dispose() }
+        runCatching { soundSource?.dispose() }
         runCatching { track?.dispose() }
         runCatching { source?.dispose() }
+        runCatching { sound?.stop() }
         runCatching { factory?.dispose() }
         runCatching { egl?.release() }
         onEnded(reason)
@@ -451,6 +770,8 @@ class ShareSession(
 
     private companion object {
         const val MAX_AGE = 3000L
+        const val RECONNECT_WINDOW = 120_000L
+        const val RECONNECT_RETRY = 2_000L
         const val TAG = "BeaconHost"
     }
 }

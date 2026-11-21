@@ -1,8 +1,11 @@
+import { buildControlScript } from "./control-sender.mjs";
+import { createScope, revoke } from "./agent-scope.mjs";
+import { runControl } from "./control-tools.mjs";
 const delay = (ms) => new Promise((done) => setTimeout(done, ms));
 const readState = `(() => {
   const panel=document.querySelector('.live-view');
   const video=panel?.querySelector('video');
-  return {state:panel?.dataset.state??null,id:panel?.dataset.sessionId??null,
+  return {state:panel?.dataset.state??null,id:panel?.dataset.sessionId??null,control:panel?.dataset.control??null,
     picture:Boolean(video?.videoWidth),width:video?.videoWidth??0,height:video?.videoHeight??0};
 })()`;
 const text = (value) => ({
@@ -26,9 +29,51 @@ export class RemoteSession {
       this.current === record && !record.ended && Date.now() < record.deadline
     );
   }
+  /**
+   * Gives the assistant a control scope only when the owner has already granted control on the computer, which the
+   * viewer shows as data-control="granted". The scope lasts no longer than the session and at most ten minutes.
+   */
+  async grantControlScope(record, computerId) {
+    if (!record || !this.live(record) || !record.viewer) return null;
+    const info = await record.viewer.evaluate(
+      `(() => ({ control: document.querySelector('.live-view')?.dataset.control ?? null }))()`,
+    );
+    if (info?.control !== "granted") return null;
+    const expiresAt = Math.min(record.deadline, Date.now() + 10 * 60 * 1000);
+    record.scope = createScope({
+      computerId,
+      tools: ["pointer", "keyboard", "clipboard_read", "stop"],
+      expiresAt,
+    });
+    return record.scope;
+  }
+
+  /** Runs one control command in the live viewer through the scope gate. Stop ends the session. */
+  async control(tool, args, key) {
+    const record = this.current;
+    if (!record || !record.scope)
+      return { ok: false, reason: "no-control-scope" };
+    return runControl({
+      scope: record.scope,
+      command: { computerId: record.scope.computerId, tool, args, key },
+      send: async (name, values) => {
+        if (name === "stop") {
+          await this.end(record);
+          return null;
+        }
+        const script = buildControlScript(name, values);
+        if (!script) throw new Error("invalid");
+        const accepted = await record.viewer.evaluate(script);
+        if (accepted !== true) throw new Error("not-ready");
+        return null;
+      },
+    });
+  }
+
   async end(record = this.current) {
     if (!record) return false;
     record.ended = true;
+    if (record.scope) revoke(record.scope);
     clearTimeout(record.timer);
     if (!record.cleanup)
       record.cleanup = (async () => {

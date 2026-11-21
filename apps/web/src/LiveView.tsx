@@ -1,3 +1,6 @@
+import { talkMids } from "./talk-line";
+import { ViewerIcon } from "./viewer-icons";
+import { classifyConnectionRoute } from "./connection-route";
 import {
   FileSender,
   DownloadResume,
@@ -13,8 +16,27 @@ import { recoverTransport } from "./recover-transport.js";
 import { reconnectUntil } from "./reconnect.js";
 import { attachRemoteInput } from "./remote-input.js";
 import type { TouchMode } from "./touch-input.js";
-import type { DisplayInfo } from "@beacon-remote/protocol";
+import type { DisplayInfo, SessionPermission } from "@beacon-remote/protocol";
 import { api } from "./api.js";
+import {
+  DriveClient,
+  driveOps,
+  readFile,
+  type DriveEntry,
+} from "./drive-client.js";
+import { lockKeyFor, type LockScreen } from "./lock-screen.js";
+import {
+  addPermissionLog,
+  permissionLogLine,
+  type PermissionLogEntry,
+} from "./permission-log.js";
+import { PrintClient } from "./print-client.js";
+import { approvedInput, approvedInputPrefix } from "./approved-input.js";
+import {
+  permissionNames,
+  permissionRequests,
+  type PermissionRequestView,
+} from "./permission-requests.js";
 
 export type ViewGrant = {
   id: string;
@@ -61,6 +83,54 @@ export function displayName(display: DisplayInfo): string {
   return `Display ${number} · ${display.width}×${display.height}${display.primary ? " · main" : ""}`;
 }
 
+const shortLabels: Record<string, string> = {
+  "Recent apps": "Recents",
+  "Copy from phone": "Copy",
+  "Copy from computer": "Copy",
+  "Send clipboard to phone": "Paste",
+  "Send a file": "Send file",
+  "Unlock phone": "Unlock",
+  "Talk through phone": "Talk",
+  "Stop talking": "Talking",
+  "Sound on": "Sound",
+  "Sound off": "Sound",
+  Record: "Record",
+  "Stop recording": "Stop",
+  "Full screen": "Full screen",
+  "Exit full screen": "Full screen",
+};
+
+function RailButton({
+  icon,
+  label,
+  onClick,
+  pressed,
+  disabled,
+  danger,
+}: {
+  icon: string;
+  label: string;
+  onClick: () => void;
+  pressed?: boolean;
+  disabled?: boolean;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className={`rail-button${danger ? " danger" : ""}`}
+      aria-label={label}
+      title={label}
+      aria-pressed={pressed}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <ViewerIcon name={icon} />
+      <span>{shortLabels[label] ?? label}</span>
+    </button>
+  );
+}
+
 export function LiveView({
   grant,
   name,
@@ -68,10 +138,15 @@ export function LiveView({
   displays = [],
   displayId,
   onSwitchDisplay,
+  onMinimize,
+  minimized = false,
 }: {
   grant: ViewGrant;
   name: string;
   onClose: () => void;
+  // Hide the viewer and show the device list while the session stays connected.
+  onMinimize?: () => void;
+  minimized?: boolean;
   // The computer's displays and the one being viewed. Switching asks the computer's person again, because each display
   // is approved on its own; it never widens what was already approved.
   displays?: DisplayInfo[];
@@ -82,6 +157,21 @@ export function LiveView({
   const shell = useRef<HTMLElement>(null);
   const stop = useRef<() => void>(() => {});
   const play = useRef<() => Promise<void>>(async () => {});
+  const permissions = useRef<ReturnType<typeof permissionRequests> | null>(
+    null,
+  );
+  const [permissionView, setPermissionView] = useState<PermissionRequestView>({
+    options: [],
+    status: "",
+    busy: false,
+    canCancel: false,
+  });
+  const [requestedScope, setRequestedScope] = useState<SessionPermission | "">(
+    "",
+  );
+  const selectedScope = permissionView.options.find(
+    (scope) => scope === requestedScope,
+  );
   const [scale, setScale] = useState<"fit" | "actual">("fit");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [needsPlay, setNeedsPlay] = useState(false);
@@ -90,6 +180,15 @@ export function LiveView({
   const [displayError, setDisplayError] = useState("");
   // The computer is sharing its sound (the person ticked it), and whether this viewer is listening.
   const [hasSound, setHasSound] = useState(false);
+  // Talking through the phone's speaker (ADR 0058): the line exists only when the owner allowed it.
+  const [talkReady, setTalkReady] = useState(false);
+  // Whether the phone is at its lock screen, told by the phone. Unlock is only offered then.
+  const [phoneLocked, setPhoneLocked] = useState(false);
+  const [talkState, setTalkState] = useState<
+    "off" | "asking" | "on" | "locked" | "disabled" | "mic"
+  >("off");
+  const talkSender = useRef<RTCRtpSender | null>(null);
+  const talkMic = useRef<MediaStream | null>(null);
   const [soundOn, setSoundOn] = useState(false);
   const [status, setStatus] = useState(
     grant.source === "desktop"
@@ -137,10 +236,15 @@ export function LiveView({
       const url = URL.createObjectURL(new Blob(chunks, { type }));
       const link = document.createElement("a");
       const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+      const name = `beacon-session-${stamp}.${type.startsWith("video/mp4") ? "mp4" : "webm"}`;
       link.href = url;
-      link.download = `beacon-session-${stamp}.${type.startsWith("video/mp4") ? "mp4" : "webm"}`;
+      link.download = name;
       link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      // Kept in this page so it can be played back here; released when replaced or when the page closes.
+      if (lastRecordingUrl.current)
+        URL.revokeObjectURL(lastRecordingUrl.current);
+      lastRecordingUrl.current = url;
+      setLastRecording({ url, name });
     };
     // The computer is told first, so it never records unannounced.
     sender.current?.announceRecording(true);
@@ -158,6 +262,7 @@ export function LiveView({
         // Lost with the connection: send it again, from where it stopped, once the channel is back.
         interrupted.current =
           status === "failed" && !current.ready ? file : null;
+        if (status !== "done") break;
       }
     } finally {
       sending.current = false;
@@ -184,6 +289,15 @@ export function LiveView({
   const interrupted = useRef<File | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [fileReady, setFileReady] = useState(false);
+  // The shared-folder channel (P1-4): exists once the computer opened it; answers only when drive access is granted.
+  const drive = useRef<DriveClient | null>(null);
+  const [driveReady, setDriveReady] = useState(false);
+  const [driveEntries, setDriveEntries] = useState<DriveEntry[] | null>(null);
+  const [driveError, setDriveError] = useState("");
+  // Printing (P2-1): the computer opens a print channel with each session and answers only while printing is allowed.
+  const printer = useRef<PrintClient | null>(null);
+  const [printReady, setPrintReady] = useState(false);
+  const [printStatus, setPrintStatus] = useState("");
   const [transfer, setTransfer] = useState<Transfer | null>(null);
   const [offer, setOffer] = useState<Offer | null>(null);
   const downloads = useRef(new DownloadResume());
@@ -199,6 +313,174 @@ export function LiveView({
   const [transportAttempt, setTransportAttempt] = useState(0);
   // Relay credentials are short; each resume brings fresh ones for the next transport.
   const ice = useRef({ id: grant.id, servers: grant.iceServers });
+  // A rebuilt transport inherits this: while the computer is away it sends no consent, and a viewer
+  // that forgot it was resumable would stop the whole session when the computer came back.
+  const wasResumable = useRef("");
+  // The device's own clipboard setting, announced when control opens: off, button only (default) or automatic.
+  const [clipboardMode, setClipboardMode] = useState<"off" | "button" | "auto">(
+    "button",
+  );
+  const [chatLines, setChatLines] = useState<
+    { from: "you" | "phone"; text: string }[]
+  >([]);
+  const [chatDraft, setChatDraft] = useState("");
+  // The phone's PIN screen cannot be captured, so this pad stands in for it. Nothing typed here is kept.
+  const [padOpen, setPadOpen] = useState(false);
+  const [padNote, setPadNote] = useState("");
+  // The most recent recording of this session, played back in the page. Never uploaded.
+  const [lastRecording, setLastRecording] = useState<{
+    url: string;
+    name: string;
+  } | null>(null);
+  const [playback, setPlayback] = useState(false);
+  const lastRecordingUrl = useRef<string | null>(null);
+  useEffect(
+    () => () => {
+      if (lastRecordingUrl.current)
+        URL.revokeObjectURL(lastRecordingUrl.current);
+    },
+    [],
+  );
+  // What the device allowed or refused during this session, newest last. Kept in this page only.
+  const [permissionLog, setPermissionLog] = useState<PermissionLogEntry[]>([]);
+  // A pattern being chosen (cells 0-8) or a password being typed. Cleared the moment it is sent; never kept.
+  const [patternCells, setPatternCells] = useState<number[]>([]);
+  const [passwordDraft, setPasswordDraft] = useState("");
+  // The layout of the phone's PIN screen, sent by the phone while the pad is open, drawn as a stand-in for the picture.
+  const [lockScreen, setLockScreen] = useState<LockScreen | null>(null);
+  useEffect(() => {
+    const target = video.current;
+    if (!target) return;
+    const onLayout = (event: Event) =>
+      setLockScreen((event as CustomEvent<LockScreen>).detail);
+    target.addEventListener("beacon-lockscreen", onLayout);
+    return () => target.removeEventListener("beacon-lockscreen", onLayout);
+  }, [transportAttempt]);
+  useEffect(() => {
+    const target = video.current;
+    if (!target || !padOpen) return;
+    target.dispatchEvent(
+      new CustomEvent("beacon-unlock-view", { detail: true }),
+    );
+    return () => {
+      target.dispatchEvent(
+        new CustomEvent("beacon-unlock-view", { detail: false }),
+      );
+      setLockScreen(null);
+    };
+  }, [padOpen, transportAttempt]);
+  useEffect(() => {
+    const target = video.current;
+    if (!target) return;
+    const onUnlock = (event: Event) => {
+      const state = String((event as CustomEvent).detail);
+      setPadNote(
+        state === "ok"
+          ? ""
+          : state === "not-locked"
+            ? "The phone is not locked."
+            : state === "off"
+              ? "Unlock from the viewer is turned off on the phone."
+              : state === "no-pad"
+                ? "The phone's keypad did not appear. Try again."
+                : "That key could not be pressed.",
+      );
+    };
+    target.addEventListener("beacon-unlock", onUnlock);
+    return () => target.removeEventListener("beacon-unlock", onUnlock);
+  }, [transportAttempt]);
+  useEffect(() => {
+    const target = video.current;
+    if (!target) return;
+    const onChat = (event: Event) =>
+      setChatLines((lines) =>
+        [
+          ...lines,
+          {
+            from: "phone" as const,
+            text: String((event as CustomEvent).detail),
+          },
+        ].slice(-50),
+      );
+    target.addEventListener("beacon-chat", onChat);
+    return () => target.removeEventListener("beacon-chat", onChat);
+  }, [transportAttempt]);
+  useEffect(() => {
+    const target = video.current;
+    if (!target) return;
+    const onLock = (event: Event) => {
+      const locked = (event as CustomEvent).detail === true;
+      setPhoneLocked(locked);
+      if (!locked) setPadOpen(false);
+    };
+    target.addEventListener("beacon-lock", onLock);
+    return () => target.removeEventListener("beacon-lock", onLock);
+  }, [transportAttempt]);
+  const stopMic = () => {
+    talkMic.current?.getTracks().forEach((t) => t.stop());
+    talkMic.current = null;
+    void talkSender.current?.replaceTrack(null).catch(() => undefined);
+  };
+  useEffect(() => {
+    const target = video.current;
+    if (!target) return;
+    const onTalk = (event: Event) => {
+      const state = String((event as CustomEvent).detail);
+      if (state === "on") setTalkState("on");
+      else {
+        stopMic();
+        setTalkState(
+          state === "locked" || state === "disabled" ? state : "off",
+        );
+      }
+    };
+    target.addEventListener("beacon-talk", onTalk);
+    return () => {
+      target.removeEventListener("beacon-talk", onTalk);
+      stopMic();
+    };
+  }, [transportAttempt]);
+  const toggleTalk = async () => {
+    if (talkState === "on" || talkState === "asking") {
+      stopMic();
+      video.current?.dispatchEvent(
+        new CustomEvent("beacon-talk-send", { detail: false }),
+      );
+      setTalkState("off");
+      return;
+    }
+    setTalkState("asking");
+    try {
+      const mic = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      const track = mic.getAudioTracks()[0];
+      if (!track || !talkSender.current) throw new Error("No microphone");
+      await talkSender.current.replaceTrack(track);
+      talkMic.current = mic;
+      video.current?.dispatchEvent(
+        new CustomEvent("beacon-talk-send", { detail: true }),
+      );
+    } catch {
+      stopMic();
+      setTalkState("mic");
+    }
+  };
+  useEffect(() => {
+    const target = video.current;
+    if (!target) return;
+    const onMode = (event: Event) => {
+      const mode = (event as CustomEvent).detail;
+      if (mode === "off" || mode === "button" || mode === "auto")
+        setClipboardMode(mode);
+    };
+    target.addEventListener("beacon-clipboard-mode", onMode);
+    return () => target.removeEventListener("beacon-clipboard-mode", onMode);
+  }, [transportAttempt]);
   if (ice.current.id !== grant.id)
     ice.current = { id: grant.id, servers: grant.iceServers };
   // Measured numbers go to the server every 15 s while the picture flows, so a real device and network can be
@@ -263,7 +545,10 @@ export function LiveView({
     typeof window.matchMedia === "function" &&
     window.matchMedia("(pointer: coarse)").matches;
   const compact = isFullscreen && touchDevice;
-  const [menuOpen, setMenuOpen] = useState(false);
+
+  const [menuOpen, setMenuOpen] = useState(
+    () => typeof window !== "undefined" && window.innerWidth >= 1200,
+  );
   useEffect(() => {
     if (!compact) {
       setMenuOpen(false);
@@ -296,7 +581,10 @@ export function LiveView({
     const pc = new RTCPeerConnection({
       iceServers: ice.current.servers,
       iceTransportPolicy: grant.iceTransportPolicy,
-      iceCandidatePoolSize: 1,
+      // Keep video and control/files on one transport. Pre-gathering a pool
+      // before the host approves can reserve unnecessary bounded TURN slots.
+      bundlePolicy: "max-bundle",
+      iceCandidatePoolSize: 0,
     });
     setPolicy(pc.getConfiguration().iceTransportPolicy ?? "all");
     const url = new URL(
@@ -313,9 +601,10 @@ export function LiveView({
     let replaced = false;
     let socketClosed = () => {};
     const recoveryAbort = new AbortController();
-    let resumable = false;
+    let resumable = wasResumable.current === grant.id;
     let controlGranted = true;
     let generation = 0;
+    let permissionsVersion = 0;
     let messages = 0;
     let serial = Promise.resolve();
     const candidates: RTCIceCandidateInit[] = [];
@@ -330,6 +619,10 @@ export function LiveView({
     function closeTransport() {
       if (closed) return;
       closed = true;
+      permissions.current = null;
+      setRequestedScope("");
+      requestedPermissions.reset();
+      upgradedInput.dispose();
       detachInput?.();
       peer.dispose();
       pc.close();
@@ -425,7 +718,7 @@ export function LiveView({
             setStatus(
               grant.source === "desktop"
                 ? controlling && controlGranted
-                  ? "Connected — click the desktop to control. Escape releases input."
+                  ? "Connected — click the screen to control it. Escape releases input."
                   : controlling
                     ? "Connected — view only. Control was not allowed on the computer."
                     : "Connected — view only."
@@ -445,7 +738,118 @@ export function LiveView({
       }
       ws.send(JSON.stringify({ ...body, generation }));
     };
+    const requestedPermissions = permissionRequests(send, setPermissionView);
+    permissions.current = requestedPermissions;
+    const upgradedInput = approvedInput(
+      (id) => requestedPermissions.hasPendingControl(id),
+      (channel, geometry) => attachInput(channel, true, geometry),
+    );
+    function attachInput(
+      channel: RTCDataChannel,
+      upgraded = false,
+      geometry?: string,
+    ) {
+      if (!element || inputChannel) {
+        channel.close();
+        return;
+      }
+      inputChannel = channel;
+      detachInput = attachRemoteInput(
+        channel,
+        grant.id,
+        element,
+        (ready) => {
+          setControlReady(ready);
+          if (upgraded && ready)
+            setStatus(
+              "Connected — click the screen to control it. Escape releases input.",
+            );
+        },
+        () => {
+          if (!upgraded) {
+            finish("Control connection ended. Request control again.");
+          } else if (!closed && inputChannel === channel) {
+            const dispose = detachInput;
+            detachInput = undefined;
+            inputChannel = undefined;
+            dispose?.();
+            channel.close();
+            setStatus("Connected — view only. Added control ended.");
+          }
+        },
+        () => touchModeRef.current,
+        setDisplayError,
+        (platform) => {
+          setPhoneHost(platform === "android");
+          if (platform === "android") setTouchMode("direct");
+        },
+      );
+      if (geometry)
+        channel.onmessage?.(new MessageEvent("message", { data: geometry }));
+    }
     pc.ondatachannel = (event) => {
+      if (event.channel.label.startsWith(approvedInputPrefix)) {
+        if (
+          permissionsVersion !== 1 ||
+          grant.source !== "desktop" ||
+          inputChannel ||
+          !event.channel.ordered ||
+          event.channel.maxRetransmits !== null ||
+          event.channel.maxPacketLifeTime !== null
+        )
+          event.channel.close();
+        else upgradedInput.offer(event.channel);
+        return;
+      }
+      if (
+        event.channel.label === "beacon-print-v1" &&
+        grant.source === "desktop" &&
+        !printer.current &&
+        event.channel.ordered
+      ) {
+        const channel = event.channel;
+        const client = new PrintClient({
+          get open() {
+            return channel.readyState === "open";
+          },
+          send: (text) => channel.send(text),
+        });
+        printer.current = client;
+        channel.onmessage = (message) => client.receive(String(message.data));
+        channel.onopen = () => setPrintReady(true);
+        channel.onclose = () => {
+          client.close();
+          printer.current = null;
+          setPrintReady(false);
+        };
+        if (channel.readyState === "open") setPrintReady(true);
+        return;
+      }
+      if (
+        event.channel.label === "beacon-drive-v1" &&
+        grant.source === "desktop" &&
+        !drive.current &&
+        event.channel.ordered
+      ) {
+        const channel = event.channel;
+        const client = new DriveClient({
+          get open() {
+            return channel.readyState === "open";
+          },
+          send: (text) => channel.send(text),
+        });
+        drive.current = client;
+        channel.onmessage = (message) => client.receive(String(message.data));
+        channel.onopen = () => setDriveReady(true);
+        channel.onclose = () => {
+          client.close();
+          drive.current = null;
+          setDriveReady(false);
+          setDriveEntries(null);
+        };
+        if (channel.readyState === "open") setDriveReady(true);
+        return;
+      }
       if (
         event.channel.label === "beacon-files-v1" &&
         grant.source === "desktop" &&
@@ -474,6 +878,7 @@ export function LiveView({
       }
       if (
         !controlling ||
+        !controlGranted ||
         !element ||
         inputChannel ||
         event.channel.label !== "beacon-input-v1" ||
@@ -485,21 +890,7 @@ export function LiveView({
         finish("Unexpected input channel.");
         return;
       }
-      inputChannel = event.channel;
-      detachInput = attachRemoteInput(
-        event.channel,
-        grant.id,
-        element,
-        setControlReady,
-        () => finish("Control connection ended. Request control again."),
-        () => touchModeRef.current,
-        setDisplayError,
-        (platform) => {
-          setPhoneHost(platform === "android");
-          // A phone is touched where it is tapped; a cursor trackpad makes no sense there.
-          if (platform === "android") setTouchMode("direct");
-        },
-      );
+      attachInput(event.channel);
     };
     pc.onicecandidate = (event) => {
       if (closed) return;
@@ -534,7 +925,7 @@ export function LiveView({
         setStatus(
           grant.source === "desktop"
             ? controlling && controlGranted
-              ? "Connected — click the desktop to control. Escape releases input."
+              ? "Connected — click the screen to control it. Escape releases input."
               : controlling
                 ? "Connected — view only. Control was not allowed on the computer."
                 : "Connected — view only."
@@ -557,6 +948,17 @@ export function LiveView({
         return;
       }
       if (event.track.kind !== "video") return;
+      // Show each picture the moment it arrives: no extra playout delay, so the screen feels live.
+      const receiver = event.receiver as RTCRtpReceiver & {
+        jitterBufferTarget?: number | null;
+        playoutDelayHint?: number | null;
+      };
+      try {
+        receiver.jitterBufferTarget = 0;
+        receiver.playoutDelayHint = 0;
+      } catch {
+        // Older browsers ignore the hint.
+      }
       const stream =
         element.srcObject instanceof MediaStream
           ? element.srcObject
@@ -634,14 +1036,39 @@ export function LiveView({
                 Number.isInteger(message.generation) &&
                 message.generation >= 0 &&
                 message.generation <= 1024
-              )
+              ) {
                 generation = message.generation;
+                permissionsVersion = message.permissionsVersion === 1 ? 1 : 0;
+                requestedPermissions.reset(generation);
+              }
               break;
+            case "permission-options":
+            case "permission-pending":
+            case "permission-unavailable":
+              requestedPermissions.receive(message);
+              break;
+            case "permission-result": {
+              const result = requestedPermissions.receive(message);
+              if (result)
+                setPermissionLog((log) =>
+                  addPermissionLog(log, {
+                    at: Date.now(),
+                    scope: result.scope,
+                    outcome: result.outcome,
+                  }),
+                );
+              if (result?.scope === "control")
+                upgradedInput.result(result.id, result.outcome === "approved");
+              break;
+            }
             case "consent":
               if (message.accepted !== true)
                 finish("Sharing was declined on the device.");
               else {
+                if (permissionsVersion === 1)
+                  send({ type: "permission-hello" });
                 resumable = message.resumable === true;
+                wasResumable.current = resumable ? grant.id : "";
                 // The person at the computer may allow viewing but not the control that was asked for.
                 if (message.control === false) controlGranted = false;
                 if (resumable) rememberView({ id: grant.id, name });
@@ -668,6 +1095,19 @@ export function LiveView({
               if (closed) return;
               for (const candidate of candidates.splice(0))
                 await pc.addIceCandidate(candidate);
+              // The phone's optional receive-only audio line: ours to send the microphone on.
+              const mids = talkMids(message.sdp as string);
+              const talk = pc
+                .getTransceivers()
+                .find(
+                  (t) =>
+                    t.receiver.track.kind === "audio" &&
+                    t.mid !== null &&
+                    mids.includes(t.mid),
+                );
+              if (talk) talk.direction = "sendonly";
+              talkSender.current = talk?.sender ?? null;
+              setTalkReady(Boolean(talk));
               const answer = await pc.createAnswer();
               await pc.setLocalDescription(answer);
               send({ type: "answer", sdp: answer.sdp });
@@ -761,20 +1201,13 @@ export function LiveView({
           const remote =
             reports.get(pair.remoteCandidateId ?? "")?.candidateType ?? "";
           setCandidateTypes(`${local || "unknown"} / ${remote || "unknown"}`);
-          // Chrome can report a peer-reflexive selected candidate even when
-          // relay-only policy is enforced. Do not label that path as direct.
-          if (
-            pc.getConfiguration().iceTransportPolicy === "relay" ||
-            local === "relay" ||
-            remote === "relay"
-          )
-            setRoute("Relayed");
-          else if (
-            ["host", "srflx"].includes(local) &&
-            ["host", "srflx"].includes(remote)
-          )
-            setRoute("Direct");
-          else setRoute("Unavailable");
+          setRoute(
+            classifyConnectionRoute(
+              local,
+              remote,
+              pc.getConfiguration().iceTransportPolicy,
+            ),
+          );
         })
         .catch(() => {
           if (!closed) setRoute("Unavailable");
@@ -794,11 +1227,35 @@ export function LiveView({
   // A pending transport replacement must never suppress Stop on navigation or
   // unmount. This cleanup does not run between attempts of the same grant.
   useEffect(() => () => stop.current(), [grant]);
+  const hasNotice =
+    ended ||
+    peerPaused ||
+    frames === 0 ||
+    Boolean(permissionView.status) ||
+    recordingSince !== null ||
+    Boolean(offer) ||
+    Boolean(transfer) ||
+    Boolean(displayError);
+  const sendNav = (action: string) =>
+    video.current?.dispatchEvent(
+      new CustomEvent("beacon-nav", { detail: action }),
+    );
+  const toggleFullscreen = async () => {
+    try {
+      if (isFullscreen) await document.exitFullscreen();
+      else await shell.current?.requestFullscreen();
+      setDisplayError("");
+    } catch {
+      setDisplayError("Full screen is unavailable in this browser.");
+    }
+  };
   return (
     <section
       ref={shell}
-      className="live-view"
+      className={`live-view${minimized ? " minimized" : ""}`}
+      aria-hidden={minimized}
       data-session-id={grant.id}
+      data-control={controlReady ? "granted" : "none"}
       data-state={
         ended
           ? "ended"
@@ -811,28 +1268,376 @@ export function LiveView({
       aria-label={`${name} remote viewer`}
     >
       <header className={`viewer-toolbar${compact ? " compact" : ""}`}>
-        <div className="viewer-identity">
-          <strong>{name}</strong>
-          <span>
-            {grant.source === "desktop"
-              ? controlling
-                ? "Mouse and keyboard"
-                : "View only"
-              : "Video test"}
-            {grant.expiresAtMillis === 0 ? " · Until stopped" : ""}
-          </span>
-        </div>
-        {compact && (
+        {onMinimize && (
           <button
-            className="viewer-control viewer-menu"
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((open) => !open)}
+            className="viewer-back"
+            title="Back to your devices. The session stays connected."
+            onClick={() => {
+              setMenuOpen(false);
+              onMinimize();
+            }}
           >
-            {menuOpen ? "Hide" : "Menu"}
+            <ViewerIcon name="back" />
+            <span>Devices</span>
           </button>
         )}
-        <div className="viewer-actions" hidden={compact && !menuOpen}>
-          <label className="viewer-scale">
+        <div className="viewer-identity">
+          <span className="viewer-dot" aria-hidden="true" />
+          <div className="viewer-identity-text">
+            <strong>{name}</strong>
+            <span>
+              {ended
+                ? "Ended"
+                : peerPaused
+                  ? "Paused"
+                  : frames > 0
+                    ? "Connected"
+                    : "Connecting"}
+              {" · "}
+              {grant.source === "desktop"
+                ? controlling || controlReady
+                  ? "Mouse and keyboard"
+                  : "View only"
+                : "Video test"}
+              {grant.expiresAtMillis === 0 ? " · Until stopped" : ""}
+            </span>
+          </div>
+        </div>
+        <div className="viewer-spacer" />
+        <button
+          className="viewer-menu"
+          aria-expanded={menuOpen}
+          title={menuOpen ? "Hide the side panel" : "Show the side panel"}
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          <ViewerIcon name="panel" />
+          <span>Details</span>
+        </button>
+        <button
+          className="viewer-stop"
+          onClick={() => {
+            stop.current();
+            onClose();
+          }}
+        >
+          {ended ? (
+            "Close"
+          ) : (
+            <>
+              <span className="stop-long">End session</span>
+              <span className="stop-short">End</span>
+            </>
+          )}
+        </button>
+      </header>
+      <div className="viewer-status" hidden={!hasNotice}>
+        <span role="status" data-decoded-frames={frames}>
+          {status}
+        </span>
+        {!permissionView.canCancel && (
+          <span role="status">{permissionView.status}</span>
+        )}
+        {recordingSince !== null && (
+          <span role="status" className="viewer-recording">
+            ● Recording{" "}
+            {(() => {
+              const seconds = Math.max(
+                0,
+                Math.floor(
+                  ((recordingClock || Date.now()) - recordingSince) / 1000,
+                ),
+              );
+              return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+            })()}
+          </span>
+        )}
+        {offer && (
+          <span role="status" className="viewer-transfer">
+            {phoneHost ? "The phone" : "The computer"} wants to send{" "}
+            {offer.name} (
+            {(offer.size / 1_048_576).toFixed(offer.size < 10_485_760 ? 1 : 0)}{" "}
+            MB).{" "}
+            <button
+              className="viewer-control"
+              onClick={() => sender.current?.accept(offer)}
+            >
+              {downloads.current.has(offer) ? "Resume download" : "Save"}
+            </button>{" "}
+            <button
+              className="viewer-control"
+              onClick={() => sender.current?.decline(offer)}
+            >
+              Decline
+            </button>
+          </span>
+        )}
+        {transfer && (
+          <span role="status" className="viewer-transfer">
+            {transferLine(transfer)}
+            {transfer.status === "interrupted" && (
+              <button
+                className="viewer-control"
+                onClick={() => {
+                  downloads.current.clear();
+                  setTransfer(null);
+                }}
+              >
+                Discard partial copy
+              </button>
+            )}
+            {(transfer.status === "sending" ||
+              transfer.status === "waiting" ||
+              transfer.status === "receiving") && (
+              <>
+                {" "}
+                <button
+                  className="viewer-control"
+                  onClick={() => sender.current?.cancel()}
+                >
+                  Cancel
+                </button>
+              </>
+            )}
+          </span>
+        )}
+        {displayError && <span role="alert">{displayError}</span>}
+      </div>
+      <div className="v-body">
+        {!ended && !minimized && frames > 0 && (
+          <div
+            className="viewer-rail"
+            role="toolbar"
+            aria-label="Device controls"
+          >
+            {controlReady && phoneHost && (
+              <>
+                <RailButton
+                  icon="back"
+                  label="Back"
+                  onClick={() => sendNav("back")}
+                />
+                <RailButton
+                  icon="home"
+                  label="Home"
+                  onClick={() => sendNav("home")}
+                />
+                <RailButton
+                  icon="recents"
+                  label="Recent apps"
+                  onClick={() => sendNav("recents")}
+                />
+                <span className="rail-rule" aria-hidden="true" />
+              </>
+            )}
+            {controlReady && (
+              <RailButton
+                icon="keyboard"
+                label="Keyboard"
+                onClick={() =>
+                  video.current?.dispatchEvent(new Event("beacon-keyboard"))
+                }
+              />
+            )}
+            {controlReady && (
+              <RailButton
+                icon="copyFrom"
+                label={phoneHost ? "Copy from phone" : "Copy from computer"}
+                disabled={clipboardMode === "off"}
+                onClick={() =>
+                  video.current?.dispatchEvent(
+                    new Event("beacon-clipboard-read"),
+                  )
+                }
+              />
+            )}
+            {controlReady && phoneHost && (
+              <RailButton
+                icon="sendTo"
+                label="Send clipboard to phone"
+                disabled={clipboardMode === "off"}
+                onClick={() =>
+                  video.current?.dispatchEvent(
+                    new Event("beacon-clipboard-write"),
+                  )
+                }
+              />
+            )}
+            {fileReady && (
+              <RailButton
+                icon="file"
+                label="Send a file"
+                disabled={transfer?.status === "sending"}
+                onClick={() => fileInput.current?.click()}
+              />
+            )}
+            {controlReady && phoneHost && (
+              <>
+                {phoneLocked && (
+                  <>
+                    <span className="rail-rule" aria-hidden="true" />
+                    <RailButton
+                      icon="lock"
+                      label="Unlock phone"
+                      pressed={padOpen}
+                      onClick={() => {
+                        setPadOpen((open) => !open);
+                        setMenuOpen(true);
+                      }}
+                    />
+                  </>
+                )}
+                {talkReady && (
+                  <RailButton
+                    icon="mic"
+                    label={
+                      talkState === "on" ? "Stop talking" : "Talk through phone"
+                    }
+                    pressed={talkState === "on"}
+                    onClick={() => void toggleTalk()}
+                  />
+                )}
+              </>
+            )}
+            <span className="rail-rule" aria-hidden="true" />
+            {hasSound && (
+              <RailButton
+                icon={soundOn ? "sound" : "mute"}
+                label={soundOn ? "Sound on" : "Sound off"}
+                pressed={soundOn}
+                onClick={() => {
+                  const next = !soundOn;
+                  if (video.current) video.current.muted = !next;
+                  setSoundOn(next);
+                }}
+              />
+            )}
+            {recordingAllowed && (
+              <RailButton
+                icon="record"
+                label={recordingSince === null ? "Record" : "Stop recording"}
+                pressed={recordingSince !== null}
+                danger={recordingSince !== null}
+                onClick={() =>
+                  recordingSince === null ? startRecording() : stopRecording()
+                }
+              />
+            )}
+            <RailButton
+              icon="fullscreen"
+              label={isFullscreen ? "Exit full screen" : "Full screen"}
+              pressed={isFullscreen}
+              onClick={() => void toggleFullscreen()}
+            />
+          </div>
+        )}
+        <div
+          className={`viewer-stage ${scale}`}
+          onDragOver={(event) => {
+            if (fileReady) event.preventDefault();
+          }}
+          onDrop={(event) => {
+            if (!fileReady) return;
+            event.preventDefault();
+            if (event.dataTransfer.files.length)
+              void sendFiles(event.dataTransfer.files);
+          }}
+        >
+          <video
+            ref={video}
+            autoPlay
+            muted
+            playsInline
+            tabIndex={controlReady && !ended ? 0 : -1}
+            className={controlReady && !ended ? "input-enabled" : undefined}
+            aria-label={
+              grant.source === "desktop"
+                ? "Remote device video"
+                : "Synthetic test video"
+            }
+          />
+          {(frames === 0 || ended) && (
+            <p className="viewer-placeholder" aria-hidden="true">
+              {status}
+            </p>
+          )}
+          {peerPaused && !ended && (
+            <p className="viewer-paused" role="status">
+              Sharing is paused by the person using this device. Screen and
+              input resume when they choose.
+            </p>
+          )}
+          {permissionView.canCancel && !ended && (
+            <div className="viewer-sheet" role="status">
+              <strong>Waiting for the person to answer</strong>
+              <span>{permissionView.status}</span>
+              <button
+                className="viewer-control"
+                onClick={() => permissions.current?.cancel()}
+              >
+                Cancel access request
+              </button>
+            </div>
+          )}
+          {needsPlay && !ended && (
+            <button className="viewer-play" onClick={() => void play.current()}>
+              Play video
+            </button>
+          )}
+        </div>
+        <div className="viewer-actions" id="viewer-panel" hidden={!menuOpen}>
+          <div className="v-session" data-g="session">
+            <p className="v-session-title">Session</p>
+            <dl className="v-stats">
+              <div>
+                <dt>Route</dt>
+                <dd>{route === "Not established" ? "—" : route}</dd>
+              </div>
+              <div>
+                <dt>Picture</dt>
+                <dd>{pictureHeight ? `${pictureHeight}p` : "—"}</dd>
+              </div>
+              <div>
+                <dt>Speed</dt>
+                <dd>
+                  {presentedFps === null
+                    ? "—"
+                    : `${Math.round(presentedFps)} fps`}
+                </dd>
+              </div>
+              <div>
+                <dt>Delay</dt>
+                <dd>
+                  {roundTripMillis === null
+                    ? "—"
+                    : `${Math.round(roundTripMillis)} ms`}
+                </dd>
+              </div>
+            </dl>
+          </div>
+          <p className="viewer-group" data-g="view" data-label>
+            View
+          </p>
+          {controlReady && phoneHost && padOpen && (
+            <p className="viewer-group" data-g="unlock" data-label>
+              Lock screen
+            </p>
+          )}
+          {controlReady && phoneHost && (
+            <p className="viewer-group" data-g="chat" data-label>
+              Message
+            </p>
+          )}
+          {(driveReady || printReady) && (
+            <p className="viewer-group" data-g="files" data-label>
+              Files
+            </p>
+          )}
+          {!ended && frames > 0 && permissionView.options.length > 0 && (
+            <p className="viewer-group" data-g="access" data-label>
+              Access
+            </p>
+          )}
+          <label data-g="view" className="viewer-scale">
             Scale
             <select
               aria-label="Video scale"
@@ -846,7 +1651,7 @@ export function LiveView({
             </select>
           </label>
           {displays.length > 1 && onSwitchDisplay && (
-            <label className="viewer-scale">
+            <label data-g="view" className="viewer-scale">
               Display
               <select
                 aria-label="Display"
@@ -867,6 +1672,8 @@ export function LiveView({
           )}
           {hasSound && (
             <button
+              data-dup
+              data-g="view"
               className="secondary viewer-sound"
               aria-pressed={soundOn}
               title="Hear what is playing on the remote computer"
@@ -881,6 +1688,8 @@ export function LiveView({
           )}
           {controlReady && (
             <button
+              data-dup
+              data-g="nav"
               className="viewer-control"
               title="Open your keyboard to type on the remote computer"
               onClick={() =>
@@ -889,6 +1698,41 @@ export function LiveView({
             >
               Keyboard
             </button>
+          )}
+          {!ended && frames > 0 && permissionView.options.length > 0 && (
+            <div data-g="access" className="viewer-scale">
+              <select
+                aria-label="Access to request"
+                value={selectedScope ?? ""}
+                disabled={permissionView.busy || peerPaused}
+                onChange={(event) => {
+                  const scope = permissionView.options.find(
+                    (option) => option === event.target.value,
+                  );
+                  setRequestedScope(scope ?? "");
+                }}
+              >
+                <option value="" disabled>
+                  Choose access
+                </option>
+                {permissionView.options.map((scope) => (
+                  <option key={scope} value={scope}>
+                    {permissionNames[scope]}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="viewer-control"
+                disabled={!selectedScope || permissionView.busy || peerPaused}
+                onClick={() => {
+                  if (selectedScope)
+                    permissions.current?.request(selectedScope);
+                  setRequestedScope("");
+                }}
+              >
+                Request access
+              </button>
+            </div>
           )}
           {controlReady &&
             phoneHost &&
@@ -901,6 +1745,8 @@ export function LiveView({
             ).map(([action, label, title]) => (
               <button
                 key={action}
+                data-g="nav"
+                data-dup
                 className="viewer-control"
                 title={title}
                 onClick={() =>
@@ -912,19 +1758,519 @@ export function LiveView({
                 {label}
               </button>
             ))}
-          {controlReady && !phoneHost && (
+          {driveReady && (
             <button
+              data-g="files"
               className="viewer-control"
-              title="Copy the computer's clipboard text to this device"
+              title="List the folder the owner shared. Asks for the Shared folder access first."
+              onClick={() => {
+                setDriveError("");
+                drive.current
+                  ?.list([])
+                  .then((entries) => setDriveEntries(entries))
+                  .catch((error: Error) => {
+                    setDriveEntries(null);
+                    setDriveError(error.message);
+                  });
+              }}
+            >
+              Browse shared folder
+            </button>
+          )}
+          {printReady && (
+            <button
+              data-g="files"
+              className="viewer-control"
+              title="Send a file to the printer chosen on the computer"
+              onClick={() => {
+                // The person at the computer chose the printer when they approved; use it, no name to type.
+                const client = printer.current;
+                if (!client) return;
+                setPrintStatus("");
+                client
+                  .printers()
+                  .then((names) => {
+                    const name = names[0];
+                    if (!name) {
+                      setPrintStatus(
+                        "No printer was chosen on the computer. Ask for Printing access again.",
+                      );
+                      return;
+                    }
+                    const picker = document.createElement("input");
+                    picker.type = "file";
+                    picker.onchange = () => {
+                      const file = picker.files?.[0];
+                      if (!file) return;
+                      setPrintStatus(`Sending to ${name}…`);
+                      file
+                        .arrayBuffer()
+                        .then((buffer) =>
+                          client.printFile(
+                            Date.now() % 4_000_000_000,
+                            name,
+                            new Uint8Array(buffer),
+                          ),
+                        )
+                        .then(() => setPrintStatus(`Printed on ${name}.`))
+                        .catch((error: Error) => setPrintStatus(error.message));
+                    };
+                    picker.click();
+                  })
+                  .catch((error: Error) => setPrintStatus(error.message));
+              }}
+            >
+              Print a file
+            </button>
+          )}
+          {printStatus && <p role="status">{printStatus}</p>}
+          {driveError && <p role="status">{driveError}</p>}
+          {driveEntries && (
+            <ul data-g="files" aria-label="Shared folder">
+              {driveEntries.map((entry) => (
+                <li key={entry.name}>
+                  {entry.name}
+                  {entry.isDir ? "/" : ""}{" "}
+                  {!entry.isDir && (
+                    <button
+                      className="viewer-control"
+                      onClick={() => {
+                        const client = drive.current;
+                        if (!client) return;
+                        setDriveError("");
+                        readFile(client, [entry.name], entry.size)
+                          .then((bytes) => {
+                            const url = URL.createObjectURL(
+                              new Blob([bytes as Uint8Array<ArrayBuffer>]),
+                            );
+                            const link = document.createElement("a");
+                            link.href = url;
+                            link.download = entry.name;
+                            link.click();
+                            setTimeout(() => URL.revokeObjectURL(url), 1000);
+                          })
+                          .catch((error: Error) =>
+                            setDriveError(error.message),
+                          );
+                      }}
+                    >
+                      Download {entry.name}
+                    </button>
+                  )}{" "}
+                  <button
+                    className="viewer-control"
+                    onClick={() => {
+                      const client = drive.current;
+                      if (!client) return;
+                      if (
+                        !window.confirm(
+                          `Delete ${entry.name} from the shared folder? This cannot be undone.`,
+                        )
+                      )
+                        return;
+                      setDriveError("");
+                      driveOps
+                        .remove(client, [entry.name])
+                        .then(() => client.list([]))
+                        .then((entries) => setDriveEntries(entries))
+                        .catch((error: Error) => setDriveError(error.message));
+                    }}
+                  >
+                    Delete {entry.name}
+                  </button>
+                  <button
+                    className="viewer-control"
+                    onClick={() => {
+                      const client = drive.current;
+                      if (!client) return;
+                      const to = window
+                        .prompt(`Rename ${entry.name} to`, entry.name)
+                        ?.trim();
+                      if (!to || to === entry.name) return;
+                      setDriveError("");
+                      driveOps
+                        .rename(client, [entry.name], [to])
+                        .then(() => client.list([]))
+                        .then((entries) => setDriveEntries(entries))
+                        .catch((error: Error) => setDriveError(error.message));
+                    }}
+                  >
+                    Rename {entry.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {driveEntries && (
+            <button
+              data-g="files"
+              className="viewer-control"
+              onClick={() => {
+                const client = drive.current;
+                if (!client) return;
+                const name = window.prompt("New folder name")?.trim();
+                if (!name) return;
+                setDriveError("");
+                driveOps
+                  .mkdir(client, [name])
+                  .then(() => client.list([]))
+                  .then((entries) => setDriveEntries(entries))
+                  .catch((error: Error) => setDriveError(error.message));
+              }}
+            >
+              New folder
+            </button>
+          )}
+          {controlReady && (
+            <button
+              data-dup
+              data-g="clip"
+              className="viewer-control"
+              disabled={clipboardMode === "off"}
+              title={
+                clipboardMode === "off"
+                  ? "Clipboard sharing is turned off on the device"
+                  : phoneHost
+                    ? "Copy the phone's clipboard text to this browser"
+                    : "Copy the computer's clipboard text to this device"
+              }
               onClick={() =>
                 video.current?.dispatchEvent(new Event("beacon-clipboard-read"))
               }
             >
-              Copy from computer
+              {phoneHost ? "Copy from phone" : "Copy from computer"}
             </button>
+          )}
+          {controlReady && phoneHost && (
+            <button
+              data-dup
+              data-g="clip"
+              className="viewer-control"
+              disabled={clipboardMode === "off"}
+              title={
+                clipboardMode === "off"
+                  ? "Clipboard sharing is turned off on the phone"
+                  : "Put this browser's clipboard text on the phone's clipboard"
+              }
+              onClick={() =>
+                video.current?.dispatchEvent(
+                  new Event("beacon-clipboard-write"),
+                )
+              }
+            >
+              Send clipboard to phone
+            </button>
+          )}
+          {controlReady && phoneHost && (
+            <button
+              data-dup
+              data-g="unlock"
+              className="viewer-control"
+              aria-expanded={padOpen}
+              title="Type the phone's passcode here. It is sent to the phone and not saved."
+              onClick={() => setPadOpen((open) => !open)}
+            >
+              Unlock phone
+            </button>
+          )}
+          {controlReady &&
+            phoneHost &&
+            padOpen &&
+            lockScreen?.state === "pad" &&
+            lockScreen.lock === "pattern" && (
+              <div
+                data-g="unlock"
+                className="viewer-pattern"
+                role="group"
+                aria-label="Pattern entry"
+              >
+                <div className="pattern-grid">
+                  {[0, 1, 2, 3, 4, 5, 6, 7, 8].map((cell) => (
+                    <button
+                      key={cell}
+                      type="button"
+                      className="pattern-dot"
+                      aria-label={`Dot ${cell + 1}`}
+                      aria-pressed={patternCells.includes(cell)}
+                      onClick={() =>
+                        setPatternCells((cells) =>
+                          cells.includes(cell) ? cells : [...cells, cell],
+                        )
+                      }
+                    >
+                      {patternCells.includes(cell)
+                        ? patternCells.indexOf(cell) + 1
+                        : ""}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="viewer-control"
+                  disabled={patternCells.length < 2}
+                  onClick={() => {
+                    video.current?.dispatchEvent(
+                      new CustomEvent("beacon-unlock-pattern", {
+                        detail: patternCells,
+                      }),
+                    );
+                    setPatternCells([]);
+                  }}
+                >
+                  Draw pattern
+                </button>
+                <button
+                  type="button"
+                  className="viewer-control"
+                  onClick={() => setPatternCells([])}
+                >
+                  Clear
+                </button>
+                <p className="note" role="status">
+                  Click the dots in order, then Draw pattern. It is sent to the
+                  phone and not saved.
+                </p>
+              </div>
+            )}
+          {controlReady &&
+            phoneHost &&
+            padOpen &&
+            lockScreen?.state === "pad" &&
+            lockScreen.lock === "password" && (
+              <form
+                data-g="unlock"
+                className="viewer-password"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (!passwordDraft) return;
+                  video.current?.dispatchEvent(
+                    new CustomEvent("beacon-unlock-password", {
+                      detail: passwordDraft,
+                    }),
+                  );
+                  setPasswordDraft("");
+                }}
+              >
+                <input
+                  type="password"
+                  autoComplete="off"
+                  aria-label="Phone password"
+                  maxLength={64}
+                  value={passwordDraft}
+                  onChange={(event) => setPasswordDraft(event.target.value)}
+                />
+                <button className="viewer-control" type="submit">
+                  Send password
+                </button>
+                <p className="note" role="status">
+                  The password is sent to the phone and not saved.
+                </p>
+              </form>
+            )}
+          {controlReady &&
+            phoneHost &&
+            padOpen &&
+            lockScreen?.state === "pad" &&
+            lockScreen.lock === "pin" && (
+              <div
+                data-g="unlock"
+                className="viewer-replica"
+                role="group"
+                aria-label="Stand-in for the phone's PIN screen"
+                style={{ aspectRatio: `${lockScreen.w} / ${lockScreen.h}` }}
+              >
+                {lockScreen.nodes.map((node, index) => {
+                  const key =
+                    node.kind === "key" ? lockKeyFor(node.text) : null;
+                  const place = {
+                    left: `${(node.x / lockScreen.w) * 100}%`,
+                    top: `${(node.y / lockScreen.h) * 100}%`,
+                    width: `${(node.w / lockScreen.w) * 100}%`,
+                    height: `${(node.h / lockScreen.h) * 100}%`,
+                  };
+                  const caption = node.text === "Delete" ? "⌫" : node.text;
+                  return node.kind === "key" ? (
+                    <button
+                      key={index}
+                      type="button"
+                      className="replica-key"
+                      style={place}
+                      disabled={key === null}
+                      aria-label={node.text || "key"}
+                      onClick={() =>
+                        key &&
+                        video.current?.dispatchEvent(
+                          new CustomEvent("beacon-unlock-key", { detail: key }),
+                        )
+                      }
+                    >
+                      {caption}
+                    </button>
+                  ) : (
+                    <span key={index} className="replica-text" style={place}>
+                      {caption}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          {controlReady &&
+            phoneHost &&
+            padOpen &&
+            lockScreen !== null &&
+            lockScreen.state !== "pad" && (
+              <p className="note" role="status">
+                {lockScreen.state === "no-pad"
+                  ? "Bringing up the PIN screen on the phone…"
+                  : lockScreen.state === "not-locked"
+                    ? "The phone is not locked."
+                    : "Unlock from the viewer is turned off on the phone."}
+              </p>
+            )}
+          {controlReady &&
+            phoneHost &&
+            padOpen &&
+            lockScreen?.state !== "pad" && (
+              <div
+                data-g="unlock"
+                className="viewer-unlock"
+                role="group"
+                aria-label="Passcode pad"
+              >
+                {[
+                  "1",
+                  "2",
+                  "3",
+                  "4",
+                  "5",
+                  "6",
+                  "7",
+                  "8",
+                  "9",
+                  "delete",
+                  "0",
+                  "enter",
+                ].map((key) => (
+                  <button
+                    key={key}
+                    className="viewer-control"
+                    type="button"
+                    onClick={() =>
+                      video.current?.dispatchEvent(
+                        new CustomEvent("beacon-unlock-key", { detail: key }),
+                      )
+                    }
+                  >
+                    {key === "delete" ? "⌫" : key === "enter" ? "Enter" : key}
+                  </button>
+                ))}
+                <p className="note" role="status">
+                  {padNote ||
+                    "Your passcode is sent to the phone as you press. It is not saved."}
+                </p>
+              </div>
+            )}
+          {lastRecording && (
+            <button
+              className="viewer-control"
+              aria-expanded={playback}
+              onClick={() => setPlayback((open) => !open)}
+            >
+              {playback ? "Hide recording" : "Play last recording"}
+            </button>
+          )}
+          {lastRecording && playback && (
+            <div data-g="view" className="viewer-playback">
+              <video controls src={lastRecording.url} />
+              <a href={lastRecording.url} download={lastRecording.name}>
+                Save again
+              </a>
+            </div>
+          )}
+          {permissionLog.length > 0 && (
+            <ul
+              data-g="access"
+              className="viewer-permission-log"
+              aria-label="Permissions this session"
+            >
+              {permissionLog.map((entry, index) => (
+                <li key={index}>{permissionLogLine(entry)}</li>
+              ))}
+            </ul>
+          )}
+          {controlReady && phoneHost && (
+            <form
+              data-g="chat"
+              className="viewer-chat"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const text = chatDraft.trim().slice(0, 300);
+                if (!text) return;
+                video.current?.dispatchEvent(
+                  new CustomEvent("beacon-chat-send", { detail: text }),
+                );
+                setChatLines((lines) =>
+                  [...lines, { from: "you" as const, text }].slice(-50),
+                );
+                setChatDraft("");
+              }}
+            >
+              <ul role="log" aria-label="Chat with the phone">
+                {chatLines.map((line, index) => (
+                  <li key={index}>
+                    {line.from === "you" ? "You" : "Phone"}: {line.text}
+                  </li>
+                ))}
+              </ul>
+              <input
+                aria-label="Message to the phone"
+                maxLength={300}
+                placeholder="Message to the phone"
+                value={chatDraft}
+                onChange={(event) => setChatDraft(event.target.value)}
+              />
+              <button className="viewer-control" type="submit">
+                Send message
+              </button>
+            </form>
+          )}
+          {controlReady && phoneHost && talkReady && (
+            <button
+              data-dup
+              data-g="chat"
+              className="viewer-control"
+              aria-pressed={talkState === "on"}
+              title="Talk through the phone's speaker. Only while the phone is unlocked and the owner allowed it."
+              onClick={() => void toggleTalk()}
+            >
+              {talkState === "on"
+                ? "Stop talking"
+                : talkState === "asking"
+                  ? "Starting…"
+                  : "Talk through phone"}
+            </button>
+          )}
+          {controlReady && phoneHost && talkReady && talkState !== "off" && (
+            <p data-g="chat" className="note" role="status">
+              {talkState === "on"
+                ? "The phone's speaker is playing your voice. Its notification says someone is talking."
+                : talkState === "locked"
+                  ? "The phone is locked, so it will not play your voice."
+                  : talkState === "disabled"
+                    ? "Talking is turned off on the phone."
+                    : talkState === "mic"
+                      ? "This browser could not use your microphone."
+                      : ""}
+            </p>
+          )}
+          {controlReady && phoneHost && clipboardMode === "auto" && (
+            <span data-dup data-g="clip" className="viewer-note">
+              Clipboard syncs automatically.
+            </span>
           )}
           {controlReady && !phoneHost && (
             <button
+              data-g="view"
               className="viewer-control"
               aria-pressed={touchMode === "direct"}
               title="Trackpad moves the cursor like a laptop touchpad. Touch acts where you tap."
@@ -938,6 +2284,8 @@ export function LiveView({
             </button>
           )}
           <button
+            data-dup
+            data-g="view"
             className="viewer-control"
             onClick={async () => {
               try {
@@ -953,6 +2301,8 @@ export function LiveView({
           </button>
           {recordingAllowed && (
             <button
+              data-dup
+              data-g="view"
               className="viewer-control"
               title="Record this session in your browser. The person using the device is told while it records."
               onClick={() =>
@@ -965,6 +2315,8 @@ export function LiveView({
           {fileReady && (
             <>
               <button
+                data-dup
+                data-g="files"
                 className="viewer-control"
                 title="Send a file to this computer. It is saved in Downloads\Beacon Remote."
                 disabled={transfer?.status === "sending"}
@@ -1037,147 +2389,8 @@ export function LiveView({
               {iceError !== null && <p>ICE server error code: {iceError}</p>}
             </div>
           </details>
-          <button
-            className="viewer-stop"
-            onClick={() => {
-              stop.current();
-              onClose();
-            }}
-          >
-            {ended
-              ? "Close"
-              : grant.source === "desktop"
-                ? controlling
-                  ? "Stop control"
-                  : "Stop viewing"
-                : "Stop video test"}
-          </button>
         </div>
-      </header>
-      <div
-        className={`viewer-stage ${scale}`}
-        onDragOver={(event) => {
-          if (fileReady) event.preventDefault();
-        }}
-        onDrop={(event) => {
-          if (!fileReady) return;
-          event.preventDefault();
-          if (event.dataTransfer.files.length)
-            void sendFiles(event.dataTransfer.files);
-        }}
-      >
-        <video
-          ref={video}
-          autoPlay
-          muted
-          playsInline
-          tabIndex={controlReady && !ended ? 0 : -1}
-          className={controlReady && !ended ? "input-enabled" : undefined}
-          aria-label={
-            grant.source === "desktop"
-              ? "Remote device video"
-              : "Synthetic test video"
-          }
-        />
-        {(frames === 0 || ended) && (
-          <p className="viewer-placeholder" aria-hidden="true">
-            {status}
-          </p>
-        )}
-        {peerPaused && !ended && (
-          <p className="viewer-paused" role="status">
-            Sharing is paused by the person using this device. Screen and input
-            resume when they choose.
-          </p>
-        )}
-        {needsPlay && !ended && (
-          <button className="viewer-play" onClick={() => void play.current()}>
-            Play video
-          </button>
-        )}
       </div>
-      <footer className="viewer-status">
-        <span role="status" data-decoded-frames={frames}>
-          {status}
-        </span>
-        {recordingSince !== null && (
-          <span role="status" className="viewer-recording">
-            ● Recording{" "}
-            {(() => {
-              const seconds = Math.max(
-                0,
-                Math.floor(
-                  ((recordingClock || Date.now()) - recordingSince) / 1000,
-                ),
-              );
-              return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-            })()}
-          </span>
-        )}
-        {offer && (
-          <span role="status" className="viewer-transfer">
-            The computer wants to send {offer.name} (
-            {(offer.size / 1_048_576).toFixed(offer.size < 10_485_760 ? 1 : 0)}{" "}
-            MB).{" "}
-            <button
-              className="viewer-control"
-              onClick={() => sender.current?.accept(offer)}
-            >
-              {downloads.current.has(offer) ? "Resume download" : "Save"}
-            </button>{" "}
-            <button
-              className="viewer-control"
-              onClick={() => sender.current?.decline(offer)}
-            >
-              Decline
-            </button>
-          </span>
-        )}
-        {transfer && (
-          <span role="status" className="viewer-transfer">
-            {transferLine(transfer)}
-            {transfer.status === "interrupted" && (
-              <button
-                className="viewer-control"
-                onClick={() => {
-                  downloads.current.clear();
-                  setTransfer(null);
-                }}
-              >
-                Discard partial copy
-              </button>
-            )}
-            {(transfer.status === "sending" ||
-              transfer.status === "waiting" ||
-              transfer.status === "receiving") && (
-              <>
-                {" "}
-                <button
-                  className="viewer-control"
-                  onClick={() => sender.current?.cancel()}
-                >
-                  Cancel
-                </button>
-              </>
-            )}
-          </span>
-        )}
-        {route !== "Not established" && (
-          <span className="viewer-quality">
-            {[
-              route,
-              pictureHeight ? `${pictureHeight}p` : null,
-              presentedFps === null ? null : `${Math.round(presentedFps)} fps`,
-              roundTripMillis === null
-                ? null
-                : `${Math.round(roundTripMillis)} ms`,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </span>
-        )}
-        {displayError && <span role="alert">{displayError}</span>}
-      </footer>
     </section>
   );
 }

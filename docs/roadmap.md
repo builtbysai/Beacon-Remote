@@ -1,9 +1,43 @@
 # Beacon Remote delivery roadmap
 
+## Current owner scope — November 17, 2026
+
+Latest development continuation: `be832b2` and `2fd40a3` fix stale viewer modifier state and
+delayed clipboard typing after release; channel regressions and web checks pass.
+`754f585` removes the moderate minimatch advisory through TypeScript-ESLint 8.73.0.
+The unpatched high picomatch advisory still blocks full audit. P0-1 is partial;
+P0-2 physical Surfiena control/release remains next. See the handoff for source
+and historical runtime/device distinctions; no hosted/device changes ran here.
+
+The owner now requests modern RDP/VNC feature parity and additional agent/support
+capabilities. The complete audited implementation plan is
+[RDP/VNC parity and beyond](rdp-vnc-parity-roadmap.md), with every supplied gap
+corrected against current code/evidence and additional missing feature families
+explicitly queued. Use [remaining testing](testing-remaining.md) to avoid repeating
+completed tests, and [the next-chat handoff](next-agent-handoff.md) to resume.
+
+Prior physical checkpoint used Android `1afcc9e`: `c22dc2f` fixes rotation-triggered input
+disconnects; actual Pixel landscape/portrait video, typing and remapped touch
+passed using locally compiled viewer assets against the isolated backend.
+Accessibility revoke/recovery and a real 3 MiB hash-verified file transfer passed.
+The signed Android status correction is installed. The VM test viewer remains
+`0bba353`; automatic approval review rejected its replacement. The one-hour
+isolated backend has expired. Production remains `5e8d5c5`, sign-in gates and
+native feeds are unchanged; dependency audit still blocks release. These results
+do not close Windows installed/sign-in lifecycle or full parity acceptance.
+
+Immediate priorities are release/runtime consistency, normal Windows input and
+installed unattended acceptance, in-session permission requests, and scoped agent
+control. Rich clipboard/files/drive mapping, input/display/reconnect fidelity,
+audio, peripherals/printing, independent sessions/RemoteApp, platform/fleet and
+trust improvements are all tracked explicitly in the detailed plan.
+
+## Earlier November 17 checkpoint
+
 The [completion checklist](completion-checklist.md) is the current tracker for
 the full-roadmap goal; dated sections below preserve scope and historical evidence.
 
-Updated November 15, 2026. [PR #124](https://github.com/builtbysai/Beacon-Remote/pull/124)
+Updated November 17, 2026. [PR #124](https://github.com/builtbysai/Beacon-Remote/pull/124)
 is merged (`008a5bb`); tested application revision `5e8d5c5` is deployed to the VM.
 Android UI/lifecycle, reviewed dependency updates and prior-password-hash
 compatibility passed. Signed Windows/Android candidates are staged privately.
@@ -12,9 +46,37 @@ checks passed. Native feeds remain unchanged and Windows sign-in gates are off.
 
 What remains:
 
-- Prepare the matching isolated acceptance backend/schema and retained test
-  identity. It remains stopped with its STOP marker present; the Pixel and
-  Surfiena are reachable, but connectivity does not close device acceptance.
+- Continue from the matching isolated acceptance backend/schema and fresh private
+  test account prepared November 16. Surfiena view-only/Stop passed. Pixel pairing,
+  attended video/touch/typing, local Pause/Resume/Stop and the first unattended
+  owner connection/control/local Disable now have physical evidence. After Disable,
+  a fresh request required approval and was refused without video/control.
+  Repeated unattended connections, competing-controller rejection, paused-input
+  blocking/Resume and real phone-lock teardown also passed. Rotation failures were
+  fixed and verified with local viewer `c22dc2f`; accessibility revoke/recovery and
+  one real file transfer passed. Continue network recovery, negative file cases
+  and wider lifecycle tests. These short results do not
+  establish full unattended release acceptance.
+- Startup-speed comparison passed on Surfiena: signed `9d377c6` acknowledged in
+  208 ms and the owner confirmed Online was quick. Finish the follow-up native
+  UI publication: the owner confirmed the signed `d3bd11c` toggle and absence of
+  a new terminal. Defer further layout choices until core acceptance as requested.
+  Repeat view/Stop passed, but media startup still took 11.8 seconds on relay;
+  diagnose that separately. Connection-time blinking was seen once, not on repeat.
+- Add in-session requests for more access (owner request, November 16). A
+  view-only connection must be able to request control and reopen permission
+  approval for files/audio/recording. Preserve one controller, release existing
+  input and require fresh local approval for increased access; never expand an
+  existing grant silently. This flow is unimplemented.
+- Publish PR #126's tested startup, native controls, readable pairing and Android
+  consent/transport fixes. Readable 12-symbol pairing passed real-database checks
+  and actual Pixel pairing. The same-signer `d329066` Android candidate and isolated
+  `0bba353` viewer passed real control after the earlier relay failure. The tested
+  Android artifact and acceptance source are hash-verified and staged privately
+  on the VM; finish hosted fix activation, latest candidate staging and publication review. The current release
+  gate is blocked by high picomatch advisory GHSA-fc5q-39xc-vjpf; the registry has
+  no patched release as of November 17. Do not waive that audit. The mixed-case
+  dummy emulator regression did not run because cold boot exceeded its bound.
 - Complete Windows cold boot/sign-in/secure attention/handoff/restart, Stop/
   Disable/input release, service recovery and installation/upgrade/rollback/
   removal acceptance. Complete Android real sharing, permissions, lock/revoke,

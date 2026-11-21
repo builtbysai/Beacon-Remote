@@ -491,6 +491,65 @@ pub fn request_access(
     display: &str,
     session: &str,
 ) -> Result<Access, Error> {
+    request_access_inner(
+        controller,
+        pending,
+        deadline,
+        (control, unlimited, None),
+        display,
+        session,
+    )
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LivePermission {
+    Control,
+    Files,
+    Recording,
+    Drive,
+    Print,
+}
+
+impl LivePermission {
+    fn detail(self) -> &'static str {
+        match self {
+            Self::Control => "Allow mouse and keyboard for this connection",
+            Self::Files => "Allow sending and receiving files for this connection",
+            Self::Recording => "Allow the viewer to record the shared stream",
+            Self::Drive => "Allow the viewer to use the shared folder for this connection",
+            Self::Print => "Allow the viewer to print on the selected printers for this connection",
+        }
+    }
+}
+
+pub fn request_live_permission(
+    controller: &str,
+    pending: Arc<AtomicBool>,
+    deadline: Instant,
+    display: &str,
+    session: &str,
+    scope: LivePermission,
+) -> Result<bool, Error> {
+    Ok(request_access_inner(
+        controller,
+        pending,
+        deadline,
+        (scope == LivePermission::Control, false, Some(scope)),
+        display,
+        session,
+    )?
+    .decision
+        != Decision::Declined)
+}
+
+fn request_access_inner(
+    controller: &str,
+    pending: Arc<AtomicBool>,
+    deadline: Instant,
+    (control, unlimited, upgrade): (bool, bool, Option<LivePermission>),
+    display: &str,
+    session: &str,
+) -> Result<Access, Error> {
     let mut state = State::new(pending, deadline);
     if !state.live() {
         return Ok(Access::DECLINED);
@@ -502,6 +561,9 @@ pub fn request_access(
         .collect();
     state.session = session.to_owned();
     state.control_requested = control;
+    // The access the viewer asked for is already selected, so one click on Allow once approves it. The
+    // person can still switch to View only, and nothing is granted until Allow once.
+    state.control_chosen = control && upgrade.is_none_or(|scope| scope == LivePermission::Control);
     unsafe {
         let instance = GetModuleHandleW(std::ptr::null());
         if instance.is_null() {
@@ -537,7 +599,11 @@ pub fn request_access(
             if AdjustWindowRectEx(&mut bounds, style, 0, WS_EX_TOPMOST) == 0 {
                 return Err(io::Error::last_os_error().into());
             }
-            let title = wide("Beacon Remote — incoming connection request");
+            let title = wide(if upgrade.is_some() {
+                "Beacon Remote — additional access request"
+            } else {
+                "Beacon Remote — incoming connection request"
+            });
             let window = CreateWindowExW(
                 WS_EX_TOPMOST,
                 class.as_ptr(),
@@ -576,15 +642,33 @@ pub fn request_access(
                         )
                     };
                 let session_line = format!("Session {} · {}", state.session, display);
-                let lifetime = if unlimited {
+                let lifetime = if upgrade.is_some() {
+                    "This connection only"
+                } else if unlimited {
                     "Until stopped"
                 } else {
                     "Up to two minutes"
                 };
-                let heading = make_text(HEADING, "Incoming connection request", 28, 26, 370, 30, 0);
+                let heading = make_text(
+                    HEADING,
+                    if upgrade.is_some() {
+                        "Request for additional access"
+                    } else {
+                        "Incoming connection request"
+                    },
+                    28,
+                    26,
+                    370,
+                    30,
+                    0,
+                );
                 let subtitle = make_text(
                     SUBTITLE,
-                    "Someone is requesting access to this computer.",
+                    if upgrade.is_some() {
+                        "The current viewer is asking for additional permission."
+                    } else {
+                        "Someone is requesting access to this computer."
+                    },
                     28,
                     58,
                     464,
@@ -619,10 +703,24 @@ pub fn request_access(
                 );
                 let tag = make_text(TAG, "REQUESTER", 388, 119, 92, 16, SS_RIGHT);
                 let panel_title = make_text(PANEL_TITLE, "Access requested", 44, 190, 300, 20, 0);
-                let row_view = make_text(ROW_ACTIVE, "View this desktop", 70, 220, 410, 20, 0);
+                let row_view = make_text(
+                    ROW_ACTIVE,
+                    if upgrade.is_some() {
+                        "The existing screen view stays open"
+                    } else {
+                        "View this desktop"
+                    },
+                    70,
+                    220,
+                    410,
+                    20,
+                    0,
+                );
                 let row_control = make_text(
                     if control { ROW_ACTIVE } else { ROW_FAINT },
-                    if control {
+                    if let Some(scope) = upgrade {
+                        scope.detail()
+                    } else if control {
                         "Mouse and keyboard control (you choose below)"
                     } else {
                         "Mouse and keyboard control not requested"
@@ -699,6 +797,11 @@ pub fn request_access(
                     || SetTimer(window, 1, 100, None) == 0
                 {
                     return Err(io::Error::last_os_error().into());
+                }
+                if upgrade.is_some() {
+                    for unused in [view_card, control_card, files_box, record_box, audio_box] {
+                        ShowWindow(unused, SW_HIDE);
+                    }
                 }
                 // Fonts: a larger semibold heading, regular body text.
                 let px = move |value: i32| (value as f32 * factor).round() as i32;

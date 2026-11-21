@@ -1,10 +1,90 @@
 # Beacon Remote completion checklist
 
-Current checkpoint: November 15, 2026. This is the single current completion
+Current checkpoint: November 17, 2026. This is the single current completion
 tracker for the owner's full-roadmap goal. The [roadmap](roadmap.md) defines
 scope; [development status](development-status.md) retains dated validation
 records. Historical entries do not override this tracker or grant new release
 authorization. No percentage is inferred from passing builds.
+
+## Latest development continuation — November 17
+
+- [x] Viewer release invalidates pending clipboard typing and clears stale modifier
+      state (`be832b2`, completed by `2fd40a3` for paced Enter/Tab replacement);
+      regressions reproduced the initial faults before the fix, then passed
+      alongside the full web suite/build, lint/typecheck/format and frozen install.
+- [x] Moderate minimatch advisory removed via supported TypeScript-ESLint 8.73.0
+      update (`754f585`); production dependency audit is clean.
+- [ ] Full audit remains blocked by high picomatch with no published patch.
+      PR #126 stays draft; no audit exception was added.
+- [ ] Physical Surfiena control/Stop/release remains the next P0-2 unit. Include
+      delayed clipboard permission followed by Escape/Stop and held-Shift focus loss.
+      No device/runtime state was inspected or changed in this source continuation.
+
+## Earlier continuation scope — November 17 evening
+
+The owner requested a full RDP/VNC gap audit and next-agent handoff. Use
+[the parity backlog](rdp-vnc-parity-roadmap.md), [remaining testing](testing-remaining.md)
+and [the handoff](next-agent-handoff.md) as the detailed current queues.
+Pixel rotation/input now passed with local viewer `c22dc2f`; accessibility revoke/
+recovery and 3 MiB hash-verified file receipt also passed. Signed Android `1afcc9e`
+fixes the stale access notice and is installed. These supersede the earlier
+rotation-unknown and locked-phone statements below. Latest device inventory:
+unlocked, availability on, capture/accessibility off; inspect before restoring.
+
+VM test-viewer activation was rejected by automatic approval review, and the
+bounded backend has expired. Dependency audit remains a release gate. Production
+and public native feeds remain unchanged. Windows input/installed boot/sign-in/
+handoff, network/lifecycle cases and new parity features remain unfinished.
+
+## Earlier November 17 Pixel acceptance update
+
+Readable pairing and same-signer updates preserved the Pixel's data. The Android
+consent fix passed an actual 41.399-second wait at the OS capture dialog. Android
+`d329066` plus isolated viewer `0bba353` then passed attended video, real browser
+touch/typing, local notification Pause/Resume/Stop and capture teardown. The first
+unattended owner connection passed without a new prompt and accepted a remote tap.
+Local Disable ended that connection; a fresh request required local approval and
+Decline supplied no video/control. Repeated unattended connections and rejection
+of a competing controller (409) passed. Unattended Pause blocked typing and held
+the decoded-frame count steady; Resume restored frames and exact typing. Real
+phone lock ended sharing and removed capture. Standing access was re-enabled for
+these later tests; the phone is locked and requires owner unlock to continue.
+Rotation failed twice with a signaling/lease interruption; the original automatic
+rotation setting was restored. This remains an open failure, with cause unproven.
+Connected runs
+confirmed backend end and owned browser-profile cleanup. The refusal run exposed
+an overly strict private-fixture terminal-state assertion (`denied` versus
+`ended`), recorded separately from product results.
+
+See [development status](development-status.md) for measurements and limits.
+Permission revoke, rotation diagnosis, network/files and wider unattended lifecycle remain open.
+Production and native feeds are unchanged. PR #126 remains draft: functional
+checks pass, but the new high picomatch advisory has no published patch on the
+official registry as of this checkpoint. No audit exception was added.
+
+## November 16 acceptance update
+
+The matching isolated acceptance backend/schema and fresh private temporary
+account are prepared and authenticated. Independent encrypted recovery and
+production isolation passed. Pixel's same-signer update preserved its data.
+Surfiena's separate limited-user fixture is paired and running in session 1.
+The owner confirmed local approval; actual view-only decoded video, relay route,
+browser Stop, backend end and browser-profile cleanup passed. No pixels were
+saved or input injected. This is a short ordinary Windows viewing result, not
+full unattended or Pixel-host acceptance. Details/measurements are in
+[development status](development-status.md).
+
+The owner reported slow initial Online status. A first-request long-poll delay
+was found; source fixes startup/recovery acknowledgement and the gap before the
+first active waiter. Focused real-HTTP/state regressions passed. The updated
+signed `9d377c6` candidate acknowledged in 208 ms on Surfiena, and the owner
+confirmed Online was quick. Follow-up native UI/blank-console changes still need
+publication. The owner confirmed the toggle and no new terminal on Surfiena.
+Its repeat view/Stop passed; media startup, control/key release and intermittent
+blinking remain open. Signed `d3bd11c` passed both native configurations and
+all four GitHub jobs; source/artifacts are checksum-verified on the VM and PR
+#126 tracks publication. Production sign-in gates
+and public native feeds remain unchanged.
 
 ## Latest publication and device readiness - November 15
 

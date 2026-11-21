@@ -10,7 +10,7 @@ If your policy blocks unsigned scripts, use an approved signing/testing process.
 3. Start menu > Beacon Remote Development > Host. Enter your Beacon Remote
    server origin and a fresh pairing code from Computers > Add a computer.
    Credentials and pairing codes are never supplied on command lines.
-4. Select Start host. The native window and tray show actual connection status.
+4. The host goes online by itself when it opens on a paired computer; the native window and tray show actual connection status.
    Every attended desktop connection still needs local Allow and has local Stop.
 5. Use Stop host or Quit. Closing the window also stops the host; minimize keeps
    it in the tray only when a tray icon is available. Shutdown waits for its
