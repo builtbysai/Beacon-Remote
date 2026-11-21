@@ -1,5 +1,10 @@
 # Deployment gates
 
+November 21 (second rollout of the day): `975fc76fab3bd19541b7cc2f9a55f23bea6ea9db` replaced `104e005` as the current Remote
+production release (new phone-made pairing routes, viewer and workspace redesign, no schema change), with an encrypted
+backup first, rollback tags `rollback-104e005`, migrate and schema/role verify passed, both containers healthy, and the
+public health, readiness, served assets and the new `/api/device-pairing/start` route checked.
+
 November 21 manual rollout (owner-authorized, "wipe the database and rollout the new"): `104e005a8cb5038b1ebb28b1f321cb678e2803c6`
 is the current Remote production release, after an encrypted backup (passed), rollback tags `rollback-5e8d5c5` for
 the predecessor `5e8d5c5`, the predecessor backend stopped, migrate and schema/role verify passed (no schema change
