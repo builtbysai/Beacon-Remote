@@ -385,6 +385,15 @@ test("a phone is greeted once so it can announce its clipboard setting", (t) => 
   );
 });
 
+test("a message type this page does not know yet is ignored, not fatal", (t) => {
+  const f = channelFixture(t);
+  f.display(2400, 1080);
+  f.message({ type: "something-from-a-newer-phone", detail: 1 });
+  assert.equal(f.failures(), 0);
+  f.message({ type: 7 });
+  assert.equal(f.failures(), 1);
+});
+
 test("the phone tells the page when it is locked", (t) => {
   const f = channelFixture(t);
   const states: boolean[] = [];

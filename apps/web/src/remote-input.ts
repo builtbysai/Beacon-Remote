@@ -1016,6 +1016,16 @@ export function attachRemoteInput(
           pushClipboardOnFocus();
           return;
         }
+        // A newer phone or computer may say things this page does not know yet. Ignore them instead of ending the
+        // session; only a message that is not even shaped like one (below) is a failure.
+        if (
+          reply !== null &&
+          typeof reply === "object" &&
+          "type" in reply &&
+          typeof reply.type === "string" &&
+          reply.type !== "display"
+        )
+          return;
       } catch {
         onFailure();
         return;
