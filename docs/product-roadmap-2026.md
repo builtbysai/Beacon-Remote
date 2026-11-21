@@ -507,8 +507,8 @@ Each item is built and pushed; the test needs a step only the owner can do. Pick
    viewer's pattern grid and password box.
 4. Surfiena: wake it and put it on the network (SSH to 100.97.59.85 times out); then the owner step on its Beacon host
    window (trusted access), and the Windows rows of the capability matrix.
-5. Not started: viewer microphone to the phone; attended frame rate and tap-to-picture latency (M4); Android
-   Enterprise managed-device unlock (needs the Pixel reset, so it is the owner's call).
+5. Done since: viewer microphone to the phone (ADR 0058) and the attended tap fix. Not planned for now (owner,
+   21 Nov): anything that needs factory-resetting a device, such as Android Enterprise managed-device unlock.
 
 - Permissions log in the viewer (20 Nov, M3): each device answer to a files, control or recording request is listed
   under "Permissions this session" with the time and outcome (allowed, declined, cancelled, expired), newest last, kept
@@ -713,8 +713,7 @@ targets checked, light and dark; (7) before and after screenshots on a desktop w
   password lock tests (the owner changes the Pixel's lock and enters it), the passcode entry on the viewer pad (owner),
   the pairing screen on a freshly unpaired phone (needs unpairing and a new code), a copied file on the phone's
   clipboard (needs an app that can copy a file), a direct (non-relayed) path and cellular measurements, attended taps that
-  are sometimes lost or slow (needs a closer look), Android Enterprise managed unlock (resets the Pixel), and the viewer
-  microphone to the phone (not requested by the owner). Surfiena (Windows) is separate and was unreachable all day.
+  are sometimes lost or slow (needs a closer look), and (dropped by the owner on 21 Nov: no factory resets for now) Android Enterprise managed unlock. Surfiena (Windows) is separate and was unreachable all day.
 
 - Lock type on the Access tab (20 Nov, build 3e3c9a54): Android does not tell an ordinary app which kind of lock a phone
   has (only whether it is secure), so Beacon learns it from the credential screen: each time it finds the PIN, pattern or
