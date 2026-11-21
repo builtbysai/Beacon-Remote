@@ -426,7 +426,8 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
         } else {
             background = HostUi.rounded(this@MainActivity, 0xFFF7F8F3.toInt(), 2)
-            setTextColor(color(R.color.beacon_text))
+            // A fixed light button, so a fixed dark label in both themes.
+            setTextColor(0xFF171A19.toInt())
         }
         setOnClickListener { onClick() }
     }
