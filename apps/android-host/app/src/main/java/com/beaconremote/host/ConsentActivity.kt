@@ -89,14 +89,6 @@ class ConsentActivity : Activity() {
         )
         layout.addView(HostUi.divider(this))
         if (grant.capability == "desktop:control") {
-                        "wants to see this screen, and asked to control it."
-                    } else {
-                        "wants to see this screen."
-                    }
-                textSize = 16f
-            },
-        )
-        if (grant.capability == "desktop:control") {
             control =
                 CheckBox(this).apply {
                     text = "Allow touch and typing"
