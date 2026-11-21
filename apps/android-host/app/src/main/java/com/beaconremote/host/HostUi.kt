@@ -193,10 +193,11 @@ object HostUi {
         outer.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         footer?.let { outer.addView(it) }
         activity.setContentView(outer)
-        // The design is light, so the system bars always draw dark icons.
+        // Dark icons on the light design, light icons on the dark one.
+        val light = activity.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK != android.content.res.Configuration.UI_MODE_NIGHT_YES
         WindowCompat.getInsetsController(activity.window, outer).apply {
-            isAppearanceLightStatusBars = true
-            isAppearanceLightNavigationBars = true
+            isAppearanceLightStatusBars = light
+            isAppearanceLightNavigationBars = light
         }
         ViewCompat.setOnApplyWindowInsetsListener(outer) { view, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
