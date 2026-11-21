@@ -132,7 +132,7 @@ class AccessibilityCapturer(
             if (scale < 1.0) {
                 val sw = maxOf(2, (width * scale).toInt() / 2 * 2)
                 val sh = maxOf(2, (height * scale).toInt() / 2 * 2)
-                out = full.cropAndScale(0, 0, width, height, sw, sh).toI420() ?: full
+                out = full.cropAndScale(0, 0, width, height, sw, sh) as org.webrtc.VideoFrame.I420Buffer
             } else {
                 out = full
             }
