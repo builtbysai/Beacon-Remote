@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 import { attachRemoteInput } from "../src/remote-input.js";
 
-function channelFixture(t: TestContext) {
+function channelFixture(t: TestContext, latencySupport = false) {
   const sent: { input: Record<string, unknown> }[] = [];
   const copied: string[] = [];
   let failures = 0;
@@ -97,7 +97,14 @@ function channelFixture(t: TestContext) {
   const message = (data: unknown) =>
     channel.onmessage?.({ data: JSON.stringify(data) });
   const display = (width: number, height: number) =>
-    message({ type: "display", id: "0", width, height, platform: "android" });
+    message({
+      type: "display",
+      id: "0",
+      width,
+      height,
+      platform: "android",
+      latencyProbe: latencySupport,
+    });
   display(1080, 2400);
   const key = (type: string, code: string, flags = {}) => {
     video.dispatchEvent(
@@ -156,6 +163,36 @@ test("normal mouse-up keeps modifiers held across clicks", (t) => {
     ).length,
     2,
   );
+});
+
+test("latency replies cannot be mistaken for display geometry", (t) => {
+  const f = channelFixture(t);
+  f.message({ type: "latency_pong", id: 999 });
+  assert.equal(f.failures(), 0);
+  f.display(2400, 1080);
+  assert.equal(f.failures(), 0);
+  f.message({ type: "latency_pong", id: "999" });
+  assert.equal(f.failures(), 1);
+});
+
+test("diagnostics do not send unknown commands to older Android hosts", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const f = channelFixture(t);
+  t.mock.timers.tick(4000);
+  assert.equal(
+    f.sent.some((message) => message.input.type === "latency_ping"),
+    false,
+  );
+});
+
+test("an advertised latency probe uses the approved input channel", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const f = channelFixture(t, true);
+  t.mock.timers.tick(400);
+  const ping = f.sent.find((message) => message.input.type === "latency_ping");
+  assert.ok(ping);
+  f.message({ type: "latency_pong", id: ping.input.id });
+  assert.equal(f.failures(), 0);
 });
 
 test("unexpected capture loss still releases held mouse and keyboard input", (t) => {

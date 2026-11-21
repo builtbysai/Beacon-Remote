@@ -3,6 +3,7 @@ import { isModifierCode, modifierChanges } from "./modifiers.js";
 import { pasteSteps, type PasteInput } from "./paste.js";
 import { lockScreenShape } from "./lock-screen.js";
 import { TouchPad, type TouchAction, type TouchMode } from "./touch-input.js";
+import { inputLatency } from "./input-latency.js";
 import {
   signInInput,
   signInDisplay,
@@ -106,11 +107,14 @@ export function parseDisplay(raw: string): {
   width: number;
   height: number;
   platform?: string;
+  latencyProbe?: boolean;
 } | null {
   try {
     const data = JSON.parse(raw);
     if (
       data.type !== "display" ||
+      (data.latencyProbe !== undefined &&
+        typeof data.latencyProbe !== "boolean") ||
       typeof data.id !== "string" ||
       !data.id.length ||
       data.id.length > 80 ||
@@ -182,6 +186,7 @@ export function attachRemoteInput(
   onNotice: (message: string) => void = () => undefined,
   onPlatform: (platform: "android" | "desktop") => void = () => undefined,
   signIn?: SignInInputScope,
+  onInputLatency: (milliseconds: number | null) => void = () => undefined,
 ) {
   let display: { id: string; width: number; height: number } | null = null;
   let sequence = signIn ? 1 : 0,
@@ -240,6 +245,12 @@ export function attachRemoteInput(
     cancelAnimationFrame(frame);
     frame = 0;
   };
+  let android = false;
+  const latency = inputLatency(
+    () => performance.now(),
+    (id) => send({ type: "latency_ping", id }) !== undefined,
+    onInputLatency,
+  );
   // Ctrl+V types the viewer's clipboard on the computer, paced under the channel's rate limit.
   const held = new Set<number>();
   const heldButtons = new Set<number>();
@@ -1009,6 +1020,15 @@ export function attachRemoteInput(
           reply !== null &&
           typeof reply === "object" &&
           "type" in reply &&
+          reply.type === "latency_pong"
+        ) {
+          if (!latency.receive((reply as { id?: unknown }).id)) onFailure();
+          return;
+        }
+        if (
+          reply !== null &&
+          typeof reply === "object" &&
+          "type" in reply &&
           reply.type === "clipboard_mode"
         ) {
           const mode = (reply as { mode?: unknown }).mode;
@@ -1052,6 +1072,10 @@ export function attachRemoteInput(
     const first = !display;
     display = next;
     if (!first) return;
+    // Older Android hosts count unknown commands as user activity. Probe only
+    // endpoints that explicitly advertise support, so diagnostics cannot keep them idle-online.
+    android =
+      !signIn && next.platform === "android" && next.latencyProbe === true;
     onPlatform(next.platform === "android" ? "android" : "desktop");
     // Ask the browser to deliver Alt+Tab, Win and similar keys to the remote computer while it
     // is full screen. Unsupported browsers keep their own shortcuts; Ctrl+Alt+Del cannot be sent.
@@ -1185,10 +1209,14 @@ export function attachRemoteInput(
   element.addEventListener("beacon-unlock-password", sendLockPassword);
   window.addEventListener("blur", release);
   document.addEventListener("visibilitychange", visibility);
-  const heartbeat = setInterval(() => send({ type: "keep_alive" }), 400);
+  const heartbeat = setInterval(() => {
+    send({ type: "keep_alive" });
+    latency.tick(android && !document.hidden);
+  }, 400);
   return () => {
     release();
     disposed = true;
+    latency.close();
     if (attention) clearTimeout(attention.timer);
     clearTimeout(attentionCooldown);
     attention = null;

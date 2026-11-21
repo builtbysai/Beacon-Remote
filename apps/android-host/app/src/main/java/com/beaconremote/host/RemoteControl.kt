@@ -180,7 +180,7 @@ class RemoteControl(
     }
 
     private fun sendGeometry() {
-        val geometry = JSONObject().put("type", "display").put("id", "0").put("width", width).put("height", height).put("platform", "android")
+        val geometry = JSONObject().put("type", "display").put("id", "0").put("width", width).put("height", height).put("platform", "android").put("latencyProbe", true)
         channel.send(DataChannel.Buffer(ByteBuffer.wrap(geometry.toString().toByteArray()), false))
     }
 
@@ -223,7 +223,8 @@ class RemoteControl(
         }
         try {
             apply(input)
-            if (input.optString("type") != "keep_alive") lastActivity = now
+            val kind = input.optString("type")
+            if (kind != "keep_alive" && kind != "latency_ping") lastActivity = now
         } catch (error: Exception) {
             Log.w(TAG, "Ignored input", error)
         }
@@ -392,6 +393,12 @@ class RemoteControl(
                 }
             }
             "release_all" -> release()
+            "latency_ping" -> {
+                val value = input.opt("id") as? Number ?: return
+                val id = value.toLong()
+                if (id in 1..Int.MAX_VALUE.toLong() && value.toDouble() == id.toDouble())
+                    sendJson(JSONObject().put("type", "latency_pong").put("id", id))
+            }
             "keep_alive" -> {}
         }
     }

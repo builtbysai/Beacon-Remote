@@ -1,20 +1,27 @@
 // Physical-device acceptance only. Reference images remain in the owned browser's
 // memory; the caller receives durations and contrast, never screen contents.
 export async function createVisualResponseProbe(browser, options) {
-  const install = ({ selector, region, settleMillis = 1400 }) => {
+  const install = ({
+    selector,
+    region,
+    settleMillis = 1400,
+    compareProcessor = false,
+  }) => {
     const video = document.querySelector(selector);
     if (!(video instanceof HTMLVideoElement)) throw Error("No live video");
     const canvas = document.createElement("canvas");
     canvas.width = 64;
     canvas.height = 32;
     const context = canvas.getContext("2d", { willReadFrequently: true });
-    const capture = () => {
+    const capture = (source = video) => {
+      const width = source.displayWidth ?? source.videoWidth;
+      const height = source.displayHeight ?? source.videoHeight;
       context.drawImage(
-        video,
-        video.videoWidth * region.x,
-        video.videoHeight * region.y,
-        video.videoWidth * region.width,
-        video.videoHeight * region.height,
+        source,
+        width * region.x,
+        height * region.y,
+        width * region.width,
+        height * region.height,
         0,
         0,
         64,
@@ -55,6 +62,14 @@ export async function createVisualResponseProbe(browser, options) {
         probe.response = new Promise((resolve) => {
           let done = false,
             callback;
+          let started,
+            processorMs = null,
+            processorError = null,
+            reader,
+            track;
+          const recognized = (picture) =>
+            distance(picture, baseline) > contrast * 0.35 &&
+            distance(picture, expected) < contrast * 0.65;
           const finish = (value) => {
             if (done) return;
             done = true;
@@ -62,19 +77,23 @@ export async function createVisualResponseProbe(browser, options) {
             video.removeEventListener("pointerdown", onDown);
             if (callback !== undefined)
               video.cancelVideoFrameCallback(callback);
-            resolve(value);
+            void reader?.cancel().catch(() => {});
+            track?.stop();
+            resolve(
+              compareProcessor
+                ? { videoMs: value, processorMs, processorError }
+                : value,
+            );
           };
           const onDown = () => {
             const start = performance.now();
+            started = start;
             const tick = () => {
               if (done) return;
               const picture = capture();
               // Lossy encoding can change a few pixels on a still screen. Require
               // a recognizable transition toward the target, not any changed bit.
-              if (
-                distance(picture, baseline) > contrast * 0.35 &&
-                distance(picture, expected) < contrast * 0.65
-              )
+              if (recognized(picture))
                 return finish(Math.round(performance.now() - start));
               callback = video.requestVideoFrameCallback(tick);
             };
@@ -83,6 +102,41 @@ export async function createVisualResponseProbe(browser, options) {
           const timer = setTimeout(() => finish(null), 3500);
           cancel = () => finish(null);
           video.addEventListener("pointerdown", onDown, { once: true });
+          if (compareProcessor) {
+            void (async () => {
+              try {
+                // A cloned receiver track shares the approved decoded stream. It
+                // introduces no capture, authority, signaling or network changes.
+                track = video.srcObject.getVideoTracks()[0].clone();
+                reader = new MediaStreamTrackProcessor({
+                  track,
+                  maxBufferSize: 1,
+                }).readable.getReader();
+                while (!done) {
+                  const { value: frame, done: ended } = await reader.read();
+                  if (ended) break;
+                  try {
+                    if (
+                      !done &&
+                      started !== undefined &&
+                      recognized(capture(frame))
+                    ) {
+                      processorMs = Math.round(performance.now() - started);
+                      break;
+                    }
+                  } finally {
+                    frame.close();
+                  }
+                }
+              } catch (error) {
+                processorError = error.name;
+              } finally {
+                await reader?.cancel().catch(() => {});
+                reader?.releaseLock();
+                track?.stop();
+              }
+            })();
+          }
         });
         return { contrast };
       },

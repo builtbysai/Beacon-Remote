@@ -314,6 +314,9 @@ export function LiveView({
   const recorder = useRef<MediaRecorder | null>(null);
   const sending = useRef(false);
   const [roundTripMillis, setRoundTripMillis] = useState<number | null>(null);
+  const [inputRoundTripMillis, setInputRoundTripMillis] = useState<
+    number | null
+  >(null);
   const [videoStats, setVideoStats] = useState<VideoPerformance>(() =>
     videoPerformance({ id: "", timestamp: 0 }),
   );
@@ -769,6 +772,7 @@ export function LiveView({
         element,
         (ready) => {
           setControlReady(ready);
+          if (!ready) setInputRoundTripMillis(null);
           if (upgraded && ready)
             setStatus(
               "Connected — click the screen to control it. Escape releases input.",
@@ -792,6 +796,8 @@ export function LiveView({
           setPhoneHost(platform === "android");
           if (platform === "android") setTouchMode("direct");
         },
+        undefined,
+        setInputRoundTripMillis,
       );
       if (geometry)
         channel.onmessage?.(new MessageEvent("message", { data: geometry }));
@@ -2371,6 +2377,12 @@ export function LiveView({
                 {videoStats.jitterBufferMs === null
                   ? "Not measured"
                   : `${videoStats.jitterBufferMs.toFixed(1)} ms`}
+              </p>
+              <p>
+                Control round trip:{" "}
+                {inputRoundTripMillis === null
+                  ? "Not measured"
+                  : `${Math.round(inputRoundTripMillis)} ms`}
               </p>
               <p>
                 Decode:{" "}
