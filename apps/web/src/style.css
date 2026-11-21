@@ -2717,3 +2717,11 @@ button.danger {
   border-radius: 0.5rem;
   background: #000;
 }
+
+/* The phone pairing QR code. */
+.pairing-qr {
+  width: 11rem;
+  height: 11rem;
+  border: 1px solid var(--line, #3a4a63);
+  border-radius: 0.5rem;
+}

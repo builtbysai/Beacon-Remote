@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "./api.js";
+import { qrModules } from "./qr.js";
 
 type Progress = {
   state: "waiting" | "claimed" | "expired" | "cancelled" | "unavailable";
@@ -8,6 +9,31 @@ type Progress = {
 type Invitation = { code: string; deadline: number };
 
 // Opens the Android app with the code filled in; the person still taps Pair there.
+/** The pairing link drawn as a QR code (an SVG of dark squares). A phone's camera opens it in the Beacon app. */
+export function PairingQr({ link }: { link: string }) {
+  const modules = qrModules(link);
+  if (!modules) return null;
+  const quiet = 4;
+  const size = modules.length + quiet * 2;
+  const path = modules
+    .flatMap((row, y) =>
+      row.map((dark, x) => (dark ? `M${x + quiet} ${y + quiet}h1v1h-1z` : "")),
+    )
+    .join("");
+  return (
+    <svg
+      className="pairing-qr"
+      viewBox={`0 0 ${size} ${size}`}
+      role="img"
+      aria-label="QR code for the phone pairing link"
+      shapeRendering="crispEdges"
+    >
+      <rect width={size} height={size} fill="#fff" />
+      <path d={path} fill="#171a19" />
+    </svg>
+  );
+}
+
 export function pairingLink(origin: string, code: string) {
   return `beaconremote://pair?code=${encodeURIComponent(code)}&server=${encodeURIComponent(origin)}`;
 }
@@ -303,9 +329,14 @@ export function PairComputer({
                 {copied === "link" ? "Copied" : "Copy link"}
               </button>
             </div>
+            {seconds > 0 && (
+              <PairingQr
+                link={pairingLink(window.location.origin, invitation.code)}
+              />
+            )}
             <p className="note">
-              The link fills in the address and code. Tap Pair on the phone to
-              finish.
+              Point the phone's camera at the square, or open the link. It fills
+              in the address and code. Tap Pair on the phone to finish.
             </p>
           </div>
           <a href="#downloads">Get the Windows or Android app →</a>
