@@ -185,9 +185,13 @@ class ControlService : AccessibilityService() {
 
     private fun isPinPad(node: AccessibilityNodeInfo) = node.viewIdResourceName?.endsWith("pin_pad_grid") == true || node.text?.toString() == "Enter PIN"
 
-    private fun isPatternView(node: AccessibilityNodeInfo) = node.viewIdResourceName?.endsWith("lockPatternView") == true
+    // The pattern grid: "lockPatternView" on older Android, "bouncer_pattern_root" on current Pixels (title "Draw pattern").
+    private fun isPatternView(node: AccessibilityNodeInfo) =
+        node.viewIdResourceName?.let { it.endsWith("lockPatternView") || it.endsWith("bouncer_pattern_root") } == true
 
-    private fun isPasswordField(node: AccessibilityNodeInfo) = node.viewIdResourceName?.endsWith("passwordEntry") == true
+    // The password field: "passwordEntry" on older Android; otherwise the text box on the SystemUI password screen.
+    private fun isPasswordField(node: AccessibilityNodeInfo) =
+        node.viewIdResourceName?.endsWith("passwordEntry") == true || node.className?.toString()?.endsWith("EditText") == true
 
     /** The credential screen that is up (PIN pad, pattern grid or password field) and which kind it is. */
     private fun findLockRoot(): Pair<AccessibilityNodeInfo, String>? {
