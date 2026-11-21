@@ -1,10 +1,8 @@
-import { ViewerIcon } from "./viewer-icons";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import type { Machine } from "@beacon-remote/protocol";
 import "./style.css";
 import "./viewer.css";
-import "./workspace-devices.css";
 import { LiveView, type ViewGrant } from "./LiveView.js";
 import { SignInView } from "./SignInView.js";
 import { Brand, Monitor, ProductPage, pageFromHash } from "./Product.js";
@@ -1155,9 +1153,6 @@ function App() {
                       key={machine.id}
                       className={`device-row${selected === machine.id ? " is-selected" : ""}`}
                     >
-                      <span className="device-avatar" aria-hidden="true">
-                        <ViewerIcon name="device" />
-                      </span>
                       <span
                         className={`status-dot ${live ? "online" : "offline"}`}
                         role="img"

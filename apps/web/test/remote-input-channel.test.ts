@@ -385,6 +385,20 @@ test("a phone is greeted once so it can announce its clipboard setting", (t) => 
   );
 });
 
+test("the phone tells the page when it is locked", (t) => {
+  const f = channelFixture(t);
+  const states: boolean[] = [];
+  f.video.addEventListener("beacon-lock", (event) =>
+    states.push((event as CustomEvent).detail === true),
+  );
+  f.message({ type: "lock", locked: true });
+  f.message({ type: "lock", locked: false });
+  assert.deepEqual(states, [true, false]);
+  assert.equal(f.failures(), 0);
+  f.message({ type: "lock", locked: "yes" });
+  assert.equal(f.failures(), 1);
+});
+
 test("asking to talk goes to the phone and its answer reaches the page", (t) => {
   const f = channelFixture(t);
   const states: string[] = [];

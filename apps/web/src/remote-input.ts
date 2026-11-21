@@ -954,6 +954,22 @@ export function attachRemoteInput(
           reply !== null &&
           typeof reply === "object" &&
           "type" in reply &&
+          reply.type === "lock"
+        ) {
+          const locked = (reply as { locked?: unknown }).locked;
+          if (typeof locked !== "boolean") {
+            onFailure();
+            return;
+          }
+          element.dispatchEvent(
+            new CustomEvent("beacon-lock", { detail: locked }),
+          );
+          return;
+        }
+        if (
+          reply !== null &&
+          typeof reply === "object" &&
+          "type" in reply &&
           reply.type === "talk"
         ) {
           const state = (reply as { state?: unknown }).state;

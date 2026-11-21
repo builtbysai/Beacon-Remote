@@ -24,6 +24,8 @@ class RemoteControl(
     private val onState: (Boolean) -> Unit,
 ) : DataChannel.Observer {
     private var talking = false
+    // Whether the phone is locked, told to the viewer whenever it changes (so Unlock appears only at the lock screen).
+    private var lastLocked: Boolean? = null
     // The screen's size in pixels; changes when the phone is turned (see [resize]).
     private var width = width
     private var height = height
@@ -231,6 +233,11 @@ class RemoteControl(
     /** Called about once a second by the session: held touches are let go when the viewer goes quiet. */
     fun quietCheck() {
         val quiet = SystemClock.elapsedRealtime() - lastMessage
+        val locked = ControlService.instance?.let { it.getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked }
+        if (locked != null && locked != lastLocked) {
+            lastLocked = locked
+            runCatching { sendJson(JSONObject().put("type", "lock").put("locked", locked)) }
+        }
         // Talking stops the moment the phone locks.
         if (talking && ControlService.instance?.let { it.getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked } == true) setTalk(false)
         if (open && quiet >= 1500) release()

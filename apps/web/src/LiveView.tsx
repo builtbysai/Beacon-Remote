@@ -182,6 +182,8 @@ export function LiveView({
   const [hasSound, setHasSound] = useState(false);
   // Talking through the phone's speaker (ADR 0058): the line exists only when the owner allowed it.
   const [talkReady, setTalkReady] = useState(false);
+  // Whether the phone is at its lock screen, told by the phone. Unlock is only offered then.
+  const [phoneLocked, setPhoneLocked] = useState(false);
   const [talkState, setTalkState] = useState<
     "off" | "asking" | "on" | "locked" | "disabled" | "mic"
   >("off");
@@ -402,6 +404,17 @@ export function LiveView({
       );
     target.addEventListener("beacon-chat", onChat);
     return () => target.removeEventListener("beacon-chat", onChat);
+  }, [transportAttempt]);
+  useEffect(() => {
+    const target = video.current;
+    if (!target) return;
+    const onLock = (event: Event) => {
+      const locked = (event as CustomEvent).detail === true;
+      setPhoneLocked(locked);
+      if (!locked) setPadOpen(false);
+    };
+    target.addEventListener("beacon-lock", onLock);
+    return () => target.removeEventListener("beacon-lock", onLock);
   }, [transportAttempt]);
   const stopMic = () => {
     talkMic.current?.getTracks().forEach((t) => t.stop());
@@ -1459,16 +1472,20 @@ export function LiveView({
             )}
             {controlReady && phoneHost && (
               <>
-                <span className="rail-rule" aria-hidden="true" />
-                <RailButton
-                  icon="lock"
-                  label="Unlock phone"
-                  pressed={padOpen}
-                  onClick={() => {
-                    setPadOpen((open) => !open);
-                    setMenuOpen(true);
-                  }}
-                />
+                {phoneLocked && (
+                  <>
+                    <span className="rail-rule" aria-hidden="true" />
+                    <RailButton
+                      icon="lock"
+                      label="Unlock phone"
+                      pressed={padOpen}
+                      onClick={() => {
+                        setPadOpen((open) => !open);
+                        setMenuOpen(true);
+                      }}
+                    />
+                  </>
+                )}
                 {talkReady && (
                   <RailButton
                     icon="mic"
