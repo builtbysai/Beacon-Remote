@@ -571,10 +571,12 @@ class ShareSession(
         peer = connection
         val screen = track ?: return
         val sender = connection.addTrack(screen, listOf("beacon-screen"))
-        connection.transceivers.firstOrNull { it.sender == sender }?.direction = RtpTransceiver.RtpTransceiverDirection.SEND_ONLY
+        // getSenders/getTransceivers create Java wrappers. Compare the native sender's stable ID,
+        // not wrapper identity, or direction and codec preferences silently never reach this sender.
+        connection.transceivers.firstOrNull { it.sender.id() == sender.id() }?.direction = RtpTransceiver.RtpTransceiverDirection.SEND_ONLY
         soundTrack?.let { audio ->
             val audioSender = connection.addTrack(audio, listOf("beacon-screen"))
-            connection.transceivers.firstOrNull { it.sender == audioSender }?.direction = RtpTransceiver.RtpTransceiverDirection.SEND_ONLY
+            connection.transceivers.firstOrNull { it.sender.id() == audioSender.id() }?.direction = RtpTransceiver.RtpTransceiverDirection.SEND_ONLY
         }
         // Screen text needs a high, steady bitrate: start high so the first pictures are sharp, never drop resolution.
         runCatching { connection.setBitrate(2_000_000, 8_000_000, 16_000_000) }
@@ -582,8 +584,8 @@ class ShareSession(
         runCatching {
             val codecs = peerFactory.getRtpSenderCapabilities(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO).codecs
             val ordered = codecs.filter { it.name == "H264" } + codecs.filter { it.name != "H264" }
-            connection.transceivers.firstOrNull { it.sender == sender }?.setCodecPreferences(ordered)
-        }
+            connection.transceivers.firstOrNull { it.sender.id() == sender.id() }?.setCodecPreferences(ordered)
+        }.onFailure { Log.w(TAG, "Video codec preferences could not be applied") }
         Log.i("BeaconHost", "Control decision: capability=${grant.capability} allowed=$controlAllowed service=${ControlService.instance != null}")
         if (grant.capability == "desktop:control" && controlAllowed && ControlService.instance != null) {
             // The input channel is made here, before the offer, as the Windows host does.
