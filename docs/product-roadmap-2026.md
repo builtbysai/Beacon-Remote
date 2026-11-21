@@ -670,3 +670,8 @@ targets checked, light and dark; (7) before and after screenshots on a desktop w
   shows the viewer's 3x3 dot grid with "Draw pattern" and "Clear" instead of the number pad. Not yet done: drawing the
   pattern (the owner enters it), the Access tab reading "Lock type: Pattern" (needs the phone unlocked), and the password
   lock.
+
+- Lock type on a pattern lock, confirmed on the Pixel (20 Nov): after the pattern fix, a locked session with the unlock pad
+  open showed the dot grid in the viewer and, once the owner unlocked the phone, the Access tab read "Lock type: Pattern
+  (last seen 3 minutes ago)", so the line follows the lock when it changes. Still to be seen: the owner drawing the pattern
+  from the viewer's grid, and a password lock.
