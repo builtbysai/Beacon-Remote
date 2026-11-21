@@ -595,6 +595,19 @@ no tap went missing in 16 (earlier runs lost several); unattended 840, 1039, 268
 tap of a run and about one tap in eight still take 1.1-1.5 s; that looks like picture pacing (a frame only goes out when
 the screen changes) rather than input, but that is not proven. Direct-path and cellular are still unmeasured.
 
+Viewer microphone to the phone, built (21 Nov, "build it"; ADR 0058). Phone: a switch "Talk through this phone" in the
+Privacy tab (off by default); when on and the session has control, the phone's offer carries one extra receive-only,
+muted audio line; a viewer's "talk" request unmutes it only if the switch is on, the phone is unlocked and sharing is not
+paused, answers on/off/locked/disabled, and the sharing notification adds "Someone is talking". Viewer: a "Talk through
+phone" button in the tools drawer (shown only when the phone offered the line) opens the browser microphone after the
+browser's own prompt and sends it on that line. Checked on a freshly wiped and re-paired Android Studio emulator, with a
+synthetic tone standing in for the microphone: with the switch off the button is absent; with it on the button appears,
+Talk puts "Someone is talking" in the phone's notification and the phone starts playing (an Android audio track started
+for voice) ; Stop talking and a locked phone end it (the unattended session itself ends when the phone locks). Not
+shown: a request made while the phone is already locked, because a viewer cannot connect to this emulator when it is
+locked; that refusal is in the code (state "locked") but not seen. Not heard by a person: the emulator has no speaker
+check, and a real microphone was not used. Pixel check of this feature is still to do by the owner.
+
 - File transfer resume, phone to viewer (20 Nov, built, not tested): the viewer already asks to carry on from a byte
   offset with the hash of what it holds; the Android sender ignored that and always started over. It now skips the
   first bytes only if their SHA-256 matches what the viewer sent, otherwise it answers "failed / resume" (the viewer
