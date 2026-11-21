@@ -658,3 +658,7 @@ targets checked, light and dark; (7) before and after screenshots on a desktop w
   password screen it remembers the kind (never the credential) and the Access tab shows "Lock type: PIN (last seen ...)",
   "not seen yet", or "no screen lock". Pixel: installed; before any lock the line read "not seen yet". A locked unattended
   session with the unlock pad open was run so it should now read PIN; reading it needs the phone unlocked (owner).
+
+- Lock type line, confirmed on the Pixel (20 Nov): after a locked unattended session with the unlock pad open, the
+  Access tab reads "Lock type: PIN (last seen 1 hour ago)". Pattern and password detection are still to be seen on a
+  real lock (the owner changes the Pixel's lock).
