@@ -1,3 +1,4 @@
+import { talkMids } from "./talk-line";
 import { classifyConnectionRoute } from "./connection-route";
 import {
   FileSender,
@@ -1013,14 +1014,17 @@ export function LiveView({
               if (closed) return;
               for (const candidate of candidates.splice(0))
                 await pc.addIceCandidate(candidate);
-              // The phone's optional receive-only audio line: ours is the one we may send on.
+              // The phone's optional receive-only audio line: ours to send the microphone on.
+              const mids = talkMids(message.sdp as string);
               const talk = pc
                 .getTransceivers()
                 .find(
                   (t) =>
                     t.receiver.track.kind === "audio" &&
-                    (t.direction === "sendrecv" || t.direction === "sendonly"),
+                    t.mid !== null &&
+                    mids.includes(t.mid),
                 );
+              if (talk) talk.direction = "sendonly";
               talkSender.current = talk?.sender ?? null;
               setTalkReady(Boolean(talk));
               const answer = await pc.createAnswer();
