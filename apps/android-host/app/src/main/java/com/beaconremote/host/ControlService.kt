@@ -50,7 +50,18 @@ class ControlService : AccessibilityService() {
         }
         val duration = durationMs.coerceIn(1, GestureDescription.getMaxGestureDuration())
         val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, duration)).build()
-        return dispatchGesture(gesture, null, null)
+        // Optional local timing only: no coordinates, keys, text or screen content.
+        val diagnostic = android.util.Log.isLoggable("BeaconPerformance", android.util.Log.DEBUG)
+        val started = SystemClock.elapsedRealtime()
+        val callback = if (diagnostic) object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription) {
+                android.util.Log.d("BeaconPerformance", "gesture completedMs=${SystemClock.elapsedRealtime() - started} requestedMs=$duration")
+            }
+            override fun onCancelled(gestureDescription: GestureDescription) {
+                android.util.Log.d("BeaconPerformance", "gesture cancelledMs=${SystemClock.elapsedRealtime() - started}")
+            }
+        } else null
+        return dispatchGesture(gesture, callback, null)
     }
 
     fun system(action: String): Boolean {

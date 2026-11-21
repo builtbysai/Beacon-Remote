@@ -335,11 +335,40 @@ class ShareSession(
             return
         }
         control?.quietCheck()
+        inspectVideoTiming(now)
         refreshPermissionOptions()
         sequence += 1
         challenges.addLast(sequence.toString() to now)
         while (challenges.size > 4) challenges.removeFirst()
         socket?.send(JSONObject().put("type", "renew").put("nonce", sequence.toString()).toString())
+    }
+
+    // Enabled explicitly through Android's local log-tag setting for physical diagnostics.
+    // Only aggregate media timings are logged, never media, input, SDP or credentials.
+    private var lastVideoInspection = 0L
+    private var previousVideoTiming: DoubleArray? = null
+    private fun inspectVideoTiming(now: Long) {
+        if (!Log.isLoggable("BeaconPerformance", Log.DEBUG) || now - lastVideoInspection < 5000) return
+        val connection = peer ?: return
+        val generation = viewer.generation
+        if (!canShare(generation)) return
+        lastVideoInspection = now
+        connection.getStats { report -> post {
+            if (peer !== connection || !canShare(generation)) return@post
+            val video = report.statsMap.values.firstOrNull { it.type == "outbound-rtp" && it.members["kind"] == "video" } ?: return@post
+            val members = video.members
+            fun number(name: String) = (members[name] as? Number)?.toDouble() ?: Double.NaN
+            val sample = doubleArrayOf(report.timestampUs / 1000, number("framesEncoded"), number("totalEncodeTime"), number("packetsSent"), number("totalPacketSendDelay"))
+            val previous = previousVideoTiming
+            previousVideoTiming = sample
+            if (previous == null || sample[0] <= previous[0] || sample[1] <= previous[1]) return@post
+            val frames = sample[1] - previous[1]
+            val fps = frames * 1000 / (sample[0] - previous[0])
+            val encodeMs = (sample[2] - previous[2]) * 1000 / frames
+            val packets = sample[3] - previous[3]
+            val sendMs = if (packets > 0) (sample[4] - previous[4]) * 1000 / packets else Double.NaN
+            Log.d("BeaconPerformance", "video fps=$fps encodeMs=$encodeMs packetQueueMs=$sendMs")
+        } }
     }
 
     private fun handle(message: JSONObject) {
@@ -720,6 +749,7 @@ class ShareSession(
     }
 
     private fun closePeer() {
+        previousVideoTiming = null
         talkReceiver?.track()?.setEnabled(false)
         talkReceiver = null
         HostState.talking = false
