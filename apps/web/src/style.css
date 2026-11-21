@@ -3061,3 +3061,102 @@ button.danger {
     padding-inline: 10px;
   }
 }
+
+/* Access request sheet: a card over the bottom of the picture while someone is deciding. */
+.live-view .viewer-sheet {
+  position: absolute;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  width: min(460px, calc(100% - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 20px;
+  border: 1px solid #2c3e52;
+  border-radius: 16px;
+  background: rgba(23, 35, 49, 0.96);
+  box-shadow: 0 18px 48px #0009;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.live-view .viewer-sheet strong {
+  font-size: 15px;
+}
+.live-view .viewer-sheet span {
+  color: #c1d0e1;
+}
+.live-view .viewer-sheet .viewer-control {
+  align-self: flex-start;
+}
+
+/* Light appearance for the viewer chrome (the picture area stays dark). */
+@media (prefers-color-scheme: light) {
+  .live-view {
+    background: #f3f4f1;
+    color: #171a19;
+  }
+  .live-view .viewer-toolbar,
+  .live-view .viewer-toolbar.compact,
+  .live-view .viewer-status {
+    background: #fbfbf8;
+    border-color: #dcdfd9;
+    color: #171a19;
+  }
+  .live-view .viewer-identity span:not(.viewer-dot),
+  .live-view .viewer-status,
+  .live-view .viewer-quality {
+    color: #5b625f;
+  }
+  .live-view .viewer-control,
+  .live-view .viewer-diagnostics summary,
+  .live-view .viewer-actions .viewer-sound {
+    background: #ffffff;
+    border-color: #cfd3cd;
+    color: #171a19;
+  }
+  .live-view .viewer-control:hover,
+  .live-view .viewer-diagnostics summary:hover,
+  .live-view .viewer-menu[aria-expanded="true"] {
+    background: #eceee9;
+  }
+  .live-view .viewer-actions .viewer-sound[aria-pressed="true"] {
+    background: #3756ed;
+    border-color: #3756ed;
+    color: #fff;
+  }
+  .live-view .viewer-actions,
+  .live-view .viewer-toolbar.compact .viewer-actions {
+    background: #fbfbf8;
+    border-color: #dcdfd9;
+    box-shadow: -18px 0 40px #0002;
+  }
+  .live-view .viewer-actions-title,
+  .live-view .viewer-actions > .viewer-group {
+    color: #5b625f;
+    border-color: #dcdfd9;
+  }
+  .live-view .viewer-scale {
+    color: #3c423f;
+  }
+  .live-view .viewer-scale select,
+  .live-view .viewer-actions .viewer-chat input {
+    background: #fff;
+    border-color: #cfd3cd;
+    color: #171a19;
+  }
+  .live-view .viewer-diagnostics-panel {
+    background: #fbfbf8;
+    border-color: #cfd3cd;
+  }
+  .live-view .viewer-diagnostics-panel p {
+    color: #3c423f;
+  }
+  .live-view .viewer-stop {
+    background: #c63b43;
+    border-color: #c63b43;
+  }
+  .live-view .viewer-status [role="alert"] {
+    color: #b3262e;
+  }
+}

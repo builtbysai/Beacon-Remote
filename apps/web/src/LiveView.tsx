@@ -1918,6 +1918,18 @@ export function LiveView({
             resume when they choose.
           </p>
         )}
+        {permissionView.canCancel && !ended && (
+          <div className="viewer-sheet" role="status">
+            <strong>Waiting for the person to answer</strong>
+            <span>{permissionView.status}</span>
+            <button
+              className="viewer-control"
+              onClick={() => permissions.current?.cancel()}
+            >
+              Cancel access request
+            </button>
+          </div>
+        )}
         {needsPlay && !ended && (
           <button className="viewer-play" onClick={() => void play.current()}>
             Play video
@@ -1928,14 +1940,8 @@ export function LiveView({
         <span role="status" data-decoded-frames={frames}>
           {status}
         </span>
-        <span role="status">{permissionView.status}</span>
-        {permissionView.canCancel && (
-          <button
-            className="viewer-control"
-            onClick={() => permissions.current?.cancel()}
-          >
-            Cancel access request
-          </button>
+        {!permissionView.canCancel && (
+          <span role="status">{permissionView.status}</span>
         )}
         {recordingSince !== null && (
           <span role="status" className="viewer-recording">

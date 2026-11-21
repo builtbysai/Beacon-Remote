@@ -576,6 +576,15 @@ Test deployment (20 Nov, 53c219bb): the isolated acceptance backend and web on t
 assets). Production (remote.builtbysai.com, release 5e8d5c5) was not touched: a production rollout needs the
 backup, migration and rollback steps in docs/deployment.md and the owner's go-ahead.
 
+Pixel lock types, all three from the viewer (20 Nov, build 34008453, test phone with throwaway credentials): a PIN
+typed on the viewer's number pad, a pattern drawn on the viewer's 3x3 grid (dots 1-2-3-6, then "Draw pattern") and a
+password typed in the viewer's password box each unlocked the locked Pixel; the keyguard went from showing to gone each
+time, and the lock-type reading changed to pad:pin / pad:pattern / pad:password. Finding: while the phone shows its
+ambient screensaver over the lock screen (dreaming), the swipe that raises the unlock pad does nothing and the viewer
+stays on "Bringing up the PIN screen" (state no-pad); the test phone's screensaver was turned off to run these. Open
+item: have the phone wake or dismiss the ambient screen before swiping. Viewer: the access-request sheet (a card over
+the picture while the person decides) and a light appearance for the header and tools drawer are done.
+
 - File transfer resume, phone to viewer (20 Nov, built, not tested): the viewer already asks to carry on from a byte
   offset with the hash of what it holds; the Android sender ignored that and always started over. It now skips the
   first bytes only if their SHA-256 matches what the viewer sent, otherwise it answers "failed / resume" (the viewer
