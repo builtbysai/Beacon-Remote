@@ -637,3 +637,18 @@ targets checked, light and dark; (7) before and after screenshots on a desktop w
   confirmation both render correctly in dark mode and work; the unlock setting was restored afterwards. The pairing
   screen is still unseen (it needs the phone unpaired), and copied files from the phone's clipboard still need a source
   app that can put a file on the clipboard: adb cannot set the clipboard on this Pixel.
+
+- QR code for phone pairing (20 Nov): the workspace's "Add a computer" panel now draws a QR code of the pairing link next
+  to the code, so a phone's own camera opens the Beacon app with the address and code filled in (the person still taps
+  Pair). No new dependency: a small encoder in `apps/web/src/qr.ts` (byte mode, error correction M, versions 1-10).
+  Checked: module-for-module against a reference encoder for every size it was compared on, and decoded with OpenCV for
+  sizes from version 1 to 10 including Unicode. That check found and fixed a real bug (two timing-pattern modules were
+  overwritten). Unit tests keep three verified codes as checksums. Not yet scanned with the Pixel's camera.
+- Android roadmap status (20 Nov): done and tested on the Pixel are the redesign and guided setup, auto-resume,
+  clipboard (text, formatted text, images), recording with consent, phone sound, microphone, chat, file resume both
+  ways, QR/link/paste pairing helpers, and the M4 baselines. Left, each needing a human or hardware step: the pattern and
+  password lock tests (the owner changes the Pixel's lock and enters it), the passcode entry on the viewer pad (owner),
+  the pairing screen on a freshly unpaired phone (needs unpairing and a new code), a copied file on the phone's
+  clipboard (needs an app that can copy a file), a direct (non-relayed) path and cellular measurements, attended taps that
+  are sometimes lost or slow (needs a closer look), Android Enterprise managed unlock (resets the Pixel), and the viewer
+  microphone to the phone (not requested by the owner). Surfiena (Windows) is separate and was unreachable all day.
