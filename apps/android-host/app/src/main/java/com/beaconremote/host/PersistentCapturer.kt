@@ -22,16 +22,7 @@ class PersistentCapturer(private val allowed: () -> Boolean, private val failed:
         StandingScreen.resize(width, height)
         StandingScreen.lost = { failed("Fast screen sharing was turned off") }
         observer?.onCapturerStarted(true)
-        StandingScreen.sink = { frame ->
-            if (allowed()) {
-                val i420 = frame.buffer.toI420()
-                if (i420 != null) {
-                    val converted = VideoFrame(i420, frame.rotation, frame.timestampNs)
-                    observer?.onFrameCaptured(converted)
-                    converted.release()
-                }
-            }
-        }
+        StandingScreen.sink = { frame -> if (allowed()) observer?.onFrameCaptured(frame) }
     }
 
     override fun stopCapture() {

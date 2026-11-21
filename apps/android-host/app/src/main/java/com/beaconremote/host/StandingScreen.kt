@@ -26,6 +26,19 @@ object StandingScreen {
         private set
     /** Receives each picture while a viewer is connected; null otherwise, so frames are dropped on the floor. */
     @Volatile var sink: ((VideoFrame) -> Unit)? = null
+        set(value) {
+            field = value
+            // A viewer that connects to a screen that is not changing still needs a first picture.
+            if (value != null) resendLast()
+        }
+
+    // The screen only produces a picture when something changes, so the newest one is kept (as I420, at most once a
+    // second while nobody watches) and handed over again when a viewer connects or the picture has been still for a moment.
+    private val lock = Any()
+    private var last: org.webrtc.VideoFrame.I420Buffer? = null
+    private var lastCachedAt = 0L
+    private var lastDeliveredAt = 0L
+    private var ticker: java.util.concurrent.ScheduledExecutorService? = null
 
     private var projection: MediaProjection? = null
     private var display: VirtualDisplay? = null
@@ -61,9 +74,41 @@ object StandingScreen {
             "beacon-screen", width, height, dpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             Surface(surfaces.surfaceTexture), null, null,
         )
-        surfaces.startListening { frame -> sink?.invoke(frame) }
+        surfaces.startListening { frame -> onPicture(frame) }
+        ticker = java.util.concurrent.Executors.newSingleThreadScheduledExecutor().also { scheduler ->
+            scheduler.scheduleWithFixedDelay({
+                if (sink != null && android.os.SystemClock.elapsedRealtime() - lastDeliveredAt >= 400) resendLast()
+            }, 400, 200, java.util.concurrent.TimeUnit.MILLISECONDS)
+        }
         active = true
         return true
+    }
+
+    private fun onPicture(frame: VideoFrame) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val receiver = sink
+        if (receiver == null && now - lastCachedAt < 1000) return
+        val i420 = frame.buffer.toI420() ?: return
+        synchronized(lock) {
+            last?.release()
+            last = i420
+            lastCachedAt = now
+            if (receiver != null) deliver(receiver)
+        }
+    }
+
+    private fun resendLast() {
+        val receiver = sink ?: return
+        synchronized(lock) { deliver(receiver) }
+    }
+
+    /** Must hold [lock]. Hands the newest picture to the session, which owns and releases its own reference. */
+    private fun deliver(receiver: (VideoFrame) -> Unit) {
+        val picture = last ?: return
+        picture.retain()
+        val frame = VideoFrame(picture, 0, System.nanoTime())
+        lastDeliveredAt = android.os.SystemClock.elapsedRealtime()
+        try { receiver(frame) } finally { frame.release() }
     }
 
     /** Matches the picture to the phone's current shape (it was turned) or to what a session asked for. */
@@ -78,6 +123,8 @@ object StandingScreen {
         val wasActive = active
         active = false
         sink = null
+        ticker?.shutdownNow(); ticker = null
+        synchronized(lock) { last?.release(); last = null }
         runCatching { helper?.stopListening() }
         runCatching { display?.release() }
         runCatching { helper?.dispose() }

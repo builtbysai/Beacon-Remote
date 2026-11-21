@@ -643,7 +643,7 @@ class MainActivity : Activity() {
             accessSwitch.isChecked = identity.unattended
             changeAccess()
         }
-        accessRow.addView(HostUi.text(this, "Android 11+ · Up to 2 fps in unattended mode · No system audio", 11.5f, false, true).apply { setPadding(0, dp(10), 0, 0) })
+        accessRow.addView(HostUi.text(this, "Android 11+ · About 3 pictures a second, or smooth with Fast screen sharing · No system audio", 11.5f, false, true).apply { setPadding(0, dp(10), 0, 0) })
         accessRow.addView(HostUi.text(this, "", 13f).apply {
             tag = "access-notice"
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
@@ -684,7 +684,10 @@ class MainActivity : Activity() {
                 handler.postDelayed({ if (!isDestroyed && !isFinishing) render() }, 400)
             } else {
                 @Suppress("DEPRECATION")
-                startActivityForResult(getSystemService(android.media.projection.MediaProjectionManager::class.java).createScreenCaptureIntent(), REQUEST_FAST)
+                val manager = getSystemService(android.media.projection.MediaProjectionManager::class.java)
+                // Android 14+ offers "Share one app" by default; fast sharing needs the whole screen.
+                val ask = if (Build.VERSION.SDK_INT >= 34) manager.createScreenCaptureIntent(android.media.projection.MediaProjectionConfig.createConfigForDefaultDisplay()) else manager.createScreenCaptureIntent()
+                startActivityForResult(ask, REQUEST_FAST)
             }
         }
         root.addView(fastRow)
