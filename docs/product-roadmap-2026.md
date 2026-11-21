@@ -564,3 +564,16 @@ Each item is built and pushed; the test needs a step only the owner can do. Pick
   reconnecting, and the Android sender sent neither. Fixed in `6b8679bb` (same file, same id; the id is cleared when the
   viewer finishes, declines or cancels it), on top of the earlier sender-side resume at an offset with a hash check.
   A second interrupted run on the new build is pending (the relay had to clear first).
+
+- Android app redesign (20 Nov, from the owner's mockup `beacon-remote-rebuilt.html`): three tabs (Device, Access,
+  Privacy) with a bottom bar; the Device tab has a session card (Not sharing / Sharing / Paused / Offline, with Pause,
+  Resume and Stop sharing) and three summary rows; Access has the "Connect without asking" and "Unlock from a viewer"
+  switches (the second dimmed while the first is off, and asking first before it is turned on) and a tappable setup
+  checklist; Privacy has the clipboard as Automatic / Button only / Off plus Phone sound and Microphone switches. The
+  "more" menu holds Connection details and Remove device, each in a bottom sheet; the request screen is restyled
+  ("Someone wants to see your screen", Allow touch and typing, Allow receiving files, Decline / Approve once). Light
+  palette from the mockup, with a matching dark one. All behaviour and test hooks (`access-toggle`,
+  `availability-toggle`, `consent-allow`, `consent-decline`, `pair-submit`) are kept. Checked on the Pixel: all three tabs
+  in light and dark, the more sheet, the unattended switch end to end. Not yet seen on the device: the request screen,
+  the sharing and paused states, the pairing screen and the remove and unlock confirmation sheets (the Pixel lost its
+  Wi-Fi, so no request could be made). Left out of the mockup on purpose: the "Preview" items, which were mockup only.
