@@ -299,6 +299,7 @@ class RemoteControl(
                     "left" -> if (isDown && !down) {
                         val stream = touch ?: NativeTouchStream(service, { open && allowed() },
                             { release() }, { fail("Android refused touch dispatch") }).also { touch = it }
+                        PerfProbe.noteTouchDown()
                         down = stream.press(pointerX, pointerY)
                         if (!down) fail("Touch input is unavailable")
                     } else if (down) {

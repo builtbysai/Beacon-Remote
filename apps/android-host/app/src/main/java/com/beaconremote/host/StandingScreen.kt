@@ -92,6 +92,7 @@ object StandingScreen {
     }
 
     private fun onPicture(frame: VideoFrame) {
+        PerfProbe.onFrame(frame)
         synchronized(lock) {
             val receiver = sink ?: return
             lastDeliveredAt = android.os.SystemClock.elapsedRealtime()
