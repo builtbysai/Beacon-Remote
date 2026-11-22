@@ -169,3 +169,11 @@ The benchmark target is Beacon's own tab change on the phone, which includes the
 (no network) baseline for that same change has not been measured, so the share of the 300 ms that is network, buffering
 or the app's animation is not separated. Next measurements: a local baseline, then the relay compared with the proven
 direct path under matched conditions.
+
+Phone sound (22 Nov): it is now part of sharing with no setting. Smooth-video (unattended) sessions carry an audio track
+captured from the standing projection (needs Android's record-audio permission, asked together with the smooth-video
+prompt; the microphone keeps its own switch). Build `a1f7abdc` on the Pixel: the viewer's statistics show the audio track
+connected and receiving (1042 then 1495 packets over about 5 seconds) with level 0 because nothing was playing. A real
+tone was not heard in this run (no capturable audio player could be started from adb; Chrome's own audio cannot be
+captured), so audible playback in the viewer is not yet verified. The viewer now tries to unmute as soon as the
+sound arrives.
