@@ -142,3 +142,30 @@ than invented zero latency. These extra measurements remain local to the viewer.
   measure sustained CPU/thermal behaviour. Compare relay with the proven direct
   path under matched conditions; cellular and subjective acceptance remain open.
 - Finish Pixel responsiveness before beginning the requested website redesign.
+
+## Continuation (21-22 November, Claude)
+
+Owner direction: connect-without-asking, smooth video and unlocking from a viewer are now one setting with no
+switches to choose. Phone build `7fe90e68` (this branch): the Access tab has one "Connect without asking" switch; it
+is remembered across restarts; unlocking from a viewer is always allowed; smooth video (the always-on capture) is
+offered through Android's own prompt once per app launch while the setting is on and smooth video is not running,
+and the availability notification says "Tap to turn on smooth video" after a restart (Android never lets an app keep
+a screen capture across a restart, so one tap per restart cannot be removed). Turning the setting off stops smooth
+video.
+
+Same harness, same Pixel, relay path, smooth video on, 12 settled-heading samples each (milliseconds):
+
+| Candidate                                                                        | Samples                                         | Median    | Presented fps | Video buffer | Network RTT | Control RTT |
+| -------------------------------------------------------------------------------- | ----------------------------------------------- | --------- | ------------- | ------------ | ----------- | ----------- |
+| `9d775240` baseline (Codex's work + control-RTT diagnostic)                      | 310 365 262 530 263 363 279 257 245 394 293 512 | about 301 | 59.1          | 97.4 ms      | 77 ms       | 57 ms       |
+| `7fe90e68` (adds playout-delay 0 via field trial `WebRTC-ForceSendPlayoutDelay`) | 293 295 224 294 223 360 493 310 344 291 257 293 | about 293 | 59.1          | 73.0 ms      | 45 ms       | 49 ms       |
+| `9d775240` with smooth video **off** (screenshots, about 3 a second)             | 688 934 509 729 994 646 512 726 773 795 510 378 | about 700 | low           | n/a          | n/a         | n/a         |
+
+Reading: smooth video halves the response (about 700 to about 300 ms) and delivers 59 fps. Asking the browser for
+zero playout delay changed the median by under 10 ms, which is inside the run-to-run noise (the network RTT also
+differed between the runs), so no latency win is claimed for it; the receiver still reports 73 ms of buffering and
+decode, so the browser is not honouring a zero delay (or the delay is arrival-time variance on the relay path).
+The benchmark target is Beacon's own tab change on the phone, which includes the phone's own animation; a local
+(no network) baseline for that same change has not been measured, so the share of the 300 ms that is network, buffering
+or the app's animation is not separated. Next measurements: a local baseline, then the relay compared with the proven
+direct path under matched conditions.
