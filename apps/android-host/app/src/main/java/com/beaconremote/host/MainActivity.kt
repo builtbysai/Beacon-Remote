@@ -226,12 +226,28 @@ class MainActivity : Activity() {
         root.findViewWithTag<TextView>("pair-notice")?.text = "Code pasted. Tap Pair device."
     }
 
+    // Smooth video comes with connecting without asking. Android needs one tap on its own prompt after each restart of
+    // the app or the phone, so it is offered here once per launch instead of being a setting to choose.
+    private var fastAsked = false
+
+    private fun resumeFastVideo() {
+        if (fastAsked || !identity.paired || !identity.unattended || StandingScreen.active) return
+        if (Build.VERSION.SDK_INT < 30) return
+        fastAsked = true
+        val manager = getSystemService(android.media.projection.MediaProjectionManager::class.java)
+        // Android 14+ offers "Share one app" by default; smooth video needs the whole screen.
+        val ask = if (Build.VERSION.SDK_INT >= 34) manager.createScreenCaptureIntent(android.media.projection.MediaProjectionConfig.createConfigForDefaultDisplay()) else manager.createScreenCaptureIntent()
+        @Suppress("DEPRECATION")
+        startActivityForResult(ask, REQUEST_FAST)
+    }
+
     override fun onResume() {
         super.onResume()
         handler.removeCallbacks(refreshTask)
         refreshTask.run()
         continueGuidedSetup()
         finishAccessIfWanted()
+        handler.postDelayed({ if (!isDestroyed && !isFinishing) resumeFastVideo() }, 1200)
     }
 
     /** Back from an Android settings screen: if that step got done, go straight to the next one. */
@@ -635,7 +651,7 @@ class MainActivity : Activity() {
         root.addView(HostUi.divider(this))
         val (accessRow, accessSwitch) = HostUi.switchRow(
             this, "Connect without asking",
-            "Your account can view the phone without a prompt while it's unlocked. Pause and Stop remain available.",
+            "Your account can view and control this phone, and unlock it, without a prompt. Smooth video is included. Pause and Stop remain available.",
             "access-toggle", identity.unattended,
         )
         accessSwitch.setOnClickListener {
@@ -643,7 +659,7 @@ class MainActivity : Activity() {
             accessSwitch.isChecked = identity.unattended
             changeAccess()
         }
-        accessRow.addView(HostUi.text(this, "Android 11+ · About 3 pictures a second, or smooth with Fast screen sharing · No system audio", 11.5f, false, true).apply { setPadding(0, dp(10), 0, 0) })
+        accessRow.addView(HostUi.text(this, "Android 11+ · Android shows its cast icon while smooth video is on. After a restart, open Beacon once to turn smooth video back on · No system audio", 11.5f, false, true).apply { setPadding(0, dp(10), 0, 0) })
         accessRow.addView(HostUi.text(this, "", 13f).apply {
             tag = "access-notice"
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
@@ -654,43 +670,7 @@ class MainActivity : Activity() {
         })
         root.addView(accessRow)
         root.addView(HostUi.divider(this))
-        val (unlockRow, unlockSwitch) = HostUi.switchRow(
-            this, "Unlock from a viewer",
-            "Allow an unattended viewer to interact with the lock screen and enter your passcode. Beacon never saves it.",
-            "unlock-toggle", identity.unlockFromViewer,
-        )
-        unlockSwitch.isEnabled = identity.unattended
-        // Without access-without-asking there is nothing to unlock for, so the row is dimmed like the design.
-        unlockRow.alpha = if (identity.unattended) 1f else 0.45f
-        unlockSwitch.setOnClickListener {
-            unlockSwitch.isChecked = identity.unlockFromViewer
-            if (identity.unlockFromViewer) {
-                identity.unlockFromViewer = false
-                render()
-            } else confirmUnlock()
-        }
-        root.addView(unlockRow)
         root.addView(lockTypeLine())
-        root.addView(HostUi.divider(this))
-        val (fastRow, fastSwitch) = HostUi.switchRow(
-            this, "Fast screen sharing",
-            "Smooth, low-delay video when someone connects without asking. Android shows its cast icon while this is on and asks you to confirm once (again after the phone restarts).",
-            "fast-toggle", StandingScreen.active,
-        )
-        fastSwitch.setOnClickListener {
-            fastSwitch.isChecked = StandingScreen.active
-            if (StandingScreen.active) {
-                startService(Intent(this, StandingCaptureService::class.java).setAction(StandingCaptureService.ACTION_STOP))
-                handler.postDelayed({ if (!isDestroyed && !isFinishing) render() }, 400)
-            } else {
-                @Suppress("DEPRECATION")
-                val manager = getSystemService(android.media.projection.MediaProjectionManager::class.java)
-                // Android 14+ offers "Share one app" by default; fast sharing needs the whole screen.
-                val ask = if (Build.VERSION.SDK_INT >= 34) manager.createScreenCaptureIntent(android.media.projection.MediaProjectionConfig.createConfigForDefaultDisplay()) else manager.createScreenCaptureIntent()
-                startActivityForResult(ask, REQUEST_FAST)
-            }
-        }
-        root.addView(fastRow)
         root.addView(HostUi.divider(this))
         val steps = setupSteps()
         val title = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(18), 0, dp(10)) }
@@ -1053,6 +1033,7 @@ class MainActivity : Activity() {
         if (enable && !UnattendedAccess.ready(this)) { startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)); return }
         if (!enable) {
             stopCapture()
+            startService(Intent(this, StandingCaptureService::class.java).setAction(StandingCaptureService.ACTION_STOP))
             if (runCatching { identity.unattended = false }.isFailure) {
                 ControlService.instance?.disableSelf()
                 AccessIntents.notice = binding to "Sharing stopped. The local setting could not be saved; accessibility was disabled. Repair storage before enabling again."
@@ -1083,6 +1064,7 @@ class MainActivity : Activity() {
             handler.post {
                 if (!isDestroyed && !isFinishing) {
                     if (result.getOrDefault(false) && identity.wantsAvailable) AvailabilityService.start(this)
+                    if (result.getOrDefault(false) && identity.unattended) { fastAsked = false; resumeFastVideo() }
                     refreshStatus()
                 }
             }

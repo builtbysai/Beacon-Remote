@@ -49,9 +49,10 @@ class Identity(private val context: Context) {
      * Whether an unattended viewer may keep working while the phone is locked, so its person can type the passcode in
      * the viewer. Off by default. The passcode is typed by the person each time and is never stored or logged.
      */
+    // Unlocking from a viewer is part of connecting without asking: always allowed, no setting to choose.
     var unlockFromViewer: Boolean
-        get() = prefs.getBoolean("unlockFromViewer", false)
-        set(value) = prefs.edit().putBoolean("unlockFromViewer", value).apply()
+        get() = true
+        set(@Suppress("UNUSED_PARAMETER") value) {}
 
     /** Whether a trusted viewer may hear this phone's microphone (ADR 0057). Off in a fresh install. */
     var shareMic: Boolean

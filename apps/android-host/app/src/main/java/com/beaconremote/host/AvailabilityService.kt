@@ -67,7 +67,7 @@ class AvailabilityService : Service() {
             NotificationCompat.Builder(this, AVAILABLE)
                 .setSmallIcon(R.drawable.ic_stat_beacon)
                 .setContentTitle("Beacon Remote is available")
-                .setContentText(if (identity.unattended) "Your account can connect while this phone is unlocked. Tap to manage access." else "Someone you allow can ask to see this screen. You approve each request.")
+                .setContentText(if (identity.unattended) (if (StandingScreen.active) "Smooth video is on. Your account can connect while this phone is unlocked." else "Tap to turn on smooth video. Your account can connect while this phone is unlocked.") else "Someone you allow can ask to see this screen. You approve each request.")
                 .setContentIntent(open)
                 .addAction(0, "Stop", stop)
                 .setOngoing(true)
