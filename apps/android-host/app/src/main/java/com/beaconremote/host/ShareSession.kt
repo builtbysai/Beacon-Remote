@@ -457,7 +457,7 @@ class ShareSession(
 
     private fun beginMedia() {
         PeerConnectionFactory.initialize(
-            PeerConnectionFactory.InitializationOptions.builder(context).setEnableInternalTracer(false).createInitializationOptions(),
+            PeerConnectionFactory.InitializationOptions.builder(context).setEnableInternalTracer(false).setFieldTrials(WebRtcTrials.FIELD_TRIALS).createInitializationOptions(),
         )
         val standingContext = if (unattended && StandingScreen.active) StandingScreen.sharedContext else null
         val eglBase = EglBase.create(standingContext).also { egl = it }

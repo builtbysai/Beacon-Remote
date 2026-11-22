@@ -67,7 +67,7 @@ object StandingScreen {
         val (width, height) = fit(metrics.widthPixels, metrics.heightPixels)
         // The native video library is otherwise only loaded when a session starts.
         org.webrtc.PeerConnectionFactory.initialize(
-            org.webrtc.PeerConnectionFactory.InitializationOptions.builder(context.applicationContext).setEnableInternalTracer(false).createInitializationOptions(),
+            org.webrtc.PeerConnectionFactory.InitializationOptions.builder(context.applicationContext).setEnableInternalTracer(false).setFieldTrials(WebRtcTrials.FIELD_TRIALS).createInitializationOptions(),
         )
         val base = EglBase.create().also { egl = it }
         val surfaces = SurfaceTextureHelper.create("standing-screen", base.eglBaseContext).also { helper = it }
