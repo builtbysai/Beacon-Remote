@@ -182,8 +182,9 @@ sound arrives.
 
 Correction first: the acceptance backend has run with `ICE_TRANSPORT_POLICY=all` since Codex's direct test, so every
 benchmark above ("relay" in my earlier labels) actually ran on a **direct** path (viewer diagnostics: route Direct,
-candidates host / prflx). Production still forces relay-only, so production responses will be slower than these numbers
-by the relay hop.
+candidates host / prflx). Production is also configured with `ICE_TRANSPORT_POLICY=all` (checked in the running container on 22 Nov), so it
+uses a direct path whenever the two devices can reach each other and falls back to the relay otherwise; a viewer on a
+different network from the phone (for example over cellular or another site) is still relayed, which is slower.
 
 New diagnostic: the phone logs, under `BeaconPerformance`, how long after a viewer's touch goes down the screen
 picture first changes noticeably (no network, encoder or browser involved). Eleven taps: 46, 52, 33, 45, 44, 51, 88,
@@ -195,6 +196,6 @@ the browser's render, and the page's own transition animation (the benchmark wai
 the probe for the first change). Phone-to-router ping on this Wi-Fi: min 5.2, average 12.8, max 39.5 ms, deviation
 8.7 ms; the phone could not ping the PC (separate subnets: phone 10.1.10.x, PC 172.20.20.x), so the direct path is routed
 and its 45-77 ms round trip is the network, not Beacon. Practical advice: wire the viewer PC, keep the phone on 5 GHz,
-and expect production (relay) to add the relay hop.
+and expect a relayed session (devices on different networks) to be slower than a direct one.
 
 Added in the viewer: an immediate local ripple where a press happened (not yet deployed).
