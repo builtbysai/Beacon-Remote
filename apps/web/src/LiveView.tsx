@@ -189,6 +189,11 @@ export function LiveView({
   const [talkReady, setTalkReady] = useState(false);
   // Whether the phone is at its lock screen, told by the phone. Unlock is only offered then.
   const [phoneLocked, setPhoneLocked] = useState(false);
+  // Instant local feedback: a ripple where the person pressed, drawn at once, before the device has answered.
+  const [ripples, setRipples] = useState<
+    { id: number; x: number; y: number }[]
+  >([]);
+  const rippleId = useRef(0);
   const [talkState, setTalkState] = useState<
     "off" | "asking" | "on" | "locked" | "disabled" | "mic"
   >("off");
@@ -1560,6 +1565,19 @@ export function LiveView({
         )}
         <div
           className={`viewer-stage ${scale}`}
+          onPointerDown={(event) => {
+            if (!controlReady || ended || event.button > 0) return;
+            const box = event.currentTarget.getBoundingClientRect();
+            const id = ++rippleId.current;
+            setRipples((list) => [
+              ...list.slice(-4),
+              { id, x: event.clientX - box.left, y: event.clientY - box.top },
+            ]);
+            window.setTimeout(
+              () => setRipples((list) => list.filter((r) => r.id !== id)),
+              450,
+            );
+          }}
           onDragOver={(event) => {
             if (fileReady) event.preventDefault();
           }}
@@ -1583,6 +1601,14 @@ export function LiveView({
                 : "Synthetic test video"
             }
           />
+          {ripples.map((ripple) => (
+            <span
+              key={ripple.id}
+              className="viewer-ripple"
+              style={{ left: ripple.x, top: ripple.y }}
+              aria-hidden="true"
+            />
+          ))}
           {(frames === 0 || ended) && (
             <p className="viewer-placeholder" aria-hidden="true">
               {status}

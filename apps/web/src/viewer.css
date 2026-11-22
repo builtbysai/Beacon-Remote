@@ -745,3 +745,31 @@
     z-index: 9;
   }
 }
+
+/* Instant local feedback where a press happened; the device's own answer follows. */
+.live-view .viewer-ripple {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  border-radius: 50%;
+  background: rgb(106 150 255 / 0.35);
+  box-shadow: 0 0 0 2px rgb(106 150 255 / 0.7);
+  pointer-events: none;
+  animation: viewer-ripple 0.45s ease-out forwards;
+}
+@keyframes viewer-ripple {
+  from {
+    transform: scale(0.4);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-view .viewer-ripple {
+    animation-duration: 0.01s;
+  }
+}
