@@ -3,7 +3,6 @@ import { createRoot } from "react-dom/client";
 import type { Machine } from "@beacon-remote/protocol";
 import "./style.css";
 import "./viewer.css";
-import "./workspace.css";
 import { LiveView, type ViewGrant } from "./LiveView.js";
 import { SignInView } from "./SignInView.js";
 import { Brand, Monitor, ProductPage, pageFromHash } from "./Product.js";
