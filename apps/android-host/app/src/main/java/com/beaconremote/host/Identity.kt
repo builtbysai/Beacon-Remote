@@ -41,9 +41,10 @@ class Identity(private val context: Context) {
         set(value) { if (value in CLIPBOARD_MODES) prefs.edit().putString("clipboardMode", value).apply() }
 
     /** Whether an attended screen share also sends the phone's playback sound. Off by default; never the microphone. */
+    // The phone's own sound is part of sharing the screen: always on, no setting (the microphone stays its own switch).
     var shareSound: Boolean
-        get() = prefs.getBoolean("shareSound", false)
-        set(value) = prefs.edit().putBoolean("shareSound", value).apply()
+        get() = true
+        set(@Suppress("UNUSED_PARAMETER") value) {}
 
     /**
      * Whether an unattended viewer may keep working while the phone is locked, so its person can type the passcode in

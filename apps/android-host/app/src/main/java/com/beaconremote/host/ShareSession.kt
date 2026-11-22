@@ -462,7 +462,7 @@ class ShareSession(
         val standingContext = if (unattended && StandingScreen.active) StandingScreen.sharedContext else null
         val eglBase = EglBase.create(standingContext).also { egl = it }
         val canRecord = context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        val shareSound = !unattended && android.os.Build.VERSION.SDK_INT >= 29 && Identity(context).shareSound && canRecord
+        val shareSound = android.os.Build.VERSION.SDK_INT >= 29 && canRecord && (!unattended || StandingScreen.active)
         // A trusted viewer hears the microphone when the owner allowed it (ADR 0057), in any kind of session.
         val shareMic = Identity(context).shareMic && canRecord
         val builder =
@@ -470,7 +470,7 @@ class ShareSession(
                 .setVideoEncoderFactory(DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true))
                 .setVideoDecoderFactory(DefaultVideoDecoderFactory(eglBase.eglBaseContext))
         if (shareSound) {
-            val capture = SoundCapture({ (capturer as? ScreenCapturerAndroid)?.mediaProjection }, mixMicrophone = shareMic).also { sound = it }
+            val capture = SoundCapture({ (capturer as? ScreenCapturerAndroid)?.mediaProjection ?: StandingScreen.audioProjection }, mixMicrophone = shareMic).also { sound = it }
             builder.setAudioDeviceModule(
                 org.webrtc.audio.JavaAudioDeviceModule.builder(context)
                     .setAudioBufferCallback(capture)

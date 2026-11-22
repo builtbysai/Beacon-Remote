@@ -960,6 +960,14 @@ export function LiveView({
         stream.addTrack(event.track);
         element.srcObject = stream;
         setHasSound(true);
+        // The phone's sound is part of the session: try to play it right away. The browser allows this after the
+        // person's click that opened the session; if it refuses, sound stays off until they press Sound.
+        element.muted = false;
+        setSoundOn(true);
+        void element.play().catch(() => {
+          element.muted = true;
+          setSoundOn(false);
+        });
         return;
       }
       if (event.track.kind !== "video") return;

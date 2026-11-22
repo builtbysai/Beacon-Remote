@@ -24,6 +24,9 @@ import org.webrtc.VideoFrame
 object StandingScreen {
     @Volatile var active = false
         private set
+    /** The capture's projection, so a session can also hear what the phone plays. */
+    val audioProjection: MediaProjection? get() = projection
+
     /** Receives each picture while a viewer is connected; null otherwise, so frames are dropped on the floor. */
     @Volatile var sink: ((VideoFrame) -> Unit)? = null
         set(value) {

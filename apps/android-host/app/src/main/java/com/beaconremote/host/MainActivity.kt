@@ -229,10 +229,17 @@ class MainActivity : Activity() {
     // Smooth video comes with connecting without asking. Android needs one tap on its own prompt after each restart of
     // the app or the phone, so it is offered here once per launch instead of being a setting to choose.
     private var fastAsked = false
+    private var audioAsked = false
 
     private fun resumeFastVideo() {
         if (fastAsked || !identity.paired || !identity.unattended || StandingScreen.active) return
         if (Build.VERSION.SDK_INT < 30) return
+        // Hearing the phone's sound needs Android's audio-capture permission; it is asked for first, then smooth video.
+        if (!audioAsked && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            audioAsked = true
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 2)
+            return
+        }
         fastAsked = true
         val manager = getSystemService(android.media.projection.MediaProjectionManager::class.java)
         // Android 14+ offers "Share one app" by default; smooth video needs the whole screen.
@@ -786,21 +793,6 @@ class MainActivity : Activity() {
         root.addView(HostUi.text(this, clipboardWords(identity.clipboardMode), 12f, false, true).apply { setPadding(0, dp(10), 0, dp(18)) })
         root.addView(HostUi.divider(this))
         val granted = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        val (soundRow, soundSwitch) = HostUi.switchRow(
-            this, "Phone sound",
-            "Let approved attended viewers hear audio from your apps. This does not include your microphone.",
-            "sound-toggle", identity.shareSound && granted,
-        )
-        soundSwitch.setOnClickListener {
-            soundSwitch.isChecked = identity.shareSound && granted
-            when {
-                identity.shareSound -> { identity.shareSound = false; render() }
-                granted -> { identity.shareSound = true; render() }
-                else -> requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 2)
-            }
-        }
-        root.addView(soundRow)
-        root.addView(HostUi.divider(this))
         val (micRow, micSwitch) = HostUi.switchRow(
             this, "Microphone",
             "Trusted viewers can hear your phone's microphone, even while it's locked. Android shows when it's in use.",
@@ -928,7 +920,7 @@ class MainActivity : Activity() {
             return
         }
         if (requestCode == 2) {
-            identity.shareSound = results.firstOrNull() == PackageManager.PERMISSION_GRANTED
+            handler.post { if (!isDestroyed && !isFinishing) resumeFastVideo() }
             render()
             return
         }
