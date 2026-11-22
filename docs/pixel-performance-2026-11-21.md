@@ -177,3 +177,24 @@ connected and receiving (1042 then 1495 packets over about 5 seconds) with level
 tone was not heard in this run (no capturable audio player could be started from adb; Chrome's own audio cannot be
 captured), so audible playback in the viewer is not yet verified. The viewer now tries to unmute as soon as the
 sound arrives.
+
+## Where the time goes (22 Nov, phone-side probe `22511d66`)
+
+Correction first: the acceptance backend has run with `ICE_TRANSPORT_POLICY=all` since Codex's direct test, so every
+benchmark above ("relay" in my earlier labels) actually ran on a **direct** path (viewer diagnostics: route Direct,
+candidates host / prflx). Production still forces relay-only, so production responses will be slower than these numbers
+by the relay hop.
+
+New diagnostic: the phone logs, under `BeaconPerformance`, how long after a viewer's touch goes down the screen
+picture first changes noticeably (no network, encoder or browser involved). Eleven taps: 46, 52, 33, 45, 44, 51, 88,
+54, 48, 41, 48 ms (median about 48 ms). So the phone itself answers in about 50 ms. The same run's end-to-end
+benchmark (viewer sees the page heading mostly changed) gave 408, n/a, 381, 381, 392, 375, 375, 425, 387, 377, 376,
+377 ms with a 208 ms video buffer and 53 ms network round trip, against about 300 ms with a 73-97 ms buffer in the
+earlier runs. The remainder is therefore: transit and jitter (the buffer follows network jitter), the encoder,
+the browser's render, and the page's own transition animation (the benchmark waits for 35 percent of the transition,
+the probe for the first change). Phone-to-router ping on this Wi-Fi: min 5.2, average 12.8, max 39.5 ms, deviation
+8.7 ms; the phone could not ping the PC (separate subnets: phone 10.1.10.x, PC 172.20.20.x), so the direct path is routed
+and its 45-77 ms round trip is the network, not Beacon. Practical advice: wire the viewer PC, keep the phone on 5 GHz,
+and expect production (relay) to add the relay hop.
+
+Added in the viewer: an immediate local ripple where a press happened (not yet deployed).
