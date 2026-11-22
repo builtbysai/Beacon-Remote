@@ -1,0 +1,535 @@
+/*
+ * Workspace design layer (loaded after style.css and viewer.css).
+ * One calm system for every page outside the viewer: a quiet neutral canvas, one blue for actions,
+ * 12 px cards with a hairline and a faint lift, generous rows, tabular numbers. Light and dark both
+ * come from the tokens below; nothing here hard-codes a colour a theme could not change.
+ */
+:root {
+  --bg: #f3f5f9;
+  --surface: #ffffff;
+  --text: #142036;
+  --muted: #55627a;
+  --faint: #6b7890;
+  --line: #e1e6ee;
+  --soft: #eef1f6;
+  --blue: #2257c8;
+  --blue-hover: #1a47a8;
+  --bluewash: #eaf1ff;
+  --inner: #f8f9fc;
+  --hero: #eef3fc;
+  --ring: 0 0 0 1px var(--line);
+  --lift: 0 1px 2px #14203608, 0 6px 18px -8px #1420361a;
+  --radius: 12px;
+  --radius-sm: 8px;
+}
+:root[data-theme="dark"] {
+  --bg: #0e141c;
+  --surface: #151d28;
+  --text: #e9eff8;
+  --muted: #a3b0c4;
+  --faint: #8a98ae;
+  --line: #263243;
+  --soft: #1d2836;
+  --blue: #7aa8f8;
+  --blue-hover: #9bc0fc;
+  --bluewash: #1b2e4d;
+  --inner: #121a25;
+  --hero: #172234;
+  --lift: 0 1px 2px #0004, 0 10px 24px -12px #0007;
+}
+body {
+  font-feature-settings:
+    "tnum" 1,
+    "cv11" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Shell ─────────────────────────────────────────────── */
+.app-shell {
+  grid-template-columns: 244px minmax(0, 1fr);
+  background: var(--bg);
+}
+.app-shell.sidebar-collapsed {
+  grid-template-columns: 76px minmax(0, 1fr);
+}
+.workspace-nav {
+  background: var(--surface);
+  padding: 16px 12px 14px;
+  gap: 2px;
+}
+.workspace-nav-brand {
+  padding: 4px 10px 14px;
+}
+.workspace-nav-label {
+  padding: 18px 12px 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+.workspace-nav-link,
+.workspace-signout {
+  position: relative;
+  min-height: 40px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 560;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+.workspace-nav-link[aria-current="page"] {
+  background: var(--bluewash);
+  color: var(--blue);
+}
+.workspace-nav-link[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  left: -12px;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--blue);
+}
+.workspace-nav-link.tools-first {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 0;
+  border-radius: var(--radius-sm);
+}
+.workspace-nav-link.tools-first::after {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: 12px;
+  right: 12px;
+  height: 1px;
+  background: var(--line);
+}
+.workspace-signout {
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  padding-top: 14px;
+  margin-top: auto;
+}
+.app-shell > .workspace-topbar {
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.workspace-breadcrumb {
+  font-size: 13px;
+  letter-spacing: 0;
+}
+.workspace-breadcrumb {
+  text-transform: capitalize;
+}
+.app-shell > section {
+  padding: 32px clamp(20px, 3.2vw, 48px) 56px;
+  max-width: 1480px;
+}
+
+/* ── Page headings ─────────────────────────────────────── */
+.app-shell h1 {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  margin: 0 0 4px;
+  color: var(--text);
+}
+.heading,
+.workspace-page-heading {
+  margin-bottom: 28px;
+  align-items: flex-end;
+}
+.workspace-summary,
+.workspace-page-heading p {
+  font-size: 14px;
+  color: var(--muted);
+  margin: 0;
+}
+
+/* ── Buttons (workspace only; the viewer styles its own) ── */
+.app-shell
+  section
+  button:not([class*="viewer"]):not(.device-name):not(.secondary):not(.danger),
+.app-shell section .button:not(.secondary),
+.login button,
+.login .button {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  min-height: 40px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 1px 2px #14203622;
+  transition:
+    background 0.12s,
+    box-shadow 0.12s,
+    transform 0.06s;
+}
+:root[data-theme="dark"]
+  .app-shell
+  section
+  button:not([class*="viewer"]):not(.device-name):not(.secondary):not(.danger),
+:root[data-theme="dark"] .login button {
+  color: #0b1626;
+}
+.app-shell
+  section
+  button:not([class*="viewer"]):not(.device-name):not(.secondary):not(
+    .danger
+  ):hover:not(:disabled),
+.login button:hover:not(:disabled) {
+  background: var(--blue-hover);
+  border-color: var(--blue-hover);
+}
+.app-shell section button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.app-shell section .secondary:not(.device-name),
+.app-shell section button.secondary:not(.device-name) {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  min-height: 40px;
+  box-shadow: 0 1px 2px #14203610;
+}
+.app-shell section .secondary:not(.device-name):hover:not(:disabled) {
+  background: var(--soft);
+}
+.app-shell section button.danger {
+  background: var(--surface);
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 40%, var(--line));
+}
+.app-shell section button.danger:hover:not(:disabled) {
+  background: var(--redwash);
+}
+
+/* ── Fields ────────────────────────────────────────────── */
+.app-shell input:not([type="checkbox"]):not([type="radio"]),
+.app-shell select,
+.login input {
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: inset 0 1px 1px #1420360a;
+  transition:
+    border-color 0.12s,
+    box-shadow 0.12s;
+}
+.app-shell input:focus-visible,
+.app-shell select:focus-visible,
+.login input:focus-visible {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 24%, transparent);
+}
+.inventory-tools input[type="search"] {
+  padding-left: 36px;
+  background:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238a98ae' stroke-width='2' stroke-linecap='round'><circle cx='11' cy='11' r='7'/><path d='m20 20-3.5-3.5'/></svg>")
+      12px 50% no-repeat,
+    var(--surface);
+}
+
+/* ── Cards, tables ─────────────────────────────────────── */
+.grid,
+.workspace-panel,
+.pairing-panel,
+.download-platform,
+.quiet-panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--lift);
+}
+.workspace-panel-heading {
+  min-height: 56px;
+  padding: 14px 20px;
+}
+.workspace-panel-heading h2 {
+  font-size: 15px;
+  font-weight: 650;
+}
+.workspace-panel-heading span {
+  font-size: 12px;
+}
+.workspace-panel-empty {
+  min-height: 180px;
+  font-size: 14px;
+}
+.workspace-panel-empty strong {
+  font-size: 15px;
+}
+.workspace-panel-empty p {
+  font-size: 13px;
+}
+.inventory-tools {
+  padding: 14px 16px;
+  background: var(--inner);
+}
+.inventory-tools input {
+  max-width: 420px;
+}
+
+/* Computers */
+@media (min-width: 761px) {
+  .device-head,
+  .device-row {
+    grid-template-columns: 10px minmax(0, 1fr) 120px 110px 92px;
+    gap: 0 18px;
+    padding: 0 20px;
+  }
+  .device-head {
+    padding-left: 48px;
+    grid-template-columns: minmax(0, 1fr) 120px 110px 92px;
+  }
+}
+.device-head {
+  height: 36px;
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  background: var(--inner);
+}
+.device-row {
+  min-height: 64px;
+  font-size: 14px;
+  transition: background 0.1s;
+}
+.device-row:hover {
+  background: var(--inner);
+}
+.device-row.is-selected,
+.device-row.is-selected:hover {
+  background: var(--bluewash);
+  box-shadow: inset 3px 0 0 var(--blue);
+}
+.status-dot {
+  width: 10px;
+  height: 10px;
+}
+.status-dot.online {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--green) 20%, transparent);
+}
+.device-name {
+  font-size: 15px;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.device-name .device-group,
+.device-group {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 450;
+  color: var(--muted);
+}
+.device-access,
+.device-seen {
+  font-size: 13px;
+}
+.device-row button.device-open {
+  height: 34px;
+  padding: 0 14px;
+  font-size: 13px;
+  background: var(--blue);
+  color: #fff;
+  box-shadow: none;
+}
+:root[data-theme="dark"] .device-row button.device-open {
+  color: #0b1626;
+}
+.device-row button.device-open:disabled {
+  background: var(--soft);
+  color: var(--faint);
+}
+
+/* Inspector */
+.inventory-layout.with-inspector {
+  gap: 20px;
+}
+.inventory-layout .device-inspector {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--lift);
+}
+.inspector-heading h2 {
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+/* Sessions + activity rows */
+.session-rows li {
+  padding: 16px 20px;
+}
+.session-rows strong {
+  font-size: 14px;
+  font-weight: 620;
+}
+.session-rows span,
+.session-rows time {
+  font-size: 12.5px;
+}
+.session-table li,
+.session-table-head {
+  padding-inline: 20px;
+}
+.activity-table-head,
+.activity-rows li {
+  padding: 14px 20px;
+}
+.activity-table-head {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  border-top: 0;
+}
+.activity-rows li {
+  min-height: 58px;
+  font-size: 13.5px;
+}
+.activity-rows strong {
+  font-weight: 620;
+}
+.activity-tools {
+  min-height: 62px;
+  padding: 12px 20px;
+}
+
+/* Assist */
+.assist-panel-body {
+  padding: 24px;
+}
+.assist-panel-body p {
+  font-size: 14px;
+  max-width: 520px;
+}
+
+/* Settings */
+@media (min-width: 801px) {
+  .settings-layout {
+    grid-template-columns: 200px minmax(0, 760px);
+    gap: 48px;
+  }
+}
+.settings-nav button {
+  min-height: 40px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 560;
+  background: transparent;
+  color: var(--muted);
+  border: 0;
+  box-shadow: none;
+}
+.settings-nav button:hover {
+  background: var(--soft);
+  color: var(--text);
+}
+.settings-nav button[aria-current] {
+  background: var(--bluewash);
+  color: var(--blue);
+}
+.settings-page .quiet-panel {
+  box-shadow: none;
+}
+.settings-page h2,
+.settings-page .appearance-settings legend {
+  font-size: 18px;
+  font-weight: 660;
+}
+
+/* Downloads / pairing / badges */
+.download-platform {
+  padding: 24px;
+}
+.pairing-panel {
+  padding: 28px;
+}
+.pairing-heading h2 {
+  font-size: 22px;
+}
+.pairing-code-row code {
+  border-radius: var(--radius-sm);
+  background: var(--inner);
+}
+aside {
+  border-radius: var(--radius);
+}
+
+/* ── Sign-in and account entry ─────────────────────────── */
+.login {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--lift);
+}
+.login h1 {
+  font-size: 28px;
+  letter-spacing: -0.03em;
+}
+.login label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* ── Phone ─────────────────────────────────────────────── */
+@media (max-width: 760px) {
+  .app-shell > section {
+    padding: 20px 16px 96px;
+  }
+  .app-shell h1 {
+    font-size: 24px;
+  }
+  .heading,
+  .workspace-page-heading {
+    margin-bottom: 20px;
+  }
+  .device-row {
+    min-height: 68px;
+  }
+  .workspace-mobile-nav {
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid var(--line);
+  }
+}
+
+/* ── Inspector polish ──────────────────────────────────── */
+.inventory-layout .device-inspector {
+  padding: 24px;
+}
+.device-inspector .note,
+.inspector-detail-group dt,
+.inspector-detail-group dd,
+.inspector-revoke p {
+  font-size: 13px;
+}
+.inspector-detail-group h3 {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+}
+.inspector-detail-group dl > div,
+.inspector-detail-group dt {
+  line-height: 1.5;
+}
+.inspector-revoke > button,
+.inspector-detail-group + div button {
+  width: 100%;
+}
+@media (max-width: 760px) {
+  .device-row button.device-open {
+    padding: 0 10px;
+    font-size: 12px;
+  }
+}
