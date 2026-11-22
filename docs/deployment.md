@@ -1,5 +1,12 @@
 # Deployment gates
 
+November 22 (web only, owner approved): `38251937c72b4ae12c9924e6e316b3bd26538346` is the current Remote production release:
+the viewer's performance diagnostics (control round trip, jitter buffer, decode time) and the unknown-message
+tolerance. Only the web container changed; the backend stays on the unchanged `975fc76` image (re-tagged to this
+release). Encrypted backup first, rollback tag `rollback-57e57bb`, health and served assets checked. The test stack's
+web is on the same build. The phone build (`7fe90e68`, one merged "Connect without asking" setting) is installed on the
+Pixel only.
+
 November 21 (fourth rollout, web only): `5da796f0142c77e68f9515c6308b78d6d09d7ef8` is the current Remote production release:
 the computers page and inspector are back to their original look, the viewer keeps its rebuilt layout, and Unlock is
 offered only at the lock screen. Only the web container changed; the backend stays on the unchanged `975fc76` image
