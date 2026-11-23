@@ -17,7 +17,7 @@ futures-util = "0.3"
 serde.workspace = true
 serde_json.workspace = true
 bytes = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 uuid = { version = "1", features = ["v4"] }
 url = "2"
 windows-capture = "=2.0.1"
