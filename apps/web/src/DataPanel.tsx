@@ -92,7 +92,11 @@ export function DataPanel() {
           {error}
         </p>
       )}
-      {notice && <p role="status">{notice}</p>}
+      {notice && (
+        <p role="status" className="notice">
+          {notice}
+        </p>
+      )}
       <div className="settings-danger">
         <h2>Delete account</h2>
         {deleting ? (
