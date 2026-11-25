@@ -15,7 +15,7 @@ use std::{
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 
-const PUBLIC_KEY: &str = "Pkg2hiPnIDGXW8wdP0IwNAmVcI9WrR5VuYDuFMEK150=";
+const PUBLIC_KEY: &str = "zGCufAEeAcG1n2LcHhAe3vcu8B1JYKILGBmLy27quYI=";
 const MAX_ARCHIVE: u64 = 64 * 1024 * 1024;
 const PACKAGE_KIND: &str = "beacon-remote-development-v2";
 const REQUIRED: [&str; 3] = [
@@ -211,7 +211,7 @@ fn extract(archive: &Path, into: &Path, feed: &Feed) -> Result<(), Error> {
     let mut zip = zip::ZipArchive::new(fs::File::open(archive)?)?;
     for index in 0..zip.len() {
         let entry = zip.by_index(index)?;
-        let name = entry.name().to_owned();
+        let name = entry.name()?.into_owned();
         // Flat files only, from a fixed set: nothing can land outside the staging directory.
         let allowed = REQUIRED.contains(&name.as_str())
             || matches!(

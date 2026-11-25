@@ -6,6 +6,7 @@
 
 const CHUNK = 16 * 1024;
 const HIGH_WATER = 4 * 1024 * 1024;
+const BUFFER_DRAIN_TIMEOUT_MS = 30_000;
 
 /** Incremental SHA-256: the browser's crypto API only hashes a whole buffer at once. */
 export class Sha256 {
@@ -132,14 +133,26 @@ export type Transfer = {
   name: string;
   size: number;
   sent: number;
-  status: "waiting" | "sending" | "receiving" | "done" | "failed" | "cancelled";
+  status:
+    | "waiting"
+    | "sending"
+    | "receiving"
+    | "interrupted"
+    | "done"
+    | "failed"
+    | "cancelled";
   note?: string;
   /** True for a file coming from the computer rather than going to it. */
   incoming?: boolean;
 };
 
 /** A file the person at the computer wants to send to this viewer. */
-export type Offer = { id: number; name: string; size: number };
+export type Offer = {
+  id: number;
+  name: string;
+  size: number;
+  transferId?: string;
+};
 
 // Without somewhere to stream to, a received file is held in memory until its checksum is verified, so the size is
 // bounded. Browsers that can write to a file the person chooses (Chrome, Edge) have no such limit: bytes go to disk as
@@ -153,6 +166,84 @@ type DiskSink = {
   close(): Promise<void>;
   abort(): Promise<void>;
 };
+type Receiving = {
+  offer: Offer;
+  chunks: Uint8Array[];
+  got: number;
+  hash: Sha256;
+  sink?: DiskSink;
+  writes: Promise<void>;
+  pending: number;
+  writeFailed: boolean;
+  finishing?: boolean;
+  committing?: boolean;
+};
+
+/** One partial download, owned by one live viewer grant, never persisted or global. */
+export class DownloadResume {
+  private partial: Receiving | null = null;
+  private stopped = false;
+  private declined = new Set<string>();
+  has(offer: Offer): boolean {
+    const part = this.partial;
+    return Boolean(
+      !this.stopped &&
+      part &&
+      offer.transferId &&
+      part.offer.transferId === offer.transferId &&
+      part.offer.name === offer.name &&
+      part.offer.size === offer.size &&
+      !part.writeFailed,
+    );
+  }
+  refuses(offer: Offer): boolean {
+    return (
+      this.stopped ||
+      Boolean(offer.transferId && this.declined.has(offer.transferId))
+    );
+  }
+  reconcile(token: unknown) {
+    if (this.partial?.offer.transferId !== token) this.clear();
+  }
+  keep(part: Receiving): boolean {
+    if (
+      this.stopped ||
+      !part.offer.transferId ||
+      part.got === 0 ||
+      part.writeFailed ||
+      part.committing
+    )
+      return false;
+    this.clear();
+    this.partial = part;
+    return true;
+  }
+  take(offer: Offer): Receiving | null {
+    if (!this.has(offer)) {
+      this.clear();
+      return null;
+    }
+    const part = this.partial!;
+    this.partial = null;
+    part.offer = offer;
+    part.finishing = false;
+    return part;
+  }
+  clear() {
+    const part = this.partial;
+    this.partial = null;
+    if (part?.offer.transferId) {
+      this.declined.add(part.offer.transferId);
+      if (this.declined.size > 32)
+        this.declined.delete(this.declined.values().next().value!);
+    }
+    void part?.sink?.abort().catch(() => {});
+  }
+  dispose() {
+    this.stopped = true;
+    this.clear();
+  }
+}
 type SaveWindow = Window & {
   showSaveFilePicker?: (options?: {
     suggestedName?: string;
@@ -188,18 +279,11 @@ export class FileSender {
   maxFile = 0;
   private next = 1;
   private cancelled = false;
+  private accepting = false;
+  private generation = 0;
   private waiter: ((reply: Record<string, unknown>) => void) | null = null;
-  private receiving: {
-    offer: Offer;
-    chunks: Uint8Array[];
-    got: number;
-    hash: Sha256;
-    // Set when the file streams to disk instead of memory.
-    sink?: DiskSink;
-    writes: Promise<void>;
-    pending: number;
-    writeFailed: boolean;
-  } | null = null;
+  private uploading: AbortController | null = null;
+  private receiving: Receiving | null = null;
 
   constructor(
     private readonly channel: RTCDataChannel,
@@ -209,6 +293,7 @@ export class FileSender {
     private readonly extras: {
       permissions?: (allowed: { files: boolean; recording: boolean }) => void;
       recordingDenied?: () => void;
+      downloads?: DownloadResume;
     } = {},
   ) {
     channel.binaryType = "arraybuffer";
@@ -225,6 +310,7 @@ export class FileSender {
         return;
       }
       if (message.t === "ready") {
+        this.extras.downloads?.reconcile(message.downloadTransferId);
         this.ready = true;
         this.maxFile = Number(message.maxFile) || 0;
         // Hosts that predate recording only open this channel for files.
@@ -241,8 +327,32 @@ export class FileSender {
         const name = typeof message.name === "string" ? message.name : "";
         const size = Number(message.size);
         // The computer's own ids are even; anything else is not a valid offer.
-        if (id % 2 === 0 && id > 0 && name && name.length <= 255 && size > 0)
-          this.offered({ id, name, size });
+        if (
+          Number.isSafeInteger(id) &&
+          id % 2 === 0 &&
+          id > 0 &&
+          id <= 0xffffffff &&
+          name &&
+          name.length <= 255 &&
+          Number.isSafeInteger(size) &&
+          size > 0 &&
+          size <= 2 * 1024 * 1024 * 1024
+        ) {
+          const transferId =
+            typeof message.transferId === "string" &&
+            /^[a-f0-9]{32}$/.test(message.transferId)
+              ? message.transferId
+              : undefined;
+          const offer = {
+            id,
+            name,
+            size,
+            ...(transferId ? { transferId } : {}),
+          };
+          if (this.extras.downloads?.refuses(offer))
+            this.decline(offer, "cancelled");
+          else this.offered(offer);
+        }
       } else if (message.t === "end" && this.receiving) {
         void this.finishReceive(message);
       } else if (
@@ -255,16 +365,44 @@ export class FileSender {
         this.offered(null);
       } else if (message.t === "paused") {
         this.cancelled = true;
+        this.uploading?.abort();
+        this.extras.downloads?.clear();
         if (this.receiving)
           this.stopReceive("cancelled", "Sharing is paused on the computer.");
         this.waiter?.(message);
+      } else if (
+        message.t === "failed" &&
+        this.receiving &&
+        message.id === this.receiving.offer.id
+      ) {
+        this.stopReceive(
+          "failed",
+          message.reason === "resume"
+            ? "The source file or partial copy changed. Ask the computer to offer it again."
+            : "The computer could not send this file.",
+        );
       } else this.waiter?.(message);
     };
     channel.onclose = () => {
       this.ready = false;
+      const part = this.receiving;
+      const kept = part && !this.cancelled && this.extras.downloads?.keep(part);
       this.cancelled = true;
-      void this.receiving?.sink?.abort().catch(() => undefined);
+      this.generation++;
+      if (!kept) void part?.sink?.abort().catch(() => undefined);
+      if (part)
+        this.changed({
+          incoming: true,
+          name: part.offer.name,
+          size: part.offer.size,
+          sent: part.got,
+          status: kept ? "interrupted" : "failed",
+          note: kept
+            ? "Reconnect and choose Resume download."
+            : "Connection closed; the partial copy was discarded.",
+        });
       this.receiving = null;
+      this.uploading?.abort();
       this.waiter?.({ t: "failed", reason: "closed" });
       this.readyChanged(false);
     };
@@ -272,11 +410,15 @@ export class FileSender {
 
   cancel() {
     this.cancelled = true;
+    this.uploading?.abort();
+    this.generation++;
+    this.extras.downloads?.clear();
     this.waiter?.({ t: "cancel" });
     if (this.receiving) {
-      this.channel.send(
-        JSON.stringify({ t: "cancel", id: this.receiving.offer.id }),
-      );
+      if (this.channel.readyState === "open")
+        this.channel.send(
+          JSON.stringify({ t: "cancel", id: this.receiving.offer.id }),
+        );
       this.stopReceive("cancelled");
     }
   }
@@ -293,14 +435,52 @@ export class FileSender {
    */
   async accept(offer: Offer) {
     this.offered(null);
-    if (this.receiving || this.channel.readyState !== "open") {
+    if (
+      this.receiving ||
+      this.accepting ||
+      this.channel.readyState !== "open"
+    ) {
       this.decline(offer, "busy");
+      return;
+    }
+    this.cancelled = false;
+    const generation = this.generation;
+    const resume = this.extras.downloads?.take(offer);
+    if (resume) {
+      this.receiving = resume;
+      await resume.writes;
+      if (this.generation !== generation || this.receiving !== resume) return;
+      if (resume.writeFailed) {
+        this.stopReceive("failed", "The partial copy could not be saved.");
+        this.decline(offer, "write");
+        return;
+      }
+      this.channel.send(
+        JSON.stringify({
+          t: "accept",
+          id: offer.id,
+          resume: { offset: resume.got, sha256: resume.hash.hex() },
+        }),
+      );
+      this.changed({
+        incoming: true,
+        name: offer.name,
+        size: offer.size,
+        sent: resume.got,
+        status: "receiving",
+      });
       return;
     }
     let sink: DiskSink | undefined;
     if (offer.size > MAX_RECEIVE) {
       // Must be asked for while the click that chose Save is still fresh.
+      this.accepting = true;
       sink = (await openDiskSink(offer.name)) ?? undefined;
+      this.accepting = false;
+      if (this.generation !== generation) {
+        void sink?.abort().catch(() => {});
+        return;
+      }
       if (!sink) {
         this.decline(offer, "too-large");
         this.changed({
@@ -340,6 +520,7 @@ export class FileSender {
   }
 
   decline(offer: Offer, reason = "declined") {
+    this.extras.downloads?.clear();
     this.offered(null);
     if (this.channel.readyState === "open")
       this.channel.send(JSON.stringify({ t: "reject", id: offer.id, reason }));
@@ -347,7 +528,12 @@ export class FileSender {
 
   private chunk(data: unknown) {
     const receiving = this.receiving;
-    if (!receiving || !(data instanceof ArrayBuffer) || data.byteLength <= 4)
+    if (
+      !receiving ||
+      receiving.finishing ||
+      !(data instanceof ArrayBuffer) ||
+      data.byteLength <= 4
+    )
       return;
     const view = new DataView(data);
     if (view.getUint32(0) !== receiving.offer.id) return;
@@ -399,12 +585,20 @@ export class FileSender {
 
   private async finishReceive(message: Record<string, unknown>) {
     const receiving = this.receiving;
-    if (!receiving || message.id !== receiving.offer.id) return;
+    if (!receiving || receiving.finishing || message.id !== receiving.offer.id)
+      return;
+    receiving.finishing = true;
     const intact =
       receiving.got === receiving.offer.size &&
       typeof message.sha256 === "string" &&
       receiving.hash.hex() === message.sha256.toLowerCase();
     if (receiving.sink) await receiving.writes;
+    if (
+      this.receiving !== receiving ||
+      this.cancelled ||
+      this.channel.readyState !== "open"
+    )
+      return;
     if (!intact || receiving.writeFailed) {
       // A streamed file is only a temporary swap file until it is closed; stopping aborts it and leaves nothing behind.
       this.channel.send(
@@ -419,6 +613,7 @@ export class FileSender {
     }
     if (receiving.sink) {
       try {
+        receiving.committing = true;
         await receiving.sink.close();
       } catch {
         this.channel.send(
@@ -439,6 +634,12 @@ export class FileSender {
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
     }
+    if (
+      this.receiving !== receiving ||
+      this.cancelled ||
+      this.channel.readyState !== "open"
+    )
+      return;
     this.channel.send(JSON.stringify({ t: "done", id: receiving.offer.id }));
     this.changed({
       incoming: true,
@@ -475,16 +676,41 @@ export class FileSender {
 
   /** Sends a file, carrying on from where an interrupted attempt stopped if the computer kept the start of it. */
   async send(file: File): Promise<Transfer["status"]> {
-    return this.upload(file, false);
+    if (this.uploading) return "failed";
+    const upload = new AbortController();
+    this.uploading = upload;
+    try {
+      return await this.upload(file, false, upload.signal);
+    } finally {
+      this.uploading = null;
+      this.waiter = null;
+    }
+  }
+
+  private bufferedAmountLow(signal: AbortSignal): Promise<boolean> {
+    return new Promise((resolve) => {
+      const finish = (drained: boolean) => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", abort);
+        this.channel.onbufferedamountlow = null;
+        resolve(drained);
+      };
+      const abort = () => finish(false);
+      const timer = setTimeout(abort, BUFFER_DRAIN_TIMEOUT_MS);
+      this.channel.onbufferedamountlow = () => finish(true);
+      signal.addEventListener("abort", abort, { once: true });
+      if (signal.aborted || this.channel.readyState !== "open") abort();
+      else if (this.channel.bufferedAmount <= HIGH_WATER) finish(true);
+    });
   }
 
   private async upload(
     file: File,
     fresh: boolean,
+    signal: AbortSignal,
   ): Promise<Transfer["status"]> {
     const id = this.next;
     this.next += 2;
-    this.cancelled = false;
     const state: Transfer = {
       name: file.name,
       size: file.size,
@@ -505,6 +731,22 @@ export class FileSender {
       return show({ status: "failed", note: "That file is empty." });
     if (this.maxFile && file.size > this.maxFile)
       return show({ status: "failed", note: REASONS["too-large"] });
+    const cancelOffer = () => {
+      if (this.channel.readyState !== "open") return;
+      try {
+        this.channel.send(JSON.stringify({ t: "cancel", id }));
+      } catch {
+        // A closing or saturated channel may refuse the cancellation message.
+        // The viewer still stops reading and queuing file data.
+      }
+    };
+    const stopped = () => {
+      if (this.channel.readyState !== "open") {
+        return show({ status: "failed", note: "The file connection closed." });
+      }
+      cancelOffer();
+      return show({ status: "cancelled" });
+    };
     show({});
     this.channel.send(
       JSON.stringify({
@@ -516,6 +758,7 @@ export class FileSender {
       }),
     );
     const answer = await this.reply();
+    if (signal.aborted) return stopped();
     if (answer.t !== "accept" || answer.id !== id)
       return show({
         status: answer.t === "cancel" ? "cancelled" : "failed",
@@ -536,47 +779,58 @@ export class FileSender {
         // file's first bytes; otherwise ask it to throw the part away and begin again.
         const check = new Sha256();
         const head = file.slice(0, offset).stream().getReader();
-        for (;;) {
-          const { value, done } = await head.read();
-          if (done) break;
-          check.update(value);
+        try {
+          while (!signal.aborted) {
+            const { value, done } = await head.read();
+            if (done) break;
+            check.update(value);
+          }
+        } finally {
+          head.releaseLock();
         }
+        if (signal.aborted) return stopped();
         if (check.hex() === String(kept.sha256 ?? "").toLowerCase()) {
           hash = check;
           from = offset;
           state.sent = offset;
           show({ note: "Resuming" });
         } else {
-          this.channel.send(JSON.stringify({ t: "cancel", id }));
-          return this.upload(file, true);
+          cancelOffer();
+          return this.upload(file, true, signal);
         }
       } else if (kept) {
-        this.channel.send(JSON.stringify({ t: "cancel", id }));
-        return this.upload(file, true);
+        cancelOffer();
+        return this.upload(file, true, signal);
       }
     }
     show({ status: "sending" });
     const reader = file.slice(from).stream().getReader();
     let pending = new Uint8Array(0);
+    let stalled = false;
     const flush = async (bytes: Uint8Array) => {
       const frame = new Uint8Array(4 + bytes.length);
       new DataView(frame.buffer).setUint32(0, id);
       frame.set(bytes, 4);
-      while (this.channel.bufferedAmount > HIGH_WATER) {
-        await new Promise<void>((resolve) => {
-          this.channel.onbufferedamountlow = () => resolve();
-        });
-        if (this.cancelled) return;
+      if (signal.aborted) return;
+      if (
+        this.channel.bufferedAmount > HIGH_WATER &&
+        !(await this.bufferedAmountLow(signal))
+      ) {
+        stalled = !signal.aborted && this.channel.readyState === "open";
+        return;
       }
-      if (this.channel.readyState !== "open") return;
+      if (signal.aborted || this.channel.readyState !== "open") return;
       this.channel.send(frame);
       hash.update(bytes);
       state.sent += bytes.length;
       this.changed({ ...state });
     };
     try {
-      for (;;) {
-        if (this.cancelled) break;
+      while (
+        !signal.aborted &&
+        !stalled &&
+        this.channel.readyState === "open"
+      ) {
         const { value, done } = await reader.read();
         if (done) break;
         let chunk = value;
@@ -591,22 +845,26 @@ export class FileSender {
         while (chunk.length - offset >= CHUNK) {
           await flush(chunk.subarray(offset, offset + CHUNK));
           offset += CHUNK;
-          if (this.cancelled) break;
+          if (signal.aborted || stalled) break;
         }
         pending = chunk.slice(offset);
       }
-      if (!this.cancelled && pending.length) await flush(pending);
+      if (!signal.aborted && !stalled && pending.length) await flush(pending);
     } finally {
       reader.releaseLock?.();
     }
-    if (this.cancelled || this.channel.readyState !== "open") {
-      if (this.channel.readyState === "open")
-        this.channel.send(JSON.stringify({ t: "cancel", id }));
-      return show({ status: "cancelled" });
+    if (signal.aborted || this.channel.readyState !== "open") return stopped();
+    if (stalled) {
+      cancelOffer();
+      return show({
+        status: "failed",
+        note: "The connection stopped sending file data. Try again.",
+      });
     }
     const finished = this.reply();
     this.channel.send(JSON.stringify({ t: "end", id, sha256: hash.hex() }));
     const result = await finished;
+    if (signal.aborted) return stopped();
     if (result.t === "done")
       return show({
         status: "done",

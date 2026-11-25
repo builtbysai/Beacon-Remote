@@ -55,12 +55,12 @@ pub fn run(
     initialize_mta().ok()?;
     let enumerator = DeviceEnumerator::new()?;
     // Capturing from a render device is loopback: what the speakers are playing.
-    let device = enumerator.get_default_device(&Direction::Render)?;
+    let device = enumerator.get_default_device(Direction::Render)?;
     let mut client = device.get_iaudioclient()?;
     let format = WaveFormat::new(
         16,
         16,
-        &SampleType::Int,
+        SampleType::Int,
         SAMPLE_RATE as usize,
         CHANNELS,
         None,
@@ -68,11 +68,12 @@ pub fn run(
     let (default_period, _) = client.get_device_period()?;
     client.initialize_client(
         &format,
-        &Direction::Capture,
-        &StreamMode::EventsShared {
+        Direction::Capture,
+        StreamMode::EventsShared {
             autoconvert: true,
             buffer_duration_hns: default_period,
         },
+        None,
     )?;
     let event = client.set_get_eventhandle()?;
     let capture = client.get_audiocaptureclient()?;
@@ -174,5 +175,61 @@ mod tests {
                 .unwrap(),
             FRAME
         );
+    }
+}
+
+/// Whether this computer may send its sound to the viewer right now (P1-9). Every condition must hold: the
+/// viewer is connected, its lease is still live, sharing is not paused, and the connection is still the current
+/// generation. Any one of them failing stops the sound at once, and nothing else can restart it.
+pub fn may_send(
+    connected: bool,
+    lease_live: bool,
+    paused: bool,
+    muted: bool,
+    current_generation: bool,
+) -> bool {
+    connected && lease_live && !paused && !muted && current_generation
+}
+
+static MUTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The owner muted this computer's sound toward the viewer. Muting keeps the session and video running and only
+/// stops sound. It is cleared when the owner unmutes or the process restarts.
+// Nothing calls this until the sharing window has a mute control; the gate already honours the state.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn set_muted(on: bool) {
+    MUTED.store(on, std::sync::atomic::Ordering::Release);
+}
+
+pub fn muted() -> bool {
+    MUTED.load(std::sync::atomic::Ordering::Acquire)
+}
+
+#[cfg(test)]
+mod gate_tests {
+    use super::may_send;
+
+    #[test]
+    fn sound_is_sent_only_when_every_condition_holds() {
+        assert!(may_send(true, true, false, false, true));
+        assert!(
+            !may_send(false, true, false, false, true),
+            "viewer disconnected"
+        );
+        assert!(!may_send(true, false, false, false, true), "lease ended");
+        assert!(!may_send(true, true, true, false, true), "sharing paused");
+        assert!(!may_send(true, true, false, true, true), "muted");
+        assert!(
+            !may_send(true, true, false, false, false),
+            "an older connection"
+        );
+    }
+
+    #[test]
+    fn mute_is_a_flag_the_gate_reads() {
+        super::set_muted(true);
+        assert!(super::muted());
+        super::set_muted(false);
+        assert!(!super::muted());
     }
 }

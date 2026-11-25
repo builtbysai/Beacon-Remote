@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   createHash,
+  createHmac,
   generateKeyPairSync,
   randomBytes,
   randomUUID,
@@ -23,6 +24,7 @@ test(
     const pool = new Pool({ connectionString: url });
     await applyMigrations(pool);
     const origin = "https://remote.example.test";
+    const turnSecret = randomBytes(32).toString("hex");
     const app = await createApp(pool, {
       DATABASE_URL: url,
       WEB_ORIGIN: origin,
@@ -30,7 +32,7 @@ test(
       HOST: "127.0.0.1",
       PORT: 3010,
       SESSION_SECRET: randomBytes(32).toString("hex"),
-      TURN_SECRET: randomBytes(32).toString("hex"),
+      TURN_SECRET: turnSecret,
       TURN_URLS: ["turn:relay.example.test:3478?transport=udp"],
       ICE_TRANSPORT_POLICY: "relay",
       RECONNECT_WINDOW_SECONDS: 10,
@@ -137,13 +139,51 @@ test(
           .statusCode,
         403,
       );
+      const issuedAfter = Date.now();
       const grant = await create();
       assert.equal(grant.statusCode, 200);
       const id = grant.json().id as string;
       assert.equal((await create()).statusCode, 409);
       const pending = await beat();
+      const issuedBefore = Date.now();
       assert.equal(pending[0]!.id, id);
-      assert.deepEqual(pending[0]!.iceServers, grant.json().iceServers);
+      // Each authorized response refreshes TURN credentials. A second boundary
+      // may fall between requests; verify both grants instead of byte equality.
+      const cap = (
+        await pool.query<{ expires_at: Date }>(
+          "SELECT expires_at FROM view_sessions WHERE id=$1",
+          [id],
+        )
+      ).rows[0]!.expires_at.getTime();
+      for (const servers of [grant.json().iceServers, pending[0]!.iceServers]) {
+        assert.equal(servers.length, 2);
+        assert.deepEqual(servers[0], grant.json().iceServers[0]);
+        const relay = servers[1] as {
+          urls: string[];
+          username: string;
+          credential: string;
+        };
+        assert.deepEqual(relay.urls, [
+          "turn:relay.example.test:3478?transport=udp",
+        ]);
+        const [expiry, product, session] = relay.username.split(":");
+        assert.equal(product, "beacon-remote");
+        assert.equal(session, id);
+        assert.ok(
+          Number(expiry) >=
+            Math.floor(Math.min(cap, issuedAfter + 30 * 60_000) / 1000),
+        );
+        assert.ok(
+          Number(expiry) <=
+            Math.floor(Math.min(cap, issuedBefore + 30 * 60_000) / 1000),
+        );
+        assert.equal(
+          relay.credential,
+          createHmac("sha1", turnSecret)
+            .update(relay.username)
+            .digest("base64"),
+        );
+      }
       assert.equal(pending[0]!.iceTransportPolicy, "relay");
       assert.equal(grant.json().iceTransportPolicy, "relay");
       assert.equal(pending[0]!.iceServers.length, 2);

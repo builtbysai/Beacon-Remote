@@ -1,5 +1,3 @@
-import { useEffect, useId, useRef, useState } from "react";
-
 export type Theme = "system" | "light" | "dark";
 const storageKey = "beacon-remote-appearance";
 
@@ -46,111 +44,26 @@ function ThemeIcon({ theme }: { theme: Theme }) {
   );
 }
 
-const choices: { value: Theme; label: string; detail: string }[] = [
-  { value: "system", label: "System", detail: "Match your device" },
-  { value: "light", label: "Light", detail: "Always light" },
-  { value: "dark", label: "Dark", detail: "Always dark" },
-];
+const order: Theme[] = ["system", "dark", "light"];
+const labels: Record<Theme, string> = {
+  system: "System",
+  dark: "Dark",
+  light: "Light",
+};
 
-export function ThemePicker({
-  theme,
-  onChange,
-}: {
-  theme: Theme;
-  onChange: (theme: Theme) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const panelId = useId();
-  const label = choices.find((choice) => choice.value === theme)!.label;
+type ThemeProps = { theme: Theme; onChange: (theme: Theme) => void };
 
-  useEffect(() => {
-    if (!open) return;
-    root.current?.querySelector<HTMLInputElement>("input:checked")?.focus();
-    const dismiss = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener("pointerdown", dismiss);
-    return () => document.removeEventListener("pointerdown", dismiss);
-  }, [open]);
-
+export function ThemePicker({ theme, onChange }: ThemeProps) {
+  const next = order[(order.indexOf(theme) + 1) % order.length]!;
   return (
-    <div
-      className="theme-picker"
-      ref={root}
-      onBlur={(event) => {
-        // Label pointer activation can briefly blur a radio with no related
-        // target before focusing the newly selected input. Outside pointerdown
-        // already dismisses the panel; don't unmount its labels mid-click.
-        if (
-          event.relatedTarget &&
-          !event.currentTarget.contains(event.relatedTarget)
-        )
-          setOpen(false);
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Escape" && open) {
-          event.preventDefault();
-          setOpen(false);
-          trigger.current?.focus();
-        }
-      }}
+    <button
+      type="button"
+      className="theme-trigger"
+      aria-label={`Appearance: ${labels[theme]}`}
+      title={`${labels[theme]} · switch to ${labels[next].toLowerCase()}`}
+      onClick={() => onChange(next)}
     >
-      <button
-        type="button"
-        className="theme-trigger"
-        ref={trigger}
-        aria-label={`Appearance: ${label}`}
-        aria-expanded={open}
-        aria-controls={panelId}
-        title={`Appearance: ${label}`}
-        onClick={() => setOpen(!open)}
-      >
-        <ThemeIcon theme={theme} />
-        <span>{label}</span>
-        <svg
-          className="theme-chevron"
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          aria-hidden="true"
-        >
-          <path d="m4 6 4 4 4-4" />
-        </svg>
-      </button>
-      {open && (
-        <fieldset className="theme-panel" id={panelId}>
-          <legend>Appearance</legend>
-          {choices.map((choice) => (
-            <label className="theme-choice" key={choice.value}>
-              <input
-                type="radio"
-                name={panelId}
-                value={choice.value}
-                checked={theme === choice.value}
-                onChange={() => onChange(choice.value)}
-              />
-              <ThemeIcon theme={choice.value} />
-              <span>
-                <strong>{choice.label}</strong>
-                <small>{choice.detail}</small>
-              </span>
-              <svg
-                className="theme-check"
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                aria-hidden="true"
-              >
-                <path d="m3 8 3 3 7-7" />
-              </svg>
-            </label>
-          ))}
-        </fieldset>
-      )}
-    </div>
+      <ThemeIcon theme={theme} />
+    </button>
   );
 }

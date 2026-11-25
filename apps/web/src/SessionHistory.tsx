@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Empty } from "./Characters.js";
 import { api } from "./api.js";
 
 export type SessionRecord = {
@@ -43,18 +44,19 @@ export function qualityLine(quality: SessionRecord["quality"]): string {
  * or when there is nothing measured to judge. One sentence, most useful first; it never blames a side it cannot know.
  */
 export function diagnosis(quality: SessionRecord["quality"]): string | null {
-  if (!quality || quality.route === "Unavailable") return null;
+  if (!quality || quality.samples < 3 || quality.route === "Unavailable")
+    return null;
   if (quality.lossPct !== null && quality.lossPct >= 2)
-    return "Packets were being lost, usually weak Wi-Fi or a busy network on either side. A cable, or moving closer to the router, helps most.";
+    return "Packets were lost. Try a wired connection or stronger Wi-Fi on either device.";
   const slow = quality.rttP95Ms ?? quality.rttMs;
   if (slow !== null && slow >= 250)
     return quality.route === "Relayed"
-      ? "The connection was slow and went through the relay. A network that blocks direct connections (some mobile and office networks) causes this; another network may connect directly."
-      : "The connection was slow (high delay). A distant or congested network on either side is the usual cause.";
+      ? "High delay over a relay. Try another network to check whether a direct connection is available."
+      : "High network delay. Try a more stable network on either device.";
   if (quality.fps !== null && quality.fps > 0 && quality.fps < 10)
-    return "The picture updated slowly although the network looked healthy. The computer may be busy, or its screen was mostly unchanged.";
+    return "The picture updated slowly. A quiet screen needs few updates; if motion stutters, try lower picture quality.";
   if (quality.route === "Relayed")
-    return "Video went through the relay rather than directly. It worked, but a network that allows direct connections would add less delay.";
+    return "Video used a relay. No change is needed if it felt responsive.";
   return null;
 }
 
@@ -159,7 +161,7 @@ export function SessionHistory() {
       ) : error && !data ? (
         <p className="note">Unable to load sessions.</p>
       ) : data && !data.available ? (
-        <p className="note">Desktop sessions are not enabled on this server.</p>
+        <p className="note">Sessions are off on this server.</p>
       ) : (
         <>
           {active.length > 0 && (
@@ -202,47 +204,65 @@ export function SessionHistory() {
             </section>
           )}
           {recent.length === 0 && active.length === 0 ? (
-            <p className="note">
-              No sessions yet. Connect to a computer from Computers and it will
-              be listed here.
-            </p>
+            <Empty title="No sessions yet" tone="sun">
+              Connect to a computer and its session shows up here.
+            </Empty>
           ) : (
             recent.length > 0 && (
-              <section className="workspace-panel" aria-label="Recent sessions">
-                <div className="session-table-head" aria-hidden="true">
-                  <span>Computer</span>
-                  <span>Access</span>
-                  <span>Result</span>
-                  <span>Connection</span>
-                  <span>When</span>
-                </div>
-                <ol className="session-rows session-table">
+              <section className="session-recent" aria-label="Recent sessions">
+                <h2 className="list-label">Recent</h2>
+                <ol className="session-rows session-cards">
                   {recent.map((session) => (
-                    <li key={session.id}>
-                      <strong>
-                        {session.machineName}
-                        {session.controller
-                          ? ` · by ${session.controller}`
-                          : ""}
-                      </strong>
-                      <span>
-                        {session.source === "desktop"
-                          ? session.capability === "desktop:control"
-                            ? "Control"
-                            : "View"
-                          : "Video test"}
-                      </span>
-                      <span>{sessionState(session.status)}</span>
-                      <span>
-                        {qualityLine(session.quality)}
+                    <li key={session.id} data-result={session.status}>
+                      <svg
+                        className="session-icon"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        {session.capability === "desktop:control" ? (
+                          <path d="m6 3 12 8-5.5 1.5L10 18 6 3Z" />
+                        ) : (
+                          <>
+                            <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+                            <circle cx="12" cy="12" r="2.8" />
+                          </>
+                        )}
+                      </svg>
+                      <div>
+                        <strong>
+                          {session.machineName}
+                          {session.controller
+                            ? ` · by ${session.controller}`
+                            : ""}
+                        </strong>
+                        <span>
+                          {session.source === "desktop"
+                            ? session.capability === "desktop:control"
+                              ? "Control"
+                              : "View only"
+                            : "Video test"}
+                          {" · "}
+                          {sessionState(session.status)}
+                          {session.quality
+                            ? ` · ${qualityLine(session.quality)}`
+                            : ""}
+                        </span>
                         {diagnosis(session.quality) && (
                           <small className="session-hint">
                             {diagnosis(session.quality)}
                           </small>
                         )}
-                      </span>
+                      </div>
                       <time dateTime={session.createdAt}>
-                        {new Date(session.createdAt).toLocaleString()}
+                        {new Date(session.createdAt).toLocaleString([], {
+                          dateStyle: "medium",
+                          timeStyle: "short",
+                        })}
                       </time>
                     </li>
                   ))}

@@ -3,6 +3,12 @@
 `packages/protocol` defines strict enrollment, signed heartbeat, input envelopes,
 and the initial view/control capabilities. Unknown fields are rejected.
 
+New device enrollment codes have three groups of four readable base32 symbols.
+Claim/status/cancel normalize case and grouping for this format only. Legacy
+32–64-character base64url invitations remain case-sensitive. Five-minute expiry,
+single use, owner-scoped progress/cancellation and claim rate limits are unchanged.
+See [the pairing decision](decisions/0050-readable-device-pairing.md).
+
 Heartbeat canonical bytes are UTF-8:
 
 ```text

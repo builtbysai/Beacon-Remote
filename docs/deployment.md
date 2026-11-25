@@ -1,5 +1,41 @@
 # Deployment gates
 
+November 22 (second web-only rollout, owner approved): `dc42802f1fbfd7aa40721df307f51fb869a25299` is the current Remote
+production release: the viewer's instant local press ripple. Only the web container changed (backend stays on the
+`975fc76` image, re-tagged); backup first, rollback tag `rollback-38251937`. Production's ICE transport policy was
+checked and is already `all` (direct first, relay as fallback), so no configuration change was needed.
+
+November 22 (web only, owner approved): `38251937c72b4ae12c9924e6e316b3bd26538346` is the current Remote production release:
+the viewer's performance diagnostics (control round trip, jitter buffer, decode time) and the unknown-message
+tolerance. Only the web container changed; the backend stays on the unchanged `975fc76` image (re-tagged to this
+release). Encrypted backup first, rollback tag `rollback-57e57bb`, health and served assets checked. The test stack's
+web is on the same build. The phone build (`7fe90e68`, one merged "Connect without asking" setting) is installed on the
+Pixel only.
+
+November 21 (fourth rollout, web only): `5da796f0142c77e68f9515c6308b78d6d09d7ef8` is the current Remote production release:
+the computers page and inspector are back to their original look, the viewer keeps its rebuilt layout, and Unlock is
+offered only at the lock screen. Only the web container changed; the backend stays on the unchanged `975fc76` image
+(re-tagged to this release). Encrypted backup first, rollback tag `rollback-4061636`, health and served assets checked.
+
+November 21 (third rollout of the day, web only): `4061636fafefb04077a30223cafe1925affb6feb` is the current Remote production
+release. Only the web container changed (the rebuilt viewer and computers page); the backend image is the unchanged
+`975fc76` build, re-tagged to this release so the operations wrapper finds it, and keeps running. Encrypted backup
+first, rollback tag `rollback-975fc76`, public health and the served assets checked.
+
+November 21 (second rollout of the day): `975fc76fab3bd19541b7cc2f9a55f23bea6ea9db` replaced `104e005` as the current Remote
+production release (new phone-made pairing routes, viewer and workspace redesign, no schema change), with an encrypted
+backup first, rollback tags `rollback-104e005`, migrate and schema/role verify passed, both containers healthy, and the
+public health, readiness, served assets and the new `/api/device-pairing/start` route checked.
+
+November 21 manual rollout (owner-authorized, "wipe the database and rollout the new"): `104e005a8cb5038b1ebb28b1f321cb678e2803c6`
+is the current Remote production release, after an encrypted backup (passed), rollback tags `rollback-5e8d5c5` for
+the predecessor `5e8d5c5`, the predecessor backend stopped, migrate and schema/role verify passed (no schema change
+needed), backend and web recreated, and public health, readiness and the served web assets checked. The owner asked for
+the database to be cleared; every table that holds accounts, computers, sessions, enrollments, audit events and support
+data was already empty (0 rows) before the rollout, so nothing was deleted. Rollback is the documented one: retag
+`rollback-5e8d5c5`, `up -d --no-deps backend web` without `--build`, repoint `current`. Beacon View's containers were
+not touched.
+
 October 12 (evening) manual rollout: merged main
 `410a7d19cb0eec2fc0032b8c3e09854b8d4f699a` (PR 34: ADRs 0021-0024) is the current
 Remote production release, after encrypted backup/integrity check, rollback tags
@@ -172,6 +208,18 @@ issue a replacement if needed. This does not enable general registration.
 
 ## Weekly restore drill
 
+November 15, 2026: production operations use the guarded
+`/usr/local/sbin/beacon-remote-compose` wrapper from
+`infrastructure/oracle/beacon-remote-compose.sh`. Install it root-owned mode 0750
+with the matching backup/restore units before enabling their timers. It selects
+the current release's exact image override after private media/data-service
+overrides, so a new source symlink cannot silently run an older operations image.
+The release must contain a matching `SOURCE_REVISION` and generated
+`compose.release-images.json`. Capture a new backup after migrations, then run
+the scheduled restore drill: a pre-migration backup intentionally fails a schema
+comparison with the newly migrated live database. Both updated jobs passed on
+November 15. Empty account tables are valid after the requested reset.
+
 `beacon-remote-restore-drill.timer` runs `restore-check` every Sunday at 05:30 UTC (after the 04:30 backup). It
 restores the latest encrypted backup into the fixed throwaway database, checks that the restored schema matches the
 live one and that accounts survived, then drops only what it created. Counts are not compared because the live
@@ -202,3 +250,10 @@ sudo HEALTH_FORCE_FAIL=disk bash infrastructure/oracle/beacon-remote-health.sh  
 ```
 
 It watches Beacon Remote only; Beacon View has its own monitor. It cannot report that the whole server is down.
+
+The current local source formats alerts as HTML plus the full original plain
+text using the adjacent `render-alert.py` (Python 3 standard library). Keep that
+file with the health script in the matching checkout during release. Its renderer
+has no credentials/network access; the existing shell sender owns the provider
+call. This change has not been installed on the server. Local preview/unit checks
+do not prove live alert delivery; retain the explicit deployment acceptance step.

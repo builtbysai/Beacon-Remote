@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { test } from "node:test";
-import { Sha256 } from "../src/file-transfer.js";
+import {
+  Sha256,
+  FileSender,
+  DownloadResume,
+  type Transfer,
+} from "../src/file-transfer.js";
 
 test("incremental SHA-256 matches the platform hash for every padding boundary and chunking", () => {
   for (const length of [
@@ -51,6 +56,69 @@ const frame = (id: number, bytes: Uint8Array) => {
   out.set(bytes, 4);
   return out.buffer;
 };
+
+for (const interruption of [
+  "cancel",
+  "pause",
+  "disconnect",
+  "timeout",
+  "drain",
+] as const) {
+  test(`an upload waiting for buffer space settles on ${interruption}`, async (t) => {
+    if (interruption === "timeout")
+      t.mock.timers.enable({ apis: ["setTimeout"] });
+    const { channel, raw, sent } = fakeChannel();
+    const sender = new FileSender(
+      channel,
+      () => {},
+      () => {},
+    );
+    sender.ready = true;
+    raw.bufferedAmount = 5 * 1024 * 1024;
+    const result = sender.send(new File(["beacon"], "test.txt"));
+    const deliver = (data: object) =>
+      raw.onmessage!({ data: JSON.stringify(data) });
+    deliver({ t: "accept", id: 1 });
+    for (let attempt = 0; attempt < 20 && !raw.onbufferedamountlow; attempt++) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    assert.ok(raw.onbufferedamountlow, "upload is waiting for its buffer");
+    if (interruption === "cancel") sender.cancel();
+    else if (interruption === "pause") deliver({ t: "paused" });
+    else if (interruption === "disconnect") {
+      raw.readyState = "closed";
+      raw.onclose!();
+    } else if (interruption === "timeout") {
+      t.mock.timers.tick(30_000);
+    } else {
+      raw.bufferedAmount = 0;
+      raw.onbufferedamountlow();
+      for (let attempt = 0; attempt < 20 && sent.length < 3; attempt++) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      assert.deepEqual(
+        sent[1],
+        new Uint8Array(frame(1, Buffer.from("beacon"))),
+      );
+      assert.equal(JSON.parse(sent[2] as string).t, "end");
+      deliver({ t: "done", id: 1 });
+    }
+    const expected =
+      interruption === "drain"
+        ? "done"
+        : interruption === "timeout" || interruption === "disconnect"
+          ? "failed"
+          : "cancelled";
+    assert.equal(await result, expected);
+    assert.equal(raw.onbufferedamountlow, null);
+    if (interruption !== "drain") {
+      assert.deepEqual(
+        sent.slice(1).map((item) => JSON.parse(item as string)),
+        interruption === "disconnect" ? [] : [{ t: "cancel", id: 1 }],
+      );
+    }
+  });
+}
 
 test("a file the computer offers is received only after the person accepts, and only if it arrives intact", async () => {
   const { FileSender } = await import("../src/file-transfer.js");
@@ -266,4 +334,154 @@ test("an upload carries on from the part the computer kept only if that part is 
   assert.equal(messages[1].t, "cancel");
   assert.equal(messages[2].t, "offer");
   assert.equal(messages[2].fresh, true);
+});
+
+test("download resume survives a channel replacement only within its viewer grant", async () => {
+  const cache = new DownloadResume();
+  const first = fakeChannel();
+  const states: Transfer[] = [];
+  const offer = {
+    id: 2,
+    name: "resume.bin",
+    size: 8,
+    transferId: "a".repeat(32),
+  };
+  const data = new TextEncoder().encode("abcdefgh");
+  const sender = new FileSender(
+    first.channel,
+    (t) => {
+      if (t) states.push(t);
+    },
+    () => {},
+    () => {},
+    { downloads: cache },
+  );
+  await sender.accept(offer);
+  first.raw.onmessage!({ data: frame(2, data.slice(0, 4)) });
+  first.raw.readyState = "closed";
+  first.raw.onclose!();
+  assert.equal(states.at(-1)?.status, "interrupted");
+  const second = fakeChannel();
+  const receiver = new FileSender(
+    second.channel,
+    () => {},
+    () => {},
+    () => {},
+    { downloads: cache },
+  );
+  const next = { ...offer, id: 4 };
+  assert.equal(cache.has(next), true);
+  assert.equal(
+    second.sent.length,
+    0,
+    "reconnecting does not accept automatically",
+  );
+  await receiver.accept(next);
+  assert.deepEqual(JSON.parse(second.sent[0] as string), {
+    t: "accept",
+    id: 4,
+    resume: { offset: 4, sha256: new Sha256().update(data.slice(0, 4)).hex() },
+  });
+  second.raw.onmessage!({ data: frame(4, data.slice(4)) });
+  // Stop discards the complete-but-unconfirmed copy too.
+  cache.dispose();
+  receiver.cancel();
+  assert.equal(cache.has(next), false);
+  second.raw.readyState = "closed";
+  second.raw.onclose!();
+  assert.equal(cache.has(next), false);
+});
+
+test("discard and mismatched offers never reuse download bytes", async () => {
+  for (const action of ["discard", "different-token", "different-size"]) {
+    const cache = new DownloadResume();
+    const first = fakeChannel();
+    const offer = {
+      id: 2,
+      name: "same.bin",
+      size: 8,
+      transferId: "b".repeat(32),
+    };
+    const sender = new FileSender(
+      first.channel,
+      () => {},
+      () => {},
+      () => {},
+      { downloads: cache },
+    );
+    await sender.accept(offer);
+    first.raw.onmessage!({ data: frame(2, new Uint8Array([1, 2, 3, 4])) });
+    first.raw.readyState = "closed";
+    first.raw.onclose!();
+    if (action === "discard") cache.clear();
+    const next = {
+      ...offer,
+      id: 4,
+      ...(action === "different-token" ? { transferId: "c".repeat(32) } : {}),
+      ...(action === "different-size" ? { size: 9 } : {}),
+    };
+    assert.equal(cache.has(next), false);
+    if (action === "discard") assert.equal(cache.refuses(next), true);
+    else {
+      const second = fakeChannel();
+      const receiver = new FileSender(
+        second.channel,
+        () => {},
+        () => {},
+        () => {},
+        { downloads: cache },
+      );
+      await receiver.accept(next);
+      assert.deepEqual(JSON.parse(second.sent[0] as string), {
+        t: "accept",
+        id: 4,
+      });
+      receiver.cancel();
+    }
+    cache.dispose();
+  }
+});
+
+test("host readiness discards a partial copy that no longer belongs to its pending transfer", async () => {
+  const cache = new DownloadResume();
+  const first = fakeChannel();
+  const offer = { id: 2, name: "one.bin", size: 8, transferId: "d".repeat(32) };
+  const sender = new FileSender(
+    first.channel,
+    () => {},
+    () => {},
+    () => {},
+    { downloads: cache },
+  );
+  await sender.accept(offer);
+  first.raw.onmessage!({ data: frame(2, new Uint8Array([1, 2])) });
+  first.raw.readyState = "closed";
+  first.raw.onclose!();
+  const second = fakeChannel();
+  new FileSender(
+    second.channel,
+    () => {},
+    () => {},
+    () => {},
+    { downloads: cache },
+  );
+  second.raw.onmessage!({
+    data: JSON.stringify({
+      t: "ready",
+      files: true,
+      maxFile: 1024,
+      downloadTransferId: offer.transferId,
+    }),
+  });
+  assert.equal(cache.has(offer), true);
+  second.raw.onmessage!({
+    data: JSON.stringify({
+      t: "ready",
+      files: true,
+      maxFile: 1024,
+      downloadTransferId: null,
+    }),
+  });
+  assert.equal(cache.has(offer), false);
+  cache.dispose();
 });

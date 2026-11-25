@@ -89,9 +89,8 @@ export function SupportAccess({
     <div className="inspector-detail-group">
       <h3>Support access</h3>
       <p className="note">
-        People you name can ask to connect to this computer until the date
-        shown. You approve each connection on the computer, unless you turned on
-        remembered helpers without asking in Beacon Remote on that computer.
+        People you name can ask to connect until the date shown. You approve
+        each connection on the computer unless helpers are remembered there.
       </p>
       {list?.length ? (
         <ul className="support-list">

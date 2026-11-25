@@ -101,13 +101,16 @@ test(
       };
     };
     let address = 1;
-    const create = (capability: "desktop:view" | "desktop:control") =>
+    const create = (
+      capability: "desktop:view" | "desktop:control",
+      requirePolicy = false,
+    ) =>
       app.inject({
         method: "POST",
         url: `/api/machines/${machine}/sessions`,
         headers,
         remoteAddress: `198.51.100.${address++}`,
-        payload: { source: "desktop", capability },
+        payload: { source: "desktop", capability, requirePolicy },
       });
     const statusOf = async (id: string) =>
       (
@@ -135,6 +138,29 @@ test(
 
       // Default: attended. A session needs the local Allow, and it is not capped at two minutes.
       assert.equal((await beat()).access.mode, "attended");
+      assert.equal(
+        (await create("desktop:control", true)).statusCode,
+        403,
+        "restart recovery cannot fall back to an attended prompt",
+      );
+      assert.equal(
+        (
+          await pool.query("SELECT 1 FROM view_sessions WHERE machine_id=$1", [
+            machine,
+          ])
+        ).rowCount,
+        0,
+      );
+      assert.equal(
+        (
+          await pool.query(
+            "SELECT 1 FROM audit_events WHERE machine_id=$1 AND action LIKE 'desktop.%.requested:%'",
+            [machine],
+          )
+        ).rowCount,
+        0,
+        "rejected recovery leaves neither a pending grant nor a requested-session audit event",
+      );
       const attended = await create("desktop:view");
       assert.equal(attended.statusCode, 200);
       assert.equal(attended.json().expiresAtMillis, 0);
@@ -193,7 +219,7 @@ test(
       });
 
       // Trusted viewing is approved by policy; control is still local until the computer allows it.
-      const viewing = await create("desktop:view");
+      const viewing = await create("desktop:view", true);
       assert.equal(viewing.statusCode, 200);
       const pending = (await beat()).sessions[0]!;
       assert.equal(pending.approval, "policy");
@@ -215,7 +241,7 @@ test(
         payload: {},
       });
       assert.equal((await access("trusted", true)).statusCode, 200);
-      const policyControl = await create("desktop:control");
+      const policyControl = await create("desktop:control", true);
       assert.equal(policyControl.statusCode, 200);
       assert.equal((await beat()).sessions[0]!.approval, "policy");
       await app.inject({

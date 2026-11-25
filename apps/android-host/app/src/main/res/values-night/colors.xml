@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The same design in the dark: near-black paper, off-white ink, a lighter blue. -->
+    <color name="beacon_background">#121614</color>
+    <color name="beacon_surface">#1B211F</color>
+    <color name="beacon_text">#F2F4F0</color>
+    <color name="beacon_muted">#9AA29C</color>
+    <color name="beacon_soft">#262D2A</color>
+    <color name="beacon_line">#2F3633</color>
+    <color name="beacon_accent">#6F86FF</color>
+    <color name="beacon_on_accent">#121614</color>
+    <color name="beacon_danger">#FF7B75</color>
+    <color name="beacon_dark">#262D2A</color>
+    <color name="beacon_paused">#4A505C</color>
+    <color name="beacon_offline">#333736</color>
+    <color name="beacon_switch_off">#3A423E</color>
+</resources>

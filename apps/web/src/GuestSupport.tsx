@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { api, ApiError } from "./api.js";
 import { LiveView, type ViewGrant } from "./LiveView.js";
+import { useSessionRequest } from "./useSessionRequest.js";
 
 // Helping someone without an account: the code they read out starts a session that they still approve on
 // their own screen. The server creates a temporary guest identity that can do nothing else and expires.
@@ -11,6 +12,10 @@ export function GuestSupport() {
   const [view, setView] = useState<{ grant: ViewGrant; name: string } | null>(
     null,
   );
+  const connection = useSessionRequest(
+    (grant, name) => setView({ grant, name }),
+    view !== null,
+  );
 
   async function connect(event: FormEvent) {
     event.preventDefault();
@@ -18,16 +23,18 @@ export function GuestSupport() {
     setBusy(true);
     setError("");
     try {
-      const grant = await api<ViewGrant & { machineName: string }>(
-        "support/guest",
-        { code },
-      );
-      setCode("");
-      setView({ grant, name: grant.machineName });
+      await connection.request(async () => {
+        const grant = await api<ViewGrant & { machineName: string }>(
+          "support/guest",
+          { code },
+        );
+        setCode("");
+        return { grant, name: grant.machineName };
+      });
     } catch (failure) {
       setError(
         failure instanceof ApiError && failure.status === 404
-          ? "That support code did not work. Check it, or ask for a new one."
+          ? "That code didn’t work. Check it or ask for a new one."
           : failure instanceof ApiError && failure.status === 409
             ? "That computer is already sharing with someone."
             : failure instanceof ApiError

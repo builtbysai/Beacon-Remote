@@ -1,4 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="launcher_background">#10264F</color>
+    <!-- Paper, ink and one blue: the redesigned Beacon look. -->
+    <color name="beacon_background">#F8F8F5</color>
+    <color name="beacon_surface">#FFFFFF</color>
+    <color name="beacon_text">#171A19</color>
+    <color name="beacon_muted">#686F6A</color>
+    <color name="beacon_soft">#E7E9E4</color>
+    <color name="beacon_line">#DDDEDA</color>
+    <color name="beacon_accent">#3756ED</color>
+    <color name="beacon_on_accent">#FFFFFF</color>
+    <color name="beacon_danger">#BD3D38</color>
+    <color name="beacon_dark">#1B211F</color>
+    <color name="beacon_paused">#484E5A</color>
+    <color name="beacon_offline">#333736</color>
+    <color name="beacon_switch_off">#D8DBD6</color>
 </resources>

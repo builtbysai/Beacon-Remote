@@ -13,6 +13,41 @@ use std::{
 
 type HelperEntry = (Option<u64>, Child, Arc<Mutex<ChildStdin>>);
 
+fn helper_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    #[allow(unused_mut)] // CommandExt is Windows-only.
+    let mut command = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
+        // Suppress only the console. The helper's local consent and sharing
+        // windows remain visible in the interactive user's desktop.
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
+#[cfg(all(test, windows))]
+mod console_tests {
+    #[test]
+    fn sharing_helper_launch_does_not_allocate_a_console() {
+        // An actual console-subsystem child catches the GUI-host -> console-
+        // helper regression; the Rust test executable itself uses a GUI subsystem.
+        let shell = std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap())
+            .join("System32/WindowsPowerShell/v1.0/powershell.exe");
+        let result = super::helper_command(shell)
+            .args(["-NoProfile", "-NonInteractive", "-Command",
+                "$ErrorActionPreference='Stop'; Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class ConsoleProbe { [DllImport(\"kernel32.dll\")] public static extern IntPtr GetConsoleWindow(); }'; if ([ConsoleProbe]::GetConsoleWindow() -ne [IntPtr]::Zero) { throw 'Unexpected console' }; [Console]::Write('hidden')"])
+            .output().unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(result.stdout, b"hidden");
+    }
+}
+
 pub struct Helpers {
     #[cfg(windows)]
     job: Option<crate::helper_lifetime::Job>,
@@ -29,14 +64,39 @@ impl Helpers {
         let writers = stops.clone();
         let stopping = cancel.clone();
         let watcher = thread::spawn(move || {
-            while !stopping.load(Ordering::Acquire) {
+            let fingerprint = || {
+                crate::access_path()
+                    .ok()
+                    .and_then(|p| std::fs::metadata(p).ok())
+                    .and_then(|m| m.modified().ok())
+            };
+            let mut policy = fingerprint();
+            let mut poll = 0;
+            loop {
                 thread::sleep(Duration::from_millis(50));
-            }
-            if let Ok(writers) = writers.lock() {
-                for writer in writers.iter().filter_map(Weak::upgrade) {
-                    if let Ok(mut pipe) = writer.lock() {
-                        let _ = pipe.write_all(b"stop\n");
+                poll += 1;
+                let changed = if poll >= 5 {
+                    poll = 0;
+                    let next = fingerprint();
+                    let changed = next != policy;
+                    policy = next;
+                    changed
+                } else {
+                    false
+                };
+                let cancelled = stopping.load(Ordering::Acquire);
+                if changed || cancelled {
+                    // A local setting change terminates old grants even when the policy POST cannot reach the server.
+                    if let Ok(writers) = writers.lock() {
+                        for writer in writers.iter().filter_map(Weak::upgrade) {
+                            if let Ok(mut pipe) = writer.lock() {
+                                let _ = pipe.write_all(b"stop\n");
+                            }
+                        }
                     }
+                }
+                if cancelled {
+                    break;
                 }
             }
         });
@@ -150,7 +210,7 @@ impl Helpers {
                 .parent()
                 .ok_or("Agent directory missing")?
                 .join("beacon-remote-session.exe");
-            let mut child = match Command::new(helper)
+            let mut child = match helper_command(helper)
                 .arg("media-host")
                 .stdin(Stdio::piped())
                 .stdout(Stdio::inherit())

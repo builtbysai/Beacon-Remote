@@ -114,20 +114,17 @@ impl InputBackend for WindowsInput {
                         GetSystemMetrics(SM_CYVIRTUALSCREEN),
                     )
                 };
-                let px = i64::from(self.display.origin_x) + i64::from(*x) - i64::from(left);
-                let py = i64::from(self.display.origin_y) + i64::from(*y) - i64::from(top);
-                if width <= 1
-                    || height <= 1
-                    || px < 0
-                    || py < 0
-                    || px >= i64::from(width)
-                    || py >= i64::from(height)
-                {
+                let Some((ax, ay)) = virtual_desk_point(
+                    (self.display.origin_x, self.display.origin_y),
+                    (*x, *y),
+                    (left, top),
+                    (width, height),
+                ) else {
                     return Err(ControlError::InvalidInput);
-                }
+                };
                 Self::mouse(
-                    (px * 65535 / i64::from(width - 1)) as i32,
-                    (py * 65535 / i64::from(height - 1)) as i32,
+                    ax,
+                    ay,
                     0,
                     MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
                 )
@@ -229,5 +226,81 @@ impl Drop for WindowsInput {
         if !self.keys.is_empty() || !self.buttons.is_empty() || !self.unicode.is_empty() {
             eprintln!("Input cleanup could not complete within the ordinary-desktop retry budget. Control remains ended; local keyboard/mouse state must be checked.");
         }
+    }
+}
+
+/// Maps a point on one monitor to the 0..=65535 absolute range of the whole virtual desktop, which is how
+/// `MOUSEEVENTF_VIRTUALDESK` addresses it. The host is per-monitor DPI aware, so every value is in physical
+/// pixels. A monitor placed left of or above the primary has negative origins; those still map correctly.
+pub(crate) fn virtual_desk_point(
+    display_origin: (i32, i32),
+    point: (u32, u32),
+    virtual_origin: (i32, i32),
+    virtual_size: (i32, i32),
+) -> Option<(i32, i32)> {
+    let (width, height) = virtual_size;
+    if width <= 1 || height <= 1 {
+        return None;
+    }
+    let px = i64::from(display_origin.0) + i64::from(point.0) - i64::from(virtual_origin.0);
+    let py = i64::from(display_origin.1) + i64::from(point.1) - i64::from(virtual_origin.1);
+    if px < 0 || py < 0 || px >= i64::from(width) || py >= i64::from(height) {
+        return None;
+    }
+    Some((
+        (px * 65535 / i64::from(width - 1)) as i32,
+        (py * 65535 / i64::from(height - 1)) as i32,
+    ))
+}
+
+#[cfg(test)]
+mod mapping_tests {
+    use super::virtual_desk_point;
+
+    #[test]
+    fn a_single_monitor_maps_its_corners_to_the_range_ends() {
+        let virtual_desk = ((0, 0), (1920, 1080));
+        assert_eq!(
+            virtual_desk_point((0, 0), (0, 0), virtual_desk.0, virtual_desk.1),
+            Some((0, 0))
+        );
+        assert_eq!(
+            virtual_desk_point((0, 0), (1919, 1079), virtual_desk.0, virtual_desk.1),
+            Some((65535, 65535))
+        );
+        assert_eq!(
+            virtual_desk_point((0, 0), (1920, 0), virtual_desk.0, virtual_desk.1),
+            None
+        );
+    }
+
+    #[test]
+    fn a_monitor_left_of_the_primary_is_reached_at_its_own_corners() {
+        // Primary 1920x1080 at 0,0; a 1280x1024 monitor to its left, so the virtual desktop starts at -1280.
+        let virtual_origin = (-1280, 0);
+        let virtual_size = (3200, 1080);
+        let left_monitor = (-1280, 0);
+        assert_eq!(
+            virtual_desk_point(left_monitor, (0, 0), virtual_origin, virtual_size),
+            Some((0, 0))
+        );
+        let far_corner =
+            virtual_desk_point(left_monitor, (1279, 1023), virtual_origin, virtual_size).unwrap();
+        assert_eq!(far_corner.0, 1279 * 65535 / 3199);
+        assert_eq!(far_corner.1, 1023 * 65535 / 1079);
+        // The primary is still reachable at its origin, which is 1280 pixels into the virtual desktop.
+        assert_eq!(
+            virtual_desk_point((0, 0), (0, 0), virtual_origin, virtual_size),
+            Some((1280 * 65535 / 3199, 0))
+        );
+    }
+
+    #[test]
+    fn a_degenerate_desktop_or_a_point_off_it_is_refused() {
+        assert_eq!(virtual_desk_point((0, 0), (0, 0), (0, 0), (1, 1)), None);
+        assert_eq!(
+            virtual_desk_point((0, 0), (5000, 5000), (0, 0), (1920, 1080)),
+            None
+        );
     }
 }

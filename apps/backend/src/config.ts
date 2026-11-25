@@ -13,6 +13,10 @@ const schema = z.object({
   SIGNUPS_PER_DAY: z.coerce.number().int().min(1).max(10000).optional(),
   // Remote control is off until an operator turns it on; viewing needs only SESSION_SECRET.
   CONTROL_ENABLED: z.literal("true").optional(),
+  // Authorization development only. No sign-in media is exposed by this flag.
+  SIGNIN_AUTHORITY_ENABLED: z.literal("true").optional(),
+  // Separate default-off switch for the integrated sign-in media journey.
+  SIGNIN_MEDIA_ENABLED: z.literal("true").optional(),
   // Absolute cap on one session. Authority is re-proven every second, so this is a ceiling.
   SESSION_MAX_HOURS: z.coerce.number().int().min(1).max(24).optional(),
   // How long a session waits for its viewer to reconnect. Default: 120 s attended, 300 s trusted.
@@ -67,6 +71,17 @@ export function parseConfig(env: NodeJS.ProcessEnv): Config {
   const config = schema.parse(set);
   if (config.CONTROL_ENABLED && !config.SESSION_SECRET) {
     throw new Error("Remote control requires enabled view sessions");
+  }
+  if (config.SIGNIN_MEDIA_ENABLED && !config.SIGNIN_AUTHORITY_ENABLED) {
+    throw new Error("Sign-in media requires separate sign-in authority");
+  }
+  if (
+    config.SIGNIN_AUTHORITY_ENABLED &&
+    (!config.CONTROL_ENABLED || !config.SESSION_SECRET)
+  ) {
+    throw new Error(
+      "Sign-in authority requires enabled owner control and sessions",
+    );
   }
   if (Boolean(config.TURN_URLS) !== Boolean(config.TURN_SECRET)) {
     throw new Error("TURN_URLS and TURN_SECRET must be configured together");

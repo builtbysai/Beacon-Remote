@@ -20,8 +20,13 @@ export function TeamPanel() {
   const [group, setGroup] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState("");
 
   const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError(false);
     try {
       const [team, machines, config] = await Promise.all([
         api<{ members: Member[] }>("team"),
@@ -38,7 +43,9 @@ export function TeamPanel() {
       );
       setControlEnabled(config.controlEnabled === true);
     } catch {
-      setMembers([]);
+      setLoadError(true);
+    } finally {
+      setLoading(false);
     }
   }, []);
   useEffect(() => {
@@ -49,10 +56,12 @@ export function TeamPanel() {
     event.preventDefault();
     setBusy(true);
     setError("");
+    setNotice("");
     try {
       await api("team", { email: email.trim(), role, group: group || null });
       setEmail("");
       await load();
+      setNotice("Team access saved.");
     } catch (caught) {
       setError(
         caught instanceof ApiError && caught.status === 409
@@ -66,9 +75,11 @@ export function TeamPanel() {
   async function remove(id: string) {
     setBusy(true);
     setError("");
+    setNotice("");
     try {
       await api(`team/${id}/remove`, {});
       await load();
+      setNotice("Team access removed.");
     } catch {
       setError("Could not remove that person.");
     } finally {
@@ -79,13 +90,23 @@ export function TeamPanel() {
   return (
     <div className="quiet-panel">
       <h2>Team</h2>
-      <p>
-        Let people you trust help with your computers: all of them, or one
-        group. A viewer can only watch. A technician can also control. Every
-        computer still asks you, or follows its own settings, for each
-        connection, and you can take access away here at any time.
-      </p>
-      {members?.length ? (
+      <p>Give a trusted account access to every computer or one group.</p>
+      {loadError && (
+        <p className="error" role="alert">
+          Couldn’t refresh team access.{" "}
+          <button
+            className="secondary"
+            disabled={loading}
+            onClick={() => void load()}
+          >
+            Try again
+          </button>
+        </p>
+      )}
+      {notice && <p role="status">{notice}</p>}
+      {loading && members === null ? (
+        <p role="status">Loading team access…</p>
+      ) : members?.length ? (
         <ul className="support-list">
           {members.map((member) => (
             <li key={member.id}>
@@ -108,9 +129,9 @@ export function TeamPanel() {
             </li>
           ))}
         </ul>
-      ) : (
+      ) : !loadError ? (
         <p className="note">No one is on your team.</p>
-      )}
+      ) : null}
       <form className="support-form" onSubmit={add}>
         <label>
           Their account email
@@ -159,12 +180,14 @@ export function TeamPanel() {
             {error}
           </p>
         )}
-        <button type="submit" disabled={busy || !email.trim()}>
-          Add to team
+        <button
+          type="submit"
+          disabled={busy || loading || loadError || !email.trim()}
+        >
+          {busy ? "Saving…" : "Add to team"}
         </button>
         <p className="note">
-          Adding someone who is already on your team changes their role or
-          group.
+          Adding an existing member updates their role or group.
         </p>
       </form>
     </div>

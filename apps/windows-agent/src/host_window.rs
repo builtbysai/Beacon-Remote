@@ -39,13 +39,17 @@ use windows_sys::Win32::{
 use zeroize::Zeroize;
 
 const ACTION: usize = 101;
-const STOP: usize = 102;
 const SERVER: usize = 103;
 const NAME: usize = 104;
 const CODE: usize = 105;
 const AUTOSTART: usize = 120;
 const FILES: usize = 121;
+const BOOT_START: usize = 122;
 const UPDATE: usize = 150;
+const UNATTENDED: usize = 151;
+const UNATTENDED_OFF: usize = 152;
+const SIGNIN_SETTINGS: usize = 153;
+const MORE: usize = 160;
 const SUPPORT_VIEW: usize = 130;
 const SUPPORT_CONTROL: usize = 131;
 const HELPERS_OFF: usize = 140;
@@ -67,8 +71,12 @@ const H_INFO: i32 = 304;
 const H_LABEL: i32 = 305;
 const H_STATUS: i32 = 306;
 const H_INTRO: i32 = 307;
-const PAIRED_HEIGHT: i32 = 592;
+// With everything shown; the plain view needs only the computer, its status and the main button.
+const PAIRED_HEIGHT: i32 = 744;
+const SIMPLE_HEIGHT: i32 = 268;
 const UNPAIRED_HEIGHT: i32 = 436;
+// The first controls added to `paired_details` name this computer; they stay in the plain view.
+const IDENTITY_CONTROLS: usize = 3;
 
 struct Worker {
     handle: JoinHandle<Result<(), HostError>>,
@@ -84,12 +92,14 @@ struct State {
     name: HWND,
     code: HWND,
     action: HWND,
-    stop: HWND,
     status: HWND,
     introduction: HWND,
     last_status: Option<HostStatus>,
     enrollment: Vec<HWND>,
     paired_details: Vec<HWND>,
+    // Access choices, helpers, setup and support codes stay out of sight until asked for.
+    more: bool,
+    more_button: HWND,
     tray: bool,
     tray_status: String,
     incoming_seen: u64,
@@ -101,17 +111,24 @@ struct State {
     update_offer: Option<UpdateOffer>,
     update_check: Option<JoinHandle<Result<Option<UpdateOffer>, HostError>>>,
     update_install: Option<JoinHandle<Result<(), HostError>>>,
+    signin_check: Option<JoinHandle<Result<Option<bool>, HostError>>>,
+    signin_health: Option<bool>,
+    signin_recheck: bool,
     helpers_job: Option<(JoinHandle<Result<(), HostError>>, u8)>,
     autostart: HWND,
     support: [HWND; 2],
     support_job: Option<JoinHandle<Result<SupportCode, HostError>>>,
     access_job: Option<(JoinHandle<Result<(), HostError>>, LocalAccess)>,
+    unattended_job: Option<JoinHandle<Result<(), HostError>>>,
+    start_after_setup: bool,
     // Presentation (ADR 0029).
     window: HWND,
     palette: ui::Palette,
     scale: f32,
     hot: i32,
     autostart_on: bool,
+    boot_start: HWND,
+    boot_on: Option<bool>,
     files: HWND,
     pill_key: u8,
     fonts: Vec<HFONT>,
@@ -316,6 +333,16 @@ unsafe fn read(window: HWND) -> String {
     buffer.zeroize();
     result
 }
+fn primary_label(paired: bool, busy: bool, stopping: bool) -> &'static str {
+    match (paired, busy, stopping) {
+        (_, true, true) => "Stopping…",
+        (true, true, false) => "Stop host",
+        (true, false, _) => "Start host",
+        (false, true, false) => "Pairing…",
+        (false, false, _) => "Pair computer",
+    }
+}
+
 impl State {
     // 0 not paired, 1 stopped, 2 starting, 3 online, 4 trouble.
     fn pill_mode(&self) -> u8 {
@@ -353,22 +380,104 @@ impl State {
     unsafe fn show_access(&self) {
         let chosen = access_choice(self.access);
         let _ = chosen;
+        let settings_ready = self.access_job.is_none()
+            && self.helpers_job.is_none()
+            && self.unattended_job.is_none()
+            && !self.closing;
+        for id in [
+            AUTOSTART,
+            BOOT_START,
+            UNATTENDED,
+            UNATTENDED_OFF,
+            SIGNIN_SETTINGS,
+        ] {
+            let control = GetDlgItem(self.window, id as i32);
+            EnableWindow(control, i32::from(settings_ready));
+            InvalidateRect(control, null(), 0);
+        }
+        // Keep the setup shortcut only while it can add something. Revocation
+        // remains available even if a service's status could not be read.
+        let configured = self.access.trusted
+            && self.access.allow_control
+            && self.access.files
+            && self.autostart_on;
+        ShowWindow(
+            GetDlgItem(self.window, UNATTENDED as i32),
+            if self.paired && self.more && !configured {
+                SW_SHOW
+            } else {
+                SW_HIDE
+            },
+        );
+        ShowWindow(
+            GetDlgItem(self.window, UNATTENDED_OFF as i32),
+            if self.paired
+                && self.more
+                && (self.access.trusted
+                    || self.autostart_on
+                    || self.boot_on != Some(false)
+                    || self.signin_health.is_some())
+            {
+                SW_SHOW
+            } else {
+                SW_HIDE
+            },
+        );
+        let px = |value: i32| (value as f32 * self.scale).round() as i32;
+        MoveWindow(
+            GetDlgItem(self.window, UNATTENDED_OFF as i32),
+            px(if configured { 28 } else { 286 }),
+            px(594),
+            px(if configured { 248 } else { 206 }),
+            px(34),
+            1,
+        );
+        text(
+            self.boot_start,
+            if self.boot_on.is_some() {
+                "Start boot status before Windows sign-in (admin setup)"
+            } else {
+                "Boot startup status unavailable · select to repair"
+            },
+        );
         // Sending files without asking only makes sense once trusted access is on.
         if !self.files.is_null() {
+            ShowWindow(
+                self.files,
+                if self.paired && self.more && self.access.trusted {
+                    SW_SHOW
+                } else {
+                    SW_HIDE
+                },
+            );
             EnableWindow(
                 self.files,
-                i32::from(self.access.trusted && self.access_job.is_none() && !self.closing),
+                i32::from(
+                    self.access.trusted
+                        && self.access_job.is_none()
+                        && self.unattended_job.is_none()
+                        && !self.closing,
+                ),
             );
             InvalidateRect(self.files, null(), 0);
         }
         for &radio in &self.radios {
             InvalidateRect(radio, null(), 0);
-            EnableWindow(radio, i32::from(self.access_job.is_none() && !self.closing));
+            EnableWindow(
+                radio,
+                i32::from(
+                    self.access_job.is_none() && self.unattended_job.is_none() && !self.closing,
+                ),
+            );
         }
     }
     // Trusted access can only be raised here, on the computer, after an explicit confirmation.
-    unsafe fn choose_access(&mut self, window: HWND, choice: usize) {
-        if self.access_job.is_some() || self.closing || choice == access_choice(self.access) {
+    unsafe fn choose_access(&mut self, _window: HWND, choice: usize) {
+        if self.access_job.is_some()
+            || self.unattended_job.is_some()
+            || self.closing
+            || choice == access_choice(self.access)
+        {
             return;
         }
         let target = LocalAccess {
@@ -377,24 +486,6 @@ impl State {
             helpers: self.access.helpers,
             files: choice > 0 && self.access.files,
         };
-        let raising = choice > access_choice(self.access);
-        if raising {
-            let message = if target.allow_control {
-                "Let your signed-in Beacon Remote account view and control this computer without asking each time?\r\n\r\nThe sharing indicator stays visible and you can Stop at any time. You can turn this off here or from your workspace."
-            } else {
-                "Let your signed-in Beacon Remote account view this computer without asking each time?\r\n\r\nThe sharing indicator stays visible and you can Stop at any time. Controlling this computer will still ask. You can turn this off here or from your workspace."
-            };
-            if MessageBoxW(
-                window,
-                wide(message).as_ptr(),
-                wide("Turn on trusted access").as_ptr(),
-                MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2,
-            ) != IDYES
-            {
-                self.show_access();
-                return;
-            }
-        }
         text(self.status, "Updating trusted access…");
         let handle = thread::spawn(move || {
             beacon_remote_agent::set_access(target.trusted, target.allow_control)
@@ -402,18 +493,69 @@ impl State {
         self.access_job = Some((handle, target));
         self.show_access();
     }
+    unsafe fn setup_unattended(&mut self) {
+        if self.unattended_job.is_some()
+            || self.access_job.is_some()
+            || self.helpers_job.is_some()
+            || self.closing
+        {
+            return;
+        }
+        text(self.status, "Setting up unattended owner access…");
+        self.start_after_setup = true;
+        self.unattended_job = Some(thread::spawn(|| {
+            // Boot startup is a separate optional setting. User-session access needs no service.
+            if !set_autostart(true) {
+                return Err("Could not enable start at sign-in".into());
+            }
+            beacon_remote_agent::set_access(true, true)?;
+            beacon_remote_agent::set_files(true)
+        }));
+        self.show_access();
+        self.show_helpers();
+    }
+    unsafe fn toggle_boot_start(&mut self) {
+        if self.unattended_job.is_some()
+            || self.access_job.is_some()
+            || self.helpers_job.is_some()
+            || self.closing
+        {
+            return;
+        }
+        let wanted = self.boot_on != Some(true);
+        self.start_after_setup = false;
+        text(
+            self.status,
+            "Updating boot startup · approve Windows administrator setup…",
+        );
+        self.unattended_job = Some(thread::spawn(move || {
+            if wanted {
+                beacon_remote_agent::availability::setup()
+            } else {
+                beacon_remote_agent::availability::remove()
+            }
+        }));
+        self.show_access();
+        self.show_helpers();
+    }
     unsafe fn show_helpers(&self) {
         for &radio in &self.helper_radios {
             InvalidateRect(radio, null(), 0);
             EnableWindow(
                 radio,
-                i32::from(self.helpers_job.is_none() && !self.closing),
+                i32::from(
+                    self.helpers_job.is_none() && self.unattended_job.is_none() && !self.closing,
+                ),
             );
         }
     }
     // Remembered helpers skip the Allow only if this computer says so, after a confirmation.
     unsafe fn choose_helpers(&mut self, window: HWND, level: u8) {
-        if self.helpers_job.is_some() || self.closing || level == self.access.helpers {
+        if self.helpers_job.is_some()
+            || self.unattended_job.is_some()
+            || self.closing
+            || level == self.access.helpers
+        {
             return;
         }
         if level > self.access.helpers {
@@ -503,24 +645,55 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
             px(if self.paired { 40 } else { 44 }),
             1,
         );
+        let expanded = self.paired && self.more;
         MoveWindow(
             self.action,
             px(28),
-            px(if self.paired { 498 } else { 322 }),
-            px(if self.paired { 120 } else { 160 }),
+            px(if !self.paired {
+                322
+            } else if expanded {
+                498
+            } else {
+                206
+            }),
+            px(220),
             px(38),
             1,
         );
-        MoveWindow(self.stop, px(160), px(498), px(110), px(38), 1);
+        // "More options" sits where the sign-in button is while expanded, so open it from the header and
+        // close it from the foot; the plain view has just the computer, its status and the main button.
+        MoveWindow(
+            self.more_button,
+            px(if expanded { 28 } else { 324 }),
+            px(if expanded { 698 } else { 10 }),
+            px(if expanded { 220 } else { 168 }),
+            px(if expanded { 34 } else { 44 }),
+            1,
+        );
+        text(
+            self.more_button,
+            if expanded {
+                "Fewer options"
+            } else {
+                "More options"
+            },
+        );
+        ShowWindow(
+            self.more_button,
+            if self.paired { SW_SHOW } else { SW_HIDE },
+        );
+        InvalidateRect(self.more_button, null(), 1);
         // The window is as tall as its current view needs.
         let mut bounds = RECT {
             left: 0,
             top: 0,
             right: px(520),
-            bottom: px(if self.paired {
+            bottom: px(if !self.paired {
+                UNPAIRED_HEIGHT
+            } else if expanded {
                 PAIRED_HEIGHT
             } else {
-                UNPAIRED_HEIGHT
+                SIMPLE_HEIGHT
             }),
         };
         AdjustWindowRectEx(
@@ -545,21 +718,21 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
             ShowWindow(window, if self.paired { SW_HIDE } else { SW_SHOW });
             EnableWindow(window, i32::from(!busy && !self.closing));
         }
-        for &window in &self.paired_details {
-            ShowWindow(window, if self.paired { SW_SHOW } else { SW_HIDE });
+        for (index, &window) in self.paired_details.iter().enumerate() {
+            let shown = self.paired && (self.more || index < IDENTITY_CONTROLS);
+            ShowWindow(window, if shown { SW_SHOW } else { SW_HIDE });
         }
-        text(
-            self.action,
-            if self.paired {
-                "Start host"
-            } else {
-                "Pair computer"
-            },
-        );
+        let stopping = self
+            .worker
+            .as_ref()
+            .is_some_and(|worker| worker.cancel.load(Ordering::Acquire));
+        text(self.action, primary_label(self.paired, busy, stopping));
         InvalidateRect(self.action, null(), 0);
-        EnableWindow(self.action, i32::from(!busy && !self.closing));
-        ShowWindow(self.stop, if self.paired { SW_SHOW } else { SW_HIDE });
-        EnableWindow(self.stop, i32::from(busy && !self.closing));
+        EnableWindow(
+            self.action,
+            i32::from(!self.closing && !stopping && (self.paired || !busy)),
+        );
+        self.show_access();
     }
     unsafe fn start(&mut self) {
         if self.worker.is_some() || self.closing {
@@ -601,10 +774,78 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
         if let Some(worker) = &self.worker {
             worker.cancel.store(true, Ordering::SeqCst);
             text(self.status, "Stopping host and releasing sharing…");
-            EnableWindow(self.stop, 0);
+            self.controls();
+        }
+    }
+    fn check_signin(&mut self) {
+        if self.paired && !self.closing {
+            if self.signin_check.is_some() {
+                self.signin_recheck = true;
+                return;
+            }
+            self.signin_recheck = false;
+            self.signin_check = Some(thread::spawn(|| {
+                Ok(beacon_remote_agent::signin_endpoint::status()?.needs_repair())
+            }));
         }
     }
     unsafe fn poll(&mut self, window: HWND) {
+        if self
+            .signin_check
+            .as_ref()
+            .is_some_and(|job| job.is_finished())
+        {
+            self.signin_health = self
+                .signin_check
+                .take()
+                .unwrap()
+                .join()
+                .ok()
+                .and_then(Result::ok)
+                .flatten();
+            text(
+                GetDlgItem(window, SIGNIN_SETTINGS as i32),
+                match self.signin_health {
+                    Some(true) => "Sign-in needs repair…",
+                    Some(false) => "Sign-in access…",
+                    None => "Check sign-in access…",
+                },
+            );
+            if self.signin_recheck {
+                self.check_signin();
+            }
+            self.show_access();
+        }
+        if self
+            .unattended_job
+            .as_ref()
+            .is_some_and(|job| job.is_finished())
+        {
+            let job = self.unattended_job.take().unwrap();
+            let start_after_setup = std::mem::take(&mut self.start_after_setup);
+            let result = job.join();
+            self.access = beacon_remote_agent::local_access();
+            self.autostart_on = autostart_enabled();
+            self.boot_on = beacon_remote_agent::availability::starts_at_boot().ok();
+            match result {
+                Ok(Ok(())) => {
+                    text(self.status,"Unattended settings updated. Windows sign-in is required for desktop access.");
+                    if start_after_setup
+                        && self.access.trusted
+                        && self.worker.is_none()
+                        && !self.closing
+                    {
+                        self.start();
+                    }
+                }
+                Ok(Err(error)) => text(self.status, &format!("Setup incomplete: {error}")),
+                Err(_) => text(self.status, "Unattended setup did not finish. Try again."),
+            }
+            self.show_access();
+            self.show_helpers();
+            InvalidateRect(window, null(), 0);
+            self.check_signin();
+        }
         if let Some(worker) = &self.worker {
             while let Ok(status) = worker.status.try_recv() {
                 self.last_status = Some(status);
@@ -729,10 +970,14 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
             let success = matches!(worker.handle.join(), Ok(Ok(())));
             if worker.pairing && success {
                 self.paired = beacon_remote_agent::is_paired();
+                self.check_signin();
                 text(
                     self.status,
                     "Computer paired · Select Start host to make it available.",
                 );
+                if self.paired && !self.closing {
+                    self.start();
+                }
             } else if success {
                 text(
                     self.status,
@@ -753,7 +998,7 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
             InvalidateRect(window, null(), 0);
         }
         self.track_hover(window);
-        if self.closing && self.worker.is_none() {
+        if self.closing && self.worker.is_none() && self.unattended_job.is_none() {
             DestroyWindow(window);
         } else if self.tray {
             let status = format!("Beacon Remote · {}", read(self.status));
@@ -801,7 +1046,12 @@ unsafe fn paint(window: HWND, state: &State) {
         let pill_width = if state.pill_mode() == 4 { 124.0 } else { 100.0 };
         ui::pill(
             &canvas,
-            (492.0 - pill_width, 26.0, pill_width, 26.0),
+            (
+                (if state.paired { 476.0 } else { 492.0 }) - pill_width,
+                if state.paired { 112.0 } else { 26.0 },
+                pill_width,
+                26.0,
+            ),
             label,
             fill,
             line,
@@ -812,7 +1062,9 @@ unsafe fn paint(window: HWND, state: &State) {
             canvas.stroke(28.0, 104.0, 464.0, 84.0, 10.0, p.line, 1.0);
             ui::icon(&canvas, ui::Icon::Monitor, 44.0, 142.0, p.accent);
             ui::icon(&canvas, ui::Icon::Lock, 44.0, 166.0, p.accent);
-            canvas.line(28.0, 424.0, 492.0, 424.0, p.line, 1.0);
+            if state.more {
+                canvas.line(28.0, 424.0, 492.0, 424.0, p.line, 1.0);
+            }
         } else {
             for top in [124.0, 192.0, 260.0] {
                 canvas.fill(28.0, top, 464.0, 34.0, 8.0, p.surface);
@@ -882,11 +1134,11 @@ unsafe fn draw_item(state: &State, item: &DRAWITEMSTRUCT) {
         if flags.focused {
             canvas.stroke(0.0, 0.0, w, h, 6.0, p.accent, 2.0);
         }
-    } else if id == AUTOSTART || id == FILES {
-        let on = if id == FILES {
-            state.access.files
-        } else {
-            state.autostart_on
+    } else if id == AUTOSTART || id == FILES || id == BOOT_START {
+        let on = match id {
+            FILES => state.access.files,
+            BOOT_START => state.boot_on == Some(true),
+            _ => state.autostart_on,
         };
         let ink = if flags.disabled { p.faint } else { p.text };
         let top = (h - 18.0) / 2.0;
@@ -968,9 +1220,17 @@ unsafe extern "system" fn procedure(
         }
         WM_COMMAND if !state.is_null() && (wparam >> 16) == BN_CLICKED as usize => {
             match wparam & 0xffff {
-                ACTION => (*state).start(),
-                STOP => (*state).stop(),
+                ACTION => {
+                    if (*state).paired && (*state).worker.is_some() {
+                        (*state).stop();
+                    } else {
+                        (*state).start();
+                    }
+                }
                 AUTOSTART => {
+                    if (*state).unattended_job.is_some() || (*state).closing {
+                        return 0;
+                    }
                     let wanted = !(*state).autostart_on;
                     if set_autostart(wanted) {
                         (*state).autostart_on = wanted;
@@ -978,7 +1238,9 @@ unsafe extern "system" fn procedure(
                         text((*state).status, "Could not change start at sign-in.");
                     }
                     InvalidateRect((*state).autostart, null(), 0);
+                    (*state).show_access();
                 }
+                BOOT_START => (*state).toggle_boot_start(),
                 FILES => {
                     let wanted = !(*state).access.files;
                     if beacon_remote_agent::set_files(wanted).is_ok() {
@@ -987,6 +1249,10 @@ unsafe extern "system" fn procedure(
                         text((*state).status, "Could not change file transfer.");
                     }
                     InvalidateRect((*state).files, null(), 0);
+                }
+                MORE => {
+                    (*state).more = !(*state).more;
+                    (*state).controls();
                 }
                 SUPPORT_VIEW => (*state).ask_support(false),
                 SUPPORT_CONTROL => (*state).ask_support(true),
@@ -997,6 +1263,35 @@ unsafe extern "system" fn procedure(
                 ACCESS_ASK => (*state).choose_access(window, 0),
                 ACCESS_VIEW => (*state).choose_access(window, 1),
                 ACCESS_CONTROL => (*state).choose_access(window, 2),
+                UNATTENDED => (*state).setup_unattended(),
+                SIGNIN_SETTINGS => {
+                    if (*state).unattended_job.is_none()
+                        && (*state).access_job.is_none()
+                        && (*state).helpers_job.is_none()
+                        && !(*state).closing
+                    {
+                        if let Err(error) = beacon_remote_agent::signin_settings::show(window) {
+                            text(
+                                (*state).status,
+                                &format!("Could not open sign-in settings: {error}"),
+                            );
+                        }
+                        (*state).check_signin();
+                    }
+                }
+                UNATTENDED_OFF => {
+                    if (*state).unattended_job.is_none() && (*state).access_job.is_none() {
+                        text((*state).status, "Turning off unattended access…");
+                        (*state).start_after_setup = false;
+                        (*state).unattended_job = Some(thread::spawn(|| {
+                            let lowered = beacon_remote_agent::set_access(false, false);
+                            // Local service removal must not depend on a successful policy POST.
+                            beacon_remote_agent::signin_endpoint::remove()?;
+                            beacon_remote_agent::availability::remove()?;
+                            lowered
+                        }));
+                    }
+                }
                 TRAY_SHOW => restore(window),
                 TRAY_STOP => (*state).stop(),
                 TRAY_QUIT => {
@@ -1022,6 +1317,23 @@ unsafe extern "system" fn procedure(
                         TRAY_SHOW,
                         wide("Show Beacon Remote").as_ptr(),
                     );
+                    if (*state).paired {
+                        let available = (*state).unattended_job.is_none()
+                            && (*state).access_job.is_none()
+                            && (*state).helpers_job.is_none()
+                            && !(*state).closing;
+                        AppendMenuW(
+                            menu,
+                            MF_STRING | if available { 0 } else { MF_GRAYED },
+                            SIGNIN_SETTINGS,
+                            wide(if (*state).signin_health == Some(true) {
+                                "Windows sign-in needs repair…"
+                            } else {
+                                "Windows sign-in access…"
+                            })
+                            .as_ptr(),
+                        );
+                    }
                     let stoppable = (*state).worker.as_ref().is_some_and(|worker| {
                         !worker.pairing && !worker.cancel.load(Ordering::SeqCst)
                     });
@@ -1121,12 +1433,13 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             name: null_mut(),
             code: null_mut(),
             action: null_mut(),
-            stop: null_mut(),
             status: null_mut(),
             introduction: null_mut(),
             last_status: None,
             enrollment: Vec::new(),
             paired_details: Vec::new(),
+            more: false,
+            more_button: null_mut(),
             tray: false,
             tray_status: String::new(),
             incoming_seen: beacon_remote_agent::incoming::mark(),
@@ -1138,16 +1451,23 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             update_offer: None,
             update_check: None,
             update_install: None,
+            signin_check: None,
+            signin_health: None,
+            signin_recheck: false,
             helpers_job: None,
             autostart: null_mut(),
             support: [null_mut(); 2],
             support_job: None,
             access_job: None,
+            unattended_job: None,
+            start_after_setup: false,
             window: null_mut(),
             palette: ui::palette(),
             scale: factor,
             hot: 0,
             autostart_on: autostart_enabled(),
+            boot_start: null_mut(),
+            boot_on: beacon_remote_agent::availability::starts_at_boot().ok(),
             files: null_mut(),
             pill_key: 255,
             fonts: Vec::new(),
@@ -1158,7 +1478,7 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             top: 0,
             right: scale(520),
             bottom: scale(if paired {
-                PAIRED_HEIGHT
+                SIMPLE_HEIGHT
             } else {
                 UNPAIRED_HEIGHT
             }),
@@ -1411,28 +1731,58 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                 FILES,
             )?;
             state.paired_details.push(state.files);
+            state.boot_start = child(
+                "BUTTON",
+                "Start boot status before Windows sign-in (admin setup)",
+                28,
+                634,
+                464,
+                24,
+                owner_draw,
+                BOOT_START,
+            )?;
+            state.paired_details.push(state.boot_start);
+            for (label, id, x, width) in [
+                ("Set up unattended access", UNATTENDED, 28, 248),
+                ("Turn off unattended", UNATTENDED_OFF, 286, 206),
+            ] {
+                state
+                    .paired_details
+                    .push(child("BUTTON", label, x, 594, width, 34, owner_draw, id)?);
+            }
+            state.paired_details.push(child(
+                "BUTTON",
+                "Sign-in access…",
+                324,
+                10,
+                168,
+                44,
+                owner_draw,
+                SIGNIN_SETTINGS,
+            )?);
             state.action = child(
                 "BUTTON",
                 "Pair computer",
                 28,
                 if paired { 498 } else { 322 },
-                if paired { 120 } else { 160 },
+                220,
                 38,
                 owner_draw | WS_VISIBLE,
                 ACTION,
             )?;
-            state.stop = child("BUTTON", "Stop host", 160, 498, 110, 38, owner_draw, STOP)?;
             state.update_button = child(
                 "BUTTON",
                 "Check for updates",
-                282,
+                260,
                 498,
-                170,
+                232,
                 38,
                 owner_draw,
                 UPDATE,
             )?;
             state.paired_details.push(state.update_button);
+            state.more_button =
+                child("BUTTON", "More options", 324, 10, 168, 44, owner_draw, MORE)?;
             for (index, (label, id, x, width)) in [
                 ("Support code: view only", SUPPORT_VIEW, 28, 236),
                 ("Support code: view and control", SUPPORT_CONTROL, 276, 216),
@@ -1474,6 +1824,7 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             state.controls();
             state.show_access();
             state.show_helpers();
+            state.check_signin();
             Ok(())
         })();
         if let Err(error) = build {
@@ -1490,11 +1841,17 @@ pub fn show(background: bool) -> Result<(), io::Error> {
         place(window);
         // Started at sign-in: go straight to the tray and bring the host online. The owner chose
         // this above, and the tray icon and sharing indicator stay visible.
+        // Opened by hand on a paired computer: the host goes online at once, with the window showing
+        // its status, so there is no Start button to find. Stop host still stops it, and every
+        // connection still needs local approval.
         if background && state.paired && state.tray {
             ShowWindow(window, SW_HIDE);
             state.start();
         } else {
             ShowWindow(window, SW_SHOW);
+            if state.paired {
+                state.start();
+            }
         }
         SetFocus(if state.paired {
             state.action

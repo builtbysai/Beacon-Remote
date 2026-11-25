@@ -252,6 +252,21 @@ fn remove(context: &Context, by_owner: bool) -> Result<(), Error> {
     ) {
         return Ok(());
     }
+    // Remove the separately installed boot service before losing the identity or cleanup program.
+    // Sandbox acceptance must never touch a real system service.
+    if !context.sandbox {
+        let agent = context.install.join("beacon-remote-agent.exe");
+        if agent.exists() {
+            let mut command = Command::new(agent);
+            command.arg("boot-remove-local").creation_flags(NO_WINDOW);
+            if context.silent {
+                command.arg("--silent");
+            }
+            if !command.status()?.success() {
+                return Err("Boot availability could not be removed. Run uninstall interactively and approve Windows setup; your files were preserved.".into());
+            }
+        }
+    }
     stop_running(&context.install);
     clean(context, true);
     if by_owner {

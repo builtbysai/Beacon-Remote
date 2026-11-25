@@ -1,0 +1,935 @@
+/*
+ * The remote viewer: one dark, quiet workspace built around the device's picture.
+ *
+ *   ┌─ top bar: back · device · state ·············· Details · End session ─┐
+ *   │ notices (only when something needs saying)                            │
+ *   ├────────┬──────────────────────────────────────────┬───────────────────┤
+ *   │  rail  │            the picture, as large          │  side panel       │
+ *   │  icons │            as it fits                     │  session + tools  │
+ *   └────────┴──────────────────────────────────────────┴───────────────────┘
+ *
+ * Everything sits beside the picture, nothing floats over it. The viewer is always dark, like a video surface;
+ * the workspace around it keeps the app's own light or dark appearance.
+ */
+.live-view {
+  --v-bg: #0c0e11;
+  --v-panel: #14171b;
+  --v-raise: #1b1f25;
+  --v-hover: #232830;
+  --v-line: #262b33;
+  --v-text: #e9ecf0;
+  --v-muted: #8d96a2;
+  --v-faint: #606872;
+  --v-accent: #6a96ff;
+  --v-accent-wash: rgb(106 150 255 / 0.15);
+  --v-red: #e5484d;
+  --v-green: #3ad29f;
+  --v-amber: #e6b04c;
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  background: var(--v-bg);
+  color: var(--v-text);
+  font-size: 13px;
+  line-height: 1.4;
+  color-scheme: dark;
+}
+.live-view.minimized {
+  display: none;
+}
+.live-view button {
+  font-family: inherit;
+}
+
+/* ---- Top bar ------------------------------------------------------------------------------------------------ */
+.live-view .viewer-toolbar {
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 10px;
+  height: 52px;
+  padding: 0 12px 0 8px;
+  background: var(--v-panel);
+  border-bottom: 1px solid var(--v-line);
+}
+.live-view .viewer-back {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 34px;
+  min-height: 0;
+  padding: 0 12px 0 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--v-muted);
+  font-weight: 600;
+}
+.live-view .viewer-back:hover {
+  background: var(--v-hover);
+  color: var(--v-text);
+}
+.live-view .viewer-identity {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.live-view .viewer-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--v-amber);
+  box-shadow: 0 0 0 4px rgb(230 176 76 / 0.16);
+}
+.live-view[data-state="viewing"] .viewer-dot {
+  background: var(--v-green);
+  box-shadow: 0 0 0 4px rgb(58 210 159 / 0.16);
+}
+.live-view[data-state="ended"] .viewer-dot {
+  background: var(--v-faint);
+  box-shadow: none;
+}
+.live-view .viewer-identity-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.live-view .viewer-identity-text strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.live-view .viewer-identity-text span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--v-muted);
+  font-size: 12px;
+}
+.live-view .viewer-spacer {
+  flex: 1;
+}
+.live-view .viewer-menu {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  min-height: 0;
+  padding: 0 12px;
+  border: 1px solid var(--v-line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--v-muted);
+  font-weight: 600;
+}
+.live-view .viewer-menu:hover {
+  background: var(--v-hover);
+  color: var(--v-text);
+}
+.live-view .viewer-menu[aria-expanded="true"] {
+  background: var(--v-accent-wash);
+  border-color: transparent;
+  color: var(--v-accent);
+}
+.live-view .viewer-stop {
+  flex: none;
+  height: 34px;
+  min-height: 0;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--v-red);
+  color: #fff;
+  font-weight: 650;
+}
+.live-view .viewer-stop:hover {
+  background: #f0555a;
+}
+.live-view .stop-short {
+  display: none;
+}
+
+/* ---- Notices: only when something needs saying -------------------------------------------------------------- */
+.live-view .viewer-status {
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding: 8px 16px;
+  background: var(--v-raise);
+  border-bottom: 1px solid var(--v-line);
+  color: var(--v-muted);
+  font-size: 12.5px;
+}
+.live-view .viewer-status[hidden] {
+  display: none;
+}
+.live-view .viewer-status [role="alert"] {
+  color: var(--v-red);
+}
+.live-view .viewer-recording {
+  color: var(--v-red);
+  font-weight: 650;
+}
+
+/* ---- Body: rail, picture, side panel ------------------------------------------------------------------------ */
+.live-view .v-body {
+  grid-row: 3;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* The rail: controls used all the time, one icon and one word each. */
+.live-view .viewer-rail {
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 78px;
+  padding: 10px 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--v-panel);
+  border-right: 1px solid var(--v-line);
+}
+.live-view .rail-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 62px;
+  min-height: 0;
+  padding: 9px 0 7px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--v-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+.live-view .rail-button svg {
+  width: 22px;
+  height: 22px;
+}
+.live-view .rail-button:hover {
+  background: var(--v-hover);
+  color: var(--v-text);
+}
+.live-view .rail-button[aria-pressed="true"] {
+  background: var(--v-accent-wash);
+  color: var(--v-accent);
+}
+.live-view .rail-button.danger[aria-pressed="true"] {
+  background: rgb(229 72 77 / 0.16);
+  color: #ff777c;
+}
+.live-view .rail-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.live-view .rail-rule {
+  width: 34px;
+  height: 1px;
+  margin: 7px 0;
+  background: var(--v-line);
+}
+
+/* The picture */
+.live-view .viewer-stage {
+  grid-column: 2;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  overflow: hidden;
+  background: var(--v-bg);
+}
+.live-view .viewer-stage video {
+  display: block;
+  background: #000;
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 1px var(--v-line),
+    0 24px 64px rgb(0 0 0 / 0.55);
+}
+.live-view .viewer-stage.fit video {
+  height: 100%;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+}
+.live-view .viewer-stage.actual {
+  display: block;
+  overflow: auto;
+  text-align: center;
+}
+.live-view .viewer-stage.actual video {
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  margin: auto;
+}
+
+/* States and prompts over the picture */
+.live-view .viewer-placeholder,
+.live-view .viewer-paused,
+.live-view .viewer-sheet {
+  border: 1px solid var(--v-line);
+  border-radius: 16px;
+  background: var(--v-raise);
+  color: var(--v-text);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.5);
+}
+.live-view .viewer-placeholder {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: min(340px, calc(100% - 32px));
+  padding: 28px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 600;
+  pointer-events: none;
+}
+.live-view[data-state="connecting"] .viewer-placeholder::before {
+  content: "";
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--v-line);
+  border-top-color: var(--v-accent);
+  border-radius: 50%;
+  animation: viewer-spin 0.9s linear infinite;
+}
+.live-view[data-state="ended"] .viewer-placeholder::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--v-faint);
+}
+@keyframes viewer-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-view[data-state="connecting"] .viewer-placeholder::before {
+    animation: none;
+  }
+}
+.live-view .viewer-paused {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(360px, calc(100% - 32px));
+  margin: 0;
+  padding: 22px 24px;
+  font-size: 14px;
+  text-align: center;
+}
+.live-view .viewer-paused::before {
+  content: "Paused";
+  display: block;
+  margin-bottom: 6px;
+  color: var(--v-amber);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.live-view .viewer-play {
+  position: absolute;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  padding: 11px 22px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--v-accent);
+  color: #0c0e11;
+  font-size: 14px;
+  font-weight: 700;
+}
+.live-view .viewer-sheet {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(440px, calc(100% - 32px));
+  padding: 18px 20px;
+  font-size: 14px;
+}
+.live-view .viewer-sheet strong {
+  font-size: 15px;
+}
+.live-view .viewer-sheet span {
+  color: var(--v-muted);
+}
+.live-view .viewer-sheet .viewer-control {
+  align-self: flex-start;
+}
+
+/* ---- Side panel: the session, then the tools ---------------------------------------------------------------- */
+.live-view .viewer-actions {
+  grid-column: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: 340px;
+  min-height: 0;
+  padding: 18px 16px 24px;
+  overflow-y: auto;
+  background: var(--v-panel);
+  border-left: 1px solid var(--v-line);
+}
+.live-view .viewer-actions[hidden] {
+  display: none;
+}
+.live-view .viewer-actions > * {
+  order: 90;
+  flex-shrink: 0;
+}
+.live-view .viewer-actions > .v-session {
+  order: 0;
+}
+.live-view .v-session-title,
+.live-view .viewer-actions > .viewer-group {
+  margin: 0 0 4px;
+  color: var(--v-faint);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.live-view .v-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0;
+}
+.live-view .v-stats > div {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--v-raise);
+  min-width: 0;
+}
+.live-view .v-stats dt {
+  margin: 0 0 3px;
+  color: var(--v-muted);
+  font-size: 11px;
+}
+.live-view .v-stats dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.live-view .viewer-actions > [data-g="view"] {
+  order: 11;
+}
+.live-view .viewer-actions > [data-g="unlock"] {
+  order: 41;
+}
+.live-view .viewer-actions > [data-g="chat"] {
+  order: 51;
+}
+.live-view .viewer-actions > [data-g="files"] {
+  order: 61;
+}
+.live-view .viewer-actions > [data-g="access"] {
+  order: 71;
+}
+.live-view .viewer-actions > .viewer-group {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--v-line);
+}
+.live-view .viewer-actions > .viewer-group[data-g="view"] {
+  order: 10;
+}
+.live-view .viewer-actions > .viewer-group[data-g="unlock"] {
+  order: 40;
+}
+.live-view .viewer-actions > .viewer-group[data-g="chat"] {
+  order: 50;
+}
+.live-view .viewer-actions > .viewer-group[data-g="files"] {
+  order: 60;
+}
+.live-view .viewer-actions > .viewer-group[data-g="access"] {
+  order: 70;
+}
+.live-view .viewer-actions [data-dup] {
+  display: none;
+}
+
+/* Controls inside the panel */
+.live-view .viewer-control,
+.live-view .viewer-diagnostics summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--v-line);
+  border-radius: 9px;
+  background: var(--v-raise);
+  color: var(--v-text);
+  font-weight: 600;
+  font-size: 13px;
+  text-align: left;
+}
+.live-view .viewer-status .viewer-control,
+.live-view .viewer-sheet .viewer-control {
+  width: auto;
+  min-height: 30px;
+}
+.live-view .viewer-control:hover,
+.live-view .viewer-diagnostics summary:hover {
+  background: var(--v-hover);
+}
+.live-view .viewer-control:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.live-view .viewer-actions .viewer-sound {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--v-line);
+  border-radius: 9px;
+  background: var(--v-raise);
+  color: var(--v-text);
+  font-weight: 600;
+}
+.live-view .viewer-scale {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--v-muted);
+  font-size: 13px;
+}
+.live-view .viewer-scale:has(button) {
+  flex-direction: column;
+  align-items: stretch;
+}
+.live-view .viewer-scale select,
+.live-view .viewer-actions input[type="text"],
+.live-view .viewer-actions .viewer-chat input {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--v-line);
+  border-radius: 9px;
+  background: var(--v-raise);
+  color: var(--v-text);
+  font-size: 13px;
+}
+.live-view .viewer-scale select {
+  width: auto;
+  min-width: 96px;
+}
+.live-view .viewer-scale:has(button) select {
+  width: 100%;
+}
+.live-view .viewer-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.live-view .viewer-actions .note {
+  margin: 0;
+  color: var(--v-muted);
+  font-size: 12px;
+}
+.live-view .viewer-diagnostics summary {
+  cursor: pointer;
+  list-style: none;
+}
+.live-view .viewer-diagnostics summary::-webkit-details-marker {
+  display: none;
+}
+.live-view .viewer-diagnostics-panel {
+  margin-top: 8px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--v-raise);
+}
+.live-view .viewer-diagnostics-panel p {
+  margin: 0 0 8px;
+  color: var(--v-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.live-view .viewer-replica {
+  background: var(--v-raise);
+  border-color: var(--v-line);
+}
+.live-view .viewer-replica .replica-key,
+.live-view .pattern-dot {
+  border-color: var(--v-line);
+  background: var(--v-hover);
+  color: var(--v-text);
+}
+.live-view .pattern-dot[aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--v-accent);
+  color: #0c0e11;
+}
+.live-view .viewer-replica .replica-text {
+  color: var(--v-text);
+}
+
+/* ---- Laptops: the side panel floats over the picture's edge instead of squeezing it --------------------------- */
+@media (max-width: 1100px) {
+  .live-view .viewer-actions {
+    position: fixed;
+    z-index: 8;
+    top: 60px;
+    right: 10px;
+    bottom: 10px;
+    width: 340px;
+    border: 1px solid var(--v-line);
+    border-radius: 16px;
+    box-shadow: 0 24px 64px rgb(0 0 0 / 0.6);
+  }
+}
+
+/* ---- Phones: picture on top, the rail along the bottom, the panel as a sheet ---------------------------------- */
+@media (max-width: 700px) {
+  .live-view .viewer-toolbar {
+    gap: 6px;
+    padding: 0 10px 0 4px;
+  }
+  .live-view .viewer-back span,
+  .live-view .viewer-menu span {
+    display: none;
+  }
+  .live-view .viewer-back {
+    padding: 0 8px;
+  }
+  .live-view .viewer-menu {
+    padding: 0 10px;
+  }
+  .live-view .stop-long {
+    display: none;
+  }
+  .live-view .stop-short {
+    display: inline;
+  }
+  .live-view .v-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  .live-view .viewer-stage {
+    grid-column: 1;
+    grid-row: 1;
+    padding: 8px;
+  }
+  .live-view .viewer-stage video {
+    border-radius: 10px;
+  }
+  .live-view .viewer-rail {
+    grid-column: 1;
+    grid-row: 2;
+    flex-direction: row;
+    width: auto;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    border-top: 1px solid var(--v-line);
+  }
+  .live-view .rail-button {
+    flex: none;
+    width: 58px;
+  }
+  .live-view .rail-rule {
+    flex: none;
+    width: 1px;
+    height: 34px;
+    margin: 0 6px;
+  }
+  .live-view .viewer-actions {
+    top: auto;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: auto;
+    max-height: 72dvh;
+    z-index: 9;
+  }
+}
+
+/* Instant local feedback where a press happened; the device's own answer follows. */
+.live-view .viewer-ripple {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  border-radius: 50%;
+  background: rgb(106 150 255 / 0.35);
+  box-shadow: 0 0 0 2px rgb(106 150 255 / 0.7);
+  pointer-events: none;
+  animation: viewer-ripple 0.45s ease-out forwards;
+}
+@keyframes viewer-ripple {
+  from {
+    transform: scale(0.4);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-view .viewer-ripple {
+    animation-duration: 0.01s;
+  }
+}
+
+/* ---- Restyle: the viewer follows the workspace's friendlier look -------------------------------------------- */
+.live-view {
+  --v-bg: #0e0e10;
+  --v-panel: #17171a;
+  --v-raise: #202024;
+  --v-hover: #2b2b31;
+  --v-line: #2b2b31;
+  --v-text: #f4f2ed;
+  --v-muted: #a6a39b;
+  --v-faint: #6f6d67;
+  --v-accent: #7ba5ff;
+  --v-accent-wash: rgb(123 165 255 / 0.16);
+  --v-red: #ff5a4d;
+  --v-green: #52d08f;
+  --v-amber: #ffc83d;
+  font-family: var(--font-ui);
+  font-size: 14px;
+}
+.live-view .viewer-toolbar {
+  height: 68px;
+  gap: 12px;
+  padding: 0 16px 0 10px;
+}
+.live-view .viewer-back {
+  height: 44px;
+  padding: 0 18px 0 10px;
+  border-radius: 999px;
+  background: var(--v-raise);
+  color: var(--v-text);
+}
+.live-view .viewer-back:hover {
+  background: var(--v-hover);
+}
+.live-view .viewer-avatar {
+  flex: none;
+  width: 54px;
+  margin-top: 6px;
+}
+.live-view .viewer-identity {
+  gap: 12px;
+}
+.live-view .viewer-identity-text strong {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+.live-view .viewer-identity-text span {
+  font-size: 13px;
+}
+.live-view .viewer-menu {
+  height: 44px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--v-raise);
+  color: var(--v-text);
+  font-weight: 700;
+}
+.live-view .viewer-menu:hover {
+  background: var(--v-hover);
+}
+.live-view .viewer-menu[aria-expanded="true"] {
+  background: var(--v-accent);
+  color: #0b1424;
+}
+.live-view .viewer-stop {
+  height: 44px;
+  padding: 0 24px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 800;
+}
+.live-view .viewer-status {
+  padding: 10px 20px;
+  font-size: 14px;
+}
+.live-view .viewer-rail {
+  width: 92px;
+  gap: 6px;
+  padding: 14px 10px;
+}
+.live-view .rail-button {
+  width: 72px;
+  padding: 12px 0 9px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.live-view .rail-button svg {
+  width: 24px;
+  height: 24px;
+}
+.live-view .rail-rule {
+  width: 36px;
+  margin: 8px 0;
+}
+.live-view .viewer-stage {
+  padding: 24px;
+}
+.live-view .viewer-stage video {
+  border-radius: 22px;
+  box-shadow:
+    0 0 0 1px var(--v-line),
+    0 30px 80px rgb(0 0 0 / 0.6);
+}
+.live-view .viewer-placeholder,
+.live-view .viewer-paused,
+.live-view .viewer-sheet {
+  border: 0;
+  border-radius: 28px;
+  background: var(--v-raise);
+  box-shadow: 0 30px 80px rgb(0 0 0 / 0.55);
+}
+.live-view .viewer-placeholder {
+  font-size: 17px;
+  font-weight: 750;
+}
+.live-view .viewer-play {
+  padding: 14px 26px;
+  font-size: 16px;
+  font-weight: 800;
+}
+.live-view .viewer-actions {
+  width: 372px;
+  gap: 10px;
+  padding: 22px 18px 28px;
+}
+.live-view .v-stats {
+  gap: 8px;
+}
+.live-view .v-stats > div {
+  padding: 14px 16px;
+  border-radius: 20px;
+}
+.live-view .v-stats dd {
+  font-size: 17px;
+  font-weight: 750;
+}
+.live-view .v-session-title,
+.live-view .viewer-actions > .viewer-group {
+  color: var(--v-muted);
+  font-size: 13px;
+  font-weight: 750;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.live-view .viewer-control,
+.live-view .viewer-diagnostics summary {
+  min-height: 46px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.live-view .viewer-actions .viewer-sound {
+  min-height: 46px;
+  border: 0;
+  border-radius: 999px;
+}
+.live-view .viewer-scale select,
+.live-view .viewer-actions input[type="text"],
+.live-view .viewer-actions .viewer-chat input {
+  min-height: 46px;
+  border: 0;
+  border-radius: 16px;
+}
+.live-view .viewer-diagnostics-panel {
+  border-radius: 20px;
+}
+@media (max-width: 1100px) {
+  .live-view .viewer-actions {
+    width: 372px;
+    border: 0;
+    border-radius: 28px;
+  }
+}
+@media (max-width: 700px) {
+  .live-view .viewer-toolbar {
+    height: 60px;
+    padding: 0 10px 0 6px;
+  }
+  .live-view .viewer-avatar {
+    width: 44px;
+  }
+  .live-view .viewer-rail {
+    width: auto;
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+  }
+  .live-view .rail-button {
+    width: 64px;
+  }
+  .live-view .viewer-stage {
+    padding: 8px;
+  }
+  .live-view .viewer-stage video {
+    border-radius: 14px;
+  }
+  .live-view .viewer-actions {
+    width: auto;
+    border-radius: 28px;
+  }
+}

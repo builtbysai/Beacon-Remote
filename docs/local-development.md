@@ -1,16 +1,56 @@
+> Workspace migration: [workspace.md](workspace.md) gives the current D: paths and external secret/state configuration. Older C: path examples below are historical.
+
 # Beacon Remote on the shared Windows workstation
+
+## Unattended development (October 29)
+
+Read [unattended setup and acceptance](unattended-access.md) and
+[the validation record](validation-2026-10-29.md). Migration 023 is applied by the
+normal migration runner. Boot presence is separate from interactive presence and
+never enables media. Local test setup must not install a real system service
+without the tester approving Windows administrator setup.
+
+The actual native-policy shutdown regression uses its disposable profile/schema:
+
+```powershell
+$env:E2E_LOCAL_REVOKE='1'
+$env:E2E_HOLD_SECONDS='2'
+pnpm --filter @beacon-remote/backend exec tsx scripts/trusted-e2e.ts
+```
+
+Build matching optimized binaries first. This short run checks lifecycle and
+offers; it is not a performance/long-session or decoded-video acceptance test.
+The default hold remains longer for deliberate soak checks.
+The fixture also revokes, forgets and re-pairs its own disposable Windows profile
+to check that standing owner/helper permissions do not survive re-enrollment.
+It never installs a boot service or approves administrator setup.
+It now restarts only its own native process to verify that a signed host process
+marker changes while pairing survives. This is not an operating-system reboot.
+Migration 024 adds that marker; apply the compatible backend before running the
+new Windows agent. `beacon-remote-agent boot-status` reads the paired service's
+SCM boot-start configuration without installing or starting it.
+
+Android's `ScreenshotAcceptance` instrumentation runner is restricted to a new,
+unpaired emulator with no other accessibility services. Build with
+`gradlew :app:assembleDebug :app:assembleDebugAndroidTest`, install both APKs on
+that explicitly selected emulator, grant its notification permission, and run
+`adb -s <fixture-serial> shell am instrument -w com.beaconremote.host.test/com.beaconremote.host.ScreenshotAcceptance`.
+The runner enables only the fixture's service, initializes native WebRTC, enables
+a swipe lock, and exercises local screenshot-source lifecycle without network or
+stored pixels. It is not intended for the owner's phone. Stop only that emulator
+afterward. Real-phone and Windows service/reboot acceptance remain separate.
 
 Remote and View are independent repositories, databases and runtime owners.
 Keep the current Windows paths stable while both agents are working.
 
 | Resource                 | Beacon Remote                                       | Beacon View (owned by Claude)                                                 |
 | ------------------------ | --------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Checkout                 | `C:/Dev/Beacon-Remote`                              | `C:/Dev/Beacon-SecureView`                                                    |
+| Checkout                 | `D:/Dev/Beacon-Remote`                              | `D:/Dev/Beacon-SecureView`                                                    |
 | Registered worktree      | None added                                          | `C:/Dev/Beacon-Desktop` — preserve Git registration                           |
 | API / web                | 127.0.0.1:3010 / :5174                              | 127.0.0.1:3000 / :5173                                                        |
 | Local database           | 127.0.0.1:5433, `beacon-remote-dev` Compose project | :5432, `beacon-secureview-local` project                                      |
 | Test database            | `beacon_remote_test` in Remote PostgreSQL           | View-owned independent test DB/container; observed :5544 during Claude's work |
-| Runtime logs / ownership | `.remote-dev/`                                      | `.beacon-dev/`                                                                |
+| Runtime logs / ownership | `<BEACON_PRIVATE_DIR>/remote/development/`          | `.beacon-dev/`                                                                |
 | Native test artifacts    | `.agent-state/`                                     | View's own tooling; never repurpose                                           |
 | Production origin        | remote.builtbysai.com                               | beacon.builtbysai.com                                                         |
 
@@ -34,7 +74,7 @@ pnpm dev:stop
 
 Setup starts only Remote's Compose PostgreSQL, applies its local migrations and
 verifies its schema. Start launches the actual backend and Vite in hidden child
-processes; it waits for HTTP readiness and writes logs under `.remote-dev/`.
+processes; it waits for HTTP readiness and writes logs under `<BEACON_PRIVATE_DIR>/remote/development/`.
 Use normal private local account provisioning described in README for login.
 It does not provision account credentials automatically or start desktop capture.
 
@@ -54,7 +94,7 @@ After forcibly killing the supervisor, an owner file and its local children may
 remain. Status reports the supervisor PID for diagnosis only. Inspect named
 Remote commands/listeners before manually stopping them or archiving stale owner
 state; the launcher refuses ambiguous ownership and never kills a recycled PID.
-Do not delete a live owner's `.remote-dev/owner.json`. Watch log files without
+Do not delete a live owner's `<REMOTE_DEV_STATE_DIR>/owner.json`. Watch log files without
 publishing credentials or request bodies.
 
 ## Tests and native fixture
@@ -95,7 +135,7 @@ control-plane checks. No runner
 installation, billing changes or shared View environment changes are performed.
 
 ```powershell
-$env:TEST_DATABASE_URL='postgresql://remote_dev:development-only@127.0.0.1:5433/beacon_remote_test'
+. ./scripts/Enter-Workspace.ps1 # selects the private local development/test credentials
 pnpm check
 pnpm audit --prod --audit-level high
 cargo fmt --all -- --check
@@ -179,40 +219,9 @@ updated local View peer-denial policy and quotas are not deployed. Follow
 and [maintenance runbook](relay-separation.md); local environment separation
 does not mean the live relay has already been separated or hardened.
 
-## Cleanup and retained material
+## Workspace ownership
 
-Validation on October 11: full formatting/lint/type checks, real Remote
-PostgreSQL regressions, backend/web builds, dependency audit and native formatting
-passed locally. Actual launcher start/readiness/stop and occupied-listener
-preservation passed. Both production products' HTTPS health/readiness passed.
-PR #11 CI could not start: GitHub reported an account payment/spending-limit
-block, before any job steps. No billing settings were changed. Keep that distinct
-from a source/test failure. The owner then explicitly authorized local CI/manual
-deployment and merging PR #11; it is merged and production updated with media
-disabled. See validation-2026-10-11.md. Rerun hosted CI when account access returns.
-
-October 11 cleanup moved old loose `beacon-remote-*`, Coturn research and
-`beacon-view-*` root artifacts into `C:/Dev/Archives/2026-10-11` by product and
-Evidence/Tools/Packages/Notes. The restricted local `manifest.json` records every
-original path, destination, bytes and SHA256; all moved contents were reverified.
-There was no deletion. These archives may include sensitive historical material,
-so owner/SYSTEM access is retained; they are not Git content.
-
-Registered `Beacon-Desktop`, `Beacon-Omarchy-Handoff` (including secret migration
-instructions), approved `Beacon-Remote-Design-Review`, the owner's Downloads ZIP,
-all paired identities, recovery DPAPI material, dependency/build caches and
-database volumes remain intact. Ambiguous old release archives/install logs stay
-at root until ownership is proven. `Beacon-OldMain` contained only orphaned
-dependency trees and no Git checkout or active process references; it was
-preserved at `C:/Dev/Archives/2026-10-11/Legacy/Beacon-OldMain`. The directory
-receipt is `legacy-directory.json`; none of its contents were deleted.
-Before deleting merged Remote local refs, a verified complete Git bundle at
-`Beacon-Remote/Notes/pre-cleanup-local-refs.bundle` preserved all branches and the
-unfinished handoff stash. Useful operational details are now in the supplement;
-no uncommitted work is hidden by dropping the stash.
-View's active checkout was inspected only and left to Claude. The workspace
-inventory in `C:/Dev/WORKSPACE.md` lets both agents find current projects and
-recover old artifacts without editing each other's repository.
+Use D:/Dev/Beacon-Remote and its external private state selected by scripts/Enter-Workspace.ps1. Old C:/Dev archives, migration manifests and loose acceptance scripts have been removed. The current guide is workspace.md; approved interactive UI source is under ../design/prototype. Keep View's processes, identities, relay and databases separate. Source publication does not deploy production.
 
 ## Isolated input development
 
@@ -229,3 +238,16 @@ The [per-user development installer](development-host-package.md) bundles the
 validated agent and interactive helper with Pair/Run shortcuts and explicit
 uninstall. It requires no elevation or automatic startup. Service, tray and
 reboot recovery remain unimplemented; this is not a signed consumer release.
+
+## Optional real browser zoom review
+
+After entering the Remote workspace, set `REMOTE_UI_ZOOM_REVIEW=1` and run
+`node apps/web/test-browser/workspace.mjs`. Clear that environment variable to
+run the ordinary viewport/workspace journeys. The zoom mode uses Chromium's
+actual page-zoom preference at 200%, a new temporary profile and only a dummy
+loopback API/manifest. It checks five routes, inspector/theme/download control
+reachability and browser accessibility names; it does not use retained accounts,
+devices or the personal browser profile. Results are under the private state
+root's `workspace-zoom-browser-2026-11-15` folder. Final success requires confirmed
+owned profile cleanup. Ports are dynamically selected and strictly bound; the
+fixture does not reclaim View's or another process's listener.

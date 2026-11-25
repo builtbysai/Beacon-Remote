@@ -72,15 +72,44 @@ object Api {
         }
     }
 
+    /** The phone asks to be paired: the server answers with a short code to show and a secret to collect the result. */
+    class DevicePairing(val userCode: String, val pollToken: String, val expiresInSeconds: Int)
+
+    fun startDevicePairing(server: String, name: String, publicKey: String): DevicePairing {
+        val body = JSONObject().put("version", 1).put("name", name.trim()).put("publicKey", publicKey)
+        val request = Request.Builder().url("$server/api/device-pairing/start").post(body.toString().toRequestBody(json)).build()
+        http.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw PairingFailed("The server could not make a code right now. Try again in a minute.")
+            val answer = JSONObject(response.body?.string() ?: "{}")
+            return DevicePairing(answer.getString("userCode"), answer.getString("pollToken"), answer.optInt("expiresInSeconds", 600))
+        }
+    }
+
+    /** Returns the machine id once a signed-in person approved the code, null while it is still waiting. */
+    fun pollDevicePairing(server: String, pollToken: String): String? {
+        val body = JSONObject().put("pollToken", pollToken)
+        val request = Request.Builder().url("$server/api/device-pairing/poll").post(body.toString().toRequestBody(json)).build()
+        http.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return null
+            val answer = JSONObject(response.body?.string() ?: "{}")
+            return when (answer.optString("status")) {
+                "approved" -> answer.getString("machineId")
+                "expired" -> throw PairingFailed("That code expired. Ask for a new one.")
+                else -> null
+            }
+        }
+    }
+
     /** Signed presence. With wait the server holds the call until someone asks for this phone. */
-    fun heartbeat(identity: Identity, wait: Boolean, handled: String?): JSONObject {
+    fun heartbeat(identity: Identity, wait: Boolean, handled: String?, expected: AccessBinding = identity.accessBinding()): JSONObject {
+        if (!identity.paired || identity.accessBinding() != expected) throw java.io.IOException("Pairing changed")
         val timestamp = System.currentTimeMillis()
         val nonce = UUID.randomUUID().toString()
-        val signature = identity.sign("beacon-remote:heartbeat:v1\n${identity.machineId}\n$timestamp\n$nonce")
+        val signature = identity.sign("beacon-remote:heartbeat:v1\n${expected.machineId}\n$timestamp\n$nonce")
         val body =
             JSONObject()
                 .put("version", 1)
-                .put("machineId", identity.machineId)
+                .put("machineId", expected.machineId)
                 .put("timestamp", timestamp)
                 .put("nonce", nonce)
                 .put("signature", signature)
@@ -88,7 +117,8 @@ object Api {
             if (wait) append("?wait=1")
             if (handled != null) append(if (isEmpty()) "?" else "&").append("handled=").append(handled)
         }
-        val request = Request.Builder().url("${identity.server}/api/agent/heartbeat$query").post(body.toString().toRequestBody(json)).build()
+        if (identity.accessBinding() != expected) throw java.io.IOException("Pairing changed")
+        val request = Request.Builder().url("${expected.server}/api/agent/heartbeat$query").post(body.toString().toRequestBody(json)).build()
         http.newCall(request).execute().use { response ->
             if (response.code == 401 || response.code == 409) throw Rejected()
             if (!response.isSuccessful) throw java.io.IOException("Presence failed (${response.code})")
@@ -97,4 +127,21 @@ object Api {
     }
 
     class Rejected : Exception("The server no longer accepts this phone")
+    @Synchronized
+    fun setAccess(identity: Identity, unattended: Boolean, expected: AccessBinding = identity.accessBinding(), onlyIfLocallyDisabled: Boolean = false) {
+        if (identity.accessBinding() != expected || !identity.paired) throw java.io.IOException("Pairing changed")
+        if (onlyIfLocallyDisabled && identity.unattended) return
+        val timestamp = System.currentTimeMillis()
+        val nonce = UUID.randomUUID().toString()
+        val mode = if (unattended) "trusted" else "attended"
+        val message = "beacon-remote:access:v1\n${expected.machineId}\n$timestamp\n$nonce\n$mode\n$unattended"
+        val body = JSONObject().put("version", 1).put("machineId", expected.machineId)
+            .put("timestamp", timestamp).put("nonce", nonce).put("mode", mode).put("allowControl", unattended)
+            .put("signature", identity.sign(message))
+        if (identity.accessBinding() != expected) throw java.io.IOException("Pairing changed")
+        val request = Request.Builder().url("${expected.server}/api/agent/access").post(body.toString().toRequestBody(json)).build()
+        http.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw java.io.IOException("The server did not accept the access setting")
+        }
+    }
 }

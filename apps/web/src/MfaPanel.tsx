@@ -93,19 +93,15 @@ export function MfaPanel() {
       ) : codes ? (
         <>
           <p>
-            Two-step sign-in is on. Save these recovery codes somewhere safe.
-            Each works once if you lose your authenticator, and they will not be
-            shown again.
+            Two-step sign-in is on. Save these recovery codes. Each works once
+            if you lose your authenticator, and they won’t be shown again.
           </p>
           <pre className="recovery-codes">{codes.join("\n")}</pre>
           <button onClick={() => setCodes(null)}>I saved them</button>
         </>
       ) : state.enabled ? (
         <form onSubmit={disable} className="mfa-form">
-          <p>
-            Two-step sign-in is on. Signing in needs your password and a code
-            from your authenticator app. Password recovery is not available yet.
-          </p>
+          <p>Two-step sign-in is on.</p>
           <label>
             Password
             <input
@@ -119,19 +115,21 @@ export function MfaPanel() {
             Authenticator or recovery code
             <input name="code" autoComplete="one-time-code" required />
           </label>
-          <button disabled={busy}>Turn off two-step sign-in</button>
+          <button disabled={busy}>
+            {busy ? "Turning off…" : "Turn off two-step sign-in"}
+          </button>
         </form>
       ) : secret ? (
         <form onSubmit={enable} className="mfa-form">
           <p>
-            In your authenticator app, add an account by entering this key, then
-            type the six-digit code it shows.
+            Add this key in your authenticator app, then enter the six-digit
+            code it shows.
           </p>
           <p>
             <code className="mfa-key">{secret.key}</code>
           </p>
           <p>
-            <a href={secret.url}>Open in an authenticator app on this device</a>
+            <a href={secret.url}>Open in an authenticator app</a>
           </p>
           <label>
             Six-digit code
@@ -143,16 +141,13 @@ export function MfaPanel() {
               required
             />
           </label>
-          <button disabled={busy}>Turn on</button>
+          <button disabled={busy}>{busy ? "Turning on…" : "Turn on"}</button>
         </form>
       ) : (
         <>
-          <p>
-            Add a second step to signing in. This matters more once a computer
-            allows your account to connect without asking.
-          </p>
+          <p>Ask for an authenticator code as well as your password.</p>
           <button disabled={busy} onClick={() => void begin()}>
-            Set up two-step sign-in
+            {busy ? "Starting setup…" : "Set up two-step sign-in"}
           </button>
         </>
       )}

@@ -2,7 +2,7 @@
 // sign in with a test account, pair a throwaway agent, turn trusted access on from the computer,
 // request a desktop session and confirm consent and a media offer arrive with no one clicking Allow,
 // then stop the session and revoke the throwaway computer.
-// Needs .remote-dev/prod-test-login.json ({origin,email,password}) and `cargo build --release`.
+// Needs REMOTE_PRODUCTION_LOGIN_FILE ({origin,email,password}) and `cargo build --release`.
 // The real helper starts, so the visible sharing indicator appears on this desktop for a moment.
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -13,9 +13,20 @@ import WebSocket from "ws";
 if (process.platform !== "win32") throw new Error("Windows required");
 const root = resolve(import.meta.dirname, "../../..");
 const login = JSON.parse(
-  await readFile(resolve(root, ".remote-dev/prod-test-login.json"), "utf8"),
+  await readFile(
+    process.env.REMOTE_PRODUCTION_LOGIN_FILE ??
+      resolve(
+        process.env.BEACON_PRIVATE_DIR ?? resolve(root, "../../Beacon-Secrets"),
+        "remote/production/accounts/test.json",
+      ),
+    "utf8",
+  ),
 ) as { origin: string; email: string; password: string };
-const profile = resolve(root, `.remote-dev/prod-check/profile-${randomUUID()}`);
+const profile = resolve(
+  process.env.REMOTE_DEV_STATE_DIR ??
+    resolve(root, "../../Beacon-Secrets/remote/local/state"),
+  `prod-check/profile-${randomUUID()}`,
+);
 const bin = (name: string) => resolve(root, `target/release/${name}.exe`);
 const env = { ...process.env, LOCALAPPDATA: profile };
 const pass = (message: string) => console.log(`PASS ${message}`);
@@ -157,8 +168,15 @@ try {
   agent?.kill();
   await sleep(1500);
   if (machineId) await call(`machines/${machineId}/revoke`, {});
-  await rm(resolve(root, ".remote-dev/prod-check"), {
-    recursive: true,
-    force: true,
-  });
+  await rm(
+    resolve(
+      process.env.REMOTE_DEV_STATE_DIR ??
+        resolve(root, "../../Beacon-Secrets/remote/local/state"),
+      "prod-check",
+    ),
+    {
+      recursive: true,
+      force: true,
+    },
+  );
 }

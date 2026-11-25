@@ -14,7 +14,7 @@ option that works on their own devices now.
   only (so it cannot vouch for a website), valid for three years. It is made by
   `scripts/Beacon-Signing.ps1 -Action New`.
 - **The private key never leaves a protected file.** It lives in a password-protected `.pfx` under
-  `%USERPROFILE%\.beacon\secrets\remote-codesign`, readable only by the owner's Windows user, and is removed from the
+  `<BEACON_PRIVATE_DIR>/remote/signing/windows`, restricted to the owner, SYSTEM and Administrators, and is removed from the
   certificate store right after creation. CI can instead supply `BEACON_SIGNING_PFX` and
   `BEACON_SIGNING_PFX_PASSWORD`. Nothing in the repository holds a key; only the public certificate is published.
 - **Signing is part of the existing build.** `scripts/Build-DevelopmentHost.ps1` signs the three programs and the

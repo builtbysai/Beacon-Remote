@@ -4,7 +4,7 @@ services:
     image: postgres:17.6-alpine
     environment:
       POSTGRES_USER: remote_dev
-      POSTGRES_PASSWORD: development-only
+      POSTGRES_PASSWORD: ${REMOTE_DEV_POSTGRES_PASSWORD:-development-only}
       POSTGRES_DB: beacon_remote_dev
     ports:
       - 127.0.0.1:5433:5432

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Machine } from "@beacon-remote/protocol";
 import { api } from "./api.js";
 
@@ -10,15 +10,25 @@ export function DeviceActions({
   machine,
   onRevoke,
   onChanged,
+  onRestart,
 }: {
   machine: Machine;
   onRevoke: () => Promise<void>;
   onChanged: () => Promise<void>;
+  onRestart?: (previousInstance: string | null) => void;
 }) {
   const [asking, setAsking] = useState<Action | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  const [reconnect, setReconnect] = useState(true);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   if (machine.uninstalledAt)
     return (
@@ -42,13 +52,15 @@ export function DeviceActions({
     try {
       if (action === "revoke") await onRevoke();
       else {
-        const result = await api<{ online?: boolean }>(
-          `machines/${machine.id}/${action}`,
-          {},
-        );
+        const result = await api<{
+          online?: boolean;
+          hostInstanceId?: string | null;
+        }>(`machines/${machine.id}/${action}`, {});
+        if (action === "restart" && reconnect && mounted.current)
+          onRestart?.(result.hostInstanceId ?? null);
         setNote(
           action === "restart"
-            ? "Restart requested. The computer shows a 30-second countdown its user can cancel. Everything open on it is closed; it comes back once Windows has started and someone is signed in."
+            ? "Restart requested. The person at the computer can cancel Windows’ 30-second countdown."
             : action === "disconnect"
               ? "Any active session was ended. The computer stays available."
               : result.online
@@ -59,7 +71,7 @@ export function DeviceActions({
       }
       setAsking(null);
     } catch {
-      setError("That did not work. Check your connection and try again.");
+      setError("That didn’t work. Try again.");
     } finally {
       setBusy(false);
     }
@@ -68,22 +80,22 @@ export function DeviceActions({
   const copy: Record<Action, { label: string; text: string; go: string }> = {
     disconnect: {
       label: "Disconnect now",
-      text: "End any session on this computer now. It stays available for future connections.",
+      text: "End any session on this computer. It stays available for future connections.",
       go: "Disconnect",
     },
     revoke: {
       label: "Revoke access…",
-      text: "Revoke this computer’s access? It must be paired again before another session. Beacon Remote stays installed on it.",
+      text: "Revoke access? The computer must be paired again before another session. Beacon Remote stays installed.",
       go: "Revoke access",
     },
     restart: {
       label: "Restart computer…",
-      text: "Restart this computer in 30 seconds? Any session ends and unsaved work on it can be lost. Windows shows a countdown the person there can cancel. It reconnects after the restart once Windows is signed in, because Beacon Remote runs in a signed-in session.",
+      text: "Restart in 30 seconds? Active sessions end and unsaved work can be lost. The person at the computer can cancel the countdown.",
       go: "Restart",
     },
     uninstall: {
       label: "Uninstall and remove…",
-      text: "Revoke access and remove Beacon Remote from this computer? If it is online it uninstalls itself and says so on screen. If it is off or offline, access ends now and it uninstalls itself if it connects within 30 days.",
+      text: "Revoke access and remove Beacon Remote? If the computer is online it uninstalls itself and says so on screen. If not, access ends now and it uninstalls itself if it connects within 30 days.",
       go: "Uninstall and remove",
     },
   };
@@ -97,7 +109,7 @@ export function DeviceActions({
         {},
       );
       setNote(
-        `Asked ${result.via ?? "another computer on its network"} to send a wake signal. It can take up to a minute, and only works if this computer allows waking over the network.`,
+        `Asked ${result.via ?? "another computer on its network"} to send a wake signal. It can take up to a minute.`,
       );
     } catch {
       setError("Could not send the wake signal. Try again in a moment.");
@@ -118,8 +130,26 @@ export function DeviceActions({
       {asking ? (
         <>
           <p>{copy[asking].text}</p>
+          {asking === "restart" && onRestart && (
+            <label>
+              <input
+                type="checkbox"
+                checked={reconnect}
+                disabled={busy}
+                onChange={(event) => setReconnect(event.target.checked)}
+              />
+              Reconnect automatically when this computer returns
+              <span className="field-help"> Uses current permissions.</span>
+            </label>
+          )}
           <div className="actions">
-            <button disabled={busy} onClick={() => void run(asking)}>
+            <button
+              className={
+                asking === "revoke" || asking === "uninstall" ? "danger" : ""
+              }
+              disabled={busy}
+              onClick={() => void run(asking)}
+            >
               {copy[asking].go}
             </button>
             <button
@@ -147,7 +177,11 @@ export function DeviceActions({
           ).map((action) => (
             <button
               key={action}
-              className="secondary"
+              className={
+                action === "revoke" || action === "uninstall"
+                  ? "secondary quiet-danger"
+                  : "secondary"
+              }
               onClick={() => setAsking(action)}
             >
               {copy[action].label}

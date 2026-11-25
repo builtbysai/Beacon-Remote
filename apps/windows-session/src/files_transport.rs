@@ -10,7 +10,10 @@ use crate::{
 };
 use serde::Deserialize;
 use std::{
-    sync::{atomic::Ordering, Arc},
+    sync::{
+        atomic::{AtomicU8, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 use webrtc::data_channel::{DataChannel, DataChannelEvent};
@@ -42,6 +45,8 @@ enum Control {
     // The helper's answers to a file this computer offered.
     Accept {
         id: u32,
+        #[serde(default)]
+        resume: Option<Resume>,
     },
     Reject {
         id: u32,
@@ -56,6 +61,27 @@ enum Control {
         #[serde(default)]
         reason: Option<String>,
     },
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Resume {
+    offset: u64,
+    sha256: String,
+}
+
+#[derive(Default)]
+pub struct DownloadCache(std::sync::Mutex<Option<Outbound>>);
+
+fn retain(authority: &Authority) -> bool {
+    authority.session_active.load(Ordering::Acquire)
+        && authority.deadline.is_none_or(|end| Instant::now() < end)
+        && crate::renewal::remaining(
+            authority.lease.load(Ordering::Acquire),
+            authority.epoch.elapsed().as_millis() as u64,
+        )
+        .is_some()
+        && !crate::pause::is_paused()
 }
 
 fn parse(message: &[u8]) -> Result<Control, ()> {
@@ -216,7 +242,7 @@ enum Stage {
     Idle,
     Offered(Outgoing, Instant),
     Streaming(Outgoing),
-    Ending(Instant, String),
+    Ending(Instant, Outgoing),
 }
 
 /// A file this computer is sending to the helper: offer, wait for their accept, stream, then wait for their
@@ -225,6 +251,8 @@ pub(crate) struct Outbound {
     stage: Stage,
     id: u32,
     announced: u64,
+    token: String,
+    pause_generation: u64,
 }
 
 impl Outbound {
@@ -233,6 +261,8 @@ impl Outbound {
             stage: Stage::Idle,
             id: 0,
             announced: 101,
+            token: String::new(),
+            pause_generation: crate::pause::generation(),
         }
     }
     pub(crate) fn idle(&self) -> bool {
@@ -253,10 +283,12 @@ impl Outbound {
                 return None;
             }
         };
-        self.id += 2;
+        self.id = self.id.checked_add(2)?;
+        self.token = uuid::Uuid::new_v4().simple().to_string();
+        self.pause_generation = crate::pause::generation();
         files::set_status(&format!("Offering {} to the helper", outgoing.name));
         let frame = Frame::Text(
-            serde_json::json!({"t":"send","id":self.id,"name":outgoing.name,"size":outgoing.size}),
+            serde_json::json!({"t":"send","id":self.id,"name":outgoing.name,"size":outgoing.size,"transferId":self.token}),
         );
         self.stage = Stage::Offered(outgoing, Instant::now());
         Some(frame)
@@ -274,19 +306,38 @@ impl Outbound {
     fn name(&self) -> String {
         match &self.stage {
             Stage::Offered(outgoing, _) | Stage::Streaming(outgoing) => outgoing.name.clone(),
-            Stage::Ending(_, name) => name.clone(),
+            Stage::Ending(_, outgoing) => outgoing.name.clone(),
             Stage::Idle => "the file".into(),
         }
     }
     /// The helper's answer. Returns nothing to send.
+    #[cfg(test)]
     fn answer(&mut self, control: &Control) {
-        let Some(current) = self.current_id() else {
-            return;
-        };
+        let _ = self.answer_checked(control, || true);
+    }
+    fn answer_checked(&mut self, control: &Control, live: impl Fn() -> bool) -> Option<Frame> {
+        let current = self.current_id()?;
         match control {
-            Control::Accept { id } if *id == current => {
-                if let Stage::Offered(outgoing, _) = std::mem::replace(&mut self.stage, Stage::Idle)
+            Control::Accept { id, resume }
+                if *id == current && matches!(self.stage, Stage::Offered(..)) =>
+            {
+                if let Stage::Offered(mut outgoing, _) =
+                    std::mem::replace(&mut self.stage, Stage::Idle)
                 {
+                    let (offset, hash) = resume
+                        .as_ref()
+                        .map_or((0, None), |r| (r.offset, Some(r.sha256.as_str())));
+                    if outgoing
+                        .restart_at(offset, hash, || {
+                            live() && self.pause_generation == crate::pause::generation()
+                        })
+                        .is_err()
+                    {
+                        self.finish("The source or partial copy changed; offer the file again");
+                        return Some(Frame::Text(
+                            serde_json::json!({"t":"failed","id":current,"reason":"resume"}),
+                        ));
+                    }
                     files::set_status(&format!("Sending {} · 0%", outgoing.name));
                     self.stage = Stage::Streaming(outgoing);
                 }
@@ -304,6 +355,20 @@ impl Outbound {
             }
             _ => {}
         }
+        None
+    }
+    fn reoffer(&mut self) -> Option<Frame> {
+        let stage = std::mem::replace(&mut self.stage, Stage::Idle);
+        let outgoing = match stage {
+            Stage::Offered(o, _) | Stage::Streaming(o) | Stage::Ending(_, o) => o,
+            Stage::Idle => return None,
+        };
+        self.id = self.id.checked_add(2)?;
+        let frame = Frame::Text(
+            serde_json::json!({"t":"send","id":self.id,"name":outgoing.name,"size":outgoing.size,"transferId":self.token}),
+        );
+        self.stage = Stage::Offered(outgoing, Instant::now());
+        Some(frame)
     }
     /// The next chunk, or the closing message with the checksum.
     pub(crate) fn pump(&mut self) -> Option<Frame> {
@@ -324,7 +389,12 @@ impl Outbound {
             Ok(None) => match outgoing.digest() {
                 Ok(sha256) => {
                     let id = self.id;
-                    self.stage = Stage::Ending(Instant::now(), outgoing.name.clone());
+                    let Stage::Streaming(outgoing) =
+                        std::mem::replace(&mut self.stage, Stage::Idle)
+                    else {
+                        unreachable!()
+                    };
+                    self.stage = Stage::Ending(Instant::now(), outgoing);
                     Some(Frame::Text(
                         serde_json::json!({"t":"end","id":id,"sha256":sha256}),
                     ))
@@ -362,19 +432,54 @@ impl Outbound {
 }
 
 /// What the person at the computer allowed for this session on the extras channel.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Permissions {
     pub files: bool,
     pub recording: bool,
+}
+/// Bit layout shared with the sharing window: file transfer is bit 0 and recording bit 1.
+pub const FILES_BIT: u8 = 1;
+pub const RECORDING_BIT: u8 = 2;
+/// Drive mapping approved for this connection (P1-4); it sits beside the file and recording bits.
+pub const DRIVE_BIT: u8 = 4;
+/// Printing approved for this connection (P2-1), its own bit like drive.
+pub const PRINT_BIT: u8 = 8;
+
+impl Permissions {
+    pub fn from_bits(bits: u8) -> Self {
+        Self {
+            files: bits & FILES_BIT != 0,
+            recording: bits & RECORDING_BIT != 0,
+        }
+    }
+    pub fn bits(self) -> u8 {
+        (u8::from(self.files) * FILES_BIT) | (u8::from(self.recording) * RECORDING_BIT)
+    }
+    pub fn read(flags: &AtomicU8) -> Self {
+        Self::from_bits(flags.load(Ordering::Acquire))
+    }
+    pub fn publish(self, flags: &AtomicU8) {
+        flags.store(self.bits(), Ordering::Release);
+    }
 }
 
 pub fn start(
     channel: Arc<dyn DataChannel>,
     authority: Authority,
-    permissions: Permissions,
+    permissions: Arc<AtomicU8>,
+    retain_file_parts: bool,
+    downloads: Arc<DownloadCache>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let result = run(channel, &authority, permissions).await;
+        let result = run(
+            channel.clone(),
+            &authority,
+            &permissions,
+            retain_file_parts,
+            &downloads,
+        )
+        .await;
+        let _ = tokio::time::timeout(Duration::from_millis(500), channel.close()).await;
         files::set_recording(false);
         if result.is_err() {
             println!("File transfer stopped: invalid message, expired authority or no folder.");
@@ -405,16 +510,32 @@ async fn send_frame(channel: &Arc<dyn DataChannel>, frame: Frame) -> Result<(), 
     }
 }
 
+async fn send_download(
+    channel: &Arc<dyn DataChannel>,
+    frame: Frame,
+    outbound: &mut Outbound,
+    downloads: &DownloadCache,
+    authority: &Authority,
+) -> Result<(), ()> {
+    let result = send_frame(channel, frame).await;
+    if result.is_err() && retain(authority) {
+        *downloads.0.lock().map_err(|_| ())? = Some(std::mem::replace(outbound, Outbound::new()));
+    }
+    result
+}
+
 async fn run(
     channel: Arc<dyn DataChannel>,
     authority: &Authority,
-    permissions: Permissions,
+    flags: &AtomicU8,
+    retain_file_parts: bool,
+    downloads: &DownloadCache,
 ) -> Result<(), ()> {
-    let folder = files::received_folder().ok_or(())?;
-    // Left over from a session that ended abnormally.
-    files::sweep_stale(&folder);
-    let mut receiver = Receiver::new(folder);
+    let mut receiver: Option<Receiver> = None;
     let mut outbound = Outbound::new();
+    let mut reported = None;
+    let mut granted = Permissions::default();
+    let mut initialized_files = false;
     // The browser's buffer fills when the network is slower than the disk; wait for it to drain.
     let mut blocked = false;
     let mut pump = tokio::time::interval(Duration::from_millis(2));
@@ -422,6 +543,38 @@ async fn run(
     let mut opened = false;
     let mut last_message = Instant::now();
     loop {
+        let mut permissions = Permissions::read(flags);
+        if granted.files && !permissions.files {
+            // Revoked at this computer: stop any transfer in either direction at once.
+            if let Some(receiver) = &mut receiver {
+                receiver.abort();
+            }
+            if let Some(frame) = outbound.abort() {
+                send_frame(&channel, frame).await?;
+            }
+        }
+        if granted.recording && !permissions.recording {
+            files::set_recording(false);
+            send(
+                &channel,
+                serde_json::json!({"t":"recording","on":false,"denied":true}),
+            )
+            .await?;
+        }
+        granted = permissions;
+        if permissions.files && !initialized_files {
+            initialized_files = true;
+            if let Some(folder) = files::received_folder() {
+                files::sweep_stale(&folder);
+                receiver = Some(Receiver::new(folder));
+                if retain_file_parts {
+                    if let Some(saved) = downloads.0.lock().map_err(|_| ())?.take() {
+                        outbound = saved;
+                    }
+                }
+            }
+        }
+        permissions.files &= receiver.is_some();
         tokio::select! {
             _ = tick.tick() => {
                 if !authority.session_active.load(Ordering::Acquire)
@@ -430,24 +583,33 @@ async fn run(
                     || (opened && !authority.live())
                 {
                     // A viewer that is only reconnecting leaves the session alive: keep what has arrived for it.
-                    if authority.session_active.load(Ordering::Acquire)
-                        && !authority.peer_active.load(Ordering::Acquire)
-                        && !authority.deadline.is_some_and(|end| Instant::now() >= end)
+                    if retain_file_parts && retain(authority) && (!authority.peer_active.load(Ordering::Acquire) ||
+                        authority.viewer_generation.load(Ordering::Acquire) != authority.generation)
                     {
-                        receiver.interrupted();
+                        if let Some(receiver) = &mut receiver { receiver.interrupted(); }
+                        *downloads.0.lock().map_err(|_| ())? = Some(std::mem::replace(&mut outbound, Outbound::new()));
                     } else {
-                        receiver.abort();
+                        if let Some(receiver) = &mut receiver { receiver.abort(); }
                     }
                     if let Some(frame) = outbound.abort() { let _ = send_frame(&channel, frame).await; }
                     return Ok(());
                 }
-                if (receiver.active() || !outbound.idle()) && crate::pause::is_paused() {
-                    receiver.abort();
+                if (receiver.as_ref().is_some_and(Receiver::active) || !outbound.idle()) && (crate::pause::is_paused() || outbound.pause_generation != crate::pause::generation()) {
+                    if let Some(receiver) = &mut receiver { receiver.abort(); }
                     if let Some(frame) = outbound.abort() { send_frame(&channel, frame).await?; }
+                    outbound.pause_generation = crate::pause::generation();
                     send(&channel, serde_json::json!({"t":"paused"})).await?;
                 }
-                if receiver.active() && last_message.elapsed() >= Duration::from_secs(30) {
-                    receiver.abort();
+                if last_message.elapsed() >= Duration::from_secs(30) {
+                    if let Some(receiver) = &mut receiver { receiver.abort(); }
+                }
+                if opened && authority.live() && reported != Some(permissions) {
+                    let first = reported.is_none();
+                    reported = Some(permissions);
+                    send(&channel, serde_json::json!({"t":"ready","maxFile":MAX_FILE,"chunk":MAX_CHUNK,"files":permissions.files,"recording":permissions.recording,"downloadTransferId":if outbound.idle(){None}else{Some(&outbound.token)}})).await?;
+                    if first {
+                        if let Some(frame) = outbound.reoffer() { send_download(&channel, frame, &mut outbound, downloads, authority).await?; }
+                    }
                 }
                 outbound.expire();
                 // A file the person at this computer picked in the sharing window.
@@ -456,7 +618,7 @@ async fn run(
                         if crate::pause::is_paused() {
                             files::set_status("Resume sharing before sending a file");
                         } else if let Some(frame) = outbound.start(&path) {
-                            send_frame(&channel, frame).await?;
+                            send_download(&channel, frame, &mut outbound, downloads, authority).await?;
                         }
                     }
                 }
@@ -465,30 +627,32 @@ async fn run(
                 for _ in 0..16 {
                     let Some(frame) = outbound.pump() else { break };
                     let last = matches!(frame, Frame::Text(_));
-                    send_frame(&channel, frame).await?;
+                    send_download(&channel, frame, &mut outbound, downloads, authority).await?;
+                    authority.last_activity.store(authority.epoch.elapsed().as_millis() as u64,Ordering::Release);
                     if last || blocked { break; }
                 }
             }
             event = channel.poll() => match event {
                 Some(DataChannelEvent::OnOpen) => {
                     if !authority.live() { return Err(()); }
+                    if outbound.pause_generation != crate::pause::generation() || crate::pause::is_paused() { outbound.abort(); outbound.pause_generation = crate::pause::generation(); }
                     opened = true;
                     last_message = Instant::now();
                     channel.set_buffered_amount_low_threshold(256 * 1024).await.map_err(|_| ())?;
                     channel.set_buffered_amount_high_threshold(1024 * 1024).await.map_err(|_| ())?;
-                    send(&channel, serde_json::json!({"t":"ready","maxFile":MAX_FILE,"chunk":MAX_CHUNK,"files":permissions.files,"recording":permissions.recording})).await?;
                 }
                 Some(DataChannelEvent::OnBufferedAmountHigh) => blocked = true,
                 Some(DataChannelEvent::OnBufferedAmountLow) => blocked = false,
                 Some(DataChannelEvent::OnMessage(message)) => {
                     if !opened || !authority.live() { return Err(()); }
+                    if !message.is_string { authority.last_activity.store(authority.epoch.elapsed().as_millis() as u64,Ordering::Release); }
                     last_message = Instant::now();
                     let reply = if message.is_string {
                         if message.data.len() > 2048 { return Err(()); }
                         let control = parse(&message.data)?;
                         if let Control::Recording { on } = control {
                             // Only the announcement is honoured, and only when it was allowed.
-                            if permissions.recording {
+                            if permissions.recording && (!on || !crate::pause::is_paused()) {
                                 files::set_recording(on);
                                 send(&channel, serde_json::json!({"t":"recording","on":on})).await?;
                             } else {
@@ -510,12 +674,14 @@ async fn run(
                             _ => false,
                         };
                         if ours {
-                            outbound.answer(&control);
+                            if let Some(frame) = outbound.answer_checked(&control, || authority.live() && !crate::pause::is_paused()) { send_frame(&channel, frame).await?; }
                             continue;
                         }
+                        let Some(receiver) = &mut receiver else {continue;};
                         receiver.handle(control, crate::pause::is_paused())?
                     } else {
                         if !permissions.files { continue; }
+                        let Some(receiver) = &mut receiver else {continue;};
                         if crate::pause::is_paused() { receiver.abort(); continue; }
                         receiver.chunk(&message.data)?
                     };
@@ -530,10 +696,11 @@ async fn run(
                 }
                 Some(DataChannelEvent::OnClose | DataChannelEvent::OnError) | None => {
                     // The connection went; the session may not have. Keep the part for a reconnecting viewer.
-                    if authority.session_active.load(Ordering::Acquire) {
-                        receiver.interrupted();
+                    if retain_file_parts && retain(authority) {
+                        if let Some(receiver) = &mut receiver {receiver.interrupted();}
+                        *downloads.0.lock().map_err(|_| ())? = Some(std::mem::replace(&mut outbound, Outbound::new()));
                     } else {
-                        receiver.abort();
+                        if let Some(receiver) = &mut receiver {receiver.abort();}
                     }
                     let _ = outbound.abort();
                     return Ok(());
@@ -548,6 +715,45 @@ async fn run(
 mod tests {
     use super::*;
     use sha2::{Digest, Sha256};
+
+    #[test]
+    fn shared_permission_flags_round_trip_each_scope_independently() {
+        let flags = AtomicU8::new(0);
+        assert_eq!(Permissions::read(&flags), Permissions::default());
+        Permissions {
+            files: true,
+            recording: false,
+        }
+        .publish(&flags);
+        assert_eq!(
+            Permissions::read(&flags),
+            Permissions {
+                files: true,
+                recording: false
+            }
+        );
+        Permissions {
+            files: false,
+            recording: true,
+        }
+        .publish(&flags);
+        assert_eq!(
+            Permissions::read(&flags),
+            Permissions {
+                files: false,
+                recording: true
+            }
+        );
+        Permissions {
+            files: true,
+            recording: true,
+        }
+        .publish(&flags);
+        assert_eq!(flags.load(Ordering::Acquire), FILES_BIT | RECORDING_BIT);
+        // The sharing window's revoke publishes the default; nothing else remains granted.
+        Permissions::default().publish(&flags);
+        assert_eq!(Permissions::read(&flags), Permissions::default());
+    }
 
     fn folder() -> std::path::PathBuf {
         let path = std::env::temp_dir().join(format!(
@@ -749,6 +955,78 @@ mod tests {
         outbound.answer(&parse(format!(r#"{{"t":"done","id":{id}}}"#).as_bytes()).unwrap());
         assert!(outbound.idle());
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn resumed_download_verifies_prefix_waits_for_accept_and_handles_lost_end() {
+        let dir = folder();
+        let path = dir.join("resume.bin");
+        let data = vec![42u8; 50_000];
+        std::fs::write(&path, &data).unwrap();
+        let mut sender = Outbound::new();
+        let Some(Frame::Text(first)) = sender.start(&path) else {
+            panic!()
+        };
+        sender.answer(&parse(br#"{"t":"accept","id":2}"#).unwrap());
+        let Some(Frame::Binary(part)) = sender.pump() else {
+            panic!()
+        };
+        let offset = part.len() - 4;
+        let Some(Frame::Text(again)) = sender.reoffer() else {
+            panic!()
+        };
+        assert_eq!(first["transferId"], again["transferId"]);
+        assert_ne!(first["id"], again["id"]);
+        assert!(sender.pump().is_none());
+        let accept = serde_json::json!({"t":"accept","id":4,"resume":{"offset":offset,"sha256":hex(&data[..offset])}});
+        assert!(sender
+            .answer_checked(&parse(accept.to_string().as_bytes()).unwrap(), || true)
+            .is_none());
+        let mut actual = part[4..].to_vec();
+        loop {
+            match sender.pump().unwrap() {
+                Frame::Binary(b) => actual.extend_from_slice(&b[4..]),
+                Frame::Text(end) => {
+                    assert_eq!(end["sha256"], hex(&data));
+                    break;
+                }
+            }
+        }
+        assert_eq!(actual, data);
+        sender.reoffer().unwrap();
+        let accept = serde_json::json!({"t":"accept","id":6,"resume":{"offset":data.len(),"sha256":hex(&data)}});
+        sender.answer_checked(&parse(accept.to_string().as_bytes()).unwrap(), || true);
+        assert!(
+            matches!(sender.pump(), Some(Frame::Text(_))),
+            "a full prefix needs only the end message"
+        );
+        sender.reoffer().unwrap();
+        let bad = serde_json::json!({"t":"accept","id":8,"resume":{"offset":offset,"sha256":"0".repeat(64)}});
+        assert!(matches!(
+            sender.answer_checked(&parse(bad.to_string().as_bytes()).unwrap(), || true),
+            Some(Frame::Text(_))
+        ));
+        assert!(sender.idle());
+        drop(sender);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn source_changes_invalid_ranges_and_revocation_prevent_resuming() {
+        let dir = folder();
+        let path = dir.join("a.bin");
+        std::fs::write(&path, b"original").unwrap();
+        let mut file = Outgoing::open(&path).unwrap();
+        assert!(file
+            .restart_at(9, Some(&hex(b"original")), || true)
+            .is_err());
+        assert!(file.restart_at(1, Some(&hex(b"o")), || false).is_err());
+        std::fs::write(&path, b"changed!").unwrap();
+        assert!(file.restart_at(4, Some(&hex(b"orig")), || true).is_err());
+        file.restart_at(0, None, || true).unwrap();
+        assert_eq!(file.next_chunk().unwrap().unwrap(), b"changed!");
+        drop(file);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

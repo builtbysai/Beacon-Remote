@@ -464,6 +464,24 @@ pub fn benchmark() -> Result<(), Error> {
     Ok(())
 }
 
+/// The monitor layout as the display-layout diff sees it (P1-6). Physical pixels and DPI scale in percent.
+pub(crate) fn layout_snapshot() -> Option<Vec<beacon_remote_session::display_layout::Monitor>> {
+    let displays = displays().ok()?;
+    Some(
+        displays
+            .into_iter()
+            .map(|display| beacon_remote_session::display_layout::Monitor {
+                id: display.id,
+                width: display.width,
+                height: display.height,
+                origin_x: display.origin_x,
+                origin_y: display.origin_y,
+                scale_percent: (display.scale * 100.0).round() as u32,
+            })
+            .collect(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -536,9 +554,8 @@ mod tests {
                     true,
                     "guard-test@example.invalid".into(),
                     Some(Instant::now() + Duration::from_secs(1)),
-                    false,
-                    false,
-                    false,
+                    Arc::new(AtomicBool::new(false)),
+                    Arc::default(),
                     false,
                     "S-0000".into(),
                 )

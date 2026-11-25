@@ -1,11 +1,75 @@
 import { z } from "zod";
+export * from "./signin.js";
+export * from "./session-permissions.js";
+export * from "./drive-mapping.js";
 
 export const PROTOCOL_VERSION = 1;
+// Separate signing domain and credential: a boot agent never receives a session grant.
+export const bootBinding = z
+  .object({
+    version: z.literal(1),
+    machineId: z.uuid(),
+    timestamp: z.number().int().positive(),
+    nonce: z.uuid(),
+    publicKey: z
+      .string()
+      .regex(/^[A-Za-z0-9+/]{43}=$/)
+      .nullable(),
+    signature: z.string().regex(/^[A-Za-z0-9+/]{86}==$/),
+  })
+  .strict();
+export const bootHeartbeat = z
+  .object({
+    version: z.literal(1),
+    machineId: z.uuid(),
+    timestamp: z.number().int().positive(),
+    nonce: z.uuid(),
+    state: z.enum(["signed-out", "locked", "starting"]),
+    signature: z.string().regex(/^[A-Za-z0-9+/]{86}==$/),
+  })
+  .strict();
+export function bootBindingMessage(
+  machine: string,
+  timestamp: number,
+  nonce: string,
+  key: string | null,
+) {
+  return `beacon-remote:boot-binding:v1\n${machine}\n${timestamp}\n${nonce}\n${key ?? "off"}`;
+}
+export function bootHeartbeatMessage(
+  machine: string,
+  timestamp: number,
+  nonce: string,
+  state: string,
+) {
+  return `beacon-remote:boot-heartbeat:v1\n${machine}\n${timestamp}\n${nonce}\n${state}`;
+}
 export const capability = z.enum(["desktop:view", "desktop:control"]);
+// Twelve independent base32 symbols provide 60 bits of entropy. Grouping is
+// presentation only; existing case-sensitive bearer invitations stay valid.
+export const ENROLLMENT_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+export const enrollmentCode = z
+  .string()
+  .trim()
+  .max(64)
+  .transform((value) => {
+    if (/^[A-Za-z0-9_-]{32,64}$/.test(value)) return value;
+    const compact = value.replace(/[ -]/g, "").toUpperCase();
+    return /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{12}$/.test(compact)
+      ? `${compact.slice(0, 4)}-${compact.slice(4, 8)}-${compact.slice(8)}`
+      : value;
+  })
+  .pipe(
+    z
+      .string()
+      .regex(
+        /^(?:[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}|[A-Za-z0-9_-]{32,64})$/,
+      ),
+  );
 export const enrollment = z
   .object({
     version: z.literal(PROTOCOL_VERSION),
-    code: z.string().regex(/^[A-Za-z0-9_-]{32,64}$/),
+    code: enrollmentCode,
     name: z.string().trim().min(1).max(80),
     publicKey: z.string().regex(/^[A-Za-z0-9+/]{43}=$/),
   })
@@ -28,6 +92,16 @@ export const heartbeat = z
     machineId: z.string().uuid(),
     timestamp: z.number().int().positive(),
     nonce: z.string().uuid(),
+    instanceId: z.uuid().optional(),
+    // Canonical v3 binds the ordinary Windows host to its own process session.
+    // Null is an explicit unavailable report; omission is the legacy domain.
+    consoleSessionId: z
+      .number()
+      .int()
+      .min(1)
+      .max(0xfffffffe)
+      .nullable()
+      .optional(),
     signature: z.string().regex(/^[A-Za-z0-9+/]{86}==$/),
     displays: z.array(displayInfo).max(8).optional(),
     // For Wake-on-LAN (ADR 0042): hardware addresses, and a name for the local network the computer is on.
@@ -42,14 +116,24 @@ export const heartbeat = z
       .nullable()
       .optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (body) =>
+      body.consoleSessionId === undefined || body.instanceId !== undefined,
+  );
 
 // Exact canonical bytes signed by the native agent. No user-defined payload.
 export function heartbeatMessage(
   machineId: string,
   timestamp: number,
   nonce: string,
+  instanceId?: string,
+  consoleSessionId?: number | null,
 ): string {
+  if (consoleSessionId !== undefined)
+    return `beacon-remote:heartbeat:v3\n${machineId}\n${timestamp}\n${nonce}\n${instanceId ?? "off"}\n${consoleSessionId ?? "off"}`;
+  if (instanceId)
+    return `beacon-remote:heartbeat:v2\n${machineId}\n${timestamp}\n${nonce}\n${instanceId}`;
   return `beacon-remote:heartbeat:v1\n${machineId}\n${timestamp}\n${nonce}`;
 }
 
@@ -135,6 +219,9 @@ export interface Machine {
   // The owner's own label for organising many computers; null when unset.
   group: string | null;
   online: boolean;
+  bootState?: "signed-out" | "locked" | "starting" | null;
+  hostInstanceId?: string | null;
+  hostConsoleSessionId?: number | null;
   lastSeenAt: string | null;
   revokedAt: string | null;
   // The computer's own access policy (ADR 0021). Only the computer can raise it.

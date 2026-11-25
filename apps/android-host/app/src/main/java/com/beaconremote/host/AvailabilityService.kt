@@ -9,6 +9,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import kotlin.concurrent.thread
@@ -18,7 +20,12 @@ import org.json.JSONObject
 object HostState {
     @Volatile var status: String = "Not available"
     @Volatile var sharing: Boolean = false
+    @Volatile var paused: Boolean = false
     @Volatile var controlling: Boolean = false
+    /** A viewer is talking through the phone's speaker right now. */
+    @Volatile var talking: Boolean = false
+    /** Set by the sharing service so a change here shows in its notification. */
+    @Volatile var refreshNotification: (() -> Unit)? = null
 }
 
 /**
@@ -29,19 +36,24 @@ object HostState {
 class AvailabilityService : Service() {
     @Volatile private var running = false
     private var worker: Thread? = null
+    private val main = Handler(Looper.getMainLooper())
+    @Volatile private var generation = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            android.util.Log.w("BeaconHost", "Availability stop requested")
             Identity(this).wantsAvailable = false
+            if (HostState.sharing) runCatching { startService(Intent(this, CaptureService::class.java).setAction(CaptureService.ACTION_STOP)) }
             running = false
+            generation++
+            worker?.interrupt()
             HostState.status = "Not available"
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
         }
-        if (running) return START_STICKY
         val identity = Identity(this)
         if (!identity.paired) {
             stopSelf()
@@ -55,56 +67,99 @@ class AvailabilityService : Service() {
             NotificationCompat.Builder(this, AVAILABLE)
                 .setSmallIcon(R.drawable.ic_stat_beacon)
                 .setContentTitle("Beacon Remote is available")
-                .setContentText("Someone you allow can ask to see this screen. You approve each request.")
+                .setContentText(if (identity.unattended) (if (StandingScreen.active) "Smooth video is on. Your account can connect while this phone is unlocked." else "Tap to turn on smooth video. Your account can connect while this phone is unlocked.") else "Someone you allow can ask to see this screen. You approve each request.")
                 .setContentIntent(open)
                 .addAction(0, "Stop", stop)
                 .setOngoing(true)
                 .build()
         ServiceCompat.startForeground(this, 1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        if (running) return START_STICKY
         running = true
-        worker = thread(name = "presence") { loop(identity) }
+        val run = ++generation
+        val binding = identity.accessBinding()
+        worker = thread(name = "presence") { loop(identity, run, binding) }
         return START_STICKY
     }
 
-    private fun loop(identity: Identity) {
-        var handled: String? = null
+    private fun loop(identity: Identity, run: Long, binding: AccessBinding) {
+        fun active() = running && generation == run && identity.wantsAvailable && identity.accessBinding() == binding
+        // All effects run on the service lifecycle thread. Stop/restart and a
+        // queued old response therefore have a defined order, without holding
+        // a lifecycle lock across network I/O.
+        fun apply(action: () -> Unit) {
+            main.post {
+                if (!active()) return@post
+                try { action() } catch (_: Exception) {
+                    running = false
+                    generation++
+                    identity.wantsAvailable = false
+                    HostState.status = "Availability stopped. Open Beacon Remote to retry."
+                    runCatching { startService(Intent(this, CaptureService::class.java).setAction(CaptureService.ACTION_STOP)) }
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
+            }
+        }
+        val delivery = ConsentRequestDelivery()
         var delay = 2000L
-        while (running) {
+        while (active()) {
             try {
-                HostState.status = if (HostState.sharing) "Sharing your screen" else "Available"
-                val reply = Api.heartbeat(identity, wait = true, handled = handled)
+                apply { HostState.status = if (HostState.sharing) "Sharing your screen" else "Available" }
+                val accessRevision = AccessIntents.fence.revision()
+                val before = identity.unattended
+                val reply = Api.heartbeat(identity, wait = true, handled = delivery.handled, expected = binding)
+                if (!active()) return
+                val access = reply.optJSONObject("access")
+                if (!before && access?.optString("mode") == "trusted") {
+                    // A local disable wins even if its earlier request failed.
+                    Api.setAccess(identity, false, expected = binding, onlyIfLocallyDisabled = true)
+                }
                 delay = 2000L
                 val sessions = reply.optJSONArray("sessions")
-                if (sessions != null && sessions.length() > 0 && !HostState.sharing) {
-                    val grant = sessions.getJSONObject(0)
-                    handled = grant.getString("id")
-                    askForConsent(grant)
-                } else if (sessions == null || sessions.length() == 0) {
-                    handled = null
+                val grant = if (sessions != null && sessions.length() > 0) sessions.getJSONObject(0) else null
+                apply {
+                    val trusted = access?.optString("mode") == "trusted" && access.optBoolean("allowControl")
+                    if (before && AccessIntents.fence.revision() == accessRevision && identity.unattended && access != null && !trusted) {
+                        identity.unattended = false
+                        startService(Intent(this, CaptureService::class.java).setAction(CaptureService.ACTION_STOP))
+                    }
+                    if (grant != null && delivery.claim(grant.getString("id"), HostState.sharing)) {
+                        if (UnattendedAccess.accepts(identity.unattended, grant.optString("approval") == "policy", grant.optBoolean("viaRelationship"), UnattendedAccess.ready(this))) {
+                            startForegroundService(Intent(this, CaptureService::class.java)
+                                .withAccessBinding(binding)
+                                .putExtra("grant", grant.toString()).putExtra("unattended", true))
+                        } else if (grant.optString("approval") == "policy") {
+                            ShareSession(applicationContext, Grant.from(grant), binding.server, null) {}.decline()
+                        } else {
+                            askForConsent(grant, binding)
+                        }
+                    }
                 }
                 val pause = reply.optLong("pollAfterMillis", 0)
                 if (pause > 0) Thread.sleep(pause)
             } catch (rejected: Api.Rejected) {
-                HostState.status = "This phone was removed from your account"
-                identity.wantsAvailable = false
-                running = false
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                apply {
+                    HostState.status = "This phone was removed from your account"
+                    identity.wantsAvailable = false
+                    running = false
+                    generation++
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
+                return
             } catch (error: InterruptedException) {
                 return
             } catch (error: Exception) {
-                HostState.status = "Offline, retrying"
+                if (!active()) return
+                apply { HostState.status = "Offline, retrying" }
                 runCatching { Thread.sleep(delay) }
                 delay = minOf(delay * 2, 30_000L)
             }
         }
     }
 
-    private fun askForConsent(grant: JSONObject) {
-        val consent =
-            Intent(this, ConsentActivity::class.java)
-                .putExtra("grant", grant.toString())
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+    private fun askForConsent(grant: JSONObject, binding: AccessBinding) {
+        val consent = ConsentActivity.requestIntent(this, grant, binding)
         val pending = PendingIntent.getActivity(this, 2, consent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val manager = getSystemService(NotificationManager::class.java)
         manager.notify(
@@ -129,12 +184,14 @@ class AvailabilityService : Service() {
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel(AVAILABLE, "Availability", NotificationManager.IMPORTANCE_LOW))
         manager.createNotificationChannel(NotificationChannel(REQUEST, "Requests to see your screen", NotificationManager.IMPORTANCE_HIGH))
-        manager.createNotificationChannel(NotificationChannel(SHARING, "While sharing", NotificationManager.IMPORTANCE_LOW))
+        SharingNotifications.register(this)
     }
 
     override fun onDestroy() {
         running = false
+        generation++
         worker?.interrupt()
+        main.removeCallbacksAndMessages(null)
         super.onDestroy()
     }
 
@@ -142,7 +199,6 @@ class AvailabilityService : Service() {
         const val ACTION_STOP = "com.beaconremote.host.STOP_AVAILABILITY"
         const val AVAILABLE = "available"
         const val REQUEST = "request"
-        const val SHARING = "sharing"
 
         fun start(context: Context) {
             context.startForegroundService(Intent(context, AvailabilityService::class.java))

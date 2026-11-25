@@ -1,8 +1,16 @@
 import { useEffect, useState } from "react";
+import { Empty } from "./Characters.js";
 import { DataPanel } from "./DataPanel.js";
 import { MfaPanel } from "./MfaPanel.js";
 import { TeamPanel } from "./TeamPanel.js";
 import { api } from "./api.js";
+import { AccountIdentity } from "./AccountIdentity.js";
+
+const settingsSections = [
+  { id: "account", label: "Account" },
+  { id: "team", label: "Team" },
+  { id: "data", label: "Data" },
+] as const;
 
 type BrowserSession = { expiresAt: string; current: boolean };
 export type Activity = {
@@ -18,6 +26,10 @@ export function activityLabel(action: string) {
   switch (action) {
     case "machine.enrolled":
       return "Computer paired";
+    case "machine.boot.enabled":
+      return "Availability before Windows sign-in enabled";
+    case "machine.boot.disabled":
+      return "Availability before Windows sign-in disabled";
     case "machine.revoked":
       return "Access revoked";
     case "machine.renamed":
@@ -88,6 +100,7 @@ export function AccountPanels({ activity }: { activity: boolean }) {
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
   const [eventFilter, setEventFilter] = useState("all");
+  const [section, setSection] = useState<string>("account");
   useEffect(() => {
     let disposed = false;
     setError("");
@@ -189,10 +202,7 @@ export function AccountPanels({ activity }: { activity: boolean }) {
     return (
       <section className="workspace-page activity-page">
         <div className="workspace-page-heading">
-          <div>
-            <h1>Activity</h1>
-            <p>Connections and device events</p>
-          </div>
+          <h1>Activity</h1>
           <div className="activity-heading-actions">
             <button
               className="secondary"
@@ -217,22 +227,26 @@ export function AccountPanels({ activity }: { activity: boolean }) {
         )}
         <div className="workspace-panel activity-workspace">
           <div className="activity-tools">
-            <label htmlFor="activity-filter">Show</label>
-            <select
-              id="activity-filter"
-              value={eventFilter}
-              onChange={(event) => setEventFilter(event.target.value)}
-            >
-              <option value="all">All events</option>
-              <option value="sessions">Sessions</option>
-              <option value="devices">Device events</option>
-            </select>
+            <div className="filter-chips" role="group" aria-label="Show">
+              {(
+                [
+                  ["all", "All"],
+                  ["sessions", "Sessions"],
+                  ["devices", "Computers"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className="chip"
+                  aria-pressed={eventFilter === id}
+                  onClick={() => setEventFilter(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <span>{visibleEvents.length} shown</span>
-          </div>
-          <div className="activity-table-head" aria-hidden="true">
-            <span>Event</span>
-            <span>Computer</span>
-            <span>Time</span>
           </div>
           {loading && events === null ? (
             <p className="workspace-panel-empty" role="status">
@@ -241,15 +255,25 @@ export function AccountPanels({ activity }: { activity: boolean }) {
           ) : error && events === null ? (
             <p className="workspace-panel-empty">Unable to load activity.</p>
           ) : visibleEvents.length === 0 ? (
-            <p className="workspace-panel-empty">
+            <Empty
+              title={events?.length ? "Nothing matches" : "No activity yet"}
+              tone="mint"
+            >
               {events?.length
-                ? "No events match this filter."
-                : "No activity yet."}
-            </p>
+                ? "Try a different filter."
+                : "Pairing, approvals and sessions are listed here."}
+            </Empty>
           ) : (
             <ol className="activity-rows">
               {visibleEvents.map((event) => (
-                <li key={event.id}>
+                <li
+                  key={event.id}
+                  data-kind={
+                    event.action.startsWith("desktop.view.")
+                      ? "session"
+                      : "device"
+                  }
+                >
                   <strong>{activityLabel(event.action)}</strong>
                   <span>
                     {event.machineName ?? "Computer"}
@@ -269,58 +293,97 @@ export function AccountPanels({ activity }: { activity: boolean }) {
     <section className="workspace-page settings-page">
       <div className="workspace-page-heading">
         <h1>Settings</h1>
-        <button
-          className="secondary"
-          disabled={loading || busy}
-          onClick={() => setRefresh((value) => value + 1)}
-        >
-          {loading ? "Refreshing…" : error ? "Try again" : "Refresh"}
-        </button>
       </div>
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
-      {notice && <p role="status">{notice}</p>}
-      <>
-        <div className="quiet-panel">
-          <h2>Browser sessions</h2>
-          <p>
-            Sessions expire after eight hours. Sign out to end this browser’s
-            session.
-          </p>
-          {sessions === null && !error ? (
-            <p role="status">Loading browser sessions…</p>
-          ) : (
-            <ul className="history-list">
-              {sessions?.map((session, index) => (
-                <li key={`${session.expiresAt}-${index}`}>
-                  <strong>
-                    {session.current
-                      ? "This browser"
-                      : "Another browser session"}
-                  </strong>
-                  <span>
-                    Expires {new Date(session.expiresAt).toLocaleString()}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-          <button
-            disabled={busy || !sessions?.some((session) => !session.current)}
-            onClick={() => {
-              void endOthers();
-            }}
+      <div className="settings-layout">
+        <nav className="settings-nav" aria-label="Settings sections">
+          {settingsSections.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              aria-current={section === item.id ? "page" : undefined}
+              aria-controls={`settings-${item.id}`}
+              onClick={() => setSection(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+        <div className="settings-content">
+          <section
+            className="settings-section"
+            id="settings-account"
+            aria-label="Account and security"
+            hidden={section !== "account"}
           >
-            {busy ? "Ending sessions…" : "End other browser sessions"}
-          </button>
+            <AccountIdentity />
+            <div id="settings-security">
+              <MfaPanel />
+              <div className="quiet-panel">
+                <div className="settings-section-heading">
+                  <h2>Signed-in browsers</h2>
+                  <button
+                    className="secondary"
+                    disabled={loading || busy}
+                    onClick={() => setRefresh((value) => value + 1)}
+                  >
+                    {loading ? "Refreshing…" : "Refresh"}
+                  </button>
+                </div>
+                {error && (
+                  <p role="alert" className="error">
+                    {error}
+                  </p>
+                )}
+                {notice && <p role="status">{notice}</p>}
+                {sessions === null && !error ? (
+                  <p role="status">Loading browser sessions…</p>
+                ) : (
+                  <ul className="history-list">
+                    {sessions?.map((session, index) => (
+                      <li key={`${session.expiresAt}-${index}`}>
+                        <strong>
+                          {session.current
+                            ? "This browser"
+                            : "Another browser session"}
+                        </strong>
+                        <span>
+                          Expires {new Date(session.expiresAt).toLocaleString()}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <button
+                  disabled={
+                    busy || !sessions?.some((session) => !session.current)
+                  }
+                  onClick={() => {
+                    void endOthers();
+                  }}
+                >
+                  {busy ? "Ending sessions…" : "End other browser sessions"}
+                </button>
+              </div>
+            </div>
+          </section>
+          <section
+            className="settings-section"
+            id="settings-team"
+            aria-label="Team access"
+            hidden={section !== "team"}
+          >
+            <TeamPanel />
+          </section>
+          <section
+            className="settings-section"
+            id="settings-data"
+            aria-label="Data and deletion"
+            hidden={section !== "data"}
+          >
+            <DataPanel />
+          </section>
         </div>
-        <MfaPanel />
-        <TeamPanel />
-        <DataPanel />
-      </>
+      </div>
     </section>
   );
 }

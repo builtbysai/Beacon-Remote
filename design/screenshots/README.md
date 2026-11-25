@@ -202,12 +202,83 @@ Originals are kept as captured (no re-encoding). **Do not delete these in cleanu
 | --- | --- | --- | --- |
 | [1440-waiting.png](reference/approved-mockup/1440-waiting.png) | 2026-10-10 | 1440px wide | Approved design mockup ("waiting", 1440px viewport). The reference for the intended product. |
 
+## validation / appearance
+
+| File | When | Size | What it shows |
+| --- | --- | --- | --- |
+| [2026-11-11-1634-compact-dark.png](validation/appearance/2026-11-11-1634-compact-dark.png) | 2026-11-11 16:34 UTC | 320x480 | Real React synthetic API: compact appearance radios, visible focus and phone-width placement; no device acceptance. |
+| [2026-11-11-1634-public-light.png](validation/appearance/2026-11-11-1634-public-light.png) | 2026-11-11 16:34 UTC | 1440x900 | Real React public header appearance control with concise Light/Dark/System selection. |
+| [2026-11-11-1634-short-forced-colors.png](validation/appearance/2026-11-11-1634-short-forced-colors.png) | 2026-11-11 16:34 UTC | 640x240 | Real Chromium forced-colors emulation: portalled appearance choices stay above mobile navigation in a short viewport. |
+
+## validation / assist
+
+| File | When | Size | What it shows |
+| --- | --- | --- | --- |
+| [2026-11-12-0149-late-request-review.png](validation/assist/2026-11-12-0149-late-request-review.png) | 2026-11-12 01:49 UTC | 1440x900 | Actual React synthetic support data after a failed sign-out and stopped delayed grant; no viewer opened. No real support session or device action. |
+
+## validation / downloads
+
+| File | When | Size | What it shows |
+| --- | --- | --- | --- |
+| [2026-11-11-1640-minimalist-platforms.png](validation/downloads/2026-11-11-1640-minimalist-platforms.png) | 2026-11-11 16:40 UTC | 1440x900 | Actual React Downloads with synthetic manifest: two platform actions, metadata and collapsed setup details; no published artifact acceptance. |
+| [2026-11-11-1640-narrow-verification.png](validation/downloads/2026-11-11-1640-narrow-verification.png) | 2026-11-11 16:40 UTC | 320x480 | Actual Chromium 320px view of expanded Windows setup and checksum details using synthetic manifest; normal page scrolling preserves access. |
+| [2026-11-11-1641-readable-checksum.png](validation/downloads/2026-11-11-1641-readable-checksum.png) | 2026-11-11 16:41 UTC | 320x480 | Corrected actual Chromium 320px expanded setup: scoped block checksum styling avoids the previous inline-code collision. Synthetic manifest only. |
+
+## validation / email
+
+| File | When | Size | What it shows |
+| --- | --- | --- | --- |
+| [2026-11-11-1656-confirmation-dark.png](validation/email/2026-11-11-1656-confirmation-dark.png) | 2026-11-11 16:56 UTC | 768x800 | Actual Chromium dark-preference preview of shared confirmation email; dummy token and example.test only; real email-client acceptance remains open. |
+| [2026-11-11-1656-confirmation-phone.png](validation/email/2026-11-11-1656-confirmation-phone.png) | 2026-11-11 16:56 UTC | 320x760 | Actual Chromium preview of shared account confirmation template at 320px: dummy invalid token only, no live email sent. |
+| [2026-11-11-1656-operations-phone.png](validation/email/2026-11-11-1656-operations-phone.png) | 2026-11-11 16:56 UTC | 320x760 | Actual Chromium narrow operational alert preview retaining full synthetic diagnostic text; renderer has no provider credentials and sends nothing. |
+
+## validation / native-signin-settings
+
+| File | When | Size | What it shows |
+| --- | --- | --- | --- |
+| [2026-11-11-1634-keyboard-review.jpg](validation/native-signin-settings/2026-11-11-1634-keyboard-review.jpg) | 2026-11-11 16:34 UTC | 458x203 | Actual native read-only unpaired sign-in settings after Tab/Space Refresh and focus-return review; no service mutations. |
+
+## validation / pairing
+
+| File | When | Size | What it shows |
+| --- | --- | --- | --- |
+| [2026-11-11-1712-clear-setup.png](validation/pairing/2026-11-11-1712-clear-setup.png) | 2026-11-11 17:12 UTC | 1440x900 | Actual React synthetic enrollment: workspace address, one-use code and explicit cancellation; first-device empty inventory is omitted while pairing. No real device was paired. |
+| [2026-11-11-1712-narrow-setup.png](validation/pairing/2026-11-11-1712-narrow-setup.png) | 2026-11-11 17:12 UTC | 320x480 | Actual Chromium 320px pairing setup with visible cancellation and normal page scrolling; synthetic code and loopback origin only. |
+
+## validation / public-security
+
+| File | When | Size | What it shows |
+| --- | --- | --- | --- |
+| [2026-11-12-0149-truthful-phone.png](validation/public-security/2026-11-12-0149-truthful-phone.png) | 2026-11-12 01:49 UTC | 320x480 | Actual Chromium 320px public Security page with truthful standing-access copy and normal page scrolling. |
+
 ## validation / relay
 
 | File | When | Size | What it shows |
 | --- | --- | --- | --- |
 | [2026-10-11-1537-ingress-rules-saved.png](validation/relay/2026-10-11-1537-ingress-rules-saved.png) | 2026-10-11 | original | Oracle ingress rules for the dedicated Remote relay (validation evidence). |
 | [2026-10-11-1541-forced-relay-video.png](validation/relay/2026-10-11-1541-forced-relay-video.png) | 2026-10-11 | original | Synthetic video playing through the dedicated Remote relay (validation evidence). |
+
+## validation / settings
+
+| File | When | Size | What it shows |
+| --- | --- | --- | --- |
+| [2026-11-11-1656-account-phone.png](validation/settings/2026-11-11-1656-account-phone.png) | 2026-11-11 16:56 UTC | 320x480 | Actual React 320px Settings with wrapping section navigation and long synthetic account identity; vertical page scrolling remains available. |
+| [2026-11-11-1656-organized-security.png](validation/settings/2026-11-11-1656-organized-security.png) | 2026-11-11 16:56 UTC | 1440x900 | Actual React synthetic-account Settings: separate section navigation, authenticator controls and inline browser-session result. No real account mutation. |
+
+## validation / signin-browser
+
+| File | When | Size | What it shows |
+| --- | --- | --- | --- |
+| [2026-11-09-1511-desktop.png](validation/signin-browser/2026-11-09-1511-desktop.png) | 2026-11-09 15:11 UTC | 1440x900 | Real React sign-in viewer with synthetic RTC video; no Windows capture or OS input. |
+| [2026-11-09-1511-landscape.png](validation/signin-browser/2026-11-09-1511-landscape.png) | 2026-11-09 15:11 UTC | 844x390 | Browser-only short landscape sign-in viewer with synthetic video; no secure-desktop acceptance. |
+| [2026-11-09-1511-small-phone.png](validation/signin-browser/2026-11-09-1511-small-phone.png) | 2026-11-09 15:11 UTC | 360x640 | Browser-only 360x640 sign-in viewer layout with reachable Stop and synthetic video; not physical-phone acceptance. |
+| [2026-11-09-1605-attention-landscape.png](validation/signin-browser/2026-11-09-1605-attention-landscape.png) | 2026-11-09 16:05 UTC | 844x390 | Browser-only secure-attention toolbar with reachable Stop at 844x390; synthetic RTC and policy feedback, no SYSTEM acceptance. |
+| [2026-11-09-1605-attention-phone.png](validation/signin-browser/2026-11-09-1605-attention-phone.png) | 2026-11-09 16:05 UTC | 360x640 | Browser-only secure-attention toolbar and policy-unavailable feedback at 360x640; synthetic RTC, no Windows SAS invocation. |
+| [2026-11-10-0452-handoff-desktop.png](validation/signin-browser/2026-11-10-0452-handoff-desktop.png) | 2026-11-10 04:52 UTC | 1440x900 | Actual React transition from synthetic sign-in RTC to a fresh ordinary desktop RTC stream; no Windows unlock, capture or OS input. |
+| [2026-11-10-0516-restart-desktop.png](validation/signin-browser/2026-11-10-0516-restart-desktop.png) | 2026-11-10 05:16 UTC | 1440x900 | Synthetic automatic restart through separate sign-in to fresh ordinary desktop; no OS reboot |
+| [2026-11-10-0516-restart-phone.png](validation/signin-browser/2026-11-10-0516-restart-phone.png) | 2026-11-10 05:16 UTC | 360x640 | Synthetic restart waiting and reachable Cancel at 360x640; no OS reboot |
+| [2026-11-10-0516-restart-short.png](validation/signin-browser/2026-11-10-0516-restart-short.png) | 2026-11-10 05:16 UTC | 844x390 | Synthetic restart waiting and reachable Cancel at 844x390; no OS reboot |
+| [2026-11-10-0516-restart-waiting.png](validation/signin-browser/2026-11-10-0516-restart-waiting.png) | 2026-11-10 05:16 UTC | 1440x900 | Synthetic restart progress above inventory with reachable Cancel; no OS reboot |
 
 ## web / assist
 

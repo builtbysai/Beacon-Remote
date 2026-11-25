@@ -1,6 +1,9 @@
 node_modules
 dist
 target
+apps/android-host/.gradle
+apps/android-host/build
+apps/android-host/app/build
 Cargo.lock
 pnpm-lock.yaml
 design/screenshots/README.md

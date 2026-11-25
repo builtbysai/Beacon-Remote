@@ -17,6 +17,8 @@ import {
   accessMessage,
   accessRequest,
   enrollment,
+  enrollmentCode,
+  ENROLLMENT_CODE_ALPHABET,
   heartbeat,
   heartbeatMessage,
   helpersMessage,
@@ -36,6 +38,10 @@ import { registerSupportWorkflow } from "./support-workflow.js";
 import { registerMfa } from "./mfa.js";
 import { createMailer, type Mailer } from "./mail.js";
 import { registerSignup } from "./signup.js";
+import { registerDevicePairing } from "./device-pairing.js";
+import { registerBootAvailability } from "./boot-availability.js";
+import { registerSigninAuthority } from "./signin-authority.js";
+import { interactiveReadySql } from "./machine-readiness.js";
 
 // A support code is typed by hand, so it is short-lived and single-use.
 const SUPPORT_CODE_MINUTES = 15;
@@ -228,6 +234,15 @@ export async function createApp(
     guests,
   );
 
+  registerBootAvailability(app, pool, signedByMachine);
+  registerSigninAuthority(
+    app,
+    pool,
+    config,
+    owner,
+    sessionRequests.stopSession,
+  );
+  registerDevicePairing(app, pool, owner, sameOrigin);
   registerTeam(
     app,
     pool,
@@ -425,16 +440,20 @@ export async function createApp(
     const account = await owner(request);
     if (!account) return reply.code(401).send({ error: "Sign in required" });
     const result = await pool.query(
-      `SELECT m.id,m.name,m.group_name AS "group",m.last_seen_at AS "lastSeenAt",m.revoked_at AS "revokedAt",
-       COALESCE((m.revoked_at IS NULL AND m.last_seen_at>now()-interval '45 seconds'),false) AS online,
+      `SELECT m.id,m.name,m.group_name AS "group",m.last_seen_at AS "lastSeenAt",m.revoked_at AS "revokedAt",m.host_instance_id AS "hostInstanceId",
+       m.host_console_session_id::double precision AS "hostConsoleSessionId",
+       ${interactiveReadySql} AS online,
        COALESCE(a.mode,'attended') AS "accessMode",COALESCE(a.allow_control,false) AS "allowControl",COALESCE(a.helpers_unattended,'off') AS "helpersUnattended",m.displays,(m.support_link_id IS NOT NULL) AS temporary,
        (m.revoked_at IS NULL AND NOT COALESCE(m.last_seen_at>now()-interval '45 seconds',false) AND m.macs IS NOT NULL
          AND EXISTS (SELECT 1 FROM machines v WHERE v.account_id=m.account_id AND v.id<>m.id AND v.revoked_at IS NULL
            AND v.support_link_id IS NULL AND v.lan_key=m.lan_key AND v.public_ip_hash=m.public_ip_hash
            AND v.last_seen_at>now()-interval '45 seconds')) AS "canWake",
        (m.uninstall_requested_at IS NOT NULL AND m.uninstalled_at IS NULL AND m.uninstall_requested_at>now()-interval '30 days') AS "uninstallPending",
-       m.uninstalled_at AS "uninstalledAt"
+       m.uninstalled_at AS "uninstalledAt",
+       CASE WHEN m.revoked_at IS NULL AND b.last_seen_at>now()-interval '45 seconds'
+         THEN b.state ELSE NULL END AS "bootState"
        FROM machines m LEFT JOIN machine_access a ON a.machine_id=m.id
+       LEFT JOIN boot_agents b ON b.machine_id=m.id
        WHERE m.account_id=$1 ORDER BY m.created_at`,
       [account],
     );
@@ -534,19 +553,79 @@ export async function createApp(
       const account = await owner(request);
       if (!account) return reply.code(401).send({ error: "Sign in required" });
       const pending = await pool.query(
-        "SELECT count(*)::int AS n FROM enrollments WHERE account_id=$1 AND claimed_at IS NULL AND expires_at>now()",
+        "SELECT count(*)::int AS n FROM enrollments WHERE account_id=$1 AND claimed_at IS NULL AND cancelled_at IS NULL AND expires_at>now()",
         [account],
       );
       if (pending.rows[0].n >= MAX_PENDING_ENROLLMENTS)
         return reply.code(429).send({ error: "Too many pending codes" });
-      const code = randomBytes(24).toString("base64url");
+      const symbols = Array.from(
+        { length: 12 },
+        () =>
+          ENROLLMENT_CODE_ALPHABET[randomInt(ENROLLMENT_CODE_ALPHABET.length)],
+      ).join("");
+      const code = `${symbols.slice(0, 4)}-${symbols.slice(4, 8)}-${symbols.slice(8)}`;
       await pool.query(
-        "INSERT INTO enrollments VALUES ($1,$2,now()+interval '5 minutes',NULL)",
+        "INSERT INTO enrollments(code_hash,account_id,expires_at) VALUES ($1,$2,now()+interval '5 minutes')",
         [digest(code), account],
       );
+      reply.header("Cache-Control", "no-store");
       return { code, expiresInSeconds: 300, version: 1 };
     },
   );
+
+  for (const action of ["status", "cancel"] as const) {
+    app.post(
+      `/api/enrollments/${action}`,
+      { config: { rateLimit: { max: 90, timeWindow: "1 minute" } } },
+      async (request, reply) => {
+        reply.header("Cache-Control", "no-store");
+        if (!sameOrigin(request))
+          return reply.code(403).send({ error: "Origin rejected" });
+        const account = await owner(request);
+        if (!account)
+          return reply.code(401).send({ error: "Sign in required" });
+        const parsed = z
+          .object({ code: enrollmentCode })
+          .strict()
+          .safeParse(request.body);
+        if (!parsed.success)
+          return reply.code(400).send({ error: "Invalid enrollment" });
+        const values = [digest(parsed.data.code), account];
+        if (action === "cancel") {
+          // Serializes with claim: cancellation never revokes a machine whose
+          // enrollment already won, and a winning cancellation cannot be claimed.
+          await pool.query(
+            `UPDATE enrollments SET
+           cancelled_at=CASE WHEN claimed_at IS NULL THEN COALESCE(cancelled_at,now()) ELSE cancelled_at END,
+           expires_at=CASE WHEN claimed_at IS NULL THEN LEAST(expires_at,now()) ELSE expires_at END
+           WHERE code_hash=$1 AND account_id=$2`,
+            values,
+          );
+        }
+        const result = await pool.query(
+          `SELECT e.claimed_at,e.cancelled_at,e.expires_at,e.expires_at<=now() AS expired,m.id,m.name FROM enrollments e
+        LEFT JOIN machines m ON m.id=e.machine_id AND m.account_id=e.account_id
+        WHERE e.code_hash=$1 AND e.account_id=$2`,
+          values,
+        );
+        const row = result.rows[0];
+        if (!row)
+          return reply.code(404).send({ error: "Enrollment unavailable" });
+        return {
+          state: row.claimed_at
+            ? "claimed"
+            : row.cancelled_at
+              ? "cancelled"
+              : row.expired
+                ? "expired"
+                : "waiting",
+          expiresAt: new Date(row.expires_at).toISOString(),
+          machine:
+            row.claimed_at && row.id ? { id: row.id, name: row.name } : null,
+        };
+      },
+    );
+  }
 
   app.post(
     "/api/agent/enroll",
@@ -560,7 +639,7 @@ export async function createApp(
         await client.query("BEGIN");
         const result = await client.query<{ account_id: string }>(
           `UPDATE enrollments SET claimed_at=now()
-         WHERE code_hash=$1 AND claimed_at IS NULL AND expires_at>now() RETURNING account_id`,
+         WHERE code_hash=$1 AND claimed_at IS NULL AND cancelled_at IS NULL AND expires_at>now() RETURNING account_id`,
           [digest(parsed.data.code)],
         );
         const account = result.rows[0]?.account_id;
@@ -590,6 +669,10 @@ export async function createApp(
           "INSERT INTO audit_events(account_id,machine_id,action) VALUES ($1,$2,$3)",
           [account, id, "machine.enrolled"],
         );
+        await client.query(
+          "UPDATE enrollments SET machine_id=$2 WHERE code_hash=$1",
+          [digest(parsed.data.code), id],
+        );
         // A new computer joins the teams whose scope covers it.
         await syncTeam(client, account);
         await client.query("COMMIT");
@@ -608,7 +691,9 @@ export async function createApp(
       .object({ wait: z.literal("1").optional(), handled: z.uuid().optional() })
       .strict()
       .safeParse(request.query);
-    if (!query.success || (query.data.handled && !query.data.wait))
+    // `handled` only hides a grant the host already dealt with, so it is fine without a long poll. Older
+    // hosts send it alone after one failed request and must be able to recover.
+    if (!query.success)
       return reply.code(400).send({ error: "Invalid heartbeat options" });
     const parsed = heartbeat.safeParse(request.body);
     if (!parsed.success)
@@ -619,7 +704,13 @@ export async function createApp(
     if (
       !(await signedByMachine(
         body.machineId,
-        heartbeatMessage(body.machineId, body.timestamp, body.nonce),
+        heartbeatMessage(
+          body.machineId,
+          body.timestamp,
+          body.nonce,
+          body.instanceId,
+          body.consoleSessionId,
+        ),
         body.signature,
       ))
     ) {
@@ -627,7 +718,13 @@ export async function createApp(
       if (
         await signedByMachine(
           body.machineId,
-          heartbeatMessage(body.machineId, body.timestamp, body.nonce),
+          heartbeatMessage(
+            body.machineId,
+            body.timestamp,
+            body.nonce,
+            body.instanceId,
+            body.consoleSessionId,
+          ),
           body.signature,
           true,
         )
@@ -652,7 +749,10 @@ export async function createApp(
     try {
       await client.query("BEGIN");
       const active = await client.query(
-        "SELECT id FROM machines WHERE id=$1 AND revoked_at IS NULL AND (temporary_until IS NULL OR temporary_until>now()) FOR UPDATE",
+        // Presence does not change a referenced key. NO KEY UPDATE still
+        // serializes admission/revocation, while allowing a concurrent consent
+        // transaction's audit FK check to finish before we invalidate its row.
+        "SELECT id FROM machines WHERE id=$1 AND revoked_at IS NULL AND (temporary_until IS NULL OR temporary_until>now()) FOR NO KEY UPDATE",
         [body.machineId],
       );
       if (!active.rowCount) {
@@ -669,7 +769,7 @@ export async function createApp(
       }
       await client.query(
         `UPDATE machines SET last_seen_at=now(),displays=COALESCE($2::jsonb,displays),
-           macs=COALESCE($3::text[],macs),lan_key=COALESCE($4,lan_key),public_ip_hash=COALESCE($5,public_ip_hash)
+           macs=COALESCE($3::text[],macs),lan_key=COALESCE($4,lan_key),public_ip_hash=COALESCE($5,public_ip_hash),host_instance_id=$6,host_console_session_id=$7
          WHERE id=$1`,
         [
           body.machineId,
@@ -677,6 +777,28 @@ export async function createApp(
           body.network?.macs ?? null,
           body.network?.lan ?? null,
           body.network ? digest(request.ip) : null,
+          body.instanceId ?? null,
+          body.consoleSessionId ?? null,
+        ],
+      );
+      // A host/context change permanently ends pinned grants. Returning to a
+      // previous console or downgrading/upgrading heartbeat domains cannot
+      // revive one that was never observed by the signaling timer in between.
+      await client.query(
+        `WITH ended AS (
+          UPDATE view_sessions SET status='ended'
+          WHERE machine_id=$1 AND host_instance_id IS NOT NULL
+            AND status IN ('requested','connecting','active')
+            AND (host_instance_id IS DISTINCT FROM $2::uuid OR host_console_session_id IS DISTINCT FROM $3::bigint)
+          RETURNING account_id,machine_id,capability
+        ) INSERT INTO audit_events(account_id,machine_id,action)
+          SELECT account_id,machine_id,CASE WHEN capability='desktop:control'
+            THEN 'desktop.control.interrupted:host-context-changed'
+            ELSE 'desktop.view.interrupted:host-context-changed' END FROM ended`,
+        [
+          body.machineId,
+          body.instanceId ?? null,
+          body.consoleSessionId ?? null,
         ],
       );
       // Keep nonces longer than the signed timestamp acceptance window.
