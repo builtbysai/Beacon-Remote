@@ -30,7 +30,9 @@ use windows_sys::Win32::{
     },
     UI::{
         Controls::{DRAWITEMSTRUCT, EM_SETLIMITTEXT, ODS_DISABLED, ODS_FOCUS, ODS_SELECTED},
-        HiDpi::GetDpiForSystem,
+        HiDpi::{
+            GetDpiForSystem, SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_SYSTEM_AWARE,
+        },
         Input::KeyboardAndMouse::{EnableWindow, SetFocus},
         Shell::*,
         WindowsAndMessaging::*,
@@ -135,6 +137,8 @@ struct State {
     // The Windows sign-in page, shown inside this window in place of the main view, and the controls it hides.
     signin_page: HWND,
     hidden_for_page: Vec<HWND>,
+    // This window stepped aside because the sharing card is showing, and comes back when the card goes.
+    tucked: bool,
 }
 // Starting at sign-in is a visible, per-user choice made here. No service or elevation is involved.
 const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
@@ -873,7 +877,24 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
             }));
         }
     }
+    /// One window at a time: while a connection request or the sharing card is on screen, this window steps aside
+    /// (to the tray, or the taskbar without one) and returns when the card closes. A window the person had
+    /// already minimized is left alone.
+    unsafe fn tuck_for_card(&mut self, window: HWND) {
+        let card = FindWindowW(wide("BeaconRemoteVisibleStop").as_ptr(), null());
+        if !card.is_null() && IsWindowVisible(card) != 0 {
+            if !self.tucked && IsWindowVisible(window) != 0 && IsIconic(window) == 0 {
+                self.tucked = true;
+                ShowWindow(window, SW_MINIMIZE);
+            }
+        } else if self.tucked {
+            self.tucked = false;
+            ShowWindow(window, SW_SHOWNOACTIVATE);
+            ShowWindow(window, SW_RESTORE);
+        }
+    }
     unsafe fn poll(&mut self, window: HWND) {
+        self.tuck_for_card(window);
         if self
             .signin_check
             .as_ref()
@@ -1137,7 +1158,8 @@ unsafe fn paint(window: HWND, state: &State) {
         };
         ui::mark(&canvas, p, (28.0, 14.0, 46.0), mood, body);
         if state.paired {
-            canvas.fill(28.0, 104.0, 464.0, 84.0, 20.0, tile);
+            canvas.fill(28.0, 104.0, 464.0, 84.0, 16.0, tile);
+            canvas.stroke(28.0, 104.0, 464.0, 84.0, 16.0, p.line, 1.0);
             ui::icon(&canvas, ui::Icon::Monitor, 44.0, 142.0, p.accent);
             ui::icon(&canvas, ui::Icon::Lock, 44.0, 166.0, p.accent);
             if state.more {
@@ -1146,6 +1168,7 @@ unsafe fn paint(window: HWND, state: &State) {
         } else {
             for top in [124.0, 192.0, 260.0] {
                 canvas.fill(28.0, top, 464.0, 34.0, 17.0, p.subtle);
+                canvas.stroke(28.0, top, 464.0, 34.0, 17.0, p.line, 1.0);
             }
         }
         // On the paired view the capsule sits on the tinted tile, so it takes the white surface to stay visible.
@@ -1480,6 +1503,8 @@ unsafe extern "system" fn procedure(
 
 pub fn show(background: bool) -> Result<(), io::Error> {
     unsafe {
+        // Draw at the screen's real scale instead of letting Windows stretch a 96 dpi bitmap, which blurs the text.
+        SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_SYSTEM_AWARE);
         let local = std::env::var_os("LOCALAPPDATA")
             .ok_or_else(|| io::Error::other("LOCALAPPDATA required"))?;
         let mut hasher = DefaultHasher::new();
@@ -1572,6 +1597,7 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             fonts: Vec::new(),
             signin_page: null_mut(),
             hidden_for_page: Vec::new(),
+            tucked: false,
         };
         let style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
         let mut bounds = RECT {

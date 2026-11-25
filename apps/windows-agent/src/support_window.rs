@@ -24,7 +24,9 @@ use windows_sys::Win32::{
     System::LibraryLoader::GetModuleHandleW,
     UI::{
         Controls::{DRAWITEMSTRUCT, ODS_DISABLED, ODS_FOCUS, ODS_SELECTED},
-        HiDpi::GetDpiForSystem,
+        HiDpi::{
+            GetDpiForSystem, SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_SYSTEM_AWARE,
+        },
         Input::KeyboardAndMouse::SetFocus,
         WindowsAndMessaging::*,
     },
@@ -233,7 +235,8 @@ unsafe fn paint(window: HWND, state: &State) {
             p.warn,
         );
         // The technician card.
-        canvas.fill(28.0, 66.0, 444.0, 72.0, 20.0, p.subtle);
+        canvas.fill(28.0, 66.0, 444.0, 72.0, 16.0, p.subtle);
+        canvas.stroke(28.0, 66.0, 444.0, 72.0, 16.0, p.line, 1.0);
         ui::avatar(
             &canvas,
             p,
@@ -432,6 +435,8 @@ pub fn show(token: Option<&str>) -> Result<(), io::Error> {
         who
     };
     unsafe {
+        // Draw at the screen's real scale instead of letting Windows stretch a 96 dpi bitmap, which blurs the text.
+        SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_SYSTEM_AWARE);
         let factor = GetDpiForSystem().max(96) as f32 / 96.0;
         let px = move |value: i32| (value as f32 * factor).round() as i32;
         let instance = GetModuleHandleW(null());

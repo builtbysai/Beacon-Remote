@@ -151,7 +151,8 @@ unsafe fn paint(window: HWND, state: &State) {
             p.warn,
         );
         // Requester card.
-        canvas.fill(28.0, 92.0, 464.0, 72.0, 20.0, p.subtle);
+        canvas.fill(28.0, 92.0, 464.0, 72.0, 16.0, p.subtle);
+        canvas.stroke(28.0, 92.0, 464.0, 72.0, 16.0, p.line, 1.0);
         ui::avatar(
             &canvas,
             p,
@@ -161,7 +162,8 @@ unsafe fn paint(window: HWND, state: &State) {
             &ui::initials(&state.controller),
         );
         // Access panel.
-        canvas.fill(28.0, 178.0, 464.0, 176.0, 20.0, p.subtle);
+        canvas.fill(28.0, 178.0, 464.0, 176.0, 16.0, p.subtle);
+        canvas.stroke(28.0, 178.0, 464.0, 176.0, 16.0, p.line, 1.0);
         ui::icon(&canvas, Icon::Eye, 44.0, 222.0, p.accent);
         ui::icon(
             &canvas,

@@ -28,10 +28,10 @@ const fn rgb(value: u32) -> Color {
     0xFF00_0000 | value
 }
 // The character's shell colours: reachable, waiting, knocking, needs attention.
-pub const MINT: Color = rgb(0x2fc79a);
+pub const MINT: Color = rgb(0x22c58b);
 pub const SUN: Color = rgb(0xf5b82e);
-pub const CORAL: Color = rgb(0xff6b5d);
-pub const SLEEP: Color = rgb(0xb7b4ab);
+pub const CORAL: Color = rgb(0xff6b61);
+pub const SLEEP: Color = rgb(0xb8c0cc);
 fn sys(index: i32) -> Color {
     let value = unsafe { GetSysColor(index) };
     rgb(((value & 0xff) << 16) | (value & 0xff00) | ((value >> 16) & 0xff))
@@ -100,58 +100,58 @@ pub fn palette() -> Palette {
     }
     if dark_mode() {
         Palette {
-            window: rgb(0x111113),
-            surface: rgb(0x2a2c33),
-            subtle: rgb(0x1b1c20),
-            line: rgb(0x34363e),
-            strong: rgb(0xf4f2ed),
-            text: rgb(0xe4e2dc),
-            muted: rgb(0xa6a39b),
-            faint: rgb(0x7d7b74),
-            accent: rgb(0x4f86ff),
-            accent_hover: rgb(0x6b9aff),
-            accent_soft: rgb(0x1d2a45),
+            window: rgb(0x0e1116),
+            surface: rgb(0x1a1f28),
+            subtle: rgb(0x151a22),
+            line: rgb(0x2a313d),
+            strong: rgb(0xf5f7fa),
+            text: rgb(0xd0d5dd),
+            muted: rgb(0x98a2b3),
+            faint: rgb(0x667085),
+            accent: rgb(0x3b78f5),
+            accent_hover: rgb(0x5a8ef8),
+            accent_soft: rgb(0x1b2a4a),
             on_accent: rgb(0xffffff),
-            success: rgb(0x52d08f),
-            success_soft: rgb(0x14352a),
-            danger: rgb(0xff6b5d),
-            danger_soft: rgb(0x3a1f1c),
-            warn: rgb(0xffc83d),
-            warn_soft: rgb(0x3a3220),
-            warn_line: rgb(0x5a4c2a),
-            bar: rgb(0x0b0b0d),
-            ink: rgb(0xf4f2ed),
-            ink_hover: rgb(0xffffff),
-            on_ink: rgb(0x17171a),
-            tile_hover: rgb(0x25272d),
+            success: rgb(0x32d583),
+            success_soft: rgb(0x113a2b),
+            danger: rgb(0xff7468),
+            danger_soft: rgb(0x3c1c1a),
+            warn: rgb(0xfdb022),
+            warn_soft: rgb(0x3a2e12),
+            warn_line: rgb(0x5c4716),
+            bar: rgb(0x0b0d11),
+            ink: rgb(0x3b78f5),
+            ink_hover: rgb(0x5a8ef8),
+            on_ink: rgb(0xffffff),
+            tile_hover: rgb(0x222833),
             contrast: false,
         }
     } else {
         Palette {
-            window: rgb(0xfbfaf7),
+            window: rgb(0xf4f6f9),
             surface: rgb(0xffffff),
-            subtle: rgb(0xf1eee7),
-            line: rgb(0xe3dfd4),
-            strong: rgb(0x17171a),
-            text: rgb(0x2b2b2f),
-            muted: rgb(0x66645e),
-            faint: rgb(0x8f8c84),
+            subtle: rgb(0xffffff),
+            line: rgb(0xe2e6ec),
+            strong: rgb(0x101828),
+            text: rgb(0x344054),
+            muted: rgb(0x667085),
+            faint: rgb(0x98a2b3),
             accent: rgb(0x2d6cf6),
-            accent_hover: rgb(0x1f54d1),
-            accent_soft: rgb(0xdce6ff),
+            accent_hover: rgb(0x1d57d8),
+            accent_soft: rgb(0xe6eeff),
             on_accent: rgb(0xffffff),
-            success: rgb(0x11803f),
-            success_soft: rgb(0xdff5ea),
-            danger: rgb(0xc8372b),
-            danger_soft: rgb(0xfde0da),
-            warn: rgb(0x7a5a10),
-            warn_soft: rgb(0xffefc2),
-            warn_line: rgb(0xecd9a4),
-            bar: rgb(0x17171a),
-            ink: rgb(0x17171a),
-            ink_hover: rgb(0x34343a),
-            on_ink: rgb(0xf7f6f2),
-            tile_hover: rgb(0xe8e4d9),
+            success: rgb(0x0e8a4f),
+            success_soft: rgb(0xe7f7ee),
+            danger: rgb(0xd92d20),
+            danger_soft: rgb(0xfef0ee),
+            warn: rgb(0x9a5b00),
+            warn_soft: rgb(0xfff4dc),
+            warn_line: rgb(0xf5d58a),
+            bar: rgb(0x101828),
+            ink: rgb(0x2d6cf6),
+            ink_hover: rgb(0x1d57d8),
+            on_ink: rgb(0xffffff),
+            tile_hover: rgb(0xedf0f5),
             contrast: false,
         }
     }
@@ -476,7 +476,7 @@ pub struct State {
     pub disabled: bool,
 }
 
-/// A design button: a pill. Primary is ink on the paper, secondary a soft tile, danger a coral wash.
+/// A design button: a pill. Primary is the brand blue, secondary a white pill with a hairline, danger a red wash.
 pub unsafe fn button(
     canvas: &Canvas,
     p: &Palette,
@@ -486,33 +486,32 @@ pub unsafe fn button(
     state: State,
 ) {
     let lit = state.hot || state.pressed;
-    let (fill, ink) = match role {
-        Role::Primary => (if lit { p.ink_hover } else { p.ink }, p.on_ink),
-        Role::Secondary => (if lit { p.tile_hover } else { p.subtle }, p.strong),
+    let (fill, border, ink) = match role {
+        Role::Primary => (
+            if lit { p.ink_hover } else { p.ink },
+            if lit { p.ink_hover } else { p.ink },
+            p.on_ink,
+        ),
+        Role::Secondary => (if lit { p.tile_hover } else { p.surface }, p.line, p.strong),
         Role::Danger => (
             if lit { p.danger } else { p.danger_soft },
+            p.danger,
             if lit { p.on_accent } else { p.danger },
         ),
     };
+    let disabled_primary = state.disabled && role == Role::Primary;
     let ink = if state.disabled { p.faint } else { ink };
-    let fill = if state.disabled && role == Role::Primary {
-        p.line
-    } else {
-        fill
-    };
+    let fill = if disabled_primary { p.line } else { fill };
     let radius = h / 2.0;
     canvas.fill(0.0, 0.0, w, h, radius, fill);
-    // A secondary button on a tile would vanish, so it keeps a hairline.
-    if role == Role::Secondary && p.contrast {
-        canvas.stroke(0.0, 0.0, w, h, radius, p.line, 1.0);
+    if role != Role::Primary || disabled_primary {
+        canvas.stroke(0.0, 0.0, w, h, radius, border, 1.0);
     }
     canvas.text(label, (0.0, 0.0, w, h), 14.0, 600, ink, Align::Center, true);
     if state.focused {
-        // Inside the button so the ring is never clipped; a light inner line keeps it visible on a dark fill.
-        canvas.stroke(0.0, 0.0, w, h, radius, p.accent, 2.5);
-        if role == Role::Primary {
-            canvas.stroke(2.5, 2.5, w - 5.0, h - 5.0, radius - 2.5, p.on_ink, 1.5);
-        }
+        // A clean two-line focus ring just inside the pill: the window colour, then the accent.
+        canvas.stroke(0.0, 0.0, w, h, radius, p.accent, 2.0);
+        canvas.stroke(2.0, 2.0, w - 4.0, h - 4.0, radius - 2.0, p.window, 1.5);
     }
 }
 
@@ -536,7 +535,7 @@ pub unsafe fn radio_card(
         h,
         16.0,
         border,
-        if selected { 2.0 } else { 1.0 },
+        if selected { 1.5 } else { 1.0 },
     );
     let ink = if state.disabled { p.faint } else { p.strong };
     let sub = if state.disabled { p.faint } else { p.muted };

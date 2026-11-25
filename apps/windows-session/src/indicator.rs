@@ -336,7 +336,8 @@ unsafe fn paint(window: HWND, state: &WindowState) {
             (ui::Mood::Awake, p.accent)
         };
         ui::mark(&canvas, p, (28.0, 18.0, 44.0), mood, body);
-        canvas.fill(28.0, 92.0, 464.0, 72.0, 20.0, p.subtle);
+        canvas.fill(28.0, 92.0, 464.0, 72.0, 16.0, p.subtle);
+        canvas.stroke(28.0, 92.0, 464.0, 72.0, 16.0, p.line, 1.0);
         ui::avatar(
             &canvas,
             p,
@@ -346,7 +347,8 @@ unsafe fn paint(window: HWND, state: &WindowState) {
             &ui::initials(&state.controller),
         );
         let panel = if first { 176.0 } else { 120.0 };
-        canvas.fill(28.0, 178.0, 464.0, panel, 20.0, p.subtle);
+        canvas.fill(28.0, 178.0, 464.0, panel, 16.0, p.subtle);
+        canvas.stroke(28.0, 178.0, 464.0, panel, 16.0, p.line, 1.0);
         let live_view = first || (state.desktop && !paused);
         let live_input = if first {
             state.card.control_requested.load(Ordering::Acquire)
@@ -389,7 +391,8 @@ unsafe fn paint(window: HWND, state: &WindowState) {
             1.0,
         );
         if phase == PHASE_MORE {
-            canvas.fill(28.0, 482.0, 464.0, 138.0, 20.0, p.warn_soft);
+            canvas.fill(28.0, 482.0, 464.0, 138.0, 16.0, p.warn_soft);
+            canvas.stroke(28.0, 482.0, 464.0, 138.0, 16.0, p.warn_line, 1.0);
         }
     }
     BitBlt(hdc, 0, 0, w, h, buffer, 0, 0, SRCCOPY);
