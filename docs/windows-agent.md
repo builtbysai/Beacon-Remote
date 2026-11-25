@@ -93,3 +93,22 @@ publisher identity, digest verification, downgrade protection, staged atomic
 replacement and rollback. The owner must supply legitimate Windows code-signing
 credentials before distributing signed installers. Never fake signing or instruct
 users to bypass SmartScreen. No signing credentials belong in Git.
+
+## One window (November 25, 2026)
+
+The host shows one window. The Windows sign-in settings are a page inside it (Back returns), and a second launch brings
+the open window forward instead of showing a message box. The temporary support program is a separate mode for a
+different person and keeps its own window.
+
+During a session the sharing card (the visible Stop control) is the only window. A viewer's request for more access
+(control, files, recording, shared folder, printing) is asked inside the card, below Stop, while it is pending. The
+invariants, all covered by `indicator::tests`:
+
+- Decline is the default answer: it is the default button and has focus. Escape or Enter with nothing focused declines
+  and never stops sharing; closing the card still stops it.
+- Only an explicit Allow once approves, and only while the request is pending, the deadline has not passed and the
+  desktop still receives input. Cancellation, expiry, lock or the card closing decline.
+- Stop stays where it is and enabled; the request is added underneath and the card grows, staying on screen.
+- One request at a time; a second is declined.
+- Before sharing starts there is no card, so the request before the first approval still uses its own consent window.
+  Folding that into the card is the remaining step (it needs the card to exist in an asking state before capture).

@@ -530,6 +530,11 @@ pub fn request_live_permission(
     session: &str,
     scope: LivePermission,
 ) -> Result<bool, Error> {
+    // While the sharing card is on screen the request is asked inside it, so no second window opens and Stop
+    // stays visible. Without a card (a request before sharing starts) the consent window is used.
+    if let Some(answer) = crate::indicator::ask_in_card(scope.detail(), &pending, deadline) {
+        return Ok(answer);
+    }
     Ok(request_access_inner(
         controller,
         pending,

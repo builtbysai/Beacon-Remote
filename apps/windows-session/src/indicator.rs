@@ -46,6 +46,76 @@ const ROW_VIEW_ID: i32 = 1015;
 const ROW_INPUT_ID: i32 = 1016;
 const ROW_LIMITS_ID: i32 = 1017;
 const FOOTER_ID: i32 = 1018;
+// The inline request for more access, shown inside this card while one is pending.
+const PROMPT_TITLE_ID: i32 = 1030;
+const PROMPT_DETAIL_ID: i32 = 1031;
+const PROMPT_DECLINE_ID: i32 = 1032;
+const PROMPT_ALLOW_ID: i32 = 1033;
+const BASE_HEIGHT: i32 = 480;
+const PROMPT_HEIGHT: i32 = 640;
+
+/// A request for more access, answered inside the sharing card so no second window opens. Decline is the default
+/// and every other outcome (expiry, cancellation, lock, the card closing) declines.
+pub(crate) struct Card {
+    // 0 idle, 1 asking, 2 allowed, 3 declined.
+    ask: AtomicU8,
+    detail: std::sync::Mutex<String>,
+    // True while the card's window exists and its safety timer runs.
+    open: AtomicBool,
+}
+const IDLE: u8 = 0;
+const ASKING: u8 = 1;
+const ALLOWED: u8 = 2;
+const DECLINED: u8 = 3;
+impl Card {
+    fn new() -> Self {
+        Self {
+            ask: AtomicU8::new(IDLE),
+            detail: std::sync::Mutex::new(String::new()),
+            open: AtomicBool::new(false),
+        }
+    }
+    /// Asks the person at this computer. Blocks until they answer, `pending` clears or `deadline` passes.
+    /// Returns false for everything except an explicit Allow once.
+    pub(crate) fn ask(&self, detail: &str, pending: &AtomicBool, deadline: Instant) -> bool {
+        if !self.open.load(Ordering::Acquire)
+            || self
+                .ask
+                .compare_exchange(IDLE, ASKING, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+        {
+            return false;
+        }
+        if let Ok(mut text) = self.detail.lock() {
+            *text = detail.to_owned();
+        }
+        let answer = loop {
+            match self.ask.load(Ordering::Acquire) {
+                ALLOWED => break pending.load(Ordering::Acquire) && Instant::now() < deadline,
+                DECLINED => break false,
+                _ => {}
+            }
+            if !pending.load(Ordering::Acquire)
+                || Instant::now() >= deadline
+                || !self.open.load(Ordering::Acquire)
+            {
+                break false;
+            }
+            thread::sleep(std::time::Duration::from_millis(25));
+        };
+        self.ask.store(IDLE, Ordering::Release);
+        answer
+    }
+}
+// The sharing card of the session in progress, if any. Only one session shares at a time.
+static CARD: std::sync::Mutex<Option<Arc<Card>>> = std::sync::Mutex::new(None);
+/// Asks inside the open sharing card. `None` when there is no card, so the caller can use its own window.
+pub(crate) fn ask_in_card(detail: &str, pending: &AtomicBool, deadline: Instant) -> Option<bool> {
+    let card = CARD.lock().ok()?.clone()?;
+    card.open
+        .load(Ordering::Acquire)
+        .then(|| card.ask(detail, pending, deadline))
+}
 
 struct WindowState {
     active: Arc<AtomicBool>,
@@ -65,6 +135,9 @@ struct WindowState {
     hot: AtomicU8,
     // What was last painted (connected, paused), so a change repaints the card.
     drawn: AtomicU8,
+    card: Arc<Card>,
+    // Whether the inline request is currently on screen.
+    prompt_shown: AtomicBool,
 }
 impl WindowState {
     fn new(
@@ -88,6 +161,8 @@ impl WindowState {
             palette: ui::palette(),
             hot: AtomicU8::new(0),
             drawn: AtomicU8::new(255),
+            card: Arc::new(Card::new()),
+            prompt_shown: AtomicBool::new(false),
         }
     }
     fn scale(&self) -> f32 {
@@ -108,6 +183,7 @@ impl WindowState {
     }
 }
 pub struct Indicator {
+    card: Arc<Card>,
     active: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<()>>,
 }
@@ -146,7 +222,10 @@ unsafe fn paint(window: HWND, state: &WindowState) {
     if let Some(canvas) = ui::Canvas::new(buffer, state.scale()) {
         let paused = crate::pause::is_paused();
         let connected = state.connected.load(Ordering::Acquire);
-        let (label, fill, line, ink) = if paused {
+        let asking = state.prompt_shown.load(Ordering::Acquire);
+        let (label, fill, line, ink) = if asking {
+            ("Request", p.warn_soft, p.warn_line, p.warn)
+        } else if paused {
             ("Paused", p.warn_soft, p.warn_line, p.warn)
         } else if connected {
             ("Connected", p.success_soft, p.success, p.success)
@@ -194,6 +273,10 @@ unsafe fn paint(window: HWND, state: &WindowState) {
             },
         );
         canvas.line(28.0, 372.0, 492.0, 372.0, p.line, 1.0);
+        if asking {
+            canvas.fill(28.0, 482.0, 464.0, 138.0, 10.0, p.warn_soft);
+            canvas.stroke(28.0, 482.0, 464.0, 138.0, 10.0, p.warn_line, 1.0);
+        }
     }
     BitBlt(hdc, 0, 0, w, h, buffer, 0, 0, SRCCOPY);
     SelectObject(buffer, old);
@@ -219,7 +302,25 @@ unsafe fn draw_item(state: &WindowState, item: &DRAWITEMSTRUCT) {
         focused: item.itemState & ODS_FOCUS != 0,
         disabled: false,
     };
-    if id == PAUSE_ID {
+    if id == PROMPT_ALLOW_ID {
+        ui::button(
+            &canvas,
+            &state.palette,
+            (w, h),
+            "Allow once",
+            Role::Primary,
+            flags,
+        );
+    } else if id == PROMPT_DECLINE_ID {
+        ui::button(
+            &canvas,
+            &state.palette,
+            (w, h),
+            "Decline",
+            Role::Secondary,
+            flags,
+        );
+    } else if id == PAUSE_ID {
         let label = if crate::pause::is_paused() {
             "Resume sharing"
         } else {
@@ -339,15 +440,98 @@ unsafe fn track_hover(window: HWND, state: &WindowState) {
     } else {
         GetDlgCtrlID(over)
     };
-    let hot = if matches!(id, STOP_ID | PAUSE_ID | SEND_ID | MUTE_ID) {
+    let hot = if matches!(
+        id,
+        STOP_ID | PAUSE_ID | SEND_ID | MUTE_ID | PROMPT_DECLINE_ID | PROMPT_ALLOW_ID
+    ) {
         (id - 1000) as u8
     } else {
         0
     };
     if state.hot.swap(hot, Ordering::AcqRel) != hot {
-        for button in [STOP_ID, PAUSE_ID, SEND_ID, MUTE_ID] {
+        for button in [
+            STOP_ID,
+            PAUSE_ID,
+            SEND_ID,
+            MUTE_ID,
+            PROMPT_DECLINE_ID,
+            PROMPT_ALLOW_ID,
+        ] {
             InvalidateRect(GetDlgItem(window, button), std::ptr::null(), 0);
         }
+    }
+}
+
+/// The card's request state for a window's shared state pointer.
+unsafe fn card_of<'a>(state: *const WindowState) -> &'a Card {
+    &(*state).card
+}
+/// Shows or hides the inline request and resizes the card to fit. Stop never moves: the request is added below it.
+unsafe fn set_prompt(window: HWND, state: &WindowState, show: bool) {
+    if state.prompt_shown.swap(show, Ordering::AcqRel) == show {
+        return;
+    }
+    let scale = state.scale();
+    if show {
+        let detail = state
+            .card
+            .detail
+            .lock()
+            .map(|text| text.clone())
+            .unwrap_or_default();
+        SetWindowTextW(GetDlgItem(window, PROMPT_DETAIL_ID), wide(&detail).as_ptr());
+    }
+    for id in [
+        PROMPT_TITLE_ID,
+        PROMPT_DETAIL_ID,
+        PROMPT_DECLINE_ID,
+        PROMPT_ALLOW_ID,
+    ] {
+        ShowWindow(GetDlgItem(window, id), if show { SW_SHOW } else { SW_HIDE });
+    }
+    let mut bounds = RECT {
+        left: 0,
+        top: 0,
+        right: (520.0 * scale).round() as i32,
+        bottom: ((if show { PROMPT_HEIGHT } else { BASE_HEIGHT }) as f32 * scale).round() as i32,
+    };
+    AdjustWindowRectEx(
+        &mut bounds,
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
+        0,
+        WS_EX_TOPMOST,
+    );
+    let mut outer = RECT::default();
+    GetWindowRect(window, &mut outer);
+    let mut work = RECT::default();
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, std::ptr::addr_of_mut!(work).cast(), 0);
+    let height = bounds.bottom - bounds.top;
+    // Keep the whole card, including Stop, on screen.
+    let top = outer.top.min(work.bottom - height).max(work.top);
+    SetWindowPos(
+        window,
+        std::ptr::null_mut(),
+        outer.left,
+        top,
+        bounds.right - bounds.left,
+        height,
+        SWP_NOZORDER | SWP_NOACTIVATE,
+    );
+    InvalidateRect(window, std::ptr::null(), 0);
+    if show {
+        if SetForegroundWindow(window) == 0 {
+            FlashWindowEx(&FLASHWINFO {
+                cbSize: std::mem::size_of::<FLASHWINFO>() as u32,
+                hwnd: window,
+                dwFlags: FLASHW_ALL | FLASHW_TIMERNOFG,
+                uCount: 3,
+                dwTimeout: 0,
+            });
+        }
+        // Decline is the default answer.
+        SetFocus(GetDlgItem(window, PROMPT_DECLINE_ID));
+    } else {
+        SetFocus(GetDlgItem(window, STOP_ID));
     }
 }
 
@@ -376,7 +560,7 @@ unsafe extern "system" fn procedure(
             WM_CTLCOLORSTATIC => {
                 let p = &(*state).palette;
                 let color = match GetDlgCtrlID(lparam as HWND) {
-                    HEADING_ID | NAME_ID | PANEL_ID => p.strong,
+                    HEADING_ID | NAME_ID | PANEL_ID | PROMPT_TITLE_ID => p.strong,
                     STATUS_ID | SESSION_ID | FOOTER_ID => p.muted,
                     ROW_LIMITS_ID
                         if Permissions::read(&(*state).extras) != Permissions::default()
@@ -398,6 +582,46 @@ unsafe extern "system" fn procedure(
             }
             _ => {}
         }
+    }
+    if message == WM_COMMAND
+        && wparam >> 16 == BN_CLICKED as usize
+        && matches!(
+            (wparam & 0xffff) as i32,
+            PROMPT_ALLOW_ID | PROMPT_DECLINE_ID
+        )
+        && !state.is_null()
+    {
+        // Only the explicit Allow once, while the request is still pending and the desktop live, approves.
+        let card = &(*state).card;
+        let answer = if (wparam & 0xffff) as i32 == PROMPT_ALLOW_ID
+            && card.ask.load(Ordering::Acquire) == ASKING
+            && (*state).live()
+        {
+            ALLOWED
+        } else {
+            DECLINED
+        };
+        let _ = card
+            .ask
+            .compare_exchange(ASKING, answer, Ordering::AcqRel, Ordering::Acquire);
+        set_prompt(window, &*state, false);
+        return 0;
+    }
+    if message == WM_COMMAND
+        && wparam >> 16 == BN_CLICKED as usize
+        && matches!((wparam & 0xffff) as i32, IDCANCEL | IDOK)
+        && !state.is_null()
+        && (*state).prompt_shown.load(Ordering::Acquire)
+    {
+        // Escape or Enter with nothing focused declines the request; it never stops sharing by accident.
+        let _ = card_of(state).ask.compare_exchange(
+            ASKING,
+            DECLINED,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+        set_prompt(window, &*state, false);
+        return 0;
     }
     if message == WM_COMMAND
         && wparam >> 16 == BN_CLICKED as usize
@@ -470,6 +694,10 @@ unsafe extern "system" fn procedure(
             return 0;
         }
         track_hover(window, &*state);
+        let asking = card_of(state).ask.load(Ordering::Acquire) == ASKING;
+        if asking != (*state).prompt_shown.load(Ordering::Acquire) {
+            set_prompt(window, &*state, asking);
+        }
         let remaining = (*state)
             .deadline
             .map(|end| end.saturating_duration_since(Instant::now()));
@@ -548,14 +776,25 @@ unsafe extern "system" fn procedure(
         }
     }
     if message == DM_GETDEFID {
-        return ((DC_HASDEFID as usize) << 16 | STOP_ID as usize) as isize;
+        let default = if !state.is_null() && (*state).prompt_shown.load(Ordering::Acquire) {
+            PROMPT_DECLINE_ID
+        } else {
+            STOP_ID
+        };
+        return ((DC_HASDEFID as usize) << 16 | default as usize) as isize;
     }
     if message == DM_SETDEFID {
-        return (wparam == STOP_ID as usize) as isize;
+        let default = if !state.is_null() && (*state).prompt_shown.load(Ordering::Acquire) {
+            PROMPT_DECLINE_ID
+        } else {
+            STOP_ID
+        };
+        return (wparam == default as usize) as isize;
     }
     if message == WM_DESTROY {
         if !state.is_null() {
             (*state).active.store(false, Ordering::Release);
+            card_of(state).open.store(false, Ordering::Release);
         }
         KillTimer(window, 1);
         PostQuitMessage(0);
@@ -599,6 +838,7 @@ impl Indicator {
             active.store(false, Ordering::Release);
             return Err("View expired, stopped or input desktop unavailable".into());
         }
+        let card = state.card.clone();
         let thread = thread::spawn(move || {
             let result = (|| -> Result<(), Error> {
                 unsafe {
@@ -633,7 +873,7 @@ impl Indicator {
                         left: 0,
                         top: 0,
                         right: scale(520),
-                        bottom: scale(480),
+                        bottom: scale(BASE_HEIGHT),
                     };
                     if AdjustWindowRectEx(&mut bounds, style, 0, WS_EX_TOPMOST) == 0 {
                         UnregisterClassW(class.as_ptr(), instance);
@@ -825,7 +1065,29 @@ impl Indicator {
                     } else {
                         std::ptr::null_mut()
                     };
+                    // The request for more access appears inside this card, below Stop, only while one is pending.
+                    let prompt_title = make_text(
+                        PROMPT_TITLE_ID,
+                        "The viewer is asking for more access",
+                        44,
+                        496,
+                        432,
+                        22,
+                        0,
+                    );
+                    let prompt_detail = make_text(PROMPT_DETAIL_ID, "", 44, 522, 432, 44, 0);
+                    let prompt_decline = make_button(PROMPT_DECLINE_ID, "Decline", 248, 574, 104);
+                    let prompt_allow = make_button(PROMPT_ALLOW_ID, "Allow once", 364, 574, 128);
+                    for hidden in [prompt_title, prompt_detail, prompt_decline, prompt_allow] {
+                        if !hidden.is_null() {
+                            ShowWindow(hidden, SW_HIDE);
+                        }
+                    }
                     let controls = [
+                        prompt_title,
+                        prompt_detail,
+                        prompt_decline,
+                        prompt_allow,
                         heading,
                         status_control,
                         requester,
@@ -872,6 +1134,8 @@ impl Indicator {
                     let tag_font = ui::gdi_font(px(11), 600);
                     for (handle, font) in [
                         (heading, heading_font),
+                        (prompt_title, strong_font),
+                        (prompt_detail, body_font),
                         (requester, long_font),
                         (panel, strong_font),
                         (status_control, body_font),
@@ -896,6 +1160,10 @@ impl Indicator {
                         FlashWindowEx(&attention);
                     }
                     SetFocus(stop);
+                    state.card.open.store(true, Ordering::Release);
+                    if let Ok(mut current) = CARD.lock() {
+                        *current = Some(state.card.clone());
+                    }
                     let _ = ready.send(Ok(()));
                     let mut message = MSG::default();
                     loop {
@@ -906,6 +1174,15 @@ impl Indicator {
                         dispatch(window, &message);
                     }
                     state.active.store(false, Ordering::Release);
+                    state.card.open.store(false, Ordering::Release);
+                    if let Ok(mut current) = CARD.lock() {
+                        if current
+                            .as_ref()
+                            .is_some_and(|card| Arc::ptr_eq(card, &state.card))
+                        {
+                            *current = None;
+                        }
+                    }
                     if IsWindow(window) != 0 {
                         DestroyWindow(window);
                     }
@@ -926,6 +1203,7 @@ impl Indicator {
         });
         match received.recv_timeout(std::time::Duration::from_secs(3)) {
             Ok(Ok(())) => Ok(Self {
+                card,
                 active,
                 thread: Some(thread),
             }),
@@ -939,6 +1217,7 @@ impl Indicator {
 impl Drop for Indicator {
     fn drop(&mut self) {
         self.active.store(false, Ordering::Release);
+        self.card.open.store(false, Ordering::Release);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -1101,5 +1380,159 @@ mod tests {
         })
         .join()
         .unwrap();
+    }
+
+    /// A request for more access is answered inside the card: Decline is the default, Escape declines without
+    /// stopping the session, Allow once approves only a pending request, and a cancelled request declines.
+    #[test]
+    fn inline_request_declines_by_default_and_never_stops_sharing() {
+        thread::spawn(|| unsafe {
+            let original = GetThreadDesktop(GetCurrentThreadId());
+            let name = wide(&format!("BeaconCardTest-{}", GetCurrentThreadId()));
+            let desktop = CreateDesktopW(
+                name.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                DESKTOP_CREATEWINDOW | DESKTOP_READOBJECTS | DESKTOP_WRITEOBJECTS,
+                std::ptr::null(),
+            );
+            assert!(!desktop.is_null());
+            assert_ne!(SetThreadDesktop(desktop), 0);
+            let instance = GetModuleHandleW(std::ptr::null());
+            let definition = WNDCLASSW {
+                lpfnWndProc: Some(procedure),
+                hInstance: instance,
+                lpszClassName: name.as_ptr(),
+                ..Default::default()
+            };
+            assert_ne!(RegisterClassW(&definition), 0);
+            let result = std::panic::catch_unwind(|| {
+                let fixture = hidden_window(
+                    instance,
+                    &name,
+                    false,
+                    Some(Instant::now() + Duration::from_secs(30)),
+                );
+                let window = fixture.window;
+                let make = |class: &str, id: i32| {
+                    let class = wide(class);
+                    CreateWindowExW(
+                        0,
+                        class.as_ptr(),
+                        wide("x").as_ptr(),
+                        WS_CHILD | WS_TABSTOP | BS_OWNERDRAW as u32,
+                        0,
+                        0,
+                        1,
+                        1,
+                        window,
+                        id as usize as _,
+                        instance,
+                        std::ptr::null(),
+                    )
+                };
+                for (class, id) in [
+                    ("STATIC", PROMPT_TITLE_ID),
+                    ("STATIC", PROMPT_DETAIL_ID),
+                    ("BUTTON", PROMPT_DECLINE_ID),
+                    ("BUTTON", PROMPT_ALLOW_ID),
+                ] {
+                    assert!(!make(class, id).is_null());
+                }
+                let card = fixture.state.card.clone();
+                card.open.store(true, Ordering::Release);
+                let pump = |what: &dyn Fn() -> bool| {
+                    let end = Instant::now() + Duration::from_secs(5);
+                    while !what() && Instant::now() < end {
+                        dispatch(
+                            window,
+                            &MSG {
+                                hwnd: window,
+                                message: WM_TIMER,
+                                wParam: 1,
+                                ..Default::default()
+                            },
+                        );
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                };
+                let click = |id: i32| {
+                    dispatch(
+                        window,
+                        &MSG {
+                            hwnd: window,
+                            message: WM_COMMAND,
+                            wParam: id as usize | ((BN_CLICKED as usize) << 16),
+                            ..Default::default()
+                        },
+                    );
+                };
+                let ask = |pending: Arc<AtomicBool>, seconds: u64| {
+                    let card = card.clone();
+                    thread::spawn(move || {
+                        card.ask(
+                            "Allow mouse and keyboard for this connection",
+                            &pending,
+                            Instant::now() + Duration::from_secs(seconds),
+                        )
+                    })
+                };
+                let shown = || fixture.state.prompt_shown.load(Ordering::Acquire);
+                let sharing =
+                    || fixture.state.active.load(Ordering::Acquire) && IsWindow(window) != 0;
+                // The default answer is Decline.
+                let pending = Arc::new(AtomicBool::new(true));
+                let answer = ask(pending.clone(), 20);
+                pump(&shown);
+                assert!(shown());
+                assert_eq!(
+                    dispatch_default(window),
+                    PROMPT_DECLINE_ID as usize,
+                    "Decline is the default while asking"
+                );
+                click(PROMPT_DECLINE_ID);
+                assert!(!answer.join().unwrap());
+                pump(&|| !shown());
+                assert!(sharing());
+                // Escape declines and never stops sharing.
+                let answer = ask(pending.clone(), 20);
+                pump(&shown);
+                click(IDCANCEL);
+                assert!(!answer.join().unwrap());
+                assert!(sharing(), "Escape on a request must not stop sharing");
+                // Only the explicit Allow once approves.
+                let answer = ask(pending.clone(), 20);
+                pump(&shown);
+                click(PROMPT_ALLOW_ID);
+                assert!(answer.join().unwrap());
+                pump(&|| !shown());
+                // A request cancelled by the caller declines and clears the card.
+                let cancelled = Arc::new(AtomicBool::new(true));
+                let answer = ask(cancelled.clone(), 20);
+                pump(&shown);
+                cancelled.store(false, Ordering::Release);
+                assert!(!answer.join().unwrap());
+                pump(&|| !shown());
+                // An approval click after cancellation grants nothing.
+                click(PROMPT_ALLOW_ID);
+                // An expired request declines.
+                let answer = ask(pending.clone(), 0);
+                assert!(!answer.join().unwrap());
+                assert!(sharing());
+                // Stop still stops sharing when no request is open.
+                click(STOP_ID);
+                assert!(!fixture.state.active.load(Ordering::Acquire));
+            });
+            assert_ne!(UnregisterClassW(name.as_ptr(), instance), 0);
+            assert_ne!(SetThreadDesktop(original), 0);
+            assert_ne!(CloseDesktop(desktop), 0);
+            result.unwrap();
+        })
+        .join()
+        .unwrap();
+    }
+    unsafe fn dispatch_default(window: HWND) -> usize {
+        (SendMessageW(window, DM_GETDEFID, 0, 0) as usize) & 0xffff
     }
 }
