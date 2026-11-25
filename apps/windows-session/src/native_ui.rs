@@ -222,30 +222,21 @@ fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(Some(0)).collect()
 }
 
-/// "Segoe UI Variable" where Windows has it, "Segoe UI" elsewhere.
+/// The one face every native window uses. Segoe UI ships real Regular, Semibold and Bold; the Variable fonts are not
+/// used because GDI and GDI+ do not pick their weights reliably, which mixed light and synthetic-bold text.
 pub fn face() -> &'static str {
-    static FACE: OnceLock<&'static str> = OnceLock::new();
-    FACE.get_or_init(|| {
-        ensure_gdiplus();
-        unsafe {
-            let mut family: *mut GpFontFamily = null_mut();
-            let status = GdipCreateFontFamilyFromName(
-                wide("Segoe UI Variable Text").as_ptr(),
-                null_mut(),
-                &mut family,
-            );
-            if status == 0 {
-                GdipDeleteFontFamily(family);
-                "Segoe UI Variable Text"
-            } else {
-                "Segoe UI"
-            }
-        }
-    })
+    ensure_gdiplus();
+    "Segoe UI"
 }
 
 /// A GDI font for child controls: `height` is in device pixels, `weight` 400/600/700.
 pub unsafe fn gdi_font(height: i32, weight: i32) -> HFONT {
+    // The Semibold weight is its own face in Segoe UI.
+    let (name, weight) = if (600..700).contains(&weight) {
+        ("Segoe UI Semibold", 400)
+    } else {
+        (face(), weight)
+    };
     CreateFontW(
         -height,
         0,
@@ -260,7 +251,7 @@ pub unsafe fn gdi_font(height: i32, weight: i32) -> HFONT {
         0,
         5,
         0,
-        wide(face()).as_ptr(),
+        wide(name).as_ptr(),
     )
 }
 pub unsafe fn delete_font(font: HFONT) {
@@ -413,9 +404,7 @@ impl Canvas {
         align: Align,
         center_vertically: bool,
     ) {
-        let family_name = if weight >= 600 && face() == "Segoe UI Variable Text" {
-            "Segoe UI Variable Display"
-        } else if weight >= 600 {
+        let family_name = if (600..700).contains(&weight) {
             "Segoe UI Semibold"
         } else {
             face()
@@ -523,7 +512,7 @@ pub unsafe fn button(
     if role == Role::Secondary && p.contrast {
         canvas.stroke(0.0, 0.0, w, h, radius, p.line, 1.0);
     }
-    canvas.text(label, (0.0, 0.0, w, h), 14.0, 700, ink, Align::Center, true);
+    canvas.text(label, (0.0, 0.0, w, h), 14.0, 600, ink, Align::Center, true);
     if state.focused {
         // Inside the button so the ring is never clipped; a light inner line keeps it visible on a dark fill.
         canvas.stroke(0.0, 0.0, w, h, radius, p.accent, 2.5);
@@ -572,7 +561,7 @@ pub unsafe fn radio_card(
         title,
         (40.0, 13.0, w - 48.0, 20.0),
         14.0,
-        700,
+        600,
         ink,
         Align::Left,
         false,
@@ -638,7 +627,7 @@ pub unsafe fn avatar(canvas: &Canvas, p: &Palette, cx: f32, cy: f32, r: f32, ini
         initials,
         (cx - r, cy - r, r * 2.0, r * 2.0),
         r * 0.72,
-        700,
+        600,
         p.accent,
         Align::Center,
         true,
@@ -656,7 +645,7 @@ pub unsafe fn pill(
 ) {
     let _ = line;
     canvas.fill(x, y, w, h, h / 2.0, fill);
-    canvas.text(label, (x, y, w, h), 12.0, 700, ink, Align::Center, true);
+    canvas.text(label, (x, y, w, h), 12.0, 600, ink, Align::Center, true);
 }
 
 #[derive(Clone, Copy)]
