@@ -765,6 +765,18 @@ unsafe fn apply_phase(window: HWND, state: &WindowState, phase: u8) {
     for id in [PROMPT_DECLINE_ID, PROMPT_ALLOW_ID] {
         show(id, more || first);
     }
+    // The footer sits under the buttons while the first approval is showing, and below the controls otherwise.
+    let footer = GetDlgItem(window, FOOTER_ID);
+    if !footer.is_null() {
+        MoveWindow(
+            footer,
+            px(28),
+            px(if first { 526 } else { 420 }),
+            px(464),
+            px(38),
+            1,
+        );
+    }
     let y = if first { 454 } else { 574 };
     for (id, x, width) in [(PROMPT_DECLINE_ID, 248, 104), (PROMPT_ALLOW_ID, 364, 128)] {
         let control = GetDlgItem(window, id);
@@ -2188,6 +2200,198 @@ mod tests {
         })
         .join()
         .unwrap();
+    }
+
+    // ---- Visual preview (ignored): opens the real card on this desktop for a person to look at and click through.
+    // Set BEACON_PREVIEW_DIR to also save PNGs of each state, and BEACON_PREVIEW_AUTO=1 to click through by itself.
+    fn png(path: &std::path::Path, width: u32, height: u32, rgb: &[u8]) {
+        fn crc(bytes: &[u8]) -> u32 {
+            let mut value = 0xffff_ffffu32;
+            for byte in bytes {
+                value ^= u32::from(*byte);
+                for _ in 0..8 {
+                    value = if value & 1 != 0 {
+                        0xedb8_8320 ^ (value >> 1)
+                    } else {
+                        value >> 1
+                    };
+                }
+            }
+            !value
+        }
+        let mut raw = Vec::with_capacity((width as usize * 3 + 1) * height as usize);
+        for row in rgb.chunks(width as usize * 3) {
+            raw.push(0);
+            raw.extend_from_slice(row);
+        }
+        let (mut a, mut b) = (1u32, 0u32);
+        for byte in &raw {
+            a = (a + u32::from(*byte)) % 65521;
+            b = (b + a) % 65521;
+        }
+        let mut z = vec![0x78, 0x01];
+        let mut chunks = raw.chunks(65535).peekable();
+        while let Some(chunk) = chunks.next() {
+            z.push(u8::from(chunks.peek().is_none()));
+            z.extend_from_slice(&(chunk.len() as u16).to_le_bytes());
+            z.extend_from_slice(&(!(chunk.len() as u16)).to_le_bytes());
+            z.extend_from_slice(chunk);
+        }
+        z.extend_from_slice(&((b << 16) | a).to_be_bytes());
+        let mut out = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+        let mut put = |kind: &[u8; 4], data: &[u8]| {
+            out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+            let mut body = kind.to_vec();
+            body.extend_from_slice(data);
+            out.extend_from_slice(&body);
+            out.extend_from_slice(&crc(&body).to_be_bytes());
+        };
+        let mut header = Vec::new();
+        header.extend_from_slice(&width.to_be_bytes());
+        header.extend_from_slice(&height.to_be_bytes());
+        header.extend_from_slice(&[8, 2, 0, 0, 0]);
+        put(b"IHDR", &header);
+        put(b"IDAT", &z);
+        put(b"IEND", &[]);
+        std::fs::write(path, out).unwrap();
+    }
+    unsafe fn capture(window: HWND, path: &std::path::Path) {
+        use windows_sys::Win32::Graphics::Gdi::{
+            GetDC, GetDIBits, ReleaseDC, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+        };
+        let mut area = RECT::default();
+        GetWindowRect(window, &mut area);
+        let (width, height) = (area.right - area.left, area.bottom - area.top);
+        let screen = GetDC(std::ptr::null_mut());
+        let memory = CreateCompatibleDC(screen);
+        let bitmap = CreateCompatibleBitmap(screen, width, height);
+        let old = SelectObject(memory, bitmap);
+        BitBlt(
+            memory, 0, 0, width, height, screen, area.left, area.top, SRCCOPY,
+        );
+        let mut info: BITMAPINFO = std::mem::zeroed();
+        info.bmiHeader = BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: width,
+            biHeight: -height,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB,
+            ..Default::default()
+        };
+        let mut pixels = vec![0u8; (width * height * 4) as usize];
+        GetDIBits(
+            memory,
+            bitmap,
+            0,
+            height as u32,
+            pixels.as_mut_ptr().cast(),
+            &mut info,
+            DIB_RGB_COLORS,
+        );
+        let rgb: Vec<u8> = pixels
+            .chunks(4)
+            .flat_map(|pixel| [pixel[2], pixel[1], pixel[0]])
+            .collect();
+        png(path, width as u32, height as u32, &rgb);
+        SelectObject(memory, old);
+        DeleteObject(bitmap);
+        DeleteDC(memory);
+        ReleaseDC(std::ptr::null_mut(), screen);
+    }
+
+    #[test]
+    #[ignore = "opens real windows on this desktop"]
+    fn preview_card_states() {
+        // Like the shipped program, show the window at the screen's real scale.
+        unsafe {
+            windows_sys::Win32::UI::HiDpi::SetProcessDpiAwarenessContext(
+                windows_sys::Win32::UI::HiDpi::DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+            );
+        }
+        let directory = std::env::var_os("BEACON_PREVIEW_DIR").map(std::path::PathBuf::from);
+        let auto = std::env::var_os("BEACON_PREVIEW_AUTO").is_some();
+        let active = Arc::new(AtomicBool::new(true));
+        let control = Arc::new(AtomicBool::new(false));
+        let extras: Arc<AtomicU8> = Arc::default();
+        let indicator = Indicator::start_for_approval(
+            active.clone(),
+            Arc::new(AtomicBool::new(false)),
+            true,
+            "preview.helper@example.test".into(),
+            Instant::now() + Duration::from_secs(600),
+            control,
+            extras,
+            "S-PREV".into(),
+            FirstRequest {
+                control: true,
+                unlimited: false,
+                display: "Primary display".into(),
+            },
+        )
+        .expect("the card opens on an interactive desktop");
+        let card = indicator.card();
+        let window = {
+            let class = wide("BeaconRemoteVisibleStop");
+            unsafe { FindWindowW(class.as_ptr(), std::ptr::null()) }
+        };
+        assert!(!window.is_null());
+        let shot = |name: &str| {
+            if let Some(directory) = &directory {
+                std::fs::create_dir_all(directory).unwrap();
+                thread::sleep(Duration::from_millis(600));
+                unsafe { capture(window, &directory.join(format!("{name}.png"))) };
+            }
+        };
+        let click = |id: i32| unsafe {
+            SendMessageW(
+                window,
+                WM_COMMAND,
+                id as usize | ((BN_CLICKED as usize) << 16),
+                0,
+            );
+        };
+        let pending = Arc::new(AtomicBool::new(true));
+        let first = {
+            let (card, pending) = (card.clone(), pending.clone());
+            thread::spawn(move || {
+                card.ask_first(&pending, Instant::now() + Duration::from_secs(300))
+            })
+        };
+        thread::sleep(Duration::from_millis(500));
+        shot("1-first-approval");
+        if auto {
+            click(FILES_BOX_ID);
+            shot("2-first-approval-files-ticked");
+            click(PROMPT_ALLOW_ID);
+        }
+        let decision = first.join().unwrap();
+        println!("first approval: {:?}", decision.decision);
+        if decision.decision == Decision::Declined {
+            return;
+        }
+        indicator.set_deadline(None);
+        thread::sleep(Duration::from_secs(if auto { 1 } else { 20 }));
+        shot("3-sharing");
+        let more = {
+            let (card, pending) = (card.clone(), pending.clone());
+            thread::spawn(move || {
+                card.ask(
+                    "Allow sending and receiving files for this connection",
+                    &pending,
+                    Instant::now() + Duration::from_secs(120),
+                )
+            })
+        };
+        thread::sleep(Duration::from_millis(500));
+        shot("4-more-access");
+        if auto {
+            click(PROMPT_DECLINE_ID);
+        }
+        println!("more access allowed: {}", more.join().unwrap());
+        thread::sleep(Duration::from_secs(if auto { 1 } else { 10 }));
+        shot("5-sharing-again");
+        drop(indicator);
     }
 
     unsafe fn dispatch_default(window: HWND) -> usize {
