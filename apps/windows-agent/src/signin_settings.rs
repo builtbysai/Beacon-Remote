@@ -38,6 +38,8 @@ const LABEL: usize = 106;
 const DETAIL: usize = 107;
 const OUTCOME: usize = 108;
 const REPAIR: usize = 109;
+/// Posted to the parent when the page is embedded in another window and the person chooses Back.
+pub const BACK: u32 = WM_APP + 7;
 
 fn clicked_command(value: WPARAM) -> Option<usize> {
     ((value >> 16) == BN_CLICKED as usize).then_some(value & 0xffff)
@@ -196,6 +198,8 @@ struct Ui {
     content_height: i32,
     fit_pending: bool,
     focus_after_job: HWND,
+    /// Shown as a page inside the host window instead of as its own window.
+    embedded: bool,
 }
 impl Ui {
     unsafe fn apply_fonts(&mut self, window: HWND) {
@@ -708,7 +712,11 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: WPARAM, l: LP
                     state.start(window, Action::Refresh);
                 },
                 CLOSE | 2 => unsafe {
-                    DestroyWindow(window);
+                    if state.embedded {
+                        PostMessageW(GetParent(window), BACK, 0, 0);
+                    } else {
+                        DestroyWindow(window);
+                    }
                 },
                 _ => (),
             }
@@ -751,11 +759,21 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, w: WPARAM, l: LP
             }
         }
         WM_CLOSE if state.job.is_none() => unsafe {
-            DestroyWindow(window);
+            if state.embedded {
+                PostMessageW(GetParent(window), BACK, 0, 0);
+            } else {
+                DestroyWindow(window);
+            }
         },
         WM_CLOSE => (),
         WM_DESTROY => unsafe {
             KillTimer(window, 1);
+        },
+        WM_NCDESTROY if state.embedded => unsafe {
+            // An embedded page owns its state on the heap; free it with the window.
+            SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+            drop(Box::from_raw(pointer));
+            return DefWindowProcW(window, message, w, l);
         },
         _ => return unsafe { DefWindowProcW(window, message, w, l) },
     }
@@ -798,6 +816,7 @@ pub unsafe fn show(owner: HWND) -> Result<(), HostError> {
             content_height: 0,
             fit_pending: true,
             focus_after_job: null_mut(),
+            embedded: false,
         };
         let mut work = RECT::default();
         SystemParametersInfoW(SPI_GETWORKAREA, 0, (&mut work as *mut RECT).cast(), 0);
@@ -914,6 +933,110 @@ pub unsafe fn show(owner: HWND) -> Result<(), HostError> {
     }
 }
 
+/// Creates the sign-in page as a child of `parent`, filling `area`. The page runs on the parent's message loop and
+/// posts [`BACK`] to the parent when the person chooses Back. No service action runs until its explicit button is used.
+///
+/// # Safety
+/// `parent` must be a live window owned by the calling UI thread.
+pub unsafe fn embed(parent: HWND, area: RECT, scale: f32) -> Result<HWND, HostError> {
+    unsafe {
+        let instance = GetModuleHandleW(null());
+        let class = wide("BeaconRemoteSignInSettings");
+        let registration = WNDCLASSW {
+            lpfnWndProc: Some(procedure),
+            hInstance: instance,
+            lpszClassName: class.as_ptr(),
+            hCursor: LoadCursorW(null_mut(), IDC_ARROW),
+            hbrBackground: null_mut(),
+            ..Default::default()
+        };
+        // Registered once for the life of the process; a second page reuses it.
+        if RegisterClassW(&registration) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS {
+            return Err(io::Error::last_os_error().into());
+        }
+        let state = Box::into_raw(Box::new(Ui {
+            snapshot: None,
+            job: None,
+            scroll: 0,
+            scale,
+            fonts: None,
+            palette: ui::palette(),
+            background: Brush(CreateSolidBrush(ui::colorref(ui::palette().window))),
+            content_height: 0,
+            fit_pending: false,
+            focus_after_job: null_mut(),
+            embedded: true,
+        }));
+        let window = CreateWindowExW(
+            WS_EX_CONTROLPARENT,
+            class.as_ptr(),
+            wide("Windows sign-in access").as_ptr(),
+            WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_CLIPCHILDREN,
+            area.left,
+            area.top,
+            area.right - area.left,
+            area.bottom - area.top,
+            parent,
+            null_mut(),
+            instance,
+            state.cast(),
+        );
+        if window.is_null() {
+            drop(Box::from_raw(state));
+            return Err(io::Error::last_os_error().into());
+        }
+        let ui = &mut *state;
+        for (id, label) in [
+            (LABEL, "Checking installation…"),
+            (DETAIL, ""),
+            (SETUP, "Set up sign-in access…"),
+            (REPAIR, "Repair service…"),
+            (DISABLE, "Disable sign-in access"),
+            (REMOVE, "Remove sign-in service…"),
+            (OUTCOME, ""),
+            (REFRESH, "Refresh status"),
+            (CLOSE, "Back"),
+        ] {
+            let button = matches!(id, SETUP | REPAIR | DISABLE | REMOVE | REFRESH | CLOSE);
+            let child = CreateWindowExW(
+                0,
+                wide(if button { "BUTTON" } else { "STATIC" }).as_ptr(),
+                wide(label).as_ptr(),
+                WS_CHILD
+                    | WS_VISIBLE
+                    | if button {
+                        WS_TABSTOP | BS_NOTIFY as u32 | BS_OWNERDRAW as u32
+                    } else {
+                        windows_sys::Win32::System::SystemServices::SS_NOPREFIX
+                    },
+                0,
+                0,
+                1,
+                1,
+                window,
+                id as _,
+                instance,
+                null(),
+            );
+            if child.is_null() {
+                let error = io::Error::last_os_error();
+                DestroyWindow(window);
+                return Err(error.into());
+            }
+        }
+        ui.apply_fonts(window);
+        ui.layout(window);
+        ui.start(window, Action::Refresh);
+        if SetTimer(window, 1, 100, None) == 0 {
+            let error = io::Error::last_os_error();
+            DestroyWindow(window);
+            return Err(error.into());
+        }
+        SetFocus(GetDlgItem(window, CLOSE as i32));
+        Ok(window)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -997,5 +1120,72 @@ mod tests {
         assert!(state.presentation().2);
         state.paired = false;
         assert!(!state.presentation().2);
+    }
+
+    #[test]
+    fn embedded_page_posts_back_and_frees_its_state() {
+        unsafe {
+            let instance = GetModuleHandleW(null());
+            let class = wide("BeaconRemoteSignInSettingsTestParent");
+            let registration = WNDCLASSW {
+                lpfnWndProc: Some(DefWindowProcW),
+                hInstance: instance,
+                lpszClassName: class.as_ptr(),
+                ..Default::default()
+            };
+            assert_ne!(RegisterClassW(&registration), 0);
+            let parent = CreateWindowExW(
+                0,
+                class.as_ptr(),
+                wide("parent").as_ptr(),
+                WS_OVERLAPPED,
+                0,
+                0,
+                520,
+                560,
+                null_mut(),
+                null_mut(),
+                instance,
+                null(),
+            );
+            assert!(!parent.is_null());
+            let mut area = RECT::default();
+            GetClientRect(parent, &mut area);
+            let page = embed(parent, area, 1.0).expect("embedded page");
+            assert_eq!(GetParent(page), parent);
+            // Every control exists, and Back is the control that closes the page.
+            for id in [SETUP, REPAIR, DISABLE, REMOVE, REFRESH, CLOSE, LABEL] {
+                assert!(!GetDlgItem(page, id as i32).is_null());
+            }
+            let mut text = [0u16; 16];
+            GetWindowTextW(GetDlgItem(page, CLOSE as i32), text.as_mut_ptr(), 16);
+            assert_eq!(String::from_utf16_lossy(&text[..4]), "Back");
+            // Wait for the first status check so Back is enabled, then press it.
+            let end = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            let mut message = MSG::default();
+            while IsWindowEnabled(GetDlgItem(page, CLOSE as i32)) == 0
+                && std::time::Instant::now() < end
+            {
+                while PeekMessageW(&mut message, null_mut(), 0, 0, PM_REMOVE) != 0 {
+                    DispatchMessageW(&message);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            SendMessageW(
+                page,
+                WM_COMMAND,
+                CLOSE | ((BN_CLICKED as usize) << 16),
+                GetDlgItem(page, CLOSE as i32) as isize,
+            );
+            assert_ne!(
+                PeekMessageW(&mut message, parent, BACK, BACK, PM_REMOVE),
+                0,
+                "Back is reported to the host window"
+            );
+            DestroyWindow(page);
+            assert_eq!(IsWindow(page), 0);
+            DestroyWindow(parent);
+            UnregisterClassW(class.as_ptr(), instance);
+        }
     }
 }

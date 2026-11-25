@@ -132,6 +132,9 @@ struct State {
     files: HWND,
     pill_key: u8,
     fonts: Vec<HFONT>,
+    // The Windows sign-in page, shown inside this window in place of the main view, and the controls it hides.
+    signin_page: HWND,
+    hidden_for_page: Vec<HWND>,
 }
 // Starting at sign-in is a visible, per-user choice made here. No service or elevation is involved.
 const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
@@ -627,7 +630,88 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
             EnableWindow(button, 0);
         }
     }
+    /// Opens the Windows sign-in settings as a page of this window instead of a second window.
+    unsafe fn open_signin(&mut self) {
+        if !self.signin_page.is_null() {
+            return;
+        }
+        let px = |value: i32| (value as f32 * self.scale).round() as i32;
+        let mut bounds = RECT {
+            left: 0,
+            top: 0,
+            right: px(520),
+            bottom: px(560),
+        };
+        AdjustWindowRectEx(
+            &mut bounds,
+            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+            0,
+            0,
+        );
+        SetWindowPos(
+            self.window,
+            null_mut(),
+            0,
+            0,
+            bounds.right - bounds.left,
+            bounds.bottom - bounds.top,
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+        place(self.window);
+        let mut client = RECT::default();
+        GetClientRect(self.window, &mut client);
+        let mut shown: Vec<HWND> = Vec::new();
+        unsafe extern "system" fn collect(child: HWND, list: LPARAM) -> i32 {
+            let list = &mut *(list as *mut Vec<HWND>);
+            if IsWindowVisible(child) != 0 {
+                list.push(child);
+            }
+            1
+        }
+        EnumChildWindows(
+            self.window,
+            Some(collect),
+            std::ptr::addr_of_mut!(shown) as LPARAM,
+        );
+        shown.retain(|&child| GetParent(child) == self.window);
+        for &child in &shown {
+            ShowWindow(child, SW_HIDE);
+        }
+        match beacon_remote_agent::signin_settings::embed(self.window, client, self.scale) {
+            Ok(page) => {
+                self.signin_page = page;
+                self.hidden_for_page = shown;
+            }
+            Err(error) => {
+                for &child in &shown {
+                    ShowWindow(child, SW_SHOW);
+                }
+                self.controls();
+                text(
+                    self.status,
+                    &format!("Could not open sign-in settings: {error}"),
+                );
+            }
+        }
+    }
+    /// Returns from the sign-in page to the main view.
+    unsafe fn close_signin(&mut self) {
+        if self.signin_page.is_null() {
+            return;
+        }
+        DestroyWindow(self.signin_page);
+        self.signin_page = null_mut();
+        for child in self.hidden_for_page.drain(..) {
+            ShowWindow(child, SW_SHOW);
+        }
+        self.controls();
+        self.check_signin();
+        SetFocus(self.action);
+    }
     unsafe fn controls(&self) {
+        if !self.signin_page.is_null() {
+            return;
+        }
         text(
             self.introduction,
             "Pair this computer with your workspace. Screen viewing and control require visible local approval.",
@@ -1270,13 +1354,8 @@ unsafe extern "system" fn procedure(
                         && (*state).helpers_job.is_none()
                         && !(*state).closing
                     {
-                        if let Err(error) = beacon_remote_agent::signin_settings::show(window) {
-                            text(
-                                (*state).status,
-                                &format!("Could not open sign-in settings: {error}"),
-                            );
-                        }
-                        (*state).check_signin();
+                        restore(window);
+                        (*state).open_signin();
                     }
                 }
                 UNATTENDED_OFF => {
@@ -1303,6 +1382,10 @@ unsafe extern "system" fn procedure(
         }
         WM_SIZE if !state.is_null() && wparam == SIZE_MINIMIZED as usize && (*state).tray => {
             ShowWindow(window, SW_HIDE);
+            return 0;
+        }
+        beacon_remote_agent::signin_settings::BACK if !state.is_null() => {
+            (*state).close_signin();
             return 0;
         }
         TRAY_MESSAGE if !state.is_null() => {
@@ -1359,6 +1442,7 @@ unsafe extern "system" fn procedure(
             return 0;
         }
         WM_CLOSE if !state.is_null() => {
+            (*state).close_signin();
             (*state).closing = true;
             if (*state).worker.is_some() {
                 restore(window);
@@ -1406,7 +1490,13 @@ pub fn show(background: bool) -> Result<(), io::Error> {
         }
         let _instance_guard = Instance(mutex);
         if GetLastError() == ERROR_ALREADY_EXISTS {
-            MessageBoxW(null_mut(), wide("Beacon Remote host is already open. Use its existing window to start or stop sharing.").as_ptr(), wide("Beacon Remote").as_ptr(), MB_OK | MB_ICONINFORMATION);
+            // Bring the open window forward rather than putting a second window on screen.
+            let existing = FindWindowW(wide("BeaconRemoteHostWindow").as_ptr(), null());
+            if existing.is_null() {
+                MessageBoxW(null_mut(), wide("Beacon Remote host is already open. Use its existing window to start or stop sharing.").as_ptr(), wide("Beacon Remote").as_ptr(), MB_OK | MB_ICONINFORMATION);
+            } else {
+                restore(existing);
+            }
             return Ok(());
         }
         let factor = GetDpiForSystem().max(96) as f32 / 96.0;
@@ -1471,6 +1561,8 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             files: null_mut(),
             pill_key: 255,
             fonts: Vec::new(),
+            signin_page: null_mut(),
+            hidden_for_page: Vec::new(),
         };
         let style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
         let mut bounds = RECT {
@@ -1864,7 +1956,13 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             if result <= 0 {
                 break;
             }
-            if IsDialogMessageW(window, &message) == 0 {
+            // The sign-in page is a child; keyboard navigation then stays inside it.
+            let target = if !state.signin_page.is_null() && IsWindow(state.signin_page) != 0 {
+                state.signin_page
+            } else {
+                window
+            };
+            if IsDialogMessageW(target, &message) == 0 {
                 TranslateMessage(&message);
                 DispatchMessageW(&message);
             }

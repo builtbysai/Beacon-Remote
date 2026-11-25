@@ -158,8 +158,9 @@ and native readiness remain false until intentional acceptance/rollout.
 
 ## Local settings and Disable propagation
 
-The host header/tray opens separate Windows sign-in settings. The same view is
-available through `beacon-remote-host --sign-in-settings`; opening or refreshing
+The host header/tray opens the Windows sign-in settings as a page inside the host
+window (Back returns), so no second window appears. The same view is available
+standalone through `beacon-remote-host --sign-in-settings`; opening or refreshing
 does not mutate service state. Setup/repair/re-enable require current local
 owner control and the existing Windows administrator-approved installer. The
 separate Repair service action updates protected files/configuration while
