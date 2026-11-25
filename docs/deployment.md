@@ -1,5 +1,10 @@
 # Deployment gates
 
+November 24 (web only, owner approved): `c095bd54c48f185e92cdb11b46b27be6a79f3ddb` is the current Remote production
+release: the redesigned web frontend (new design system, tabbed inspector, card lists, pairing panel). Only the web
+container changed; the backend stays on the unchanged `975fc76` image (re-tagged). Encrypted backup first (service
+succeeded), rollback tag `rollback-dc42802`, health, readiness and served assets checked.
+
 November 22 (second web-only rollout, owner approved): `dc42802f1fbfd7aa40721df307f51fb869a25299` is the current Remote
 production release: the viewer's instant local press ripple. Only the web container changed (backend stays on the
 `975fc76` image, re-tagged); backup first, rollback tag `rollback-38251937`. Production's ICE transport policy was
