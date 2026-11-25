@@ -374,9 +374,9 @@ unsafe fn paint(window: HWND, state: &WindowState) {
         }
         canvas.line(
             28.0,
-            if first { 516.0 } else { 372.0 },
+            if first { 516.0 } else { 412.0 },
             492.0,
-            if first { 516.0 } else { 372.0 },
+            if first { 516.0 } else { 412.0 },
             p.line,
             1.0,
         );
