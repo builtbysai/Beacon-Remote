@@ -326,8 +326,17 @@ unsafe fn paint(window: HWND, state: &WindowState) {
             ("Connecting", p.accent_soft, p.accent, p.accent)
         };
         ui::pill(&canvas, (398.0, 29.0, 94.0, 24.0), label, fill, line, ink);
-        canvas.fill(28.0, 92.0, 464.0, 72.0, 10.0, p.surface);
-        canvas.stroke(28.0, 92.0, 464.0, 72.0, 10.0, p.line, 1.0);
+        let (mood, body) = if first {
+            (ui::Mood::Wow, ui::SUN)
+        } else if paused {
+            (ui::Mood::Asleep, ui::SLEEP)
+        } else if connected {
+            (ui::Mood::Awake, ui::MINT)
+        } else {
+            (ui::Mood::Awake, p.accent)
+        };
+        ui::mark(&canvas, p, (28.0, 18.0, 44.0), mood, body);
+        canvas.fill(28.0, 92.0, 464.0, 72.0, 20.0, p.subtle);
         ui::avatar(
             &canvas,
             p,
@@ -337,8 +346,7 @@ unsafe fn paint(window: HWND, state: &WindowState) {
             &ui::initials(&state.controller),
         );
         let panel = if first { 176.0 } else { 120.0 };
-        canvas.fill(28.0, 178.0, 464.0, panel, 10.0, p.subtle);
-        canvas.stroke(28.0, 178.0, 464.0, panel, 10.0, p.line, 1.0);
+        canvas.fill(28.0, 178.0, 464.0, panel, 20.0, p.subtle);
         let live_view = first || (state.desktop && !paused);
         let live_input = if first {
             state.card.control_requested.load(Ordering::Acquire)
@@ -381,8 +389,7 @@ unsafe fn paint(window: HWND, state: &WindowState) {
             1.0,
         );
         if phase == PHASE_MORE {
-            canvas.fill(28.0, 482.0, 464.0, 138.0, 10.0, p.warn_soft);
-            canvas.stroke(28.0, 482.0, 464.0, 138.0, 10.0, p.warn_line, 1.0);
+            canvas.fill(28.0, 482.0, 464.0, 138.0, 20.0, p.warn_soft);
         }
     }
     BitBlt(hdc, 0, 0, w, h, buffer, 0, 0, SRCCOPY);
@@ -1362,14 +1369,14 @@ impl Indicator {
                         } else {
                             "Video test"
                         },
-                        28,
-                        26,
-                        360,
+                        84,
+                        24,
+                        304,
                         30,
                         0,
                     );
                     let status_control =
-                        make_text(STATUS_ID, "Connecting to viewer", 28, 58, 464, 20, 0);
+                        make_text(STATUS_ID, "Connecting to viewer", 84, 56, 404, 20, 0);
                     let long_name = state.controller.chars().count() > 26;
                     let requester = CreateWindowExW(
                         0,

@@ -233,8 +233,7 @@ unsafe fn paint(window: HWND, state: &State) {
             p.warn,
         );
         // The technician card.
-        canvas.fill(28.0, 66.0, 444.0, 72.0, 10.0, p.surface);
-        canvas.stroke(28.0, 66.0, 444.0, 72.0, 10.0, p.line, 1.0);
+        canvas.fill(28.0, 66.0, 444.0, 72.0, 20.0, p.subtle);
         ui::avatar(
             &canvas,
             p,

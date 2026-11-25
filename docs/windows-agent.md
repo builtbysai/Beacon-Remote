@@ -114,3 +114,11 @@ invariants, all covered by `indicator::tests`:
   optional file, recording and sound choices, Decline and Allow once, no Stop because nothing is shared yet) and, once
   allowed, becomes the sharing card in place. A declined, cancelled or expired first approval closes the window and
   nothing is captured. The standalone consent window is kept only for the guard tests.
+
+## Look of the native windows (November 25, 2026)
+
+The host, the sharing card, the sign-in page and the support window share `native_ui.rs`, so one set of tokens drives
+all of them, following the web direction: warm paper window, soft tiles with no hairlines, pill buttons (ink for the
+main action, a soft tile for the rest, a coral wash for danger), tinted capsule status and the monitor character in
+the header (awake with signal arcs when reachable, asleep when stopped, surprised when someone is knocking). Dark mode
+and high contrast keep the same structure; high contrast falls back to system colours.

@@ -749,9 +749,9 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
         MoveWindow(
             self.more_button,
             px(if expanded { 28 } else { 324 }),
-            px(if expanded { 698 } else { 10 }),
+            px(if expanded { 698 } else { 16 }),
             px(if expanded { 220 } else { 168 }),
-            px(if expanded { 34 } else { 44 }),
+            px(if expanded { 34 } else { 36 }),
             1,
         );
         text(
@@ -1127,6 +1127,29 @@ unsafe fn paint(window: HWND, state: &State) {
             3 => ("Online", p.success_soft, p.success, p.success),
             _ => ("Needs attention", p.danger_soft, p.danger, p.danger),
         };
+        // The character at the top: awake and signalling when reachable, asleep when stopped.
+        let (mood, body, tile) = match state.pill_mode() {
+            0 => (ui::Mood::Wow, ui::SUN, p.warn_soft),
+            1 => (ui::Mood::Asleep, ui::SLEEP, p.subtle),
+            2 => (ui::Mood::Awake, p.accent, p.accent_soft),
+            3 => (ui::Mood::Awake, ui::MINT, p.success_soft),
+            _ => (ui::Mood::Wow, ui::CORAL, p.danger_soft),
+        };
+        ui::mark(&canvas, p, (28.0, 14.0, 46.0), mood, body);
+        if state.paired {
+            canvas.fill(28.0, 104.0, 464.0, 84.0, 20.0, tile);
+            ui::icon(&canvas, ui::Icon::Monitor, 44.0, 142.0, p.accent);
+            ui::icon(&canvas, ui::Icon::Lock, 44.0, 166.0, p.accent);
+            if state.more {
+                canvas.line(28.0, 424.0, 492.0, 424.0, p.line, 1.0);
+            }
+        } else {
+            for top in [124.0, 192.0, 260.0] {
+                canvas.fill(28.0, top, 464.0, 34.0, 17.0, p.subtle);
+            }
+        }
+        // On the paired view the capsule sits on the tinted tile, so it takes the white surface to stay visible.
+        let fill = if state.paired { p.surface } else { fill };
         let pill_width = if state.pill_mode() == 4 { 124.0 } else { 100.0 };
         ui::pill(
             &canvas,
@@ -1141,20 +1164,6 @@ unsafe fn paint(window: HWND, state: &State) {
             line,
             ink,
         );
-        if state.paired {
-            canvas.fill(28.0, 104.0, 464.0, 84.0, 10.0, p.subtle);
-            canvas.stroke(28.0, 104.0, 464.0, 84.0, 10.0, p.line, 1.0);
-            ui::icon(&canvas, ui::Icon::Monitor, 44.0, 142.0, p.accent);
-            ui::icon(&canvas, ui::Icon::Lock, 44.0, 166.0, p.accent);
-            if state.more {
-                canvas.line(28.0, 424.0, 492.0, 424.0, p.line, 1.0);
-            }
-        } else {
-            for top in [124.0, 192.0, 260.0] {
-                canvas.fill(28.0, top, 464.0, 34.0, 8.0, p.surface);
-                canvas.stroke(28.0, top, 464.0, 34.0, 8.0, p.line, 1.0);
-            }
-        }
     }
     BitBlt(hdc, 0, 0, w, h, buffer, 0, 0, SRCCOPY);
     SelectObject(buffer, old);
@@ -1299,8 +1308,8 @@ unsafe extern "system" fn procedure(
         WM_CTLCOLOREDIT if !state.is_null() => {
             let p = &(*state).palette;
             SetTextColor(wparam as _, ui::colorref(p.strong));
-            SetBkColor(wparam as _, ui::colorref(p.surface));
-            return ui::surface_brush(p.surface) as isize;
+            SetBkColor(wparam as _, ui::colorref(p.subtle));
+            return ui::surface_brush(p.subtle) as isize;
         }
         WM_COMMAND if !state.is_null() && (wparam >> 16) == BN_CLICKED as usize => {
             match wparam & 0xffff {
@@ -1634,9 +1643,9 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                 } else {
                     "Set up this computer"
                 },
-                28,
+                84,
                 22,
-                340,
+                290,
                 32,
                 SS_NOPREFIX,
                 H_HEADING as usize,
