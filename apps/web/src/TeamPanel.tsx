@@ -103,7 +103,11 @@ export function TeamPanel() {
           </button>
         </p>
       )}
-      {notice && <p role="status">{notice}</p>}
+      {notice && (
+        <p role="status" className="notice">
+          {notice}
+        </p>
+      )}
       {loading && members === null ? (
         <p role="status">Loading team access…</p>
       ) : members?.length ? (

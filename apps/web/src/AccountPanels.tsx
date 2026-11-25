@@ -334,7 +334,11 @@ export function AccountPanels({ activity }: { activity: boolean }) {
                     {error}
                   </p>
                 )}
-                {notice && <p role="status">{notice}</p>}
+                {notice && (
+                  <p role="status" className="notice">
+                    {notice}
+                  </p>
+                )}
                 {sessions === null && !error ? (
                   <p role="status">Loading browser sessions…</p>
                 ) : (

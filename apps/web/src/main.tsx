@@ -1014,7 +1014,9 @@ function App() {
             </div>
           )}
           {stale && (
-            <p role="status">Connection lost. Status may be out of date.</p>
+            <p role="status" className="notice warn">
+              Connection lost. Status may be out of date.
+            </p>
           )}
           {pairOpen && (
             <PairComputer
