@@ -621,50 +621,6 @@
   color: var(--v-text);
 }
 
-/* ---- Back to devices: the connected pill (lives in the workspace, so it uses the app's own colours) ----------- */
-.live-pill {
-  position: fixed;
-  z-index: 30;
-  left: 50%;
-  bottom: 22px;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 8px 8px 16px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--text);
-  box-shadow: 0 18px 48px rgb(0 0 0 / 0.22);
-  font-size: 13px;
-}
-.live-pill-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--green);
-}
-.live-pill button {
-  height: 32px;
-  min-height: 0;
-  padding: 0 14px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--text);
-  font-weight: 600;
-  font-size: 12px;
-}
-.live-pill button:hover {
-  background: var(--soft);
-}
-.live-pill button.live-pill-end {
-  border-color: transparent;
-  background: var(--red);
-  color: #fff;
-}
-
 /* ---- Laptops: the side panel floats over the picture's edge instead of squeezing it --------------------------- */
 @media (max-width: 1100px) {
   .live-view .viewer-actions {
@@ -771,5 +727,209 @@
 @media (prefers-reduced-motion: reduce) {
   .live-view .viewer-ripple {
     animation-duration: 0.01s;
+  }
+}
+
+/* ---- Restyle: the viewer follows the workspace's friendlier look -------------------------------------------- */
+.live-view {
+  --v-bg: #0e0e10;
+  --v-panel: #17171a;
+  --v-raise: #202024;
+  --v-hover: #2b2b31;
+  --v-line: #2b2b31;
+  --v-text: #f4f2ed;
+  --v-muted: #a6a39b;
+  --v-faint: #6f6d67;
+  --v-accent: #7ba5ff;
+  --v-accent-wash: rgb(123 165 255 / 0.16);
+  --v-red: #ff5a4d;
+  --v-green: #52d08f;
+  --v-amber: #ffc83d;
+  font-family: var(--font-ui);
+  font-size: 14px;
+}
+.live-view .viewer-toolbar {
+  height: 68px;
+  gap: 12px;
+  padding: 0 16px 0 10px;
+}
+.live-view .viewer-back {
+  height: 44px;
+  padding: 0 18px 0 10px;
+  border-radius: 999px;
+  background: var(--v-raise);
+  color: var(--v-text);
+}
+.live-view .viewer-back:hover {
+  background: var(--v-hover);
+}
+.live-view .viewer-avatar {
+  flex: none;
+  width: 54px;
+  margin-top: 6px;
+}
+.live-view .viewer-identity {
+  gap: 12px;
+}
+.live-view .viewer-identity-text strong {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+.live-view .viewer-identity-text span {
+  font-size: 13px;
+}
+.live-view .viewer-menu {
+  height: 44px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--v-raise);
+  color: var(--v-text);
+  font-weight: 700;
+}
+.live-view .viewer-menu:hover {
+  background: var(--v-hover);
+}
+.live-view .viewer-menu[aria-expanded="true"] {
+  background: var(--v-accent);
+  color: #0b1424;
+}
+.live-view .viewer-stop {
+  height: 44px;
+  padding: 0 24px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 800;
+}
+.live-view .viewer-status {
+  padding: 10px 20px;
+  font-size: 14px;
+}
+.live-view .viewer-rail {
+  width: 92px;
+  gap: 6px;
+  padding: 14px 10px;
+}
+.live-view .rail-button {
+  width: 72px;
+  padding: 12px 0 9px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.live-view .rail-button svg {
+  width: 24px;
+  height: 24px;
+}
+.live-view .rail-rule {
+  width: 36px;
+  margin: 8px 0;
+}
+.live-view .viewer-stage {
+  padding: 24px;
+}
+.live-view .viewer-stage video {
+  border-radius: 22px;
+  box-shadow:
+    0 0 0 1px var(--v-line),
+    0 30px 80px rgb(0 0 0 / 0.6);
+}
+.live-view .viewer-placeholder,
+.live-view .viewer-paused,
+.live-view .viewer-sheet {
+  border: 0;
+  border-radius: 28px;
+  background: var(--v-raise);
+  box-shadow: 0 30px 80px rgb(0 0 0 / 0.55);
+}
+.live-view .viewer-placeholder {
+  font-size: 17px;
+  font-weight: 750;
+}
+.live-view .viewer-play {
+  padding: 14px 26px;
+  font-size: 16px;
+  font-weight: 800;
+}
+.live-view .viewer-actions {
+  width: 372px;
+  gap: 10px;
+  padding: 22px 18px 28px;
+}
+.live-view .v-stats {
+  gap: 8px;
+}
+.live-view .v-stats > div {
+  padding: 14px 16px;
+  border-radius: 20px;
+}
+.live-view .v-stats dd {
+  font-size: 17px;
+  font-weight: 750;
+}
+.live-view .v-session-title,
+.live-view .viewer-actions > .viewer-group {
+  color: var(--v-muted);
+  font-size: 13px;
+  font-weight: 750;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.live-view .viewer-control,
+.live-view .viewer-diagnostics summary {
+  min-height: 46px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.live-view .viewer-actions .viewer-sound {
+  min-height: 46px;
+  border: 0;
+  border-radius: 999px;
+}
+.live-view .viewer-scale select,
+.live-view .viewer-actions input[type="text"],
+.live-view .viewer-actions .viewer-chat input {
+  min-height: 46px;
+  border: 0;
+  border-radius: 16px;
+}
+.live-view .viewer-diagnostics-panel {
+  border-radius: 20px;
+}
+@media (max-width: 1100px) {
+  .live-view .viewer-actions {
+    width: 372px;
+    border: 0;
+    border-radius: 28px;
+  }
+}
+@media (max-width: 700px) {
+  .live-view .viewer-toolbar {
+    height: 60px;
+    padding: 0 10px 0 6px;
+  }
+  .live-view .viewer-avatar {
+    width: 44px;
+  }
+  .live-view .viewer-rail {
+    width: auto;
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+  }
+  .live-view .rail-button {
+    width: 64px;
+  }
+  .live-view .viewer-stage {
+    padding: 8px;
+  }
+  .live-view .viewer-stage video {
+    border-radius: 14px;
+  }
+  .live-view .viewer-actions {
+    width: auto;
+    border-radius: 28px;
   }
 }

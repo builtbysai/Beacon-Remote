@@ -5,7 +5,8 @@ import "./style.css";
 import "./viewer.css";
 import { LiveView, type ViewGrant } from "./LiveView.js";
 import { SignInView } from "./SignInView.js";
-import { Brand, Monitor, ProductPage, pageFromHash } from "./Product.js";
+import { Brand, ProductPage, pageFromHash } from "./Product.js";
+import { Character, toneFor } from "./Characters.js";
 import { api, ApiError } from "./api.js";
 import { AccountPanels } from "./AccountPanels.js";
 import { PairComputer } from "./PairComputer.js";
@@ -98,8 +99,6 @@ function App() {
   const [groupFilter, setGroupFilter] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [mobileMore, setMobileMore] = useState(false);
   const [publicMenuOpen, setPublicMenuOpen] = useState(false);
   useEffect(() => {
     const change = () => {
@@ -116,7 +115,6 @@ function App() {
       setSupportToken(supportFromHash());
       setPage(pageFromHash());
       setPairOpen(false);
-      setMobileMore(false);
       setPublicMenuOpen(false);
       setSelected(null);
       setError("");
@@ -344,14 +342,6 @@ function App() {
         ["computers", "sessions", "assist", "activity", "settings"].includes(
           page,
         )));
-  useEffect(() => {
-    if (!mobileMore) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMobileMore(false);
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [mobileMore]);
   useEffect(() => {
     if (!publicMenuOpen) return;
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -605,7 +595,13 @@ function App() {
       );
       if (controller.signal.aborted) return;
       setMachines(result.machines);
-      if (id && result.machines.some((machine) => machine.id === id))
+      // Below 1100px the inspector is a modal sheet; it would cover the
+      // pairing confirmation, so only open it beside the list.
+      if (
+        id &&
+        window.matchMedia("(min-width: 1101px)").matches &&
+        result.machines.some((machine) => machine.id === id)
+      )
         setSelected(id);
     } catch {
       if (!controller.signal.aborted)
@@ -670,6 +666,22 @@ function App() {
         .map((machine) => machine.group as string),
     ),
   ].sort((a, b) => a.localeCompare(b));
+  const statusCounts = {
+    all: (machines ?? []).filter(
+      (machine) => !machine.temporary && !machine.revokedAt,
+    ).length,
+    online: (machines ?? []).filter(
+      (machine) =>
+        !machine.temporary && !machine.revokedAt && !stale && machine.online,
+    ).length,
+    offline: (machines ?? []).filter(
+      (machine) =>
+        !machine.temporary && !machine.revokedAt && (stale || !machine.online),
+    ).length,
+    revoked: (machines ?? []).filter(
+      (machine) => !machine.temporary && machine.revokedAt,
+    ).length,
+  };
   const activeCount = (machines ?? []).filter(
     (machine) => !machine.revokedAt,
   ).length;
@@ -678,70 +690,36 @@ function App() {
   ).length;
 
   return (
-    <main
-      className={
-        workspaceOpen
-          ? `app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`
-          : "public-shell"
-      }
-    >
+    <main className={workspaceOpen ? "app-shell" : "public-shell"}>
       {workspaceOpen ? (
-        <>
+        <header className="workspace-topbar">
+          <Brand />
           <nav className="workspace-nav" aria-label="Workspace">
-            <div className="workspace-nav-brand">
-              <Brand />
-            </div>
-            <p className="workspace-nav-label">WORKSPACE</p>
-            {workspaceItems.map((item, index) => (
+            {workspaceItems.map((item) => (
               <a
                 key={item.page}
-                className={
-                  index === 4
-                    ? "workspace-nav-link tools-first"
-                    : "workspace-nav-link"
-                }
+                className="workspace-nav-link"
                 href={`#${item.page}`}
                 aria-current={page === item.page ? "page" : undefined}
-                title={sidebarCollapsed ? item.label : undefined}
               >
                 <WorkspaceIcon name={item.page} />
                 <span>{item.label}</span>
               </a>
             ))}
+          </nav>
+          <div className="header-end">
+            <ThemePicker theme={theme} onChange={setTheme} />
             <button
               className="workspace-signout"
-              title={sidebarCollapsed ? "Sign out" : undefined}
+              aria-label="Sign out"
+              title="Sign out"
               onClick={() => void logout()}
             >
+              <span className="signout-label">Sign out</span>
               <WorkspaceIcon name="signout" />
-              <span>Sign out</span>
             </button>
-          </nav>
-          <header className="workspace-topbar">
-            <button
-              className="workspace-menu-toggle"
-              aria-label={
-                sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
-              }
-              aria-expanded={!sidebarCollapsed}
-              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            >
-              <WorkspaceIcon name="panel" />
-            </button>
-            <span className="workspace-mobile-brand">
-              <Brand />
-            </span>
-            <span className="workspace-breadcrumb">
-              REMOTE <span>/</span>{" "}
-              <strong>
-                {workspaceItems.find((item) => item.page === page)?.label}
-              </strong>
-            </span>
-            <div className="header-end">
-              <ThemePicker theme={theme} onChange={setTheme} />
-            </div>
-          </header>
-        </>
+          </div>
+        </header>
       ) : (
         <header>
           <Brand />
@@ -751,7 +729,6 @@ function App() {
             aria-label="Public navigation"
             onClick={() => setPublicMenuOpen(false)}
           >
-            <a href="#home">Overview</a>
             <a href="#downloads">Download</a>
             <a href="#support">Support</a>
             <a href="#security">Security</a>
@@ -759,24 +736,13 @@ function App() {
           <div className="header-end">
             <ThemePicker theme={theme} onChange={setTheme} />
             <a
-              className="button secondary"
+              className="button header-workspace"
               href={signedIn ? "#computers" : "#signin"}
-              aria-label={signedIn ? "Open workspace" : "Sign in"}
             >
-              <span className="header-workspace-label">
-                {signedIn ? "Workspace" : "Sign in"}
-              </span>
-              <span className="header-workspace-arrow" aria-hidden="true">
-                →
-              </span>
+              {signedIn ? "Open workspace" : "Sign in"}
             </a>
-            {page === "home" && !signedIn && (
-              <a className="button header-workspace" href="#signin">
-                Open workspace <span aria-hidden="true">→</span>
-              </a>
-            )}
             <button
-              className="public-menu-toggle secondary"
+              className="public-menu-toggle"
               aria-label={publicMenuOpen ? "Close menu" : "Open menu"}
               aria-expanded={publicMenuOpen}
               aria-controls="public-nav"
@@ -791,9 +757,7 @@ function App() {
               >
                 <path
                   d={
-                    publicMenuOpen
-                      ? "M5 5l14 14M19 5L5 19"
-                      : "M4 7h16M4 12h16M4 17h16"
+                    publicMenuOpen ? "M5 5l14 14M19 5L5 19" : "M4 8h16M4 16h16"
                   }
                 />
               </svg>
@@ -841,11 +805,7 @@ function App() {
             )}
           </>
         ) : page === "settings" || page === "activity" ? (
-          <AccountPanels
-            activity={page === "activity"}
-            theme={theme}
-            onThemeChange={setTheme}
-          />
+          <AccountPanels activity={page === "activity"} />
         ) : (
           <ProductPage page={page} signedIn={signedIn} />
         )
@@ -856,6 +816,7 @@ function App() {
         recoverToken ||
         verifyToken ? (
         <section className="login" aria-busy={busy}>
+          <Character tone="blue" mood="wave" className="login-char" />
           {error && (
             <p id="entry-error" className="error" role="alert">
               {error}
@@ -879,26 +840,27 @@ function App() {
             <>
               <h1>
                 {recoverToken
-                  ? "Reset your password"
+                  ? "New password"
                   : invite
-                    ? "Create your account"
+                    ? "Create account"
                     : "Sign in"}
               </h1>
-              <p>
-                {recoverToken
-                  ? "Choose a new password. This link works once and expires after 30 minutes."
-                  : recovered
-                    ? "Your password was changed and your other browsers were signed out. Sign in with the new one."
-                    : invite
-                      ? "Choose a password with at least 16 characters. Your invitation expires after 30 minutes."
-                      : "Continue to your Beacon Remote workspace."}
-              </p>
+              {(recoverToken || recovered || invite) && (
+                <p>
+                  {recoverToken
+                    ? "This link works once and expires in 30 minutes."
+                    : recovered
+                      ? "Password changed. Other browsers were signed out."
+                      : "Use at least 16 characters. The invitation expires in 30 minutes."}
+                </p>
+              )}
               {recoverToken ? (
                 <form key="recover" onSubmit={recoverPassword}>
                   <label>
-                    New password (at least 16 characters)
+                    New password
                     <input
                       name="password"
+                      placeholder="16 characters or more"
                       type="password"
                       autoComplete="new-password"
                       minLength={16}
@@ -908,7 +870,7 @@ function App() {
                     />
                   </label>
                   <button disabled={busy}>
-                    {busy ? "Saving…" : "Set password"}
+                    {busy ? "Saving…" : "Save password"}
                   </button>
                 </form>
               ) : challenge ? (
@@ -977,7 +939,7 @@ function App() {
                       ? "Signing in…"
                       : invite
                         ? "Create account"
-                        : "Continue"}
+                        : "Sign in"}
                   </button>
                 </form>
               )}
@@ -988,28 +950,27 @@ function App() {
                     className="secondary"
                     onClick={() => setEntry("signup")}
                   >
-                    Send the confirmation link again
+                    Resend confirmation link
                   </button>
                 </p>
               )}
               <p className="note">
                 {entryConfig.open ? (
                   <>
-                    New here?{" "}
                     <a href="#signup" onClick={() => setEntry("signup")}>
-                      Create an account
+                      Create account
                     </a>
-                    .{" "}
+                    {" · "}
                   </>
                 ) : (
-                  "Private alpha. Account creation requires an operator invitation. "
+                  "Accounts are by invitation. "
                 )}
                 {entryConfig.emailRecovery ? (
                   <a href="#forgot" onClick={() => setEntry("forgot")}>
-                    Forgot your password?
+                    Forgot password?
                   </a>
                 ) : (
-                  "Forgot your password? Ask the operator for a one-time recovery link."
+                  "Forgot your password? Ask the operator for a recovery link."
                 )}
               </p>
             </>
@@ -1021,8 +982,11 @@ function App() {
             <div>
               <h1>Computers</h1>
               <p className="workspace-summary">
-                {activeCount} {activeCount === 1 ? "computer" : "computers"}
-                {!stale && <> · {onlineCount} online</>}
+                {activeCount === 0
+                  ? "Nothing paired yet"
+                  : !stale
+                    ? `${onlineCount} of ${activeCount} online`
+                    : `${activeCount} ${activeCount === 1 ? "computer" : "computers"}`}
               </p>
             </div>
             <button
@@ -1050,9 +1014,7 @@ function App() {
             </div>
           )}
           {stale && (
-            <p role="status">
-              Connection interrupted. Status may be out of date.
-            </p>
+            <p role="status">Connection lost. Status may be out of date.</p>
           )}
           {pairOpen && (
             <PairComputer
@@ -1072,7 +1034,7 @@ function App() {
               }
             >
               <div className="grid">
-                <div className="inventory-tools">
+                <div className="inventory-tools" hidden={machines.length === 0}>
                   <input
                     type="search"
                     aria-label="Search computers"
@@ -1083,19 +1045,34 @@ function App() {
                       setSelected(null);
                     }}
                   />
-                  <select
+                  <div
+                    className="filter-chips"
+                    role="group"
                     aria-label="Computer status"
-                    value={filter}
-                    onChange={(event) => {
-                      setFilter(event.target.value);
-                      setSelected(null);
-                    }}
                   >
-                    <option value="all">All computers</option>
-                    <option value="online">Online</option>
-                    <option value="offline">Offline</option>
-                    <option value="revoked">Revoked</option>
-                  </select>
+                    {(
+                      [
+                        ["all", "All"],
+                        ["online", "Online"],
+                        ["offline", "Offline"],
+                        ["revoked", "Revoked"],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        className="chip"
+                        aria-pressed={filter === value}
+                        onClick={() => {
+                          setFilter(value);
+                          setSelected(null);
+                        }}
+                      >
+                        {label}
+                        <span>{statusCounts[value]}</span>
+                      </button>
+                    ))}
+                  </div>
                   {groups.length > 0 && (
                     <select
                       aria-label="Computer group"
@@ -1116,7 +1093,11 @@ function App() {
                 </div>
                 {machines.length === 0 && (
                   <div className="inventory-empty">
-                    <Monitor />
+                    <Character
+                      tone="blue"
+                      mood="asleep"
+                      className="empty-char"
+                    />
                     <h2>No computers yet</h2>
                     <p>Pair a Windows or Android device to see it here.</p>
                   </div>
@@ -1124,7 +1105,7 @@ function App() {
                 {machines.length > 0 && visibleMachines.length === 0 && (
                   <div className="inventory-empty">
                     <h2>No matching computers</h2>
-                    <p>Try a different search or status filter.</p>
+                    <p>Try a different search or filter.</p>
                     <button
                       className="secondary"
                       onClick={() => {
@@ -1165,7 +1146,18 @@ function App() {
                                 ? "Online"
                                 : "Offline"
                         }
-                      />
+                      >
+                        <Character
+                          tone={toneFor(machine.id)}
+                          mood={
+                            live
+                              ? "awake"
+                              : machine.revokedAt
+                                ? "locked"
+                                : "asleep"
+                          }
+                        />
+                      </span>
                       <button
                         id={`device-${machine.id}`}
                         className="device-name secondary"
@@ -1183,7 +1175,16 @@ function App() {
                           </small>
                         )}
                       </button>
-                      <span className="device-access">
+                      <span
+                        className="device-access"
+                        data-mode={
+                          machine.revokedAt
+                            ? "revoked"
+                            : machine.accessMode === "trusted"
+                              ? "trusted"
+                              : "ask"
+                        }
+                      >
                         {machine.revokedAt
                           ? "Revoked"
                           : machine.accessMode === "trusted"
@@ -1339,6 +1340,7 @@ function App() {
               key={view.grant.id}
               grant={view.grant}
               name={view.name}
+              machineId={view.machineId}
               minimized={minimized}
               onMinimize={() => setMinimized(true)}
               onClose={() => {
@@ -1381,63 +1383,21 @@ function App() {
           )}
         </section>
       )}
-      {workspaceOpen && (
-        <>
-          <nav
-            id="workspace-more"
-            className="workspace-more"
-            aria-label="More workspace pages"
-            hidden={!mobileMore}
-          >
-            {workspaceItems.slice(4).map((item) => (
-              <a
-                key={item.page}
-                href={`#${item.page}`}
-                aria-current={page === item.page ? "page" : undefined}
-              >
-                <WorkspaceIcon name={item.page} />
-                <span>{item.label}</span>
-              </a>
-            ))}
-            <button onClick={() => void logout()}>
-              <WorkspaceIcon name="signout" />
-              <span>Sign out</span>
-            </button>
-          </nav>
-          <nav
-            className="workspace-mobile-nav"
-            aria-label="Mobile workspace navigation"
-          >
-            {workspaceItems.slice(0, 4).map((item) => (
-              <a
-                key={item.page}
-                href={`#${item.page}`}
-                aria-current={page === item.page ? "page" : undefined}
-              >
-                <WorkspaceIcon name={item.page} />
-                <span>{item.label}</span>
-              </a>
-            ))}
-            <button
-              aria-expanded={mobileMore}
-              aria-current={
-                page === "downloads" || page === "settings" ? "page" : undefined
-              }
-              aria-controls="workspace-more"
-              onClick={() => setMobileMore(!mobileMore)}
-            >
-              <WorkspaceIcon name="more" />
-              <span>More</span>
-            </button>
-          </nav>
-        </>
-      )}
       {error && !entryVisible && (
         <p className="error" role="alert">
           {error}
         </p>
       )}
-      <footer>Visible access. Explicit control. Beacon Remote.</footer>
+      {!workspaceOpen && (
+        <footer>
+          <span>Beacon Remote</span>
+          <nav aria-label="Footer">
+            <a href="#downloads">Download</a>
+            <a href="#support">Support</a>
+            <a href="#security">Security</a>
+          </nav>
+        </footer>
+      )}
     </main>
   );
 }

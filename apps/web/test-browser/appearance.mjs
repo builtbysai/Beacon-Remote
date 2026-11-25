@@ -428,9 +428,23 @@ try {
       Buffer.from(shot.result.data, "base64"),
     );
   }
+  const setTheme = async (label) => {
+    for (let i = 0; i < 3; i++) {
+      if (
+        await browser.evaluate(
+          `document.querySelector('.theme-trigger')?.getAttribute('aria-label')==='Appearance: ${label}'`,
+        )
+      )
+        return;
+      await click(".theme-trigger");
+    }
+    await waitFor(
+      `document.querySelector('.theme-trigger')?.getAttribute('aria-label')==='Appearance: ${label}'`,
+    );
+  };
   await browser.goto(`${origin}/#settings`);
-  await waitFor("document.querySelector('.appearance-settings input:checked')");
-  await click('.appearance-settings input[value="dark"] + svg');
+  await waitFor("document.querySelector('.theme-trigger')");
+  await setTheme("Dark");
   await waitFor("document.documentElement.dataset.theme==='dark'");
   assert.equal(
     await browser.evaluate("localStorage.getItem('beacon-remote-appearance')"),
@@ -451,7 +465,7 @@ try {
   await browser.command("Network.setBlockedURLs", { urls: [] });
   await browser.command("Page.reload");
   await waitFor(
-    "document.querySelector('.appearance-settings input[value=dark]:checked')",
+    "document.querySelector('.theme-trigger')?.getAttribute('aria-label')==='Appearance: Dark'",
   );
   for (const [width, height] of [
     [1440, 900],
@@ -469,38 +483,19 @@ try {
       deviceScaleFactor: 1,
       mobile: false,
     });
-    await click(".theme-trigger");
-    await waitFor(
-      "document.querySelector('.theme-panel input:checked')===document.activeElement",
-    );
     const geometry = await browser.evaluate(
-      `(() => {const p=document.querySelector('.theme-panel').getBoundingClientRect(); const t=document.querySelector('.theme-trigger').getBoundingClientRect(); return {fits:p.left>=0&&p.top>=0&&p.right<=innerWidth&&p.bottom<=innerHeight, tap:t.width>=44&&t.height>=44, overflow:document.documentElement.scrollWidth>innerWidth};})()`,
+      `(() => {const t=document.querySelector('.theme-trigger').getBoundingClientRect(); return {fits:t.left>=0&&t.top>=0&&t.right<=innerWidth&&t.bottom<=innerHeight, tap:t.width>=44&&t.height>=44, overflow:document.documentElement.scrollWidth>innerWidth};})()`,
     );
     assert.deepEqual(
       geometry,
       { fits: true, tap: true, overflow: false },
       `${width}x${height}`,
     );
-    assert.equal(
-      await browser.evaluate(
-        `Array.from(document.querySelectorAll('.theme-panel .theme-choice')).every(el => {const r=el.getBoundingClientRect(); return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));})`,
-      ),
-      true,
-      `Choices obscured at ${width}x${height}`,
-    );
     if ([1440, 320, 844].includes(width))
       await screenshot(`dark-${width}x${height}`);
-    await key("Escape");
-    await waitFor(
-      "!document.querySelector('.theme-panel') && document.activeElement.matches('.theme-trigger')",
-    );
     results.push({ viewport: `${width}x${height}`, ...geometry });
   }
-  await click(".theme-trigger");
-  await key("ArrowRight");
-  await waitFor(
-    "document.querySelector('.theme-panel input[value=system]:checked')",
-  );
+  await setTheme("System");
   await browser.command("Emulation.setEmulatedMedia", {
     features: [{ name: "prefers-color-scheme", value: "light" }],
   });
@@ -509,24 +504,17 @@ try {
     features: [{ name: "prefers-color-scheme", value: "dark" }],
   });
   await waitFor("document.documentElement.dataset.theme==='dark'");
-  await key("Tab");
-  await waitFor("!document.querySelector('.theme-panel')");
   await browser.command("Emulation.setDeviceMetricsOverride", {
     width: 1440,
     height: 900,
     deviceScaleFactor: 1,
     mobile: false,
   });
-  await click('.appearance-settings input[value="light"] + svg');
+  await setTheme("Light");
   await waitFor("document.documentElement.dataset.theme==='light'");
   await screenshot("light-settings-1440x900");
   await browser.goto(`${origin}/#home`);
-  await click(".theme-trigger");
-  await waitFor(
-    "document.querySelector('.theme-panel input[value=light]:checked')",
-  );
   await screenshot("light-public-1440x900");
-  await key("Escape");
   await browser.goto(`${origin}/#settings`);
   await browser.command("Emulation.setDeviceMetricsOverride", {
     width: 640,
@@ -534,21 +522,10 @@ try {
     deviceScaleFactor: 1,
     mobile: false,
   });
-  await click(".theme-trigger");
-  await click(".workspace-page-heading h1");
-  await waitFor("!document.querySelector('.theme-panel')");
   await browser.command("Emulation.setEmulatedMedia", {
     features: [{ name: "forced-colors", value: "active" }],
   });
-  await click(".theme-trigger");
-  assert.equal(
-    await browser.evaluate(
-      "getComputedStyle(document.querySelector('.theme-choice:has(input:checked)')).outlineStyle",
-    ),
-    "solid",
-  );
   await screenshot("forced-colors-640x240");
-  await key("Escape");
   await browser.command("Emulation.setEmulatedMedia", {
     features: [{ name: "prefers-color-scheme", value: "light" }],
   });
@@ -567,9 +544,9 @@ try {
     true,
   );
   await waitFor(
-    "document.querySelector('.appearance-settings input[value=system]:checked')",
+    "document.querySelector('.theme-trigger')?.getAttribute('aria-label')==='Appearance: System'",
   );
-  await click('.appearance-settings input[value="dark"] + svg');
+  await click(".theme-trigger");
   await waitFor("document.documentElement.dataset.theme==='dark'");
   await browser.command("Emulation.setDeviceMetricsOverride", {
     width: 1440,
@@ -656,9 +633,9 @@ try {
   );
   assert.equal(
     await browser.evaluate(
-      "document.querySelectorAll('.download-platform details:not([open])').length",
+      "document.querySelectorAll('.download-platform details').length",
     ),
-    2,
+    0,
   );
   await screenshot("downloads-desktop");
   for (const [width, height] of [
@@ -674,15 +651,6 @@ try {
       deviceScaleFactor: 1,
       mobile: false,
     });
-    await browser.evaluate(
-      "document.querySelectorAll('.download-platform details').forEach(el=>el.open=true)",
-    );
-    assert.equal(
-      await browser.evaluate(
-        "getComputedStyle(document.querySelector('.download-hash')).display",
-      ),
-      "block",
-    );
     assert.equal(
       await browser.evaluate(
         "document.documentElement.scrollWidth<=innerWidth",
@@ -692,7 +660,7 @@ try {
     );
     if (width === 320) {
       await browser.evaluate(
-        "document.querySelector('.download-platform details').scrollIntoView({block:'start'});window.scrollBy(0,-80)",
+        "document.querySelector('.download-platform .verify').scrollIntoView({block:'start'});window.scrollBy(0,-80)",
       );
       await screenshot("downloads-phone-details");
     }

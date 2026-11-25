@@ -1,5 +1,6 @@
 import { talkMids } from "./talk-line";
 import { ViewerIcon } from "./viewer-icons";
+import { Character, toneFor } from "./Characters.js";
 import { classifyConnectionRoute } from "./connection-route";
 import {
   videoPerformance,
@@ -145,9 +146,12 @@ export function LiveView({
   onSwitchDisplay,
   onMinimize,
   minimized = false,
+  machineId,
 }: {
   grant: ViewGrant;
   name: string;
+  // Picks the computer's own colour so the viewer shows the same character as the list.
+  machineId?: string;
   onClose: () => void;
   // Hide the viewer and show the device list while the session stays connected.
   onMinimize?: () => void;
@@ -1315,7 +1319,19 @@ export function LiveView({
           </button>
         )}
         <div className="viewer-identity">
-          <span className="viewer-dot" aria-hidden="true" />
+          <Character
+            className="viewer-avatar"
+            tone={toneFor(machineId ?? name)}
+            mood={
+              ended
+                ? "asleep"
+                : peerPaused
+                  ? "wow"
+                  : frames > 0
+                    ? "awake"
+                    : "wave"
+            }
+          />
           <div className="viewer-identity-text">
             <strong>{name}</strong>
             <span>

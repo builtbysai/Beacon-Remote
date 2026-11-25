@@ -34,7 +34,7 @@ export function GuestSupport() {
     } catch (failure) {
       setError(
         failure instanceof ApiError && failure.status === 404
-          ? "That support code did not work. Check it, or ask for a new one."
+          ? "That code didn’t work. Check it or ask for a new one."
           : failure instanceof ApiError && failure.status === 409
             ? "That computer is already sharing with someone."
             : failure instanceof ApiError

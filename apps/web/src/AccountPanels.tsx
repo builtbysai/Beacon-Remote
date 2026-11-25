@@ -1,17 +1,15 @@
 import { useEffect, useState } from "react";
+import { Empty } from "./Characters.js";
 import { DataPanel } from "./DataPanel.js";
 import { MfaPanel } from "./MfaPanel.js";
 import { TeamPanel } from "./TeamPanel.js";
 import { api } from "./api.js";
-import { AppearanceSettings, type Theme } from "./ThemePicker.js";
 import { AccountIdentity } from "./AccountIdentity.js";
 
 const settingsSections = [
-  { id: "appearance", label: "Appearance" },
   { id: "account", label: "Account" },
-  { id: "security", label: "Security & sessions" },
-  { id: "team", label: "Team access" },
-  { id: "data", label: "Data & deletion" },
+  { id: "team", label: "Team" },
+  { id: "data", label: "Data" },
 ] as const;
 
 type BrowserSession = { expiresAt: string; current: boolean };
@@ -93,15 +91,7 @@ export function activityLabel(action: string) {
   }
 }
 
-export function AccountPanels({
-  activity,
-  theme,
-  onThemeChange,
-}: {
-  activity: boolean;
-  theme: Theme;
-  onThemeChange: (theme: Theme) => void;
-}) {
+export function AccountPanels({ activity }: { activity: boolean }) {
   const [sessions, setSessions] = useState<BrowserSession[] | null>(null);
   const [events, setEvents] = useState<Activity[] | null>(null);
   const [error, setError] = useState("");
@@ -110,7 +100,7 @@ export function AccountPanels({
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
   const [eventFilter, setEventFilter] = useState("all");
-  const [section, setSection] = useState<string>("appearance");
+  const [section, setSection] = useState<string>("account");
   useEffect(() => {
     let disposed = false;
     setError("");
@@ -212,10 +202,7 @@ export function AccountPanels({
     return (
       <section className="workspace-page activity-page">
         <div className="workspace-page-heading">
-          <div>
-            <h1>Activity</h1>
-            <p>Connections and device events</p>
-          </div>
+          <h1>Activity</h1>
           <div className="activity-heading-actions">
             <button
               className="secondary"
@@ -240,22 +227,26 @@ export function AccountPanels({
         )}
         <div className="workspace-panel activity-workspace">
           <div className="activity-tools">
-            <label htmlFor="activity-filter">Show</label>
-            <select
-              id="activity-filter"
-              value={eventFilter}
-              onChange={(event) => setEventFilter(event.target.value)}
-            >
-              <option value="all">All events</option>
-              <option value="sessions">Sessions</option>
-              <option value="devices">Device events</option>
-            </select>
+            <div className="filter-chips" role="group" aria-label="Show">
+              {(
+                [
+                  ["all", "All"],
+                  ["sessions", "Sessions"],
+                  ["devices", "Computers"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className="chip"
+                  aria-pressed={eventFilter === id}
+                  onClick={() => setEventFilter(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <span>{visibleEvents.length} shown</span>
-          </div>
-          <div className="activity-table-head" aria-hidden="true">
-            <span>Event</span>
-            <span>Computer</span>
-            <span>Time</span>
           </div>
           {loading && events === null ? (
             <p className="workspace-panel-empty" role="status">
@@ -264,15 +255,25 @@ export function AccountPanels({
           ) : error && events === null ? (
             <p className="workspace-panel-empty">Unable to load activity.</p>
           ) : visibleEvents.length === 0 ? (
-            <p className="workspace-panel-empty">
+            <Empty
+              title={events?.length ? "Nothing matches" : "No activity yet"}
+              tone="mint"
+            >
               {events?.length
-                ? "No events match this filter."
-                : "No activity yet."}
-            </p>
+                ? "Try a different filter."
+                : "Pairing, approvals and sessions are listed here."}
+            </Empty>
           ) : (
             <ol className="activity-rows">
               {visibleEvents.map((event) => (
-                <li key={event.id}>
+                <li
+                  key={event.id}
+                  data-kind={
+                    event.action.startsWith("desktop.view.")
+                      ? "session"
+                      : "device"
+                  }
+                >
                   <strong>{activityLabel(event.action)}</strong>
                   <span>
                     {event.machineName ?? "Computer"}
@@ -310,76 +311,59 @@ export function AccountPanels({
         <div className="settings-content">
           <section
             className="settings-section"
-            id="settings-appearance"
-            aria-label="Appearance"
-            hidden={section !== "appearance"}
-          >
-            <AppearanceSettings theme={theme} onChange={onThemeChange} />
-          </section>
-          <section
-            className="settings-section"
             id="settings-account"
-            aria-label="Account"
+            aria-label="Account and security"
             hidden={section !== "account"}
           >
             <AccountIdentity />
-          </section>
-          <section
-            className="settings-section"
-            id="settings-security"
-            aria-label="Security and sessions"
-            hidden={section !== "security"}
-          >
-            <MfaPanel />
-            <div className="quiet-panel">
-              <div className="settings-section-heading">
-                <h2>Browser sessions</h2>
+            <div id="settings-security">
+              <MfaPanel />
+              <div className="quiet-panel">
+                <div className="settings-section-heading">
+                  <h2>Signed-in browsers</h2>
+                  <button
+                    className="secondary"
+                    disabled={loading || busy}
+                    onClick={() => setRefresh((value) => value + 1)}
+                  >
+                    {loading ? "Refreshing…" : "Refresh"}
+                  </button>
+                </div>
+                {error && (
+                  <p role="alert" className="error">
+                    {error}
+                  </p>
+                )}
+                {notice && <p role="status">{notice}</p>}
+                {sessions === null && !error ? (
+                  <p role="status">Loading browser sessions…</p>
+                ) : (
+                  <ul className="history-list">
+                    {sessions?.map((session, index) => (
+                      <li key={`${session.expiresAt}-${index}`}>
+                        <strong>
+                          {session.current
+                            ? "This browser"
+                            : "Another browser session"}
+                        </strong>
+                        <span>
+                          Expires {new Date(session.expiresAt).toLocaleString()}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 <button
-                  className="secondary"
-                  disabled={loading || busy}
-                  onClick={() => setRefresh((value) => value + 1)}
+                  disabled={
+                    busy || !sessions?.some((session) => !session.current)
+                  }
+                  onClick={() => {
+                    void endOthers();
+                  }}
                 >
-                  {loading ? "Refreshing…" : "Refresh"}
+                  {busy ? "Ending sessions…" : "End other browser sessions"}
                 </button>
               </div>
-              {error && (
-                <p role="alert" className="error">
-                  {error}
-                </p>
-              )}
-              {notice && <p role="status">{notice}</p>}
-              <p>
-                Sessions expire after eight hours. Sign out to end this
-                browser’s session.
-              </p>
-              {sessions === null && !error ? (
-                <p role="status">Loading browser sessions…</p>
-              ) : (
-                <ul className="history-list">
-                  {sessions?.map((session, index) => (
-                    <li key={`${session.expiresAt}-${index}`}>
-                      <strong>
-                        {session.current
-                          ? "This browser"
-                          : "Another browser session"}
-                      </strong>
-                      <span>
-                        Expires {new Date(session.expiresAt).toLocaleString()}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <button
-                disabled={
-                  busy || !sessions?.some((session) => !session.current)
-                }
-                onClick={() => {
-                  void endOthers();
-                }}
-              >
-                {busy ? "Ending sessions…" : "End other browser sessions"}
-              </button>
             </div>
           </section>
           <section

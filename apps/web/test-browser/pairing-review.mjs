@@ -31,7 +31,7 @@ export async function reviewPairing({
     await browser.evaluate("document.activeElement.id"),
     "pairing-title",
   );
-  await click(".pairing-field:last-of-type button");
+  await click(".pairing-field:has([aria-label='Pairing code']) button");
   assert.equal(
     await browser.evaluate("window.fixtureClipboard"),
     await browser.evaluate(

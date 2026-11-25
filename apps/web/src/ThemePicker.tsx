@@ -1,6 +1,3 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-
 export type Theme = "system" | "light" | "dark";
 const storageKey = "beacon-remote-appearance";
 
@@ -47,167 +44,26 @@ function ThemeIcon({ theme }: { theme: Theme }) {
   );
 }
 
-const choices: { value: Theme; label: string }[] = [
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
-  { value: "system", label: "System" },
-];
+const order: Theme[] = ["system", "dark", "light"];
+const labels: Record<Theme, string> = {
+  system: "System",
+  dark: "Dark",
+  light: "Light",
+};
 
 type ThemeProps = { theme: Theme; onChange: (theme: Theme) => void };
 
-export function ThemeOptions({ theme, onChange }: ThemeProps) {
-  const name = useId();
-  return (
-    <div className="theme-options">
-      {choices.map((choice) => (
-        <label className="theme-choice" key={choice.value}>
-          <input
-            type="radio"
-            name={name}
-            value={choice.value}
-            checked={theme === choice.value}
-            onChange={() => onChange(choice.value)}
-          />
-          <ThemeIcon theme={choice.value} />
-          <span>{choice.label}</span>
-          <svg
-            className="theme-check"
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            aria-hidden="true"
-          >
-            <path d="m3 8 3 3 7-7" />
-          </svg>
-        </label>
-      ))}
-    </div>
-  );
-}
-
-export function AppearanceSettings(props: ThemeProps) {
-  return (
-    <fieldset className="appearance-settings">
-      <legend>Appearance</legend>
-      <ThemeOptions {...props} />
-    </fieldset>
-  );
-}
-
 export function ThemePicker({ theme, onChange }: ThemeProps) {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  const panel = useRef<HTMLFieldSetElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const panelId = useId();
-  const [position, setPosition] = useState({ left: 0, top: 0, maxHeight: 0 });
-  const label = choices.find((choice) => choice.value === theme)!.label;
-
-  useLayoutEffect(() => {
-    if (!open) return;
-    const place = () => {
-      const rect = trigger.current?.getBoundingClientRect();
-      if (!rect) return;
-      const viewport = window.visualViewport;
-      const x = viewport?.offsetLeft ?? 0;
-      const y = viewport?.offsetTop ?? 0;
-      const width = viewport?.width ?? window.innerWidth;
-      const height = viewport?.height ?? window.innerHeight;
-      const below = y + height - rect.bottom - 16;
-      const above = rect.top - y - 16;
-      const panelHeight = 176;
-      const useBelow = below >= panelHeight || below >= above;
-      const available = Math.max(44, useBelow ? below : above);
-      setPosition({
-        left: Math.max(x + 8, Math.min(rect.right - 184, x + width - 192)),
-        top: useBelow
-          ? rect.bottom + 8
-          : Math.max(y + 8, rect.top - Math.min(panelHeight, available) - 8),
-        maxHeight: available,
-      });
-    };
-    place();
-    window.addEventListener("resize", place);
-    window.addEventListener("scroll", place, true);
-    window.visualViewport?.addEventListener("resize", place);
-    window.visualViewport?.addEventListener("scroll", place);
-    return () => {
-      window.removeEventListener("resize", place);
-      window.removeEventListener("scroll", place, true);
-      window.visualViewport?.removeEventListener("resize", place);
-      window.visualViewport?.removeEventListener("scroll", place);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    panel.current?.querySelector<HTMLInputElement>("input:checked")?.focus();
-    const dismiss = (event: PointerEvent) => {
-      if (
-        !root.current?.contains(event.target as Node) &&
-        !panel.current?.contains(event.target as Node)
-      )
-        setOpen(false);
-    };
-    document.addEventListener("pointerdown", dismiss);
-    return () => document.removeEventListener("pointerdown", dismiss);
-  }, [open]);
-
+  const next = order[(order.indexOf(theme) + 1) % order.length]!;
   return (
-    <div
-      className="theme-picker"
-      ref={root}
-      onBlur={(event) => {
-        // Label pointer activation can briefly blur a radio with no related
-        // target before focusing the newly selected input. Outside pointerdown
-        // already dismisses the panel; don't unmount its labels mid-click.
-        if (
-          event.relatedTarget &&
-          !event.currentTarget.contains(event.relatedTarget) &&
-          !panel.current?.contains(event.relatedTarget)
-        )
-          setOpen(false);
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Tab" && open) {
-          // The panel is portalled above shell layers. Resume the header's
-          // natural tab order instead of jumping to the end of the document.
-          setOpen(false);
-          trigger.current?.focus();
-        }
-        if (event.key === "Escape" && open) {
-          event.preventDefault();
-          setOpen(false);
-          trigger.current?.focus();
-        }
-      }}
+    <button
+      type="button"
+      className="theme-trigger"
+      aria-label={`Appearance: ${labels[theme]}`}
+      title={`${labels[theme]} · switch to ${labels[next].toLowerCase()}`}
+      onClick={() => onChange(next)}
     >
-      <button
-        type="button"
-        className="theme-trigger"
-        ref={trigger}
-        aria-label={`Appearance: ${label}`}
-        aria-expanded={open}
-        aria-controls={panelId}
-        title={`Appearance: ${label}`}
-        onClick={() => setOpen(!open)}
-      >
-        <ThemeIcon theme={theme} />
-      </button>
-      {open &&
-        createPortal(
-          <fieldset
-            className="theme-panel"
-            id={panelId}
-            style={position}
-            ref={panel}
-          >
-            <legend>Appearance</legend>
-            <ThemeOptions theme={theme} onChange={onChange} />
-          </fieldset>,
-          document.body,
-        )}
-    </div>
+      <ThemeIcon theme={theme} />
+    </button>
   );
 }
