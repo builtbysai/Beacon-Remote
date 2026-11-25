@@ -110,5 +110,7 @@ invariants, all covered by `indicator::tests`:
   desktop still receives input. Cancellation, expiry, lock or the card closing decline.
 - Stop stays where it is and enabled; the request is added underneath and the card grows, staying on screen.
 - One request at a time; a second is declined.
-- Before sharing starts there is no card, so the request before the first approval still uses its own consent window.
-  Folding that into the card is the remaining step (it needs the card to exist in an asking state before capture).
+- The first approval is asked in the same window. It opens as the request (who, what, View only or Allow control, the
+  optional file, recording and sound choices, Decline and Allow once, no Stop because nothing is shared yet) and, once
+  allowed, becomes the sharing card in place. A declined, cancelled or expired first approval closes the window and
+  nothing is captured. The standalone consent window is kept only for the guard tests.

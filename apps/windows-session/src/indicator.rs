@@ -1,5 +1,6 @@
 //! Native visible Stop control and active-sharing card (ADR 0029). The window thread owns its atomic
 //! state lifetime. It shows who is connected and what they can do, with Pause and a hard Stop.
+use crate::consent::{Access, Decision};
 use crate::files_transport::Permissions;
 use crate::native_ui::{self as ui, Icon, Role};
 use std::{
@@ -51,17 +52,48 @@ const PROMPT_TITLE_ID: i32 = 1030;
 const PROMPT_DETAIL_ID: i32 = 1031;
 const PROMPT_DECLINE_ID: i32 = 1032;
 const PROMPT_ALLOW_ID: i32 = 1033;
+// The first approval, shown in this same window before anything is shared.
+const VIEW_CARD_ID: i32 = 1040;
+const CONTROL_CARD_ID: i32 = 1041;
+const FILES_BOX_ID: i32 = 1042;
+const RECORD_BOX_ID: i32 = 1043;
+const AUDIO_BOX_ID: i32 = 1044;
 const BASE_HEIGHT: i32 = 480;
 const PROMPT_HEIGHT: i32 = 640;
+const FIRST_HEIGHT: i32 = 574;
+// What the window is showing: the sharing card, a request for more access added below it, or the first approval.
+const PHASE_SHARING: u8 = 0;
+const PHASE_MORE: u8 = 1;
+const PHASE_FIRST: u8 = 2;
+// Bits of what the person ticked in the first approval.
+const CHOSE_CONTROL: u8 = 1;
+const CHOSE_FILES: u8 = 2;
+const CHOSE_RECORDING: u8 = 4;
+const CHOSE_AUDIO: u8 = 8;
 
-/// A request for more access, answered inside the sharing card so no second window opens. Decline is the default
-/// and every other outcome (expiry, cancellation, lock, the card closing) declines.
+/// What the first approval is about, known before the window opens.
+pub(crate) struct FirstRequest {
+    pub control: bool,
+    pub unlimited: bool,
+    pub display: String,
+}
+
+/// The person's answers, given inside the sharing card so no second window opens. Decline is the default and every
+/// other outcome (expiry, cancellation, lock, the card closing) declines.
 pub(crate) struct Card {
     // 0 idle, 1 asking, 2 allowed, 3 declined.
     ask: AtomicU8,
     detail: std::sync::Mutex<String>,
     // True while the card's window exists and its safety timer runs.
     open: AtomicBool,
+    // The first approval is showing (or pending) in this window; what the person ticked in it.
+    first: AtomicBool,
+    chosen: AtomicU8,
+    control_requested: AtomicBool,
+    unlimited: AtomicBool,
+    display: std::sync::Mutex<String>,
+    // The window closes: the first approval was not given.
+    closing: AtomicBool,
 }
 const IDLE: u8 = 0;
 const ASKING: u8 = 1;
@@ -73,22 +105,15 @@ impl Card {
             ask: AtomicU8::new(IDLE),
             detail: std::sync::Mutex::new(String::new()),
             open: AtomicBool::new(false),
+            first: AtomicBool::new(false),
+            chosen: AtomicU8::new(0),
+            control_requested: AtomicBool::new(false),
+            unlimited: AtomicBool::new(false),
+            display: std::sync::Mutex::new(String::new()),
+            closing: AtomicBool::new(false),
         }
     }
-    /// Asks the person at this computer. Blocks until they answer, `pending` clears or `deadline` passes.
-    /// Returns false for everything except an explicit Allow once.
-    pub(crate) fn ask(&self, detail: &str, pending: &AtomicBool, deadline: Instant) -> bool {
-        if !self.open.load(Ordering::Acquire)
-            || self
-                .ask
-                .compare_exchange(IDLE, ASKING, Ordering::AcqRel, Ordering::Acquire)
-                .is_err()
-        {
-            return false;
-        }
-        if let Ok(mut text) = self.detail.lock() {
-            *text = detail.to_owned();
-        }
+    fn wait(&self, pending: &AtomicBool, deadline: Instant) -> bool {
         let answer = loop {
             match self.ask.load(Ordering::Acquire) {
                 ALLOWED => break pending.load(Ordering::Acquire) && Instant::now() < deadline,
@@ -105,6 +130,63 @@ impl Card {
         };
         self.ask.store(IDLE, Ordering::Release);
         answer
+    }
+    /// Asks for more access mid-session. Blocks until the person answers, `pending` clears or `deadline` passes.
+    /// Returns false for everything except an explicit Allow once.
+    pub(crate) fn ask(&self, detail: &str, pending: &AtomicBool, deadline: Instant) -> bool {
+        if !self.open.load(Ordering::Acquire)
+            || self.first.load(Ordering::Acquire)
+            || self
+                .ask
+                .compare_exchange(IDLE, ASKING, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+        {
+            return false;
+        }
+        if let Ok(mut text) = self.detail.lock() {
+            *text = detail.to_owned();
+        }
+        self.wait(pending, deadline)
+    }
+    /// The first approval. Anything but an explicit Allow once declines, and a declined card closes.
+    pub(crate) fn ask_first(&self, pending: &AtomicBool, deadline: Instant) -> Access {
+        let declined = Access {
+            decision: Decision::Declined,
+            files: false,
+            recording: false,
+            audio: false,
+        };
+        if !self.open.load(Ordering::Acquire)
+            || !self.first.load(Ordering::Acquire)
+            || self
+                .ask
+                .compare_exchange(IDLE, ASKING, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+        {
+            self.closing.store(true, Ordering::Release);
+            return declined;
+        }
+        let allowed = self.wait(pending, deadline);
+        let chosen = self.chosen.load(Ordering::Acquire);
+        if allowed {
+            // From here the window is the sharing card.
+            self.first.store(false, Ordering::Release);
+            let control =
+                chosen & CHOSE_CONTROL != 0 && self.control_requested.load(Ordering::Acquire);
+            Access {
+                decision: if control {
+                    Decision::Control
+                } else {
+                    Decision::View
+                },
+                files: chosen & CHOSE_FILES != 0,
+                recording: chosen & CHOSE_RECORDING != 0,
+                audio: chosen & CHOSE_AUDIO != 0,
+            }
+        } else {
+            self.closing.store(true, Ordering::Release);
+            declined
+        }
     }
 }
 // The sharing card of the session in progress, if any. Only one session shares at a time.
@@ -125,8 +207,8 @@ struct WindowState {
     // The helper may send files (chosen in the consent window); received files are announced here.
     extras: Arc<AtomicU8>,
     // The helper hears what this computer plays; said plainly in the permissions row.
-    audio: bool,
-    deadline: Option<Instant>,
+    audio: AtomicBool,
+    deadline: std::sync::Mutex<Option<Instant>>,
     controller: String,
     session: String,
     // Whole thousandths of the display scale, so the thread can set it after creation.
@@ -136,8 +218,8 @@ struct WindowState {
     // What was last painted (connected, paused), so a change repaints the card.
     drawn: AtomicU8,
     card: Arc<Card>,
-    // Whether the inline request is currently on screen.
-    prompt_shown: AtomicBool,
+    // What the window is showing now (a PHASE_ constant).
+    phase: AtomicU8,
 }
 impl WindowState {
     fn new(
@@ -153,8 +235,8 @@ impl WindowState {
             desktop,
             control,
             extras: Arc::default(),
-            audio: false,
-            deadline,
+            audio: AtomicBool::new(false),
+            deadline: std::sync::Mutex::new(deadline),
             controller: String::new(),
             session: String::new(),
             scale_milli: std::sync::atomic::AtomicU32::new(1000),
@@ -162,15 +244,24 @@ impl WindowState {
             hot: AtomicU8::new(0),
             drawn: AtomicU8::new(255),
             card: Arc::new(Card::new()),
-            prompt_shown: AtomicBool::new(false),
+            phase: AtomicU8::new(PHASE_SHARING),
         }
+    }
+    fn deadline(&self) -> Option<Instant> {
+        self.deadline.lock().ok().and_then(|end| *end)
+    }
+    fn audio(&self) -> bool {
+        self.audio.load(Ordering::Acquire)
+    }
+    fn phase(&self) -> u8 {
+        self.phase.load(Ordering::Acquire)
     }
     fn scale(&self) -> f32 {
         self.scale_milli.load(Ordering::Acquire) as f32 / 1000.0
     }
     fn live(&self) -> bool {
         self.active.load(Ordering::Acquire)
-            && self.deadline.is_none_or(|end| Instant::now() < end)
+            && self.deadline().is_none_or(|end| Instant::now() < end)
             && (!self.desktop || crate::capture::desktop_receives_input())
     }
     fn mode(&self) -> u8 {
@@ -183,7 +274,7 @@ impl WindowState {
     }
 }
 pub struct Indicator {
-    card: Arc<Card>,
+    state: Arc<WindowState>,
     active: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<()>>,
 }
@@ -222,7 +313,9 @@ unsafe fn paint(window: HWND, state: &WindowState) {
     if let Some(canvas) = ui::Canvas::new(buffer, state.scale()) {
         let paused = crate::pause::is_paused();
         let connected = state.connected.load(Ordering::Acquire);
-        let asking = state.prompt_shown.load(Ordering::Acquire);
+        let phase = state.phase();
+        let first = phase == PHASE_FIRST;
+        let asking = phase != PHASE_SHARING;
         let (label, fill, line, ink) = if asking {
             ("Request", p.warn_soft, p.warn_line, p.warn)
         } else if paused {
@@ -243,10 +336,15 @@ unsafe fn paint(window: HWND, state: &WindowState) {
             20.0,
             &ui::initials(&state.controller),
         );
-        canvas.fill(28.0, 178.0, 464.0, 120.0, 10.0, p.subtle);
-        canvas.stroke(28.0, 178.0, 464.0, 120.0, 10.0, p.line, 1.0);
-        let live_view = state.desktop && !paused;
-        let live_input = state.desktop && state.control.load(Ordering::Acquire) && !paused;
+        let panel = if first { 176.0 } else { 120.0 };
+        canvas.fill(28.0, 178.0, 464.0, panel, 10.0, p.subtle);
+        canvas.stroke(28.0, 178.0, 464.0, panel, 10.0, p.line, 1.0);
+        let live_view = first || (state.desktop && !paused);
+        let live_input = if first {
+            state.card.control_requested.load(Ordering::Acquire)
+        } else {
+            state.desktop && state.control.load(Ordering::Acquire) && !paused
+        };
         ui::icon(
             &canvas,
             Icon::Eye,
@@ -261,19 +359,28 @@ unsafe fn paint(window: HWND, state: &WindowState) {
             246.0,
             if live_input { p.accent } else { p.faint },
         );
-        ui::icon(
-            &canvas,
-            Icon::Lock,
-            44.0,
-            270.0,
-            if Permissions::read(&state.extras) != Permissions::default() || state.audio {
-                p.accent
-            } else {
-                p.faint
-            },
+        if !first {
+            ui::icon(
+                &canvas,
+                Icon::Lock,
+                44.0,
+                270.0,
+                if Permissions::read(&state.extras) != Permissions::default() || state.audio() {
+                    p.accent
+                } else {
+                    p.faint
+                },
+            );
+        }
+        canvas.line(
+            28.0,
+            if first { 516.0 } else { 372.0 },
+            492.0,
+            if first { 516.0 } else { 372.0 },
+            p.line,
+            1.0,
         );
-        canvas.line(28.0, 372.0, 492.0, 372.0, p.line, 1.0);
-        if asking {
+        if phase == PHASE_MORE {
             canvas.fill(28.0, 482.0, 464.0, 138.0, 10.0, p.warn_soft);
             canvas.stroke(28.0, 482.0, 464.0, 138.0, 10.0, p.warn_line, 1.0);
         }
@@ -302,7 +409,66 @@ unsafe fn draw_item(state: &WindowState, item: &DRAWITEMSTRUCT) {
         focused: item.itemState & ODS_FOCUS != 0,
         disabled: false,
     };
-    if id == PROMPT_ALLOW_ID {
+    let chosen = state.card.chosen.load(Ordering::Acquire);
+    let requested = state.card.control_requested.load(Ordering::Acquire);
+    if matches!(id, FILES_BOX_ID | RECORD_BOX_ID | AUDIO_BOX_ID) {
+        // The check boxes sit on the access panel, not on the window.
+        let brush = CreateSolidBrush(ui::colorref(state.palette.subtle));
+        FillRect(item.hDC, &item.rcItem, brush);
+        DeleteObject(brush);
+    }
+    if id == VIEW_CARD_ID {
+        ui::radio_card(
+            &canvas,
+            &state.palette,
+            (w, h),
+            "View only",
+            "See the screen. No input.",
+            chosen & CHOSE_CONTROL == 0,
+            flags,
+        );
+    } else if id == CONTROL_CARD_ID {
+        ui::radio_card(
+            &canvas,
+            &state.palette,
+            (w, h),
+            "Allow control",
+            if requested {
+                "Mouse and keyboard access."
+            } else {
+                "Not requested."
+            },
+            chosen & CHOSE_CONTROL != 0,
+            flags,
+        );
+    } else if id == FILES_BOX_ID {
+        ui::checkbox(
+            &canvas,
+            &state.palette,
+            (w, h),
+            "Also allow receiving files (saved in Downloads\\Beacon Remote)",
+            chosen & CHOSE_FILES != 0,
+            flags,
+        );
+    } else if id == RECORD_BOX_ID {
+        ui::checkbox(
+            &canvas,
+            &state.palette,
+            (w, h),
+            "Also allow the helper to record this session (shown while it records)",
+            chosen & CHOSE_RECORDING != 0,
+            flags,
+        );
+    } else if id == AUDIO_BOX_ID {
+        ui::checkbox(
+            &canvas,
+            &state.palette,
+            (w, h),
+            "Also share this computer's sound (the helper hears what plays here)",
+            chosen & CHOSE_AUDIO != 0,
+            flags,
+        );
+    } else if id == PROMPT_ALLOW_ID {
         ui::button(
             &canvas,
             &state.palette,
@@ -442,7 +608,17 @@ unsafe fn track_hover(window: HWND, state: &WindowState) {
     };
     let hot = if matches!(
         id,
-        STOP_ID | PAUSE_ID | SEND_ID | MUTE_ID | PROMPT_DECLINE_ID | PROMPT_ALLOW_ID
+        STOP_ID
+            | PAUSE_ID
+            | SEND_ID
+            | MUTE_ID
+            | PROMPT_DECLINE_ID
+            | PROMPT_ALLOW_ID
+            | VIEW_CARD_ID
+            | CONTROL_CARD_ID
+            | FILES_BOX_ID
+            | RECORD_BOX_ID
+            | AUDIO_BOX_ID
     ) {
         (id - 1000) as u8
     } else {
@@ -456,6 +632,11 @@ unsafe fn track_hover(window: HWND, state: &WindowState) {
             MUTE_ID,
             PROMPT_DECLINE_ID,
             PROMPT_ALLOW_ID,
+            VIEW_CARD_ID,
+            CONTROL_CARD_ID,
+            FILES_BOX_ID,
+            RECORD_BOX_ID,
+            AUDIO_BOX_ID,
         ] {
             InvalidateRect(GetDlgItem(window, button), std::ptr::null(), 0);
         }
@@ -466,34 +647,140 @@ unsafe fn track_hover(window: HWND, state: &WindowState) {
 unsafe fn card_of<'a>(state: *const WindowState) -> &'a Card {
     &(*state).card
 }
-/// Shows or hides the inline request and resizes the card to fit. Stop never moves: the request is added below it.
-unsafe fn set_prompt(window: HWND, state: &WindowState, show: bool) {
-    if state.prompt_shown.swap(show, Ordering::AcqRel) == show {
+/// Switches what the window shows: the sharing card, a request for more access added below it (Stop never moves),
+/// or the first approval. The card resizes to fit and stays on screen.
+unsafe fn apply_phase(window: HWND, state: &WindowState, phase: u8) {
+    let previous = state.phase.swap(phase, Ordering::AcqRel);
+    if previous == phase {
         return;
     }
     let scale = state.scale();
-    if show {
-        let detail = state
-            .card
+    let px = |value: i32| (value as f32 * scale).round() as i32;
+    let show = |id: i32, on: bool| {
+        let control = GetDlgItem(window, id);
+        if !control.is_null() {
+            ShowWindow(control, if on { SW_SHOW } else { SW_HIDE });
+        }
+    };
+    let text = |id: i32, value: &str| {
+        let control = GetDlgItem(window, id);
+        if !control.is_null() {
+            SetWindowTextW(control, wide(value).as_ptr());
+        }
+    };
+    let card = &state.card;
+    let first = phase == PHASE_FIRST;
+    let more = phase == PHASE_MORE;
+    if first {
+        text(HEADING_ID, "Incoming connection request");
+        text(STATUS_ID, "Someone is requesting access to this computer.");
+        text(PANEL_ID, "Access requested");
+        text(ROW_VIEW_ID, "View this desktop");
+        text(
+            ROW_INPUT_ID,
+            if card.control_requested.load(Ordering::Acquire) {
+                "Mouse and keyboard control (you choose below)"
+            } else {
+                "Mouse and keyboard control not requested"
+            },
+        );
+        let display = card
+            .display
+            .lock()
+            .map(|text| text.clone())
+            .unwrap_or_default();
+        text(
+            SESSION_ID,
+            &format!("Session {} · {display}", state.session),
+        );
+        let lifetime = if card.unlimited.load(Ordering::Acquire) {
+            "Until stopped"
+        } else {
+            "Up to two minutes"
+        };
+        text(
+            FOOTER_ID,
+            &format!("{lifetime} · Stop sharing anytime, or lock Windows. The request expires without approval and no persistent permission is granted."),
+        );
+        SetWindowTextW(
+            window,
+            wide("Beacon Remote — incoming connection request").as_ptr(),
+        );
+    } else if previous == PHASE_FIRST {
+        text(
+            HEADING_ID,
+            if state.desktop {
+                "Someone is connected"
+            } else {
+                "Video test"
+            },
+        );
+        text(PANEL_ID, "Current permissions");
+        text(SESSION_ID, &format!("Session {}", state.session));
+        text(
+            FOOTER_ID,
+            "Stop sharing immediately revokes screen and input permission for this session.",
+        );
+        SetWindowTextW(
+            window,
+            wide(if state.desktop {
+                "Beacon Remote — screen sharing"
+            } else {
+                "Beacon Remote — synthetic video test (no desktop)"
+            })
+            .as_ptr(),
+        );
+        // The permission rows and buttons are brought back in step by the next timer tick.
+        state.drawn.store(255, Ordering::Release);
+        show(ROW_LIMITS_ID, true);
+    }
+    if more {
+        let detail = card
             .detail
             .lock()
             .map(|text| text.clone())
             .unwrap_or_default();
-        SetWindowTextW(GetDlgItem(window, PROMPT_DETAIL_ID), wide(&detail).as_ptr());
+        text(PROMPT_DETAIL_ID, &detail);
+    }
+    for id in [PAUSE_ID, STOP_ID, MUTE_ID] {
+        show(id, !first);
+    }
+    if first {
+        for id in [SEND_ID, REVOKE_ID, ROW_LIMITS_ID] {
+            show(id, false);
+        }
     }
     for id in [
-        PROMPT_TITLE_ID,
-        PROMPT_DETAIL_ID,
-        PROMPT_DECLINE_ID,
-        PROMPT_ALLOW_ID,
+        VIEW_CARD_ID,
+        CONTROL_CARD_ID,
+        FILES_BOX_ID,
+        RECORD_BOX_ID,
+        AUDIO_BOX_ID,
     ] {
-        ShowWindow(GetDlgItem(window, id), if show { SW_SHOW } else { SW_HIDE });
+        show(id, first);
+    }
+    for id in [PROMPT_TITLE_ID, PROMPT_DETAIL_ID] {
+        show(id, more);
+    }
+    for id in [PROMPT_DECLINE_ID, PROMPT_ALLOW_ID] {
+        show(id, more || first);
+    }
+    let y = if first { 454 } else { 574 };
+    for (id, x, width) in [(PROMPT_DECLINE_ID, 248, 104), (PROMPT_ALLOW_ID, 364, 128)] {
+        let control = GetDlgItem(window, id);
+        if !control.is_null() {
+            MoveWindow(control, px(x), px(y), px(width), px(40), 1);
+        }
     }
     let mut bounds = RECT {
         left: 0,
         top: 0,
-        right: (520.0 * scale).round() as i32,
-        bottom: ((if show { PROMPT_HEIGHT } else { BASE_HEIGHT }) as f32 * scale).round() as i32,
+        right: px(520),
+        bottom: px(match phase {
+            PHASE_FIRST => FIRST_HEIGHT,
+            PHASE_MORE => PROMPT_HEIGHT,
+            _ => BASE_HEIGHT,
+        }),
     };
     AdjustWindowRectEx(
         &mut bounds,
@@ -518,7 +805,10 @@ unsafe fn set_prompt(window: HWND, state: &WindowState, show: bool) {
         SWP_NOZORDER | SWP_NOACTIVATE,
     );
     InvalidateRect(window, std::ptr::null(), 0);
-    if show {
+    if IsWindowVisible(window) == 0 {
+        return;
+    }
+    if first || more {
         if SetForegroundWindow(window) == 0 {
             FlashWindowEx(&FLASHWINFO {
                 cbSize: std::mem::size_of::<FLASHWINFO>() as u32,
@@ -564,7 +854,7 @@ unsafe extern "system" fn procedure(
                     STATUS_ID | SESSION_ID | FOOTER_ID => p.muted,
                     ROW_LIMITS_ID
                         if Permissions::read(&(*state).extras) != Permissions::default()
-                            || (*state).audio =>
+                            || (*state).audio() =>
                     {
                         p.text
                     }
@@ -587,12 +877,53 @@ unsafe extern "system" fn procedure(
         && wparam >> 16 == BN_CLICKED as usize
         && matches!(
             (wparam & 0xffff) as i32,
+            VIEW_CARD_ID | CONTROL_CARD_ID | FILES_BOX_ID | RECORD_BOX_ID | AUDIO_BOX_ID
+        )
+        && !state.is_null()
+        && (*state).phase() == PHASE_FIRST
+    {
+        // Choices only: nothing is granted until Allow once.
+        let card = card_of(state);
+        let id = (wparam & 0xffff) as i32;
+        match id {
+            VIEW_CARD_ID => {
+                card.chosen.fetch_and(!CHOSE_CONTROL, Ordering::AcqRel);
+            }
+            CONTROL_CARD_ID if card.control_requested.load(Ordering::Acquire) => {
+                card.chosen.fetch_or(CHOSE_CONTROL, Ordering::AcqRel);
+            }
+            FILES_BOX_ID => {
+                card.chosen.fetch_xor(CHOSE_FILES, Ordering::AcqRel);
+            }
+            RECORD_BOX_ID => {
+                card.chosen.fetch_xor(CHOSE_RECORDING, Ordering::AcqRel);
+            }
+            AUDIO_BOX_ID => {
+                card.chosen.fetch_xor(CHOSE_AUDIO, Ordering::AcqRel);
+            }
+            _ => {}
+        }
+        for control in [
+            VIEW_CARD_ID,
+            CONTROL_CARD_ID,
+            FILES_BOX_ID,
+            RECORD_BOX_ID,
+            AUDIO_BOX_ID,
+        ] {
+            InvalidateRect(GetDlgItem(window, control), std::ptr::null(), 0);
+        }
+        return 0;
+    }
+    if message == WM_COMMAND
+        && wparam >> 16 == BN_CLICKED as usize
+        && matches!(
+            (wparam & 0xffff) as i32,
             PROMPT_ALLOW_ID | PROMPT_DECLINE_ID
         )
         && !state.is_null()
     {
         // Only the explicit Allow once, while the request is still pending and the desktop live, approves.
-        let card = &(*state).card;
+        let card = card_of(state);
         let answer = if (wparam & 0xffff) as i32 == PROMPT_ALLOW_ID
             && card.ask.load(Ordering::Acquire) == ASKING
             && (*state).live()
@@ -604,23 +935,27 @@ unsafe extern "system" fn procedure(
         let _ = card
             .ask
             .compare_exchange(ASKING, answer, Ordering::AcqRel, Ordering::Acquire);
-        set_prompt(window, &*state, false);
+        // A request for more access closes now. The first approval keeps its layout until the window either
+        // becomes the sharing card (allowed) or closes (declined).
+        if (*state).phase() == PHASE_MORE {
+            apply_phase(window, &*state, PHASE_SHARING);
+        }
         return 0;
     }
     if message == WM_COMMAND
         && wparam >> 16 == BN_CLICKED as usize
         && matches!((wparam & 0xffff) as i32, IDCANCEL | IDOK)
         && !state.is_null()
-        && (*state).prompt_shown.load(Ordering::Acquire)
+        && (*state).phase() != PHASE_SHARING
     {
         // Escape or Enter with nothing focused declines the request; it never stops sharing by accident.
-        let _ = card_of(state).ask.compare_exchange(
-            ASKING,
-            DECLINED,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        );
-        set_prompt(window, &*state, false);
+        let card = card_of(state);
+        let _ = card
+            .ask
+            .compare_exchange(ASKING, DECLINED, Ordering::AcqRel, Ordering::Acquire);
+        if (*state).phase() == PHASE_MORE {
+            apply_phase(window, &*state, PHASE_SHARING);
+        }
         return 0;
     }
     if message == WM_COMMAND
@@ -693,13 +1028,30 @@ unsafe extern "system" fn procedure(
             DestroyWindow(window);
             return 0;
         }
+        let card = card_of(state);
+        if card.closing.load(Ordering::Acquire) {
+            // The first approval was not given: there is nothing to share, so the window closes.
+            (*state).active.store(false, Ordering::Release);
+            DestroyWindow(window);
+            return 0;
+        }
         track_hover(window, &*state);
-        let asking = card_of(state).ask.load(Ordering::Acquire) == ASKING;
-        if asking != (*state).prompt_shown.load(Ordering::Acquire) {
-            set_prompt(window, &*state, asking);
+        let wanted = if card.first.load(Ordering::Acquire) {
+            PHASE_FIRST
+        } else if card.ask.load(Ordering::Acquire) == ASKING {
+            PHASE_MORE
+        } else {
+            PHASE_SHARING
+        };
+        if wanted != (*state).phase() {
+            apply_phase(window, &*state, wanted);
+        }
+        if wanted == PHASE_FIRST {
+            // While waiting for the first answer nothing is shared; keep only the waiting line.
+            return 0;
         }
         let remaining = (*state)
-            .deadline
+            .deadline()
             .map(|end| end.saturating_duration_since(Instant::now()));
         let seconds = remaining.map(|left| left.as_secs() + u64::from(left.subsec_nanos() > 0));
         let paused = crate::pause::is_paused();
@@ -736,7 +1088,7 @@ unsafe extern "system" fn procedure(
             let line = wide(&extras_line(
                 extras.files,
                 extras.recording,
-                (*state).audio,
+                (*state).audio(),
                 &crate::files::status(),
             ));
             let row = GetDlgItem(window, ROW_LIMITS_ID);
@@ -776,7 +1128,7 @@ unsafe extern "system" fn procedure(
         }
     }
     if message == DM_GETDEFID {
-        let default = if !state.is_null() && (*state).prompt_shown.load(Ordering::Acquire) {
+        let default = if !state.is_null() && (*state).phase() != PHASE_SHARING {
             PROMPT_DECLINE_ID
         } else {
             STOP_ID
@@ -784,7 +1136,7 @@ unsafe extern "system" fn procedure(
         return ((DC_HASDEFID as usize) << 16 | default as usize) as isize;
     }
     if message == DM_SETDEFID {
-        let default = if !state.is_null() && (*state).prompt_shown.load(Ordering::Acquire) {
+        let default = if !state.is_null() && (*state).phase() != PHASE_SHARING {
             PROMPT_DECLINE_ID
         } else {
             STOP_ID
@@ -806,6 +1158,22 @@ unsafe extern "system" fn procedure(
     DefWindowProcW(window, message, wparam, lparam)
 }
 impl Indicator {
+    /// The window's answers: the first approval and later requests for more access.
+    pub(crate) fn card(&self) -> Arc<Card> {
+        self.state.card.clone()
+    }
+    /// Sets how long the session lasts once it is approved (`None` until stopped).
+    pub fn set_deadline(&self, deadline: Option<Instant>) {
+        if let Ok(mut current) = self.state.deadline.lock() {
+            *current = deadline;
+        }
+    }
+    /// Sets whether the helper hears this computer, as chosen in the first approval.
+    pub fn set_audio(&self, audio: bool) {
+        self.state
+            .audio
+            .store(audio && self.state.desktop, Ordering::Release);
+    }
     #[allow(clippy::too_many_arguments)]
     pub fn start_access(
         active: Arc<AtomicBool>,
@@ -818,6 +1186,50 @@ impl Indicator {
         audio: bool,
         session: String,
     ) -> Result<Self, Error> {
+        Self::start_inner(
+            active, connected, desktop, controller, deadline, control, extras, audio, session, None,
+        )
+    }
+    /// Opens the window already asking for the first approval, so the same window then becomes the sharing card.
+    /// Nothing is shared until `card().ask_first` returns an approval.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn start_for_approval(
+        active: Arc<AtomicBool>,
+        connected: Arc<AtomicBool>,
+        desktop: bool,
+        controller: String,
+        deadline: Instant,
+        control: Arc<AtomicBool>,
+        extras: Arc<AtomicU8>,
+        session: String,
+        request: FirstRequest,
+    ) -> Result<Self, Error> {
+        Self::start_inner(
+            active,
+            connected,
+            desktop,
+            controller,
+            Some(deadline),
+            control,
+            extras,
+            false,
+            session,
+            Some(request),
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn start_inner(
+        active: Arc<AtomicBool>,
+        connected: Arc<AtomicBool>,
+        desktop: bool,
+        controller: String,
+        deadline: Option<Instant>,
+        control: Arc<AtomicBool>,
+        extras: Arc<AtomicU8>,
+        audio: bool,
+        session: String,
+        first: Option<FirstRequest>,
+    ) -> Result<Self, Error> {
         let (ready, received) = mpsc::channel();
         let mut state = WindowState::new(
             active.clone(),
@@ -827,18 +1239,33 @@ impl Indicator {
             deadline,
         );
         state.extras = extras;
-        state.audio = audio && desktop;
+        state.audio.store(audio && desktop, Ordering::Release);
         state.controller = controller
             .chars()
             .filter(|character| !character.is_control())
             .collect();
         state.session = session;
+        if let Some(request) = &first {
+            let card = &state.card;
+            card.first.store(true, Ordering::Release);
+            card.control_requested
+                .store(request.control, Ordering::Release);
+            card.unlimited.store(request.unlimited, Ordering::Release);
+            // The access the viewer asked for is already selected, so one click on Allow once approves it.
+            card.chosen.store(
+                if request.control { CHOSE_CONTROL } else { 0 },
+                Ordering::Release,
+            );
+            if let Ok(mut display) = card.display.lock() {
+                display.clone_from(&request.display);
+            }
+        }
         let state = Arc::new(state);
         if !state.live() {
             active.store(false, Ordering::Release);
             return Err("View expired, stopped or input desktop unavailable".into());
         }
-        let card = state.card.clone();
+        let kept = state.clone();
         let thread = thread::spawn(move || {
             let result = (|| -> Result<(), Error> {
                 unsafe {
@@ -990,7 +1417,7 @@ impl Indicator {
                     let extras = Permissions::read(&state.extras);
                     let row_limits = make_text(
                         ROW_LIMITS_ID,
-                        &extras_line(extras.files, extras.recording, state.audio, ""),
+                        &extras_line(extras.files, extras.recording, state.audio(), ""),
                         70,
                         268,
                         410,
@@ -1083,7 +1510,45 @@ impl Indicator {
                             ShowWindow(hidden, SW_HIDE);
                         }
                     }
+                    // The first approval's choices, shown only while it is pending.
+                    let make_choice = |id: i32, x: i32, y: i32, w: i32, h: i32, extra: u32| {
+                        CreateWindowExW(
+                            0,
+                            button.as_ptr(),
+                            wide("").as_ptr(),
+                            WS_CHILD | WS_TABSTOP | BS_OWNERDRAW as u32 | extra,
+                            scale(x),
+                            scale(y),
+                            scale(w),
+                            scale(h),
+                            window,
+                            id as usize as _,
+                            instance,
+                            std::ptr::null(),
+                        )
+                    };
+                    let view_card = make_choice(VIEW_CARD_ID, 28, 370, 226, 64, 0);
+                    let control_card = make_choice(
+                        CONTROL_CARD_ID,
+                        266,
+                        370,
+                        226,
+                        64,
+                        if state.card.control_requested.load(Ordering::Acquire) {
+                            0
+                        } else {
+                            WS_DISABLED
+                        },
+                    );
+                    let files_box = make_choice(FILES_BOX_ID, 44, 264, 440, 26, 0);
+                    let record_box = make_choice(RECORD_BOX_ID, 44, 292, 440, 26, 0);
+                    let audio_box = make_choice(AUDIO_BOX_ID, 44, 320, 440, 26, 0);
                     let controls = [
+                        view_card,
+                        control_card,
+                        files_box,
+                        record_box,
+                        audio_box,
                         prompt_title,
                         prompt_detail,
                         prompt_decline,
@@ -1148,6 +1613,10 @@ impl Indicator {
                     ] {
                         SendMessageW(handle, WM_SETFONT, font as usize, 1);
                     }
+                    if state.card.first.load(Ordering::Acquire) {
+                        // Opens as the first approval; the same window becomes the sharing card once it is allowed.
+                        apply_phase(window, &state, PHASE_FIRST);
+                    }
                     ShowWindow(window, SW_SHOW);
                     if SetForegroundWindow(window) == 0 {
                         let attention = FLASHWINFO {
@@ -1159,7 +1628,11 @@ impl Indicator {
                         };
                         FlashWindowEx(&attention);
                     }
-                    SetFocus(stop);
+                    SetFocus(if state.card.first.load(Ordering::Acquire) {
+                        prompt_decline
+                    } else {
+                        stop
+                    });
                     state.card.open.store(true, Ordering::Release);
                     if let Ok(mut current) = CARD.lock() {
                         *current = Some(state.card.clone());
@@ -1203,7 +1676,7 @@ impl Indicator {
         });
         match received.recv_timeout(std::time::Duration::from_secs(3)) {
             Ok(Ok(())) => Ok(Self {
-                card,
+                state: kept,
                 active,
                 thread: Some(thread),
             }),
@@ -1217,7 +1690,7 @@ impl Indicator {
 impl Drop for Indicator {
     fn drop(&mut self) {
         self.active.store(false, Ordering::Release);
-        self.card.open.store(false, Ordering::Release);
+        self.state.card.open.store(false, Ordering::Release);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -1478,7 +1951,7 @@ mod tests {
                         )
                     })
                 };
-                let shown = || fixture.state.prompt_shown.load(Ordering::Acquire);
+                let shown = || fixture.state.phase() != PHASE_SHARING;
                 let sharing =
                     || fixture.state.active.load(Ordering::Acquire) && IsWindow(window) != 0;
                 // The default answer is Decline.
@@ -1532,6 +2005,191 @@ mod tests {
         .join()
         .unwrap();
     }
+    /// The first approval is asked in the same window that then becomes the sharing card.
+    #[test]
+    fn first_approval_is_asked_in_the_card_and_hands_over_to_sharing() {
+        thread::spawn(|| unsafe {
+            let original = GetThreadDesktop(GetCurrentThreadId());
+            let name = wide(&format!("BeaconFirstTest-{}", GetCurrentThreadId()));
+            let desktop = CreateDesktopW(
+                name.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                DESKTOP_CREATEWINDOW | DESKTOP_READOBJECTS | DESKTOP_WRITEOBJECTS,
+                std::ptr::null(),
+            );
+            assert!(!desktop.is_null());
+            assert_ne!(SetThreadDesktop(desktop), 0);
+            let instance = GetModuleHandleW(std::ptr::null());
+            let definition = WNDCLASSW {
+                lpfnWndProc: Some(procedure),
+                hInstance: instance,
+                lpszClassName: name.as_ptr(),
+                ..Default::default()
+            };
+            assert_ne!(RegisterClassW(&definition), 0);
+            let result = std::panic::catch_unwind(|| {
+                for scenario in [
+                    "decline",
+                    "escape",
+                    "allow-control",
+                    "view-only",
+                    "cancel",
+                    "expire",
+                ] {
+                    let fixture = hidden_window(
+                        instance,
+                        &name,
+                        false,
+                        Some(Instant::now() + Duration::from_secs(30)),
+                    );
+                    let window = fixture.window;
+                    for (class, id, style) in [
+                        ("STATIC", PROMPT_TITLE_ID, 0),
+                        ("STATIC", PROMPT_DETAIL_ID, 0),
+                        ("BUTTON", PROMPT_DECLINE_ID, BS_OWNERDRAW as u32),
+                        ("BUTTON", PROMPT_ALLOW_ID, BS_OWNERDRAW as u32),
+                        ("BUTTON", VIEW_CARD_ID, BS_OWNERDRAW as u32),
+                        ("BUTTON", CONTROL_CARD_ID, BS_OWNERDRAW as u32),
+                        ("BUTTON", FILES_BOX_ID, BS_OWNERDRAW as u32),
+                        ("BUTTON", RECORD_BOX_ID, BS_OWNERDRAW as u32),
+                        ("BUTTON", AUDIO_BOX_ID, BS_OWNERDRAW as u32),
+                    ] {
+                        let class = wide(class);
+                        let child = CreateWindowExW(
+                            0,
+                            class.as_ptr(),
+                            wide("x").as_ptr(),
+                            WS_CHILD | style,
+                            0,
+                            0,
+                            1,
+                            1,
+                            window,
+                            id as usize as _,
+                            instance,
+                            std::ptr::null(),
+                        );
+                        assert!(!child.is_null());
+                    }
+                    let card = fixture.state.card.clone();
+                    card.first.store(true, Ordering::Release);
+                    card.control_requested.store(true, Ordering::Release);
+                    card.chosen.store(CHOSE_CONTROL, Ordering::Release);
+                    card.open.store(true, Ordering::Release);
+                    let pending = Arc::new(AtomicBool::new(true));
+                    let answer = {
+                        let (card, pending) = (card.clone(), pending.clone());
+                        let seconds = if scenario == "expire" { 0 } else { 20 };
+                        thread::spawn(move || {
+                            card.ask_first(&pending, Instant::now() + Duration::from_secs(seconds))
+                        })
+                    };
+                    let tick = || {
+                        dispatch(
+                            window,
+                            &MSG {
+                                hwnd: window,
+                                message: WM_TIMER,
+                                wParam: 1,
+                                ..Default::default()
+                            },
+                        );
+                    };
+                    let click = |id: i32| {
+                        dispatch(
+                            window,
+                            &MSG {
+                                hwnd: window,
+                                message: WM_COMMAND,
+                                wParam: id as usize | ((BN_CLICKED as usize) << 16),
+                                ..Default::default()
+                            },
+                        );
+                    };
+                    let end = Instant::now() + Duration::from_secs(5);
+                    while fixture.state.phase() != PHASE_FIRST
+                        && IsWindow(window) != 0
+                        && Instant::now() < end
+                    {
+                        tick();
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    if scenario == "expire" {
+                        let decision = answer.join().unwrap();
+                        assert_eq!(decision.decision, Decision::Declined, "{scenario}");
+                        assert!(card.closing.load(Ordering::Acquire));
+                        continue;
+                    }
+                    assert_eq!(fixture.state.phase(), PHASE_FIRST, "{scenario}");
+                    // Stop is not offered while nothing is shared; Decline is the default and has focus.
+                    // The test window itself is hidden, so visibility is read from each control's own style.
+                    let own_visible = |id: i32| {
+                        GetWindowLongW(GetDlgItem(window, id), GWL_STYLE) as u32 & WS_VISIBLE != 0
+                    };
+                    assert!(!own_visible(STOP_ID), "{scenario}: no Stop before approval");
+                    assert!(own_visible(PROMPT_ALLOW_ID) && own_visible(PROMPT_DECLINE_ID));
+                    assert_eq!(dispatch_default(window), PROMPT_DECLINE_ID as usize);
+                    // Wait until the request is pending before answering, as a person would.
+                    let end = Instant::now() + Duration::from_secs(5);
+                    while card.ask.load(Ordering::Acquire) != ASKING && Instant::now() < end {
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                    match scenario {
+                        "decline" => click(PROMPT_DECLINE_ID),
+                        "escape" => click(IDCANCEL),
+                        "allow-control" => {
+                            click(FILES_BOX_ID);
+                            click(AUDIO_BOX_ID);
+                            click(PROMPT_ALLOW_ID);
+                        }
+                        "view-only" => {
+                            click(VIEW_CARD_ID);
+                            click(PROMPT_ALLOW_ID);
+                        }
+                        _ => pending.store(false, Ordering::Release),
+                    }
+                    let decision = answer.join().unwrap();
+                    match scenario {
+                        "allow-control" => {
+                            assert_eq!(decision.decision, Decision::Control);
+                            assert!(decision.files && decision.audio && !decision.recording);
+                            // The same window becomes the sharing card, with Stop.
+                            let end = Instant::now() + Duration::from_secs(5);
+                            while fixture.state.phase() != PHASE_SHARING && Instant::now() < end {
+                                tick();
+                                thread::sleep(Duration::from_millis(10));
+                            }
+                            assert_eq!(fixture.state.phase(), PHASE_SHARING);
+                            assert!(own_visible(STOP_ID), "Stop is shown once sharing");
+                            assert!(!own_visible(PROMPT_ALLOW_ID));
+                            assert!(fixture.state.active.load(Ordering::Acquire));
+                            assert_eq!(IsWindow(window), 1);
+                        }
+                        "view-only" => {
+                            assert_eq!(decision.decision, Decision::View);
+                            assert!(!decision.files && !decision.audio);
+                        }
+                        _ => {
+                            assert_eq!(decision.decision, Decision::Declined, "{scenario}");
+                            // A declined window never shows the sharing card: it closes.
+                            tick();
+                            assert!(!fixture.state.active.load(Ordering::Acquire), "{scenario}");
+                            assert_eq!(IsWindow(window), 0, "{scenario}");
+                        }
+                    }
+                }
+            });
+            assert_ne!(UnregisterClassW(name.as_ptr(), instance), 0);
+            assert_ne!(SetThreadDesktop(original), 0);
+            assert_ne!(CloseDesktop(desktop), 0);
+            result.unwrap();
+        })
+        .join()
+        .unwrap();
+    }
+
     unsafe fn dispatch_default(window: HWND) -> usize {
         (SendMessageW(window, DM_GETDEFID, 0, 0) as usize) & 0xffff
     }

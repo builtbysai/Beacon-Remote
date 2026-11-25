@@ -455,6 +455,13 @@ async fn stream(
             grant.controller
         );
     }
+    // What the window shows and the helper receives, set once the person has answered. The window itself opens
+    // asking for the first approval and then becomes the sharing card, so one window serves the whole session.
+    let active = parent_active.clone();
+    let connected = Arc::new(AtomicBool::new(false));
+    let indicator_control = Arc::new(AtomicBool::new(control_allowed));
+    let extras = Arc::new(AtomicU8::new(0));
+    let mut approval_window: Option<crate::indicator::Indicator> = None;
     if desktop && !by_policy {
         let unlimited = grant.expires_at_millis == 0;
         let controller = grant.controller.clone();
@@ -474,16 +481,27 @@ async fn stream(
         let reported_recording = chosen_recording.clone();
         let chosen_audio = Arc::new(AtomicBool::new(false));
         let reported_audio = chosen_audio.clone();
-        let mut dialog = tokio::task::spawn_blocking(move || {
-            let decision = crate::consent::request_access(
-                &controller,
-                dialog_pending,
-                deadline,
+        // The control the viewer asked for is not active until the person allows it.
+        indicator_control.store(false, Ordering::Release);
+        let window = crate::indicator::Indicator::start_for_approval(
+            active.clone(),
+            connected.clone(),
+            desktop,
+            controller,
+            deadline,
+            indicator_control.clone(),
+            extras.clone(),
+            session_label,
+            crate::indicator::FirstRequest {
                 control,
                 unlimited,
-                &display_label,
-                &session_label,
-            )?;
+                display: display_label,
+            },
+        )?;
+        let card = window.card();
+        approval_window = Some(window);
+        let mut dialog = tokio::task::spawn_blocking(move || {
+            let decision = card.ask_first(&dialog_pending, deadline);
             reported_control.store(
                 decision.decision == crate::consent::Decision::Control,
                 Ordering::Release,
@@ -533,32 +551,39 @@ async fn stream(
         audio_allowed = chosen_audio.load(Ordering::Acquire);
     }
     let deadline = (grant.expires_at_millis != 0).then_some(deadline);
-    let active = parent_active;
-    let connected = Arc::new(AtomicBool::new(false));
-    let indicator_control = Arc::new(AtomicBool::new(control_allowed));
     let _stop = StopOnDrop(active.clone());
-    // Refuse media if a visible local Stop control cannot be created.
-    let extras = Arc::new(AtomicU8::new(
+    indicator_control.store(control_allowed, Ordering::Release);
+    extras.store(
         crate::files_transport::Permissions {
             files: files_allowed,
             recording: recording_allowed,
         }
         .bits(),
-    ));
-    let _indicator = crate::indicator::Indicator::start_access(
-        active.clone(),
-        connected.clone(),
-        desktop,
-        grant.controller.clone(),
-        deadline,
-        indicator_control.clone(),
-        extras.clone(),
-        audio_allowed && desktop,
-        format!(
-            "S-{}",
-            grant.id.chars().take(4).collect::<String>().to_uppercase()
-        ),
-    )?;
+        Ordering::Release,
+    );
+    // Refuse media if a visible local Stop control cannot be created.
+    let _indicator = match approval_window {
+        Some(window) => {
+            // The approval window carries on as the sharing card.
+            window.set_audio(audio_allowed && desktop);
+            window.set_deadline(deadline);
+            window
+        }
+        None => crate::indicator::Indicator::start_access(
+            active.clone(),
+            connected.clone(),
+            desktop,
+            grant.controller.clone(),
+            deadline,
+            indicator_control.clone(),
+            extras.clone(),
+            audio_allowed && desktop,
+            format!(
+                "S-{}",
+                grant.id.chars().take(4).collect::<String>().to_uppercase()
+            ),
+        )?,
+    };
     timeout(
         Duration::from_millis(500),
         socket.send(Message::Text(

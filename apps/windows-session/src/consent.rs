@@ -482,6 +482,8 @@ pub fn request(
         != Decision::Declined)
 }
 
+// The sharing card now asks the first approval itself; this standalone window remains for the guard tests.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn request_access(
     controller: &str,
     pending: Arc<AtomicBool>,
