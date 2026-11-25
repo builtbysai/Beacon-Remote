@@ -5,8 +5,6 @@ export const workspaceItems: { page: Page; label: string }[] = [
   { page: "sessions", label: "Sessions" },
   { page: "assist", label: "Assist" },
   { page: "activity", label: "Activity" },
-  { page: "downloads", label: "Downloads" },
-  { page: "settings", label: "Settings" },
 ];
 
 export function WorkspaceIcon({

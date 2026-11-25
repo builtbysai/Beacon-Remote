@@ -3620,3 +3620,99 @@ code.hash {
 .pairing-phone .pairing-code-row button.secondary {
   background: var(--tile);
 }
+
+/* ---- Account menu ------------------------------------------------------------------------------------------ */
+.header-end {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.account-menu {
+  position: relative;
+}
+.account-trigger {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.account-trigger svg {
+  width: 22px;
+  height: 22px;
+}
+.account-trigger:hover,
+.account-trigger[aria-expanded="true"] {
+  background: var(--tile);
+  color: var(--text);
+}
+.account-trigger.is-current {
+  background: var(--ink);
+  color: var(--on-ink);
+}
+.account-popover {
+  position: absolute;
+  z-index: 80;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  gap: 2px;
+  min-width: 220px;
+  padding: 6px;
+  border-radius: 22px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  animation: fade 0.15s;
+}
+.account-popover a,
+.account-popover button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 16px;
+  border-radius: 16px;
+  background: transparent;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 650;
+  text-align: left;
+  text-decoration: none;
+}
+.account-popover a:hover,
+.account-popover button:hover {
+  background: var(--tile);
+  text-decoration: none;
+}
+.account-popover [aria-current="page"] {
+  background: var(--accent-wash);
+  color: var(--accent-text);
+}
+.account-popover .workspace-icon {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+.account-popover hr {
+  height: 1px;
+  margin: 4px 10px;
+  border: 0;
+  background: var(--line-strong);
+}
+.account-popover .workspace-signout {
+  width: 100%;
+  padding: 0 16px;
+  color: var(--red);
+}
+@media (max-width: 900px) {
+  .account-popover {
+    min-width: 200px;
+  }
+}
+.account-popover a,
+.account-popover button {
+  justify-content: flex-start;
+}

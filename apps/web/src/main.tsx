@@ -14,6 +14,7 @@ import { SessionHistory } from "./SessionHistory.js";
 import { ComputerInspector } from "./ComputerInspector.js";
 import { AssistPanel } from "./AssistPanel.js";
 import { SupportInvite } from "./SupportInvite.js";
+import { AccountMenu } from "./AccountMenu.js";
 import { ThemePicker, readTheme, saveTheme } from "./ThemePicker.js";
 import { WorkspaceIcon, workspaceItems } from "./WorkspaceIcon.js";
 import { resolveViewRequest } from "./view-request.js";
@@ -709,15 +710,7 @@ function App() {
           </nav>
           <div className="header-end">
             <ThemePicker theme={theme} onChange={setTheme} />
-            <button
-              className="workspace-signout"
-              aria-label="Sign out"
-              title="Sign out"
-              onClick={() => void logout()}
-            >
-              <span className="signout-label">Sign out</span>
-              <WorkspaceIcon name="signout" />
-            </button>
+            <AccountMenu page={page} onSignOut={() => void logout()} />
           </div>
         </header>
       ) : (

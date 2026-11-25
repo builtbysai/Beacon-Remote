@@ -70,6 +70,7 @@ export async function reviewAssist({
   await waitFixture((state) => state.pending === 1);
   // Fixture logout deliberately fails: the mounted page must still discard
   // the older request made before the explicit sign-out attempt.
+  await click(".account-trigger");
   await click(".workspace-signout");
   await waitFor(
     "document.querySelector('.app-shell > .error')?.textContent.includes('Could not sign out')",
