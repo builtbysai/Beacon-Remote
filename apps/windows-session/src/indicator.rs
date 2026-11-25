@@ -406,13 +406,20 @@ unsafe fn draw_item(state: &WindowState, item: &DRAWITEMSTRUCT) {
     let scale = state.scale();
     let w = (item.rcItem.right - item.rcItem.left) as f32 / scale;
     let h = (item.rcItem.bottom - item.rcItem.top) as f32 / scale;
-    let brush = CreateSolidBrush(ui::colorref(state.palette.window));
+    let id = item.CtlID as i32;
+    // The two answer buttons of a request for more access sit on the amber panel, so their corners take its colour.
+    let backdrop =
+        if state.phase() == PHASE_MORE && matches!(id, PROMPT_DECLINE_ID | PROMPT_ALLOW_ID) {
+            state.palette.warn_soft
+        } else {
+            state.palette.window
+        };
+    let brush = CreateSolidBrush(ui::colorref(backdrop));
     FillRect(item.hDC, &item.rcItem, brush);
     DeleteObject(brush);
     let Some(canvas) = ui::Canvas::new(item.hDC, scale) else {
         return;
     };
-    let id = item.CtlID as i32;
     let flags = ui::State {
         hot: i32::from(state.hot.load(Ordering::Acquire)) == id - 1000,
         pressed: item.itemState & ODS_SELECTED != 0,

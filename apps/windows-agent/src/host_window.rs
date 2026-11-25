@@ -1172,7 +1172,14 @@ unsafe fn paint(window: HWND, state: &State) {
             }
         }
         // On the paired view the capsule sits on the tinted tile, so it takes the white surface to stay visible.
-        let fill = if state.paired { p.surface } else { fill };
+        // A stopped computer's tile is plain, so its capsule takes the window colour to show against it.
+        let fill = if !state.paired {
+            fill
+        } else if state.pill_mode() == 1 {
+            p.window
+        } else {
+            p.surface
+        };
         let pill_width = if state.pill_mode() == 4 { 124.0 } else { 100.0 };
         ui::pill(
             &canvas,
