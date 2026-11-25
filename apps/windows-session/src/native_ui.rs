@@ -231,12 +231,9 @@ pub fn face() -> &'static str {
 
 /// A GDI font for child controls: `height` is in device pixels, `weight` 400/600/700.
 pub unsafe fn gdi_font(height: i32, weight: i32) -> HFONT {
-    // The Semibold weight is its own face in Segoe UI.
-    let (name, weight) = if (600..700).contains(&weight) {
-        ("Segoe UI Semibold", 400)
-    } else {
-        (face(), weight)
-    };
+    // Anything from Semibold up is the real Bold face. The separate Semibold family is not on every machine, and
+    // where it is missing the text fell back to Regular next to bold neighbours.
+    let (name, weight) = (face(), if weight >= 600 { 700 } else { 400 });
     CreateFontW(
         -height,
         0,
@@ -404,16 +401,13 @@ impl Canvas {
         align: Align,
         center_vertically: bool,
     ) {
-        let family_name = if (600..700).contains(&weight) {
-            "Segoe UI Semibold"
-        } else {
-            face()
-        };
+        let family_name = face();
         let mut family: *mut GpFontFamily = null_mut();
         if GdipCreateFontFamilyFromName(wide(family_name).as_ptr(), null_mut(), &mut family) != 0 {
             GdipCreateFontFamilyFromName(wide("Segoe UI").as_ptr(), null_mut(), &mut family);
         }
-        let style = i32::from(weight >= 700);
+        // Bold from Semibold up, matching `gdi_font`.
+        let style = i32::from(weight >= 600);
         let mut font: *mut GpFont = null_mut();
         GdipCreateFont(family, self.s(size), style, UnitPixel, &mut font);
         let mut format: *mut GpStringFormat = null_mut();
