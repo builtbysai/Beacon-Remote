@@ -14,10 +14,10 @@ pub mod peripheral_policy;
 pub mod pixels;
 pub mod print_jobs;
 pub mod print_session;
-pub mod ui_protocol;
 #[cfg(windows)]
 pub mod print_submit;
 #[cfg(windows)]
 pub mod printers;
 #[cfg(windows)]
 pub mod sessions;
+pub mod ui_protocol;

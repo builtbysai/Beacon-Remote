@@ -897,8 +897,18 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
     }
     unsafe fn resize_for_page(&mut self, height: i32) {
         let px = |value: i32| (value as f32 * self.scale).round() as i32;
-        let mut bounds = RECT { left: 0, top: 0, right: px(520), bottom: px(height) };
-        AdjustWindowRectEx(&mut bounds, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, 0, 0);
+        let mut bounds = RECT {
+            left: 0,
+            top: 0,
+            right: px(520),
+            bottom: px(height),
+        };
+        AdjustWindowRectEx(
+            &mut bounds,
+            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+            0,
+            0,
+        );
         SetWindowPos(
             self.window,
             null_mut(),
@@ -925,7 +935,11 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
             }
             1
         }
-        EnumChildWindows(self.window, Some(collect), std::ptr::addr_of_mut!(shown) as LPARAM);
+        EnumChildWindows(
+            self.window,
+            Some(collect),
+            std::ptr::addr_of_mut!(shown) as LPARAM,
+        );
         shown.retain(|&child| GetParent(child) == self.window);
         for &child in &shown {
             ShowWindow(child, SW_HIDE);
@@ -940,7 +954,15 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
                 self.session_page = page;
                 self.hidden_for_session = shown;
                 // Always on top while anything is being asked or shared, so Stop is never covered.
-                SetWindowPos(self.window, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+                SetWindowPos(
+                    self.window,
+                    HWND_TOPMOST,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE,
+                );
                 SetForegroundWindow(self.window);
             }
             Err(_) => {
@@ -956,7 +978,15 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
         }
         DestroyWindow(self.session_page);
         self.session_page = null_mut();
-        SetWindowPos(self.window, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+        SetWindowPos(
+            self.window,
+            HWND_NOTOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE,
+        );
         for child in self.hidden_for_session.drain(..) {
             ShowWindow(child, SW_SHOW);
         }

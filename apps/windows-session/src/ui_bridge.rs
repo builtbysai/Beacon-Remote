@@ -126,7 +126,11 @@ pub struct Link {
 static LINK: OnceLock<Arc<Link>> = OnceLock::new();
 
 impl Link {
-    fn new(out: Option<Box<dyn Write + Send>>, active: Arc<AtomicBool>, check_desktop: bool) -> Self {
+    fn new(
+        out: Option<Box<dyn Write + Send>>,
+        active: Arc<AtomicBool>,
+        check_desktop: bool,
+    ) -> Self {
         Self {
             out: Mutex::new(out),
             next_id: AtomicU32::new(1),
@@ -216,7 +220,9 @@ impl Link {
             } => {
                 if let Ok(mut pending) = self.pending.lock() {
                     // Only the one pending prompt, and only its first answer, counts.
-                    if let Some(prompt) = pending.as_mut().filter(|p| p.id == id && p.answer.is_none())
+                    if let Some(prompt) = pending
+                        .as_mut()
+                        .filter(|p| p.id == id && p.answer.is_none())
                     {
                         prompt.answer = Some(Answer {
                             allow,
@@ -316,19 +322,23 @@ impl Link {
             muted: crate::audio::muted(),
             recording_active: crate::files::recording(),
             note: wire::clean(&crate::files::status(), 160),
-            remaining_ms: shared.deadline().map(|end| {
-                end.saturating_duration_since(Instant::now()).as_millis() as u64
-            }),
+            remaining_ms: shared
+                .deadline()
+                .map(|end| end.saturating_duration_since(Instant::now()).as_millis() as u64),
         }
     }
 }
 
 /// Connects this helper to the host: stdout becomes the protocol pipe (ordinary prints move to stderr so nothing else
 /// can reach it), stdin's remaining lines are the host's messages, and a watchdog enforces the liveness lease.
-pub fn connect_host(reader: impl BufRead + Send + 'static, active: Arc<AtomicBool>) -> Result<(), Error> {
+pub fn connect_host(
+    reader: impl BufRead + Send + 'static,
+    active: Arc<AtomicBool>,
+) -> Result<(), Error> {
     let out = take_stdout()?;
     let link = Arc::new(Link::new(Some(Box::new(out)), active, true));
-    LINK.set(link.clone()).map_err(|_| "Host link already set")?;
+    LINK.set(link.clone())
+        .map_err(|_| "Host link already set")?;
     let lines = link.clone();
     thread::spawn(move || lines.read_lines(reader));
     let watchdog = link;
@@ -560,7 +570,12 @@ pub struct Asker {
 }
 impl Asker {
     /// The first approval. Anything but an explicit Allow once declines.
-    pub fn ask_first(&self, request: &FirstRequest, pending: &AtomicBool, deadline: Instant) -> Access {
+    pub fn ask_first(
+        &self,
+        request: &FirstRequest,
+        pending: &AtomicBool,
+        deadline: Instant,
+    ) -> Access {
         let prompt = Prompt {
             id: 0,
             kind: PromptKind::First,
@@ -681,7 +696,11 @@ mod tests {
     fn linked() -> (Arc<Link>, Sink, Arc<AtomicBool>) {
         let sink = Sink::default();
         let active = Arc::new(AtomicBool::new(true));
-        let link = Arc::new(Link::new(Some(Box::new(sink.clone())), active.clone(), false));
+        let link = Arc::new(Link::new(
+            Some(Box::new(sink.clone())),
+            active.clone(),
+            false,
+        ));
         (link, sink, active)
     }
     fn prompt() -> Prompt {
@@ -706,9 +725,7 @@ mod tests {
     ) -> Option<Answer> {
         let asking = link.clone();
         let pending = Arc::new(AtomicBool::new(true));
-        let handle = thread::spawn(move || {
-            asking.ask(prompt(), &pending, Instant::now() + wait)
-        });
+        let handle = thread::spawn(move || asking.ask(prompt(), &pending, Instant::now() + wait));
         let id = loop {
             if let Some(ToHost::Prompt(prompt)) = sink.lines().first() {
                 break prompt.id;
@@ -734,7 +751,9 @@ mod tests {
     #[test]
     fn only_an_explicit_allow_for_the_pending_prompt_approves() {
         let (link, sink, _) = linked();
-        let got = ask_with(&link, &sink, Duration::from_secs(5), |id| vec![answer(id, true)]);
+        let got = ask_with(&link, &sink, Duration::from_secs(5), |id| {
+            vec![answer(id, true)]
+        });
         let got = got.expect("approved");
         assert!(got.allow && got.control && got.files && !got.recording);
     }
@@ -742,13 +761,20 @@ mod tests {
     #[test]
     fn a_decline_wrong_id_or_duplicate_never_approves() {
         let (link, sink, _) = linked();
-        assert!(ask_with(&link, &sink, Duration::from_secs(5), |id| vec![answer(id, false)])
-            .is_none());
+        assert!(
+            ask_with(&link, &sink, Duration::from_secs(5), |id| vec![answer(
+                id, false
+            )])
+            .is_none()
+        );
         let (link, sink, _) = linked();
         // A forged id is ignored, so the request runs out of time and declines.
         assert!(
-            ask_with(&link, &sink, Duration::from_millis(200), |id| vec![answer(id + 7, true)])
-                .is_none()
+            ask_with(&link, &sink, Duration::from_millis(200), |id| vec![answer(
+                id + 7,
+                true
+            )])
+            .is_none()
         );
         // A late answer after the request ended is ignored too.
         link.handle(&answer(1, true));
@@ -761,9 +787,15 @@ mod tests {
         let got = ask_with(&link, &sink, Duration::from_secs(5), |id| {
             vec![answer(id, false), answer(id, true)]
         });
-        assert!(got.is_none(), "a later allow cannot override the first answer");
+        assert!(
+            got.is_none(),
+            "a later allow cannot override the first answer"
+        );
         let (link, _sink, _) = linked();
-        *link.pending.lock().unwrap() = Some(Pending { id: 9, answer: None });
+        *link.pending.lock().unwrap() = Some(Pending {
+            id: 9,
+            answer: None,
+        });
         let pending = AtomicBool::new(true);
         assert!(link
             .ask(prompt(), &pending, Instant::now() + Duration::from_secs(1))
@@ -785,7 +817,9 @@ mod tests {
         let pending = Arc::new(AtomicBool::new(true));
         let asking = link.clone();
         let flag = pending.clone();
-        let handle = thread::spawn(move || asking.ask(prompt(), &flag, Instant::now() + Duration::from_secs(5)));
+        let handle = thread::spawn(move || {
+            asking.ask(prompt(), &flag, Instant::now() + Duration::from_secs(5))
+        });
         while sink.lines().is_empty() {
             thread::sleep(Duration::from_millis(5));
         }
@@ -799,7 +833,9 @@ mod tests {
         let active = Arc::new(AtomicBool::new(true));
         let link = Link::new(None, active, false);
         let pending = AtomicBool::new(true);
-        assert!(link.ask(prompt(), &pending, Instant::now() + Duration::from_secs(1)).is_none());
+        assert!(link
+            .ask(prompt(), &pending, Instant::now() + Duration::from_secs(1))
+            .is_none());
     }
 
     #[test]

@@ -192,7 +192,14 @@ unsafe fn arrange(window: HWND, page: &mut Page) {
         if control.is_null() {
             return;
         }
-        MoveWindow(control, px(page, x), px(page, y), px(page, w), px(page, h), 1);
+        MoveWindow(
+            control,
+            px(page, x),
+            px(page, y),
+            px(page, w),
+            px(page, h),
+            1,
+        );
         ShowWindow(control, if shown { SW_SHOW } else { SW_HIDE });
     };
     let asked_control = first.is_some_and(|(p, _)| p.control);
@@ -202,14 +209,49 @@ unsafe fn arrange(window: HWND, page: &mut Page) {
     place(CK_FILES, 28, top, 464, 26, first.is_some());
     place(CK_RECORD, 28, top + 30, 464, 26, first.is_some());
     place(CK_AUDIO, 28, top + 60, 464, 26, first.is_some());
-    place(DECLINE, 28, if first.is_some() { 400 } else { 462 }, 226, 44, first.is_some() || more.is_some());
-    place(ALLOW, 266, if first.is_some() { 400 } else { 462 }, 226, 44, first.is_some() || more.is_some());
+    place(
+        DECLINE,
+        28,
+        if first.is_some() { 400 } else { 462 },
+        226,
+        44,
+        first.is_some() || more.is_some(),
+    );
+    place(
+        ALLOW,
+        266,
+        if first.is_some() { 400 } else { 462 },
+        226,
+        44,
+        first.is_some() || more.is_some(),
+    );
     let sharing = first.is_none() && session.is_some();
     place(STOP, 28, 204, 464, 52, sharing);
     place(PAUSE, 28, 270, 226, 40, sharing);
-    place(MUTE, 266, 270, 226, 40, sharing && session.is_some_and(|s| s.audio));
-    place(SEND, 28, 320, 226, 40, sharing && session.is_some_and(|s| s.files && s.connected && !s.paused));
-    place(REVOKE, 266, 320, 226, 40, sharing && session.is_some_and(|s| s.files || s.recording));
+    place(
+        MUTE,
+        266,
+        270,
+        226,
+        40,
+        sharing && session.is_some_and(|s| s.audio),
+    );
+    place(
+        SEND,
+        28,
+        320,
+        226,
+        40,
+        sharing && session.is_some_and(|s| s.files && s.connected && !s.paused),
+    );
+    place(
+        REVOKE,
+        266,
+        320,
+        226,
+        40,
+        sharing && session.is_some_and(|s| s.files || s.recording),
+    );
     if let Some(session) = session {
         SetWindowTextW(
             GetDlgItem(window, PAUSE),
@@ -217,7 +259,12 @@ unsafe fn arrange(window: HWND, page: &mut Page) {
         );
         SetWindowTextW(
             GetDlgItem(window, MUTE),
-            wide(if session.muted { "Unmute sound" } else { "Mute sound" }).as_ptr(),
+            wide(if session.muted {
+                "Unmute sound"
+            } else {
+                "Mute sound"
+            })
+            .as_ptr(),
         );
         SetWindowTextW(
             GetDlgItem(window, REVOKE),
@@ -249,12 +296,27 @@ unsafe fn paint(window: HWND, page: &Page) {
     let old = SelectObject(buffer, bitmap);
     let p = &page.palette;
     let brush = CreateSolidBrush(ui::colorref(p.window));
-    FillRect(buffer, &RECT { left: 0, top: 0, right: w, bottom: h }, brush);
+    FillRect(
+        buffer,
+        &RECT {
+            left: 0,
+            top: 0,
+            right: w,
+            bottom: h,
+        },
+        brush,
+    );
     DeleteObject(brush);
     if let Some(canvas) = ui::Canvas::new(buffer, page.scale) {
         let view = &page.view;
-        let first = view.prompt.as_ref().filter(|(p, _)| p.kind == PromptKind::First);
-        let more = view.prompt.as_ref().filter(|(p, _)| p.kind == PromptKind::More);
+        let first = view
+            .prompt
+            .as_ref()
+            .filter(|(p, _)| p.kind == PromptKind::First);
+        let more = view
+            .prompt
+            .as_ref()
+            .filter(|(p, _)| p.kind == PromptKind::More);
         if let Some((prompt, _)) = first {
             ui::mark(&canvas, p, (28.0, 14.0, 46.0), ui::Mood::Wow, ui::SUN);
             canvas.text(
@@ -277,8 +339,20 @@ unsafe fn paint(window: HWND, page: &Page) {
             );
             canvas.fill(28.0, 92.0, 464.0, 72.0, 16.0, p.surface);
             canvas.stroke(28.0, 92.0, 464.0, 72.0, 16.0, p.line, 1.0);
-            canvas.text(&prompt.display, (44.0, 100.0, 432.0, 28.0), 14.0, 600, p.strong, ui::Align::Left, true);
-            let lasts = if prompt.unlimited { "Until you stop it" } else { "For a limited time" };
+            canvas.text(
+                &prompt.display,
+                (44.0, 100.0, 432.0, 28.0),
+                14.0,
+                600,
+                p.strong,
+                ui::Align::Left,
+                true,
+            );
+            let lasts = if prompt.unlimited {
+                "Until you stop it"
+            } else {
+                "For a limited time"
+            };
             canvas.text(
                 &format!("Session {} · {lasts}", prompt.session),
                 (44.0, 128.0, 432.0, 28.0),
@@ -309,7 +383,11 @@ unsafe fn paint(window: HWND, page: &Page) {
             };
             ui::mark(&canvas, p, (28.0, 14.0, 46.0), mood, body);
             canvas.text(
-                if session.paused { "Sharing is paused" } else { "Your screen is being shared" },
+                if session.paused {
+                    "Sharing is paused"
+                } else {
+                    "Your screen is being shared"
+                },
                 (86.0, 14.0, 406.0, 28.0),
                 17.0,
                 700,
@@ -337,13 +415,25 @@ unsafe fn paint(window: HWND, page: &Page) {
             } else {
                 "View only"
             };
-            canvas.text(access, (44.0, 100.0, 432.0, 28.0), 14.0, 600, p.strong, ui::Align::Left, true);
+            canvas.text(
+                access,
+                (44.0, 100.0, 432.0, 28.0),
+                14.0,
+                600,
+                p.strong,
+                ui::Align::Left,
+                true,
+            );
             let mut extras = Vec::new();
             if session.files {
                 extras.push("files");
             }
             if session.recording {
-                extras.push(if session.recording_active { "recording now" } else { "recording allowed" });
+                extras.push(if session.recording_active {
+                    "recording now"
+                } else {
+                    "recording allowed"
+                });
             }
             if session.audio && !session.muted {
                 extras.push("sound");
@@ -356,7 +446,15 @@ unsafe fn paint(window: HWND, page: &Page) {
                     None => "until you stop it".into(),
                 }
             );
-            canvas.text(&line, (44.0, 128.0, 432.0, 24.0), 12.5, 400, p.muted, ui::Align::Left, true);
+            canvas.text(
+                &line,
+                (44.0, 128.0, 432.0, 24.0),
+                12.5,
+                400,
+                p.muted,
+                ui::Align::Left,
+                true,
+            );
             canvas.text(
                 &if !session.note.is_empty() {
                     session.note.clone()
@@ -385,7 +483,15 @@ unsafe fn paint(window: HWND, page: &Page) {
                 ui::Align::Left,
                 true,
             );
-            canvas.text(&prompt.detail, (44.0, 410.0, 432.0, 30.0), 12.5, 400, p.text, ui::Align::Left, true);
+            canvas.text(
+                &prompt.detail,
+                (44.0, 410.0, 432.0, 30.0),
+                12.5,
+                400,
+                p.text,
+                ui::Align::Left,
+                true,
+            );
         }
     }
     BitBlt(hdc, 0, 0, w, h, buffer, 0, 0, SRCCOPY);
@@ -451,7 +557,12 @@ unsafe fn draw_item(page: &Page, item: &DRAWITEMSTRUCT) {
     }
 }
 
-unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+unsafe extern "system" fn procedure(
+    window: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
     if message == WM_NCCREATE {
         let create = &*(lparam as *const CREATESTRUCTW);
         SetWindowLongPtrW(window, GWLP_USERDATA, create.lpCreateParams as isize);
@@ -565,7 +676,9 @@ unsafe fn choose_file(window: HWND) -> Option<std::path::PathBuf> {
         return None;
     }
     let length = buffer.iter().position(|unit| *unit == 0)?;
-    Some(std::path::PathBuf::from(String::from_utf16_lossy(&buffer[..length])))
+    Some(std::path::PathBuf::from(String::from_utf16_lossy(
+        &buffer[..length],
+    )))
 }
 
 #[cfg(test)]
@@ -573,7 +686,10 @@ mod preview {
     use super::*;
     use beacon_remote_session::ui_protocol::{Prompt, SessionState};
     use std::time::Instant;
-    use windows_sys::Win32::Graphics::Gdi::{GetDC, ReleaseDC, GetDIBits, CreateCompatibleBitmap, CreateCompatibleDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS};
+    use windows_sys::Win32::Graphics::Gdi::{
+        CreateCompatibleBitmap, CreateCompatibleDC, GetDC, GetDIBits, ReleaseDC, SelectObject,
+        BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS,
+    };
     use windows_sys::Win32::Storage::Xps::PrintWindow;
     const PW_RENDERFULLCONTENT: u32 = 2;
 
@@ -604,7 +720,20 @@ mod preview {
     }
     unsafe fn shot(path: &str, view: View) {
         beacon_remote_agent_seed(view);
-        let parent = CreateWindowExW(0, wide("STATIC").as_ptr(), wide("preview").as_ptr(), WS_OVERLAPPED | WS_VISIBLE, 100, 100, 520, 560, null_mut(), null_mut(), GetModuleHandleW(null()), null());
+        let parent = CreateWindowExW(
+            0,
+            wide("STATIC").as_ptr(),
+            wide("preview").as_ptr(),
+            WS_OVERLAPPED | WS_VISIBLE,
+            100,
+            100,
+            520,
+            560,
+            null_mut(),
+            null_mut(),
+            GetModuleHandleW(null()),
+            null(),
+        );
         let mut client = RECT::default();
         GetClientRect(parent, &mut client);
         let page = embed(parent, client, 1.0).unwrap();
@@ -624,14 +753,32 @@ mod preview {
         SelectObject(dc, bitmap);
         PrintWindow(page, dc, PW_RENDERFULLCONTENT);
         let mut info: BITMAPINFO = std::mem::zeroed();
-        info.bmiHeader = BITMAPINFOHEADER { biSize: 40, biWidth: w, biHeight: -h, biPlanes: 1, biBitCount: 32, ..std::mem::zeroed() };
+        info.bmiHeader = BITMAPINFOHEADER {
+            biSize: 40,
+            biWidth: w,
+            biHeight: -h,
+            biPlanes: 1,
+            biBitCount: 32,
+            ..std::mem::zeroed()
+        };
         let mut pixels = vec![0u8; (w * h * 4) as usize];
-        GetDIBits(dc, bitmap, 0, h as u32, pixels.as_mut_ptr().cast(), &mut info, DIB_RGB_COLORS);
+        GetDIBits(
+            dc,
+            bitmap,
+            0,
+            h as u32,
+            pixels.as_mut_ptr().cast(),
+            &mut info,
+            DIB_RGB_COLORS,
+        );
         ReleaseDC(null_mut(), screen);
-        let mut raw = format!("P6
+        let mut raw = format!(
+            "P6
 {w} {h}
 255
-").into_bytes();
+"
+        )
+        .into_bytes();
         for px in pixels.chunks(4) {
             raw.extend_from_slice(&[px[2], px[1], px[0]]);
         }
@@ -646,9 +793,27 @@ mod preview {
     fn preview_screens() {
         let dir = std::env::var("PREVIEW_DIR").unwrap_or_else(|_| ".".into());
         unsafe {
-            shot(&format!("{dir}/first.ppm"), View { prompt: Some((prompt(PromptKind::First), Instant::now())), session: None });
-            shot(&format!("{dir}/sharing.ppm"), View { prompt: None, session: Some(state()) });
-            shot(&format!("{dir}/more.ppm"), View { prompt: Some((prompt(PromptKind::More), Instant::now())), session: Some(state()) });
+            shot(
+                &format!("{dir}/first.ppm"),
+                View {
+                    prompt: Some((prompt(PromptKind::First), Instant::now())),
+                    session: None,
+                },
+            );
+            shot(
+                &format!("{dir}/sharing.ppm"),
+                View {
+                    prompt: None,
+                    session: Some(state()),
+                },
+            );
+            shot(
+                &format!("{dir}/more.ppm"),
+                View {
+                    prompt: Some((prompt(PromptKind::More), Instant::now())),
+                    session: Some(state()),
+                },
+            );
         }
     }
 }

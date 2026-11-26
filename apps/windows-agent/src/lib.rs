@@ -8,7 +8,13 @@ mod credentials;
 #[cfg(windows)]
 mod helper_lifetime;
 pub mod incoming;
+#[cfg(windows)]
+pub mod native_ui;
 pub mod network;
+#[cfg(windows)]
+pub mod session_hub;
+#[cfg(windows)]
+pub mod session_view;
 mod sessions;
 #[cfg(windows)]
 mod signin_attention;
@@ -34,12 +40,6 @@ mod signin_pixels;
 mod signin_revoke;
 #[cfg(windows)]
 pub mod signin_scope;
-#[cfg(windows)]
-pub mod native_ui;
-#[cfg(windows)]
-pub mod session_hub;
-#[cfg(windows)]
-pub mod session_view;
 #[cfg(windows)]
 pub mod signin_settings;
 #[cfg(windows)]

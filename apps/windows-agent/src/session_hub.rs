@@ -179,7 +179,10 @@ mod tests {
         let now = Instant::now();
         let left = time_left(&(prompt.clone(), now));
         assert!(left <= Duration::from_secs(5) && left > Duration::from_secs(4));
-        let old = (prompt, now.checked_sub(Duration::from_secs(9)).unwrap_or(now));
+        let old = (
+            prompt,
+            now.checked_sub(Duration::from_secs(9)).unwrap_or(now),
+        );
         assert!(time_left(&old) <= Duration::from_secs(5));
     }
 }

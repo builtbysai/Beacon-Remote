@@ -200,7 +200,10 @@ mod tests {
             audio: false,
         };
         assert_eq!(parse_to_helper(&encode(&answer)), Ok(answer));
-        assert_eq!(parse_to_helper(&encode(&ToHelper::Alive)), Ok(ToHelper::Alive));
+        assert_eq!(
+            parse_to_helper(&encode(&ToHelper::Alive)),
+            Ok(ToHelper::Alive)
+        );
     }
 
     #[test]
@@ -220,12 +223,21 @@ mod tests {
 
     #[test]
     fn unknown_malformed_and_oversized_lines_are_refused() {
-        assert_eq!(parse_to_helper(r#"{"t":"allow-everything"}"#), Err(Refused::Malformed));
+        assert_eq!(
+            parse_to_helper(r#"{"t":"allow-everything"}"#),
+            Err(Refused::Malformed)
+        );
         assert_eq!(parse_to_helper("not json"), Err(Refused::Malformed));
-        assert_eq!(parse_to_helper(r#"{"t":"answer","id":"x","allow":true}"#), Err(Refused::Malformed));
+        assert_eq!(
+            parse_to_helper(r#"{"t":"answer","id":"x","allow":true}"#),
+            Err(Refused::Malformed)
+        );
         let long = format!(r#"{{"t":"send-file","path":"{}"}}"#, "a".repeat(MAX_LINE));
         assert_eq!(parse_to_helper(&long), Err(Refused::TooLong));
-        assert_eq!(parse_to_host(r#"{"t":"prompt","id":1}"#), Err(Refused::Malformed));
+        assert_eq!(
+            parse_to_host(r#"{"t":"prompt","id":1}"#),
+            Err(Refused::Malformed)
+        );
     }
 
     #[test]
