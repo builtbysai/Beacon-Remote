@@ -258,11 +258,20 @@ unsafe fn paint(window: HWND, page: &Page) {
         if let Some((prompt, _)) = first {
             ui::mark(&canvas, p, (28.0, 14.0, 46.0), ui::Mood::Wow, ui::SUN);
             canvas.text(
-                &format!("{} wants to view your screen", prompt.controller),
-                (86.0, 14.0, 406.0, 46.0),
+                "Allow screen sharing?",
+                (86.0, 14.0, 406.0, 28.0),
                 17.0,
                 700,
                 p.strong,
+                ui::Align::Left,
+                true,
+            );
+            canvas.text(
+                &prompt.controller,
+                (86.0, 42.0, 406.0, 22.0),
+                13.0,
+                400,
+                p.muted,
                 ui::Align::Left,
                 true,
             );
