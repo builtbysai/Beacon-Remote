@@ -498,6 +498,20 @@ impl Session {
                     && watch.deadline().is_none_or(|end| Instant::now() < end)
                     && (!watch.desktop || watch_link.desktop_ok());
                 if !live {
+                    // Say why: a session that ends with no other message is hard to diagnose.
+                    let still_active = watch.active.load(Ordering::Acquire);
+                    if still_active {
+                        let past_deadline =
+                            watch.deadline().is_some_and(|end| Instant::now() >= end);
+                        eprintln!(
+                            "Sharing ended: {}.",
+                            if past_deadline {
+                                "the approved time ran out"
+                            } else {
+                                "the input desktop is no longer the shared one"
+                            }
+                        );
+                    }
                     watch.active.store(false, Ordering::Release);
                     watch_link.changed.notify_all();
                     return;

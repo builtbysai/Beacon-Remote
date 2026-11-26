@@ -1343,9 +1343,17 @@ async fn media_cycle(
             };
             let encode_time = encode_started.elapsed();
             for packet in encoded {
-                if packets.try_send(packet).is_err() {
-                    worker_active.store(false, Ordering::Release);
-                    return Err("Media consumer stalled".into());
+                match packets.try_send(packet) {
+                    Ok(()) => {}
+                    Err(mpsc::error::TrySendError::Closed(_)) => {
+                        // The sending task already ended; its own reason is the one that matters.
+                        worker_active.store(false, Ordering::Release);
+                        return Err("Media sender had already ended".into());
+                    }
+                    Err(mpsc::error::TrySendError::Full(_)) => {
+                        worker_active.store(false, Ordering::Release);
+                        return Err("Media consumer stalled".into());
+                    }
                 }
             }
             index += 1;
@@ -1479,7 +1487,10 @@ async fn media_cycle(
                 }
                 _=tick.tick()=>{
                     indicator_connected.store(connected.load(Ordering::Acquire), Ordering::Release);
-                    if !active.load(Ordering::Acquire) || !session_active.load(Ordering::Acquire) || deadline.is_some_and(|end| Instant::now() >= end) {break;}
+                    if !active.load(Ordering::Acquire) || !session_active.load(Ordering::Acquire) || deadline.is_some_and(|end| Instant::now() >= end) {
+                        println!("Signaling stopped: sharing is no longer active (local stop, desktop change or time limit).");
+                        break;
+                    }
                     layout_ticks = layout_ticks.wrapping_add(1);
                     if layout_ticks.is_multiple_of(20) {
                         if let (Some(before), Some(now)) = (&layout_at_start, crate::capture::layout_snapshot()) {
@@ -1565,7 +1576,7 @@ async fn media_cycle(
                     if !reported_first_packet {println!("First video packet sent: generation {generation}, {} ms.",setup_started.elapsed().as_millis()); reported_first_packet=true;}
                 }
                 message=socket.next()=>{
-                    let text=match message {Some(Ok(Message::Text(text)))=>text,Some(Ok(Message::Ping(_) | Message::Pong(_)))=>continue,_=>break};
+                    let text=match message {Some(Ok(Message::Text(text)))=>text,Some(Ok(Message::Ping(_) | Message::Pong(_)))=>continue,other=>{println!("Signaling stopped: the server closed the connection ({}).",match other {None=>"stream ended".to_owned(),Some(Ok(message))=>format!("{message:?}").chars().take(60).collect(),Some(Err(error))=>error.to_string()});break}};
                     if text.len()>65536 {return Err("Oversized signaling".into());}
                     let body:Value=serde_json::from_str(&text)?;
                     match body["type"].as_str() {
@@ -1704,7 +1715,7 @@ async fn media_cycle(
                             }
                         }
                         Some("ended")=>break,
-                        Some("viewer-detached")=>{ detached = true; break; },
+                        Some("viewer-detached")=>{ println!("Signaling stopped: the viewer left."); detached = true; break; },
                         Some("joined")=>{},
                         _=>return Err("Unexpected signaling".into())
                     }
