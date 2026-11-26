@@ -180,11 +180,18 @@ object HostUi {
         }
         panel.addView(close, LinearLayout.LayoutParams(dp(activity, 32), dp(activity, 32)).apply { gravity = Gravity.END; bottomMargin = dp(activity, 6) })
         build(panel) { dialog.dismiss() }
-        dialog.setContentView(panel)
+        // Scrollable, so a large font size or a short landscape screen never clips the content or the close button.
+        val scroll = ScrollView(activity).apply {
+            isFillViewport = false
+            addView(panel, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        dialog.setContentView(scroll)
         dialog.window?.apply {
             setBackgroundDrawableResource(android.R.color.transparent)
             setGravity(Gravity.BOTTOM)
-            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            // Full width on a phone; the same readable 600 dp column as the screens on a tablet.
+            val screenWidth = activity.resources.displayMetrics.widthPixels
+            setLayout(minOf(screenWidth, dp(activity, 600)), ViewGroup.LayoutParams.WRAP_CONTENT)
             setDimAmount(0.4f)
         }
         return dialog
