@@ -4,6 +4,7 @@
 //! work; this module paints what sits behind and on them: cards, pills, the avatar, icons and the
 //! owner-drawn buttons. It follows the Windows light/dark setting and uses system colors in
 //! high-contrast mode. Included by both the session helper and the host program.
+#![allow(clippy::missing_safety_doc)]
 #![allow(dead_code)]
 use std::{ptr::null_mut, sync::OnceLock};
 use windows_sys::Win32::{

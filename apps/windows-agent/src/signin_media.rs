@@ -185,29 +185,69 @@ impl Drop for VideoDone {
 fn video(scope: Arc<SignInScope>, packets: mpsc::Sender<Packet>) -> Result<(), HostError> {
     let _end = EndScope(scope.clone());
     scope.authorize()?;
-    let mut capture = SignInCapture::start(scope.clone())?;
+    crate::signin_worker::trace("video: starting capture");
+    let mut capture = match SignInCapture::start(scope.clone()) {
+        Ok(capture) => capture,
+        Err(error) => {
+            crate::signin_worker::trace(&format!("video: capture could not start: {error}"));
+            return Err(error);
+        }
+    };
     scope.authorize()?;
-    let mut encoder = Encoder::new(WIDTH, HEIGHT, FPS, 2_500_000)?;
+    crate::signin_worker::trace("video: capture started, starting encoder");
+    let mut encoder = match Encoder::new(WIDTH, HEIGHT, FPS, 2_500_000) {
+        Ok(encoder) => encoder,
+        Err(error) => {
+            crate::signin_worker::trace(&format!("video: encoder could not start: {error}"));
+            return Err(error);
+        }
+    };
+    crate::signin_worker::trace("video: encoder started");
     let mut nv12 = Zeroizing::new(vec![0u8; (WIDTH * HEIGHT * 3 / 2) as usize]);
     let mut index = 0u64;
+    let mut last_encoded = Instant::now();
     loop {
         scope.authorize()?;
         let started = Instant::now();
-        let Some(frame) = capture.next_frame()? else {
-            thread::sleep(Duration::from_millis(5));
-            continue;
-        };
-        pixels::nv12(
-            &frame.image.bgra,
-            frame.image.width,
-            frame.image.height,
-            &mut nv12,
-            WIDTH,
-            HEIGHT,
-        )?;
-        drop(frame);
+        match capture.next_frame() {
+            Ok(Some(frame)) => {
+                if index == 0 {
+                    crate::signin_worker::trace("video: first frame captured");
+                }
+                pixels::nv12(
+                    &frame.image.bgra,
+                    frame.image.width,
+                    frame.image.height,
+                    &mut nv12,
+                    WIDTH,
+                    HEIGHT,
+                )?;
+            }
+            // A still sign-in screen produces no new frames, but the viewer still needs a steady
+            // stream (and the encoder's periodic keyframes) to start and keep showing a picture:
+            // send the last image again at the normal frame rate instead of going quiet.
+            Ok(None) if index > 0 && last_encoded.elapsed() >= INTERVAL => {}
+            Ok(None) => {
+                thread::sleep(Duration::from_millis(5));
+                continue;
+            }
+            Err(error) => {
+                crate::signin_worker::trace(&format!("video: capturing a frame failed: {error}"));
+                return Err(error);
+            }
+        }
+        last_encoded = Instant::now();
         scope.authorize()?;
-        let encoded = encoder.encode(&nv12, index)?;
+        let encoded = match encoder.encode(&nv12, index) {
+            Ok(encoded) => encoded,
+            Err(error) => {
+                crate::signin_worker::trace(&format!("video: encoding failed: {error}"));
+                return Err(error);
+            }
+        };
+        if index == 0 {
+            crate::signin_worker::trace("video: first frame encoded");
+        }
         // Own every packet in zeroizing memory before rechecking authority.
         let encoded = encoded
             .into_iter()
@@ -399,18 +439,19 @@ async fn peer(
             let mut answered=false;let mut remote=Vec::<RTCIceCandidateInit>::new();
             let (packets,mut receiver)=mpsc::channel::<Packet>(2);
             let mut video_thread=None::<JoinHandle<()>>;
+            let mut sent=0u64;
             let mut tick=tokio::time::interval(Duration::from_millis(10));
             let result=async {loop {tokio::select! {biased;
                 _=tick.tick()=>{
-                    scope.authorize_signaling()?;
-                    if signaling.ended(){return Err(rejected());}
+                    if let Err(error)=scope.authorize_signaling(){crate::signin_worker::trace(&format!("peer loop: authority check failed: {error}"));return Err(error);}
+                    if signaling.ended(){crate::signin_worker::trace("peer loop: signaling has ended");return Err(rejected());}
                     // A lease or signaling metadata alone cannot start capture.
                     if answered && video_thread.is_none() && scope.authorize().is_ok() {
                         let owned_scope=scope.clone();let owned_packets=packets.clone();let owned_completion=cleanup.clone();
                         cleanup.video.store(false,Ordering::Release);
-                        video_thread=Some(thread::Builder::new().name("signin-video".into()).spawn(move||{let _done=VideoDone(owned_completion);let _=video(owned_scope,owned_packets);})?);
+                        video_thread=Some(thread::Builder::new().name("signin-video".into()).spawn(move||{let _done=VideoDone(owned_completion);if let Err(error)=video(owned_scope,owned_packets){crate::signin_worker::trace(&format!("video thread ended with an error: {error}"));}})?);
                     }
-                    if video_thread.as_ref().is_some_and(|thread|thread.is_finished()){return Err(rejected());}
+                    if video_thread.as_ref().is_some_and(|thread|thread.is_finished()){crate::signin_worker::trace("peer loop: the video thread finished");return Err(rejected());}
                     // Bound each poll batch; queue overflow independently ends signaling.
                     for _ in 0..16 {let Some(event)=signaling.try_event()? else {break;};match event {
                         Event::Answer(sdp)=>{
@@ -425,7 +466,7 @@ async fn peer(
                             if answered {checked(&scope,false,pc.add_ice_candidate(candidate)).await?;}
                             else {if remote.len()>=16{return Err(rejected());}remote.push(candidate);}
                         },
-                        _=>return Err(rejected()),
+                        other=>{crate::signin_worker::trace(&format!("peer loop: unexpected signaling event ({})",match other {Event::Ready(_)=>"ready",Event::PeerReady=>"peer-ready",_=>"other"}));return Err(rejected());},
                     }}
                 },
                 candidate=candidate_receiver.recv()=>{
@@ -434,12 +475,14 @@ async fn peer(
                 },
                 packet=receiver.recv()=>{
                     let packet=packet.ok_or_else(rejected)?;
-                    scope.authorize()?;
+                    if let Err(error)=scope.authorize(){crate::signin_worker::trace(&format!("peer loop: authority check before sending failed: {error}"));return Err(error);}
                     let parameters=checked(&scope,true,sender.get_parameters()).await?;
                     let payload=parameters.rtp_parameters.codecs.first().ok_or_else(rejected)?.payload_type;
                     // Bytes owns zeroizing storage, including while buffered in RTP.
                     let data=bytes::Bytes::from_owner(PacketBytes(packet.bytes));
                     checked(&scope,true,track.sample_writer(SSRC,payload).write_sample(&Sample{data,duration:INTERVAL,..Sample::new(Instant::now())})).await?;
+                    sent+=1;
+                    if sent==1||sent.is_multiple_of(125){crate::signin_worker::trace(&format!("video: {sent} samples sent"));}
                 },
             }}}.await;
             scope.stop();
@@ -487,20 +530,37 @@ async fn run(
     loop {
         scope.authorize_signaling()?;
         if started.elapsed() > Duration::from_secs(10) {
+            crate::signin_worker::trace("signaling: the viewer was not ready within 10 seconds");
             return Err(rejected());
         }
-        match signaling.try_event()? {
-            Some(Event::Ready(config)) if ready.is_none() => ready = Some(config),
+        let event = match signaling.try_event() {
+            Ok(event) => event,
+            Err(error) => {
+                crate::signin_worker::trace(&format!("signaling ended: {error}"));
+                return Err(error);
+            }
+        };
+        match event {
+            Some(Event::Ready(config)) if ready.is_none() => {
+                crate::signin_worker::trace("signaling: ready");
+                ready = Some(config)
+            }
             Some(Event::PeerReady) => {
+                crate::signin_worker::trace("signaling: the viewer is ready");
                 return peer(
                     &signaling,
                     scope.clone(),
                     ready.take().ok_or_else(rejected)?,
                     cleanup,
                 )
-                .await
+                .await;
             }
-            Some(_) => return Err(rejected()),
+            Some(_) => {
+                crate::signin_worker::trace(
+                    "signaling: unexpected event before the viewer was ready",
+                );
+                return Err(rejected());
+            }
             None => tokio::time::sleep(Duration::from_millis(10)).await,
         }
     }
@@ -532,7 +592,12 @@ impl SignInMedia {
                     .enable_all()
                     .build()
                 {
-                    let _ = runtime.block_on(run(signaling, owned, owned_cleanup));
+                    match runtime.block_on(run(signaling, owned, owned_cleanup)) {
+                        Ok(()) => crate::signin_worker::trace("media runner finished"),
+                        Err(error) => crate::signin_worker::trace(&format!(
+                            "media runner ended with an error: {error}"
+                        )),
+                    }
                     runtime.shutdown_timeout(Duration::from_millis(500));
                 }
             })

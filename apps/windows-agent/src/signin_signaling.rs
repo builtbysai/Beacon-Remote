@@ -388,7 +388,14 @@ fn run(
     channels: Channels,
 ) -> Result<(), HostError> {
     let public_key = STANDARD.encode(SigningKey::from_bytes(&key).verifying_key().as_bytes());
-    let mut socket = connect(&server, &machine, &binding, &key, gate.as_ref())?;
+    let mut socket = match connect(&server, &machine, &binding, &key, gate.as_ref()) {
+        Ok(socket) => socket,
+        Err(error) => {
+            crate::signin_worker::trace(&format!("signaling could not connect: {error}"));
+            return Err(error);
+        }
+    };
+    crate::signin_worker::trace("signaling connected");
     drop(key); // No reconnect/re-signing under this lease.
     let mut protocol = Protocol {
         binding,
@@ -406,6 +413,7 @@ fn run(
         loop {
             gate.check()?;
             if traffic.elapsed() > Duration::from_secs(5) {
+                crate::signin_worker::trace("signaling: no reply from the server for 5 seconds");
                 return Err(rejected());
             }
             if window.elapsed() >= Duration::from_secs(60) {
@@ -443,17 +451,38 @@ fn run(
                     gate.check()?;
                     match message {
                         Message::Text(body) => {
-                            let event = protocol.receive(&body)?;
+                            let event = match protocol.receive(&body) {
+                                Ok(event) => event,
+                                Err(error) => {
+                                    crate::signin_worker::trace(&format!(
+                                        "signaling: message refused: {error}"
+                                    ));
+                                    return Err(error);
+                                }
+                            };
                             gate.check()?;
                             channels.events.try_send(event).map_err(|_| rejected())?;
                         }
                         Message::Ping(_) => flush(&mut socket, gate.as_ref())?,
                         Message::Pong(_) => {}
-                        _ => return Err(rejected()),
+                        other => {
+                            let kind = match other {
+                                Message::Binary(_) => "binary",
+                                Message::Close(_) => "close",
+                                _ => "other",
+                            };
+                            crate::signin_worker::trace(&format!(
+                                "signaling: unexpected {kind} frame"
+                            ));
+                            return Err(rejected());
+                        }
                     }
                 }
                 Err(error) if idle(&error) => {}
-                _ => return Err(rejected()),
+                Err(error) => {
+                    crate::signin_worker::trace(&format!("signaling: read failed: {error}"));
+                    return Err(rejected());
+                }
             }
         }
     })();
@@ -512,7 +541,7 @@ impl SignInSignaling {
             .name("signin-signaling".into())
             .spawn(move || {
                 let _authority = EndScope(owned_gate.clone());
-                let _ = run(
+                match run(
                     server,
                     machine,
                     binding,
@@ -522,7 +551,10 @@ impl SignInSignaling {
                         commands: receiver,
                         events: sender,
                     },
-                );
+                ) {
+                    Ok(()) => crate::signin_worker::trace("signaling finished"),
+                    Err(error) => crate::signin_worker::trace(&format!("signaling ended: {error}")),
+                }
                 finished.store(true, Ordering::Release);
             })
             .map_err(|_| {

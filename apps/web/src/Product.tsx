@@ -321,19 +321,10 @@ export function ProductPage({
             </p>
           </article>
         </div>
-        <section className="security-later">
-          <h2>Not yet released</h2>
-          <ul>
-            <li>Windows sign-in screen access</li>
-            <li>The full device and network acceptance matrix</li>
-            <li>Peer authentication against the signaling service</li>
-            <li>Email recovery depends on the operator’s server setup</li>
-          </ul>
-          <p>
-            Build and signing details are on the{" "}
-            <a href="#downloads">Downloads</a> page.
-          </p>
-        </section>
+        <p className="security-note">
+          Build and signing details are on the{" "}
+          <a href="#downloads">Downloads</a> page.
+        </p>
       </section>
     );
   return null;

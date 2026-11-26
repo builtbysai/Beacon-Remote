@@ -532,23 +532,10 @@ mod tests {
             let result = std::panic::catch_unwind(|| {
                 assert_ne!(SetThreadDesktop(desktop), 0);
                 assert!(!desktop_receives_input());
-                assert_eq!(
-                    crate::consent::request_access(
-                        "guard-test@example.invalid",
-                        Arc::new(AtomicBool::new(true)),
-                        Instant::now() + Duration::from_secs(1),
-                        false,
-                        false,
-                        "Primary display",
-                        "S-0000",
-                    )
-                    .unwrap()
-                    .decision,
-                    crate::consent::Decision::Declined
-                );
+                assert!(crate::ui_bridge::declines_on_a_desktop_that_gets_no_input());
 
                 let active = Arc::new(AtomicBool::new(true));
-                assert!(crate::indicator::Indicator::start_access(
+                assert!(crate::ui_bridge::Session::start_access(
                     active.clone(),
                     Arc::new(AtomicBool::new(false)),
                     true,

@@ -347,13 +347,13 @@ input[type="radio"] {
   display: block;
 }
 .password-field input {
-  padding-right: 76px;
+  padding-right: 84px;
 }
 .password-field .password-toggle {
   position: absolute;
   top: 50%;
-  right: 6px;
-  min-height: 36px;
+  right: 4px;
+  min-height: 44px;
   padding: 0 14px;
   transform: translateY(-50%);
   background: transparent;
@@ -723,9 +723,15 @@ input[type="radio"] {
 }
 .public-shell > footer nav {
   display: flex;
-  gap: 24px;
+  flex-wrap: wrap;
+  gap: 0 8px;
+  margin: 0 -10px;
 }
 .public-shell > footer a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 10px;
   color: var(--muted);
 }
 
@@ -1531,7 +1537,7 @@ code.hash {
   width: 100%;
   max-width: var(--page);
   margin: 0 auto;
-  padding: clamp(20px, 3vw, 36px) 24px 96px;
+  padding: clamp(20px, 3vw, 36px) 24px 40px;
 }
 .app-shell > footer {
   display: none;
@@ -2450,6 +2456,23 @@ code.hash {
 .settings-section[hidden] {
   display: none;
 }
+/* Wide windows: the account cards flow into two columns instead of one long, narrow stack. */
+@media (min-width: 1100px) {
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #settings-account:not([hidden]) {
+    column-count: 2;
+    column-gap: 16px;
+  }
+  #settings-account > *,
+  #settings-account .quiet-panel {
+    break-inside: avoid;
+  }
+  #settings-account #settings-security {
+    display: contents;
+  }
+}
 .settings-page .quiet-panel {
   padding: 28px;
   border-radius: 32px;
@@ -2852,6 +2875,10 @@ code.hash {
 }
 /* Phone: the workspace nav becomes a bar at the bottom of the screen. */
 @media (max-width: 900px) {
+  .app-shell > section {
+    /* Room for the fixed bottom bar (and a phone's home indicator), and no more. */
+    padding-bottom: calc(86px + env(safe-area-inset-bottom));
+  }
   .workspace-topbar {
     --bar: 60px;
     justify-content: space-between;
@@ -2887,7 +2914,7 @@ code.hash {
     height: 54px;
     padding: 0 2px;
     border-radius: 18px;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
   }
   .workspace-nav-link .workspace-icon {
@@ -3240,36 +3267,41 @@ code.hash {
 .security-grid .coral {
   background: var(--tint-coral);
 }
-.security-later {
-  margin-top: 16px;
-  padding: 28px 32px;
-  border-radius: 32px;
-  background: var(--tile);
+.security-note {
+  margin: 20px 4px 0;
+  font-size: 15px;
+  color: var(--muted);
 }
-.security-later h2 {
-  font-size: 22px;
-  font-weight: 800;
-  letter-spacing: -0.025em;
-}
-.security-later ul {
-  display: flex;
-  flex-wrap: wrap;
+.theme-choice {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
-  margin: 14px 0 0;
-  padding: 0;
-  list-style: none;
+  max-width: 420px;
+  margin-top: 16px;
 }
-.security-later li {
-  padding: 8px 16px;
-  border-radius: 999px;
+.theme-choice-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 72px;
+  padding: 12px 8px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 18px;
   background: var(--surface);
+  color: var(--text);
   font-size: 15px;
   font-weight: 650;
 }
-.security-later p {
-  margin: 16px 0 0;
-  font-size: 15px;
-  color: var(--muted);
+.theme-choice-option svg {
+  width: 22px;
+  height: 22px;
+}
+.theme-choice-option[aria-checked="true"] {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  color: var(--accent-text);
 }
 @media (max-width: 700px) {
   .security-grid {
@@ -3278,10 +3310,6 @@ code.hash {
   .security-grid .tile {
     min-height: 0;
     padding: 24px;
-  }
-  .security-later {
-    padding: 24px;
-    border-radius: 28px;
   }
 }
 

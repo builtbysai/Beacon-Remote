@@ -1,7 +1,6 @@
 //! Owner-visible sign-in setup. Actions reuse the protected endpoint lifecycle;
 //! opening/refreshing this window never installs, starts or enables anything.
-#[path = "../../windows-session/src/native_ui.rs"]
-mod ui;
+use crate::native_ui as ui;
 use crate::{signin_endpoint, HostError};
 use std::{
     io,

@@ -428,6 +428,26 @@ try {
       Buffer.from(shot.result.data, "base64"),
     );
   }
+  // The header switch is light or dark only; following the system is chosen in Settings.
+  const chooseSystem = async () => {
+    await browser.evaluate(
+      `[...document.querySelectorAll('.settings-nav button')].find(b=>b.textContent.trim()==='Appearance').click()`,
+    );
+    await waitFor("document.querySelector('.theme-choice')");
+    await browser.evaluate(
+      `[...document.querySelectorAll('.theme-choice-option')].find(b=>b.textContent.trim()==='System').click()`,
+    );
+    await waitFor(
+      "document.querySelector('.theme-choice-option[aria-checked=true]')?.textContent.trim()==='System'",
+    );
+    assert.equal(
+      await browser.evaluate(
+        "/System/.test(document.querySelector('.theme-trigger').getAttribute('aria-label'))",
+      ),
+      false,
+      "the header switch never offers System",
+    );
+  };
   const setTheme = async (label) => {
     for (let i = 0; i < 3; i++) {
       if (
@@ -495,7 +515,7 @@ try {
       await screenshot(`dark-${width}x${height}`);
     results.push({ viewport: `${width}x${height}`, ...geometry });
   }
-  await setTheme("System");
+  await chooseSystem();
   await browser.command("Emulation.setEmulatedMedia", {
     features: [{ name: "prefers-color-scheme", value: "light" }],
   });
@@ -543,11 +563,17 @@ try {
     ),
     true,
   );
+  // With no saved choice the header shows the look the device prefers, and one press flips it.
+  const systemIsDark = await browser.evaluate(
+    "matchMedia('(prefers-color-scheme: dark)').matches",
+  );
   await waitFor(
-    "document.querySelector('.theme-trigger')?.getAttribute('aria-label')==='Appearance: System'",
+    `document.querySelector('.theme-trigger')?.getAttribute('aria-label')==='Appearance: ${systemIsDark ? "Dark" : "Light"}'`,
   );
   await click(".theme-trigger");
-  await waitFor("document.documentElement.dataset.theme==='dark'");
+  await waitFor(
+    `document.documentElement.dataset.theme==='${systemIsDark ? "light" : "dark"}'`,
+  );
   await browser.command("Emulation.setDeviceMetricsOverride", {
     width: 1440,
     height: 900,

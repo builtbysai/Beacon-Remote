@@ -29,8 +29,9 @@ use windows_sys::Win32::{
     },
     System::{
         RemoteDesktop::{
-            ProcessIdToSessionId, WTSActive, WTSFreeMemory, WTSGetActiveConsoleSessionId,
-            WTSQuerySessionInformationW, WTSSessionInfoEx, WTSINFOEXW,
+            ProcessIdToSessionId, WTSActive, WTSConnected, WTSFreeMemory,
+            WTSGetActiveConsoleSessionId, WTSQuerySessionInformationW, WTSSessionInfoEx,
+            WTSINFOEXW,
         },
         StationsAndDesktops::{
             GetProcessWindowStation, GetThreadDesktop, GetUserObjectInformationW, UOI_IO, UOI_NAME,
@@ -40,7 +41,7 @@ use windows_sys::Win32::{
             CreateProcessAsUserW, DeleteProcThreadAttributeList, GetCurrentProcess,
             GetCurrentThreadId, GetExitCodeProcess, InitializeProcThreadAttributeList, OpenProcess,
             OpenProcessToken, ResumeThread, UpdateProcThreadAttribute, WaitForSingleObject,
-            CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT,
+            CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, DETACHED_PROCESS,
             EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION,
             PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
             PROC_THREAD_ATTRIBUTE_CHILD_PROCESS_POLICY, PROC_THREAD_ATTRIBUTE_JOB_LIST,
@@ -75,6 +76,53 @@ fn system() -> Result<(), HostError> {
     }
     Ok(())
 }
+/// Whether a console session is showing Windows' sign-in screen: a user session that is locked, or a console
+/// that is connected with nobody signed in (a fresh boot, or after sign-out). An unlocked user session is never
+/// eligible, even though UAC then also uses the Winlogon desktop.
+fn shows_sign_in(state: i32, flags: i32, has_user: bool) -> bool {
+    (state == WTSActive && flags == 0) || (state == WTSConnected && !has_user)
+}
+
+/// What Windows reports for the console session, as text for the diagnostic log.
+pub(crate) fn console_probe() -> String {
+    let console = unsafe { WTSGetActiveConsoleSessionId() };
+    let mut bytes = null_mut();
+    let mut count = 0;
+    if unsafe {
+        WTSQuerySessionInformationW(
+            null_mut(),
+            console,
+            WTSSessionInfoEx,
+            &mut bytes,
+            &mut count,
+        )
+    } == 0
+    {
+        return format!("console {console} info unavailable");
+    }
+    let text = if count as usize >= std::mem::size_of::<WTSINFOEXW>() {
+        let info = unsafe { &*bytes.cast::<WTSINFOEXW>() };
+        if info.Level == 1 {
+            let level = unsafe { &info.Data.WTSInfoExLevel1 };
+            format!(
+                "console {console} state {} flags {} user {} level 1",
+                level.SessionState,
+                level.SessionFlags,
+                level.UserName[0] != 0
+            )
+        } else {
+            format!("console {console} level {}", info.Level)
+        }
+    } else {
+        format!("console {console} short info ({count} bytes)")
+    };
+    unsafe {
+        WTSFreeMemory(bytes.cast());
+    }
+    text
+}
+
+/// The console session while it shows the sign-in screen (see `shows_sign_in`).
 pub(crate) fn locked_console() -> Option<u32> {
     let console = unsafe { WTSGetActiveConsoleSessionId() };
     if console == 0 || console == u32::MAX {
@@ -98,8 +146,12 @@ pub(crate) fn locked_console() -> Option<u32> {
         let info = unsafe { &*bytes.cast::<WTSINFOEXW>() };
         info.Level == 1
             && unsafe {
-                info.Data.WTSInfoExLevel1.SessionState == WTSActive
-                    && info.Data.WTSInfoExLevel1.SessionFlags == 0
+                let level = &info.Data.WTSInfoExLevel1;
+                shows_sign_in(
+                    level.SessionState,
+                    level.SessionFlags,
+                    level.UserName[0] != 0,
+                )
             }
     } else {
         false
@@ -132,19 +184,32 @@ fn object_name(handle: HANDLE) -> Option<String> {
 }
 /// A locked console plus this thread's actual input desktop. UAC on an unlocked
 /// user session is deliberately ineligible even if its desktop is also Winlogon.
+/// Which part of `on_signin_desktop` last said no (0 when it has not): 1 session, 2 locked console,
+/// 3 window station, 4 desktop, 5 input. A failing worker reports it in its exit status.
+pub(crate) static DESKTOP_CHECK: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
+
 pub(crate) fn on_signin_desktop(console: u32) -> bool {
-    if session_id().ok() != Some(console) || locked_console() != Some(console) {
-        return false;
+    let refuse = |reason: u32| {
+        DESKTOP_CHECK.store(reason, std::sync::atomic::Ordering::Relaxed);
+        false
+    };
+    if session_id().ok() != Some(console) {
+        return refuse(1);
+    }
+    if locked_console() != Some(console) {
+        return refuse(2);
     }
     let station = unsafe { GetProcessWindowStation() };
     let desktop = unsafe { GetThreadDesktop(GetCurrentThreadId()) };
-    if !object_name(station).is_some_and(|name| name.eq_ignore_ascii_case("WinSta0"))
-        || !object_name(desktop).is_some_and(|name| name.eq_ignore_ascii_case("Winlogon"))
-    {
-        return false;
+    if !object_name(station).is_some_and(|name| name.eq_ignore_ascii_case("WinSta0")) {
+        return refuse(3);
+    }
+    if !object_name(desktop).is_some_and(|name| name.eq_ignore_ascii_case("Winlogon")) {
+        return refuse(4);
     }
     let mut input = 0i32;
-    unsafe {
+    let read = unsafe {
         GetUserObjectInformationW(
             desktop,
             UOI_IO,
@@ -152,7 +217,11 @@ pub(crate) fn on_signin_desktop(console: u32) -> bool {
             std::mem::size_of_val(&input) as u32,
             null_mut(),
         ) != 0
-            && input != 0
+    };
+    if read && input != 0 {
+        true
+    } else {
+        refuse(5)
     }
 }
 
@@ -417,6 +486,12 @@ pub(crate) struct RetiredLease {
 impl Worker {
     /// Fresh private worker/desktop readiness, not positive GPU/input acceptance.
     /// The build gate is separate from local owner opt-in and backend rollout.
+    /// How the worker process ended, if it has: its exit status (see `run_as_process`).
+    pub(crate) fn exit_status(&self) -> Option<u32> {
+        let mut code = 0u32;
+        let known = unsafe { GetExitCodeProcess(self.process.as_raw_handle(), &mut code) } != 0;
+        (known && code != 259).then_some(code)
+    }
     pub(crate) fn media_ready(&self) -> bool {
         cfg!(feature = "signin-media")
             && fresh_ready(self.last_ready, Instant::now())
@@ -488,9 +563,19 @@ impl Worker {
         ));
         let mut desktop = wide("winsta0\\Winlogon");
         let windows = windows_directory()?;
-        let environment: Vec<u16> = format!("SystemRoot={windows}\0WINDIR={windows}\0\0")
-            .encode_utf16()
-            .collect();
+        // The worker's token cannot always resolve these two folders itself; it falls back to what the
+        // supervisor resolved (and verifies the folder's permissions and the binary hash regardless).
+        let program_files =
+            availability::known_folder(&windows_sys::Win32::UI::Shell::FOLDERID_ProgramFiles)?;
+        let program_data =
+            availability::known_folder(&windows_sys::Win32::UI::Shell::FOLDERID_ProgramData)?;
+        let environment: Vec<u16> = format!(
+            "SystemRoot={windows}\0WINDIR={windows}\0ProgramFiles={}\0ProgramData={}\0\0",
+            program_files.display(),
+            program_data.display()
+        )
+        .encode_utf16()
+        .collect();
         let directory = wide(
             &executable
                 .parent()
@@ -512,8 +597,10 @@ impl Worker {
                 null(),
                 null(),
                 0,
+                // Detached: the worker needs no console, and a hidden console host cannot start in a job
+                // that forbids child processes (the worker then fails to initialise, status 0xC0000142).
                 CREATE_SUSPENDED
-                    | CREATE_NO_WINDOW
+                    | DETACHED_PROCESS
                     | CREATE_UNICODE_ENVIRONMENT
                     | EXTENDED_STARTUPINFO_PRESENT,
                 environment.as_ptr().cast(),
@@ -549,7 +636,30 @@ impl Worker {
             return Err(std::io::Error::last_os_error().into());
         }
         let mut channel =
-            listener.accept(worker.process.as_handle(), console, Duration::from_secs(2))?;
+            match listener.accept(worker.process.as_handle(), console, Duration::from_secs(2)) {
+                Ok(channel) => channel,
+                Err(error) => {
+                    // A worker that never connects is almost always one that already ended: say how.
+                    let mut code = 0u32;
+                    let known =
+                        unsafe { GetExitCodeProcess(worker.process.as_raw_handle(), &mut code) }
+                            != 0;
+                    signin_endpoint::diag(
+                        machine,
+                        &format!(
+                            "worker did not connect: {error}; {}",
+                            if !known {
+                                "exit status unknown".to_owned()
+                            } else if code == 259 {
+                                "process still running".to_owned()
+                            } else {
+                                format!("process ended with status {code:#010x}")
+                            }
+                        ),
+                    );
+                    return Err(error.into());
+                }
+            };
         let ready = channel.receive(Duration::from_secs(2))?;
         let SignInMessage::Ready {
             instance_id,
@@ -887,39 +997,130 @@ fn observe_draining(
     console: u32,
     locally_disabled: bool,
 ) {
-    if indicator.closed()
-        || !on_signin_desktop(console)
-        || (!locally_disabled
-            && (indicator.stop_requested()
-                || media.as_ref().is_some_and(|media| media.ended())
-                || scope.0.as_ref().is_some_and(|scope| scope.expired())))
-    {
-        draining.get_or_insert_with(Instant::now);
+    if draining.is_none() {
+        // Say which condition ended this, once: a worker that drains with no reason is hard to diagnose.
+        let reason = if indicator.closed() {
+            Some("the Disable window closed".to_owned())
+        } else if !on_signin_desktop(console) {
+            Some(format!(
+                "this is no longer the sign-in desktop (check {})",
+                DESKTOP_CHECK.load(std::sync::atomic::Ordering::Relaxed)
+            ))
+        } else if locally_disabled {
+            None
+        } else if indicator.stop_requested() {
+            Some("Stop was requested".to_owned())
+        } else if media.as_ref().is_some_and(|media| media.ended()) {
+            Some("the media runner ended".to_owned())
+        } else if scope.0.as_ref().is_some_and(|scope| scope.expired()) {
+            Some("the authorization expired".to_owned())
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            trace(&format!("draining because {reason}"));
+            draining.get_or_insert_with(Instant::now);
+        }
     }
     if draining.is_some() {
         begin_draining(draining, scope, media, cleanup_confirmed);
     }
 }
+/// How far the worker got (see `run_as_process`).
+static STAGE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 pub(crate) fn run(arguments: &[String]) -> Result<(), HostError> {
+    let result = run_worker(arguments);
+    if let (Err(error), Some(machine)) = (&result, arguments.get(2)) {
+        signin_endpoint::diag(machine, &format!("worker stopped: {error}"));
+    }
+    result
+}
+
+/// The worker process's entry point. A failing worker cannot always write the supervisor's log from inside its
+/// restricted token, so it also reports how it failed through its exit status for the supervisor to read.
+pub(crate) fn run_as_process(arguments: &[String]) -> Result<(), HostError> {
+    let result = run(arguments);
+    if let Err(error) = &result {
+        use std::sync::atomic::Ordering::Relaxed;
+        let folder = availability::LAST_FOLDER_RESULT.load(Relaxed);
+        if folder != 0 {
+            // A failed folder lookup is reported as its own Windows result (high bit set).
+            std::process::exit(folder as i32);
+        }
+        // Windows error number (high 16 bits), the last binary-check step, then the stage reached.
+        let desktop = DESKTOP_CHECK.load(Relaxed);
+        let os_error = if desktop != 0 {
+            // Which part of the sign-in desktop check refused.
+            desktop
+        } else {
+            error
+                .downcast_ref::<std::io::Error>()
+                .and_then(std::io::Error::raw_os_error)
+                .unwrap_or(0) as u32
+                & 0xffff
+        };
+        let check = signin_endpoint::VALIDATE_STEP.load(Relaxed) & 0xff;
+        let stage = STAGE.load(Relaxed) & 0xff;
+        let status = (os_error << 16) | (check << 8) | stage;
+        // 259 (STILL_ACTIVE) would read as a running worker.
+        std::process::exit(if status == 259 { 260 } else { status } as i32);
+    }
+    result
+}
+
+/// Counts a silent checkpoint toward the stage reported in the exit status.
+fn mark() {
+    STAGE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+static WORKER_MACHINE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// A diagnostic line from anywhere inside the worker process (states and errors only, never content).
+pub(crate) fn trace(text: &str) {
+    if let Some(machine) = WORKER_MACHINE.get() {
+        signin_endpoint::diag(machine, &format!("worker: {text}"));
+    }
+}
+
+/// A diagnostic line that does not count as a stage.
+fn note(machine: &str, text: &str) {
+    signin_endpoint::diag(machine, &format!("worker: {text}"));
+}
+
+/// Records how far the worker got, in the supervisor's protected log. Steps only, never any content.
+fn step(machine: &str, name: &str) {
+    STAGE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    signin_endpoint::diag(machine, &format!("worker step: {name}"));
+}
+
+fn run_worker(arguments: &[String]) -> Result<(), HostError> {
     if arguments.len() != 7 {
         return Err("Invalid sign-in worker invocation".into());
     }
     system()?;
+    step(&arguments[2], "started as SYSTEM");
     let machine = &arguments[2];
+    let _ = WORKER_MACHINE.set(machine.clone());
     let console = arguments[3].parse::<u32>()?;
+    mark();
     let service_id = arguments[4].parse::<u32>()?;
+    mark();
     let instance = &arguments[5];
-    if uuid::Uuid::parse_str(instance)?.is_nil()
-        || service_id == 0
-        || console == 0
-        || console == u32::MAX
-    {
+    let nil = uuid::Uuid::parse_str(instance)?.is_nil();
+    mark();
+    if nil || service_id == 0 || console == 0 || console == u32::MAX {
         return Err("Invalid sign-in worker scope".into());
     }
-    signin_endpoint::validate_binary(machine, &std::env::current_exe()?)?;
+    mark();
+    let executable = std::env::current_exe()?;
+    mark();
+    signin_endpoint::validate_binary(machine, &executable)?;
+    step(machine, "binary validated");
     if !on_signin_desktop(console) {
         return Err("The worker is not on the active Windows sign-in desktop".into());
     }
+    step(machine, "on the sign-in desktop");
     let service = owned(unsafe {
         OpenProcess(
             PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
@@ -928,11 +1129,14 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), HostError> {
         )
     })?;
     let mut channel = SignInChannel::connect(&arguments[6], service.as_handle(), console)?;
+    step(machine, "channel connected");
     let mut indicator = crate::signin_indicator::Indicator::show(machine, console)?;
+    step(machine, "Disable window shown");
     if cfg!(feature = "signin-media") {
         // Inspect only topology/capability. No duplication, frame acquisition,
         // encoder or input adapter starts before a live authenticated peer.
         crate::signin_capture::preflight(console)?;
+        step(machine, "capture preflight passed");
     }
     // Ephemeral private material stays inside this scoped worker until teardown.
     // Only its public key crosses the authenticated private lifecycle channel.
@@ -1120,7 +1324,11 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), HostError> {
                     }
                     // Show the authorized owner before creating or renewing usable
                     // authority. UI failure/timeout permanently latches local Stop.
+                    STAGE.store(20, std::sync::atomic::Ordering::Relaxed);
+                    note(machine, "authorization received");
                     indicator.authorize(&controller)?;
+                    note(machine, "owner shown on the Disable window");
+                    STAGE.store(21, std::sync::atomic::Ordering::Relaxed);
                     if let Some(active) = &scope.0 {
                         active.renew(&lease_id, instance, console, expires_at_tick)?;
                     } else {
@@ -1131,6 +1339,8 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), HostError> {
                             expires_at_tick,
                             indicator.stop_signal(),
                         )?);
+                        note(machine, "scope created");
+                        STAGE.store(22, std::sync::atomic::Ordering::Relaxed);
                         let signaling = crate::signin_signaling::SignInSignaling::start(
                             machine,
                             scope.0.as_ref().ok_or("Missing sign-in scope")?.clone(),
@@ -1138,11 +1348,14 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), HostError> {
                                 .take()
                                 .ok_or("The worker signer was already consumed")?,
                         )?;
+                        note(machine, "signaling started");
+                        STAGE.store(23, std::sync::atomic::Ordering::Relaxed);
                         media = Some(crate::signin_media::SignInMedia::start(
                             signaling,
                             scope.0.as_ref().ok_or("Missing sign-in scope")?.clone(),
                         )?);
                     }
+                    note(machine, "media runner started");
                     // The media runner negotiates here; its capture/input adapters
                     // still require the actual authenticated peer-connected gate.
                 }
@@ -1167,6 +1380,31 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), HostError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_locked_session_or_a_console_with_nobody_signed_in_shows_the_sign_in_screen() {
+        // Locked user session: active, lock flag 0.
+        assert!(shows_sign_in(WTSActive, 0, true));
+        // Fresh boot or after sign-out: connected, no user.
+        assert!(shows_sign_in(WTSConnected, 0, false));
+        assert!(shows_sign_in(WTSConnected, 1, false));
+        // An unlocked user session (flag 1) is never eligible, even though UAC uses the same desktop.
+        assert!(!shows_sign_in(WTSActive, 1, true));
+        // A connected session that has a user is not the sign-in screen.
+        assert!(!shows_sign_in(WTSConnected, 0, true));
+        // Disconnected, idle or listening sessions are not a console that can be viewed.
+        assert!(!shows_sign_in(
+            windows_sys::Win32::System::RemoteDesktop::WTSDisconnected,
+            0,
+            false
+        ));
+        assert!(!shows_sign_in(
+            windows_sys::Win32::System::RemoteDesktop::WTSIdle,
+            0,
+            false
+        ));
+    }
+    use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
     #[test]
     fn readiness_needs_a_recent_positive_probe_without_a_future_timestamp() {
         let now = Instant::now();
