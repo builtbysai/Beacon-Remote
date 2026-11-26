@@ -1753,7 +1753,19 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             }
             return Ok(());
         }
-        let factor = GetDpiForSystem().max(96) as f32 / 96.0;
+        let system = GetDpiForSystem().max(96) as f32 / 96.0;
+        // The window is a fixed layout at 100%. On a small, high-DPI screen it could be taller than the
+        // work area, which would push its bottom (and the Stop button) off screen, so shrink it to fit.
+        let mut work = RECT::default();
+        SystemParametersInfoW(SPI_GETWORKAREA, 0, std::ptr::addr_of_mut!(work).cast(), 0);
+        let available = (work.bottom - work.top) as f32;
+        // The tallest page plus the title bar and frame, at 100%.
+        let needed = (PAIRED_HEIGHT + 48) as f32;
+        let factor = if available > 0.0 {
+            system.min(available / needed).max(system * 0.7)
+        } else {
+            system
+        };
         let scale = move |value: i32| (value as f32 * factor).round() as i32;
         let instance = GetModuleHandleW(null());
         let class = wide("BeaconRemoteHostWindow");

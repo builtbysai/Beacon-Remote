@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 export type Theme = "system" | "light" | "dark";
 const storageKey = "beacon-remote-appearance";
 
@@ -64,9 +66,29 @@ export function resolveTheme(theme: Theme): "light" | "dark" {
 
 type ThemeProps = { theme: Theme; onChange: (theme: Theme) => void };
 
+/** Whether the device prefers dark right now, kept current while the page is open. */
+function useDeviceDark(): boolean {
+  const [dark, setDark] = useState(() => resolveTheme("system") === "dark");
+  useEffect(() => {
+    let query: MediaQueryList;
+    try {
+      query = window.matchMedia("(prefers-color-scheme: dark)");
+    } catch {
+      return undefined;
+    }
+    const update = () => setDark(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return dark;
+}
+
 /** The header switch: light or dark, nothing else. Following the system is chosen in Settings. */
 export function ThemePicker({ theme, onChange }: ThemeProps) {
-  const current = resolveTheme(theme);
+  const deviceDark = useDeviceDark();
+  // "System" shows what the device prefers right now, and follows it if that changes.
+  const current = theme === "system" ? (deviceDark ? "dark" : "light") : theme;
   const next = current === "dark" ? "light" : "dark";
   return (
     <button
