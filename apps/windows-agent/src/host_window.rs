@@ -1,7 +1,5 @@
 //! Interactive host enrollment and presence. Closing waits for the worker to release sharing.
-#[path = "../../windows-session/src/native_ui.rs"]
-pub mod native_ui;
-use native_ui as ui;
+use beacon_remote_agent::native_ui as ui;
 
 use beacon_remote_agent::{HostError, HostStatus, LocalAccess, SupportCode, UpdateOffer};
 use std::{
@@ -30,7 +28,9 @@ use windows_sys::Win32::{
     },
     UI::{
         Controls::{DRAWITEMSTRUCT, EM_SETLIMITTEXT, ODS_DISABLED, ODS_FOCUS, ODS_SELECTED},
-        HiDpi::GetDpiForSystem,
+        HiDpi::{
+            GetDpiForSystem, SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_SYSTEM_AWARE,
+        },
         Input::KeyboardAndMouse::{EnableWindow, SetFocus},
         Shell::*,
         WindowsAndMessaging::*,
@@ -49,7 +49,16 @@ const UPDATE: usize = 150;
 const UNATTENDED: usize = 151;
 const UNATTENDED_OFF: usize = 152;
 const SIGNIN_SETTINGS: usize = 153;
-const MORE: usize = 160;
+const TAB_HOME: usize = 170;
+const TAB_ACCESS: usize = 171;
+const TAB_UNATTENDED: usize = 172;
+const TAB_SUPPORT: usize = 173;
+const TABS: [(usize, &str); 4] = [
+    (TAB_HOME, "Home"),
+    (TAB_ACCESS, "Access"),
+    (TAB_UNATTENDED, "Unattended"),
+    (TAB_SUPPORT, "Support"),
+];
 const SUPPORT_VIEW: usize = 130;
 const SUPPORT_CONTROL: usize = 131;
 const HELPERS_OFF: usize = 140;
@@ -71,12 +80,15 @@ const H_INFO: i32 = 304;
 const H_LABEL: i32 = 305;
 const H_STATUS: i32 = 306;
 const H_INTRO: i32 = 307;
-// With everything shown; the plain view needs only the computer, its status and the main button.
-const PAIRED_HEIGHT: i32 = 744;
-const SIMPLE_HEIGHT: i32 = 268;
+// One size per state: a paired computer's tabs share a height so the window never jumps between them.
+const PAIRED_HEIGHT: i32 = 526;
 const UNPAIRED_HEIGHT: i32 = 436;
-// The first controls added to `paired_details` name this computer; they stay in the plain view.
-const IDENTITY_CONTROLS: usize = 3;
+/// A control that belongs to some tabs of the paired view, at a fixed place (logical pixels).
+struct Member {
+    window: HWND,
+    tabs: u8,
+    rect: (i32, i32, i32, i32),
+}
 
 struct Worker {
     handle: JoinHandle<Result<(), HostError>>,
@@ -96,10 +108,13 @@ struct State {
     introduction: HWND,
     last_status: Option<HostStatus>,
     enrollment: Vec<HWND>,
-    paired_details: Vec<HWND>,
-    // Access choices, helpers, setup and support codes stay out of sight until asked for.
-    more: bool,
-    more_button: HWND,
+    members: Vec<Member>,
+    tab: u8,
+    access_help: HWND,
+    helper_help: HWND,
+    unattended_status: HWND,
+    version_line: HWND,
+    summary: [HWND; 3],
     tray: bool,
     tray_status: String,
     incoming_seen: u64,
@@ -132,6 +147,13 @@ struct State {
     files: HWND,
     pill_key: u8,
     fonts: Vec<HFONT>,
+    // The Windows sign-in page, shown inside this window in place of the main view, and the controls it hides.
+    signin_page: HWND,
+    hidden_for_page: Vec<HWND>,
+    // The request / sharing page (ADR 0059) and the controls it hides.
+    session_page: HWND,
+    hidden_for_session: Vec<HWND>,
+    session_height: i32,
 }
 // Starting at sign-in is a visible, per-user choice made here. No service or elevation is involved.
 const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
@@ -344,6 +366,10 @@ fn primary_label(paired: bool, busy: bool, stopping: bool) -> &'static str {
 }
 
 impl State {
+    /// True when the paired view is showing this tab (and no other page covers it).
+    fn on_tab(&self, tab: u8) -> bool {
+        self.paired && self.tab == tab && self.signin_page.is_null() && self.session_page.is_null()
+    }
     // 0 not paired, 1 stopped, 2 starting, 3 online, 4 trouble.
     fn pill_mode(&self) -> u8 {
         if !self.paired {
@@ -401,9 +427,10 @@ impl State {
             && self.access.allow_control
             && self.access.files
             && self.autostart_on;
+        let on_unattended = self.on_tab(2);
         ShowWindow(
             GetDlgItem(self.window, UNATTENDED as i32),
-            if self.paired && self.more && !configured {
+            if on_unattended && !configured {
                 SW_SHOW
             } else {
                 SW_HIDE
@@ -411,8 +438,7 @@ impl State {
         );
         ShowWindow(
             GetDlgItem(self.window, UNATTENDED_OFF as i32),
-            if self.paired
-                && self.more
+            if on_unattended
                 && (self.access.trusted
                     || self.autostart_on
                     || self.boot_on != Some(false)
@@ -426,11 +452,46 @@ impl State {
         let px = |value: i32| (value as f32 * self.scale).round() as i32;
         MoveWindow(
             GetDlgItem(self.window, UNATTENDED_OFF as i32),
-            px(if configured { 28 } else { 286 }),
-            px(594),
-            px(if configured { 248 } else { 206 }),
-            px(34),
+            px(28),
+            px(if configured { 300 } else { 352 }),
+            px(464),
+            px(44),
             1,
+        );
+        text(
+            self.unattended_status,
+            &if configured {
+                "On · your own account can view and control this computer without asking."
+                    .to_owned()
+            } else if self.access.trusted {
+                "Partly on · finish setup to allow control and starting at sign-in.".to_owned()
+            } else {
+                "Off · every connection asks you first.".to_owned()
+            },
+        );
+        let who = |level: u8| match level {
+            0 => "Asks each time",
+            1 => "Can view",
+            _ => "Can view and control",
+        };
+        text(self.summary[0], who(access_choice(self.access) as u8));
+        text(
+            self.summary[2],
+            if configured {
+                "On"
+            } else if self.access.trusted {
+                "Partly on"
+            } else {
+                "Off"
+            },
+        );
+        text(
+            self.access_help,
+            match access_choice(self.access) {
+                0 => "You approve every connection from your own account, each time.",
+                1 => "Your own account can see this screen without asking. Control still asks.",
+                _ => "Your own account can see and control this computer without asking.",
+            },
         );
         text(
             self.boot_start,
@@ -444,7 +505,7 @@ impl State {
         if !self.files.is_null() {
             ShowWindow(
                 self.files,
-                if self.paired && self.more && self.access.trusted {
+                if self.on_tab(1) && self.access.trusted {
                     SW_SHOW
                 } else {
                     SW_HIDE
@@ -539,6 +600,22 @@ impl State {
         self.show_helpers();
     }
     unsafe fn show_helpers(&self) {
+        text(
+            self.summary[1],
+            match self.access.helpers {
+                0 => "Asks each time",
+                1 => "Can view",
+                _ => "Can view and control",
+            },
+        );
+        text(
+            self.helper_help,
+            match self.access.helpers {
+                0 => "People you remembered in your workspace must ask each time.",
+                1 => "People you remembered can view without asking. Control still asks.",
+                _ => "People you remembered can view and control without asking.",
+            },
+        );
         for &radio in &self.helper_radios {
             InvalidateRect(radio, null(), 0);
             EnableWindow(
@@ -627,7 +704,88 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
             EnableWindow(button, 0);
         }
     }
+    /// Opens the Windows sign-in settings as a page of this window instead of a second window.
+    unsafe fn open_signin(&mut self) {
+        if !self.signin_page.is_null() {
+            return;
+        }
+        let px = |value: i32| (value as f32 * self.scale).round() as i32;
+        let mut bounds = RECT {
+            left: 0,
+            top: 0,
+            right: px(520),
+            bottom: px(560),
+        };
+        AdjustWindowRectEx(
+            &mut bounds,
+            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+            0,
+            0,
+        );
+        SetWindowPos(
+            self.window,
+            null_mut(),
+            0,
+            0,
+            bounds.right - bounds.left,
+            bounds.bottom - bounds.top,
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+        place(self.window);
+        let mut client = RECT::default();
+        GetClientRect(self.window, &mut client);
+        let mut shown: Vec<HWND> = Vec::new();
+        unsafe extern "system" fn collect(child: HWND, list: LPARAM) -> i32 {
+            let list = &mut *(list as *mut Vec<HWND>);
+            if IsWindowVisible(child) != 0 {
+                list.push(child);
+            }
+            1
+        }
+        EnumChildWindows(
+            self.window,
+            Some(collect),
+            std::ptr::addr_of_mut!(shown) as LPARAM,
+        );
+        shown.retain(|&child| GetParent(child) == self.window);
+        for &child in &shown {
+            ShowWindow(child, SW_HIDE);
+        }
+        match beacon_remote_agent::signin_settings::embed(self.window, client, self.scale) {
+            Ok(page) => {
+                self.signin_page = page;
+                self.hidden_for_page = shown;
+            }
+            Err(error) => {
+                for &child in &shown {
+                    ShowWindow(child, SW_SHOW);
+                }
+                self.controls();
+                text(
+                    self.status,
+                    &format!("Could not open sign-in settings: {error}"),
+                );
+            }
+        }
+    }
+    /// Returns from the sign-in page to the main view.
+    unsafe fn close_signin(&mut self) {
+        if self.signin_page.is_null() {
+            return;
+        }
+        DestroyWindow(self.signin_page);
+        self.signin_page = null_mut();
+        for child in self.hidden_for_page.drain(..) {
+            ShowWindow(child, SW_SHOW);
+        }
+        self.controls();
+        self.check_signin();
+        SetFocus(self.action);
+    }
     unsafe fn controls(&self) {
+        if !self.signin_page.is_null() || !self.session_page.is_null() {
+            return;
+        }
         text(
             self.introduction,
             "Pair this computer with your workspace. Screen viewing and control require visible local approval.",
@@ -637,63 +795,41 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
             if self.paired { SW_HIDE } else { SW_SHOW },
         );
         let px = |value: i32| (value as f32 * self.scale).round() as i32;
+        // The status line sits under the heading once paired, and under the form before.
         MoveWindow(
             self.status,
-            px(28),
-            px(if self.paired { 58 } else { 372 }),
-            px(464),
-            px(if self.paired { 40 } else { 44 }),
+            px(if self.paired { 84 } else { 28 }),
+            px(if self.paired { 54 } else { 372 }),
+            px(if self.paired { 408 } else { 464 }),
+            px(if self.paired { 36 } else { 44 }),
             1,
         );
-        let expanded = self.paired && self.more;
+        let home = self.on_tab(0);
         MoveWindow(
             self.action,
             px(28),
-            px(if !self.paired {
-                322
-            } else if expanded {
-                498
-            } else {
-                206
-            }),
-            px(220),
-            px(38),
+            px(if self.paired { 268 } else { 322 }),
+            px(if self.paired { 464 } else { 220 }),
+            px(if self.paired { 48 } else { 38 }),
             1,
-        );
-        // "More options" sits where the sign-in button is while expanded, so open it from the header and
-        // close it from the foot; the plain view has just the computer, its status and the main button.
-        MoveWindow(
-            self.more_button,
-            px(if expanded { 28 } else { 324 }),
-            px(if expanded { 698 } else { 10 }),
-            px(if expanded { 220 } else { 168 }),
-            px(if expanded { 34 } else { 44 }),
-            1,
-        );
-        text(
-            self.more_button,
-            if expanded {
-                "Fewer options"
-            } else {
-                "More options"
-            },
         );
         ShowWindow(
-            self.more_button,
-            if self.paired { SW_SHOW } else { SW_HIDE },
+            self.action,
+            if self.paired && !home {
+                SW_HIDE
+            } else {
+                SW_SHOW
+            },
         );
-        InvalidateRect(self.more_button, null(), 1);
-        // The window is as tall as its current view needs.
+        // The window keeps one size per state, so moving between tabs never moves it.
         let mut bounds = RECT {
             left: 0,
             top: 0,
             right: px(520),
-            bottom: px(if !self.paired {
-                UNPAIRED_HEIGHT
-            } else if expanded {
+            bottom: px(if self.paired {
                 PAIRED_HEIGHT
             } else {
-                SIMPLE_HEIGHT
+                UNPAIRED_HEIGHT
             }),
         };
         AdjustWindowRectEx(
@@ -718,9 +854,12 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
             ShowWindow(window, if self.paired { SW_HIDE } else { SW_SHOW });
             EnableWindow(window, i32::from(!busy && !self.closing));
         }
-        for (index, &window) in self.paired_details.iter().enumerate() {
-            let shown = self.paired && (self.more || index < IDENTITY_CONTROLS);
-            ShowWindow(window, if shown { SW_SHOW } else { SW_HIDE });
+        for member in &self.members {
+            let shown = self.paired && member.tabs & (1 << self.tab) != 0;
+            let (x, y, w, h) = member.rect;
+            MoveWindow(member.window, px(x), px(y), px(w), px(h), 1);
+            ShowWindow(member.window, if shown { SW_SHOW } else { SW_HIDE });
+            InvalidateRect(member.window, null(), 0);
         }
         let stopping = self
             .worker
@@ -733,6 +872,7 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
             i32::from(!self.closing && !stopping && (self.paired || !busy)),
         );
         self.show_access();
+        self.show_helpers();
     }
     unsafe fn start(&mut self) {
         if self.worker.is_some() || self.closing {
@@ -789,7 +929,123 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
             }));
         }
     }
+    /// One window, one place for everything: a connection request or a running session replaces the main view and
+    /// the window stays on top and cannot be closed until it ends. The page is driven by the helper's reports.
+    unsafe fn follow_session(&mut self, window: HWND) {
+        beacon_remote_agent::session_hub::alive();
+        let view = beacon_remote_agent::session_hub::view();
+        if view.active() && self.session_page.is_null() {
+            self.open_session(&view);
+        } else if !view.active() && !self.session_page.is_null() {
+            self.close_session();
+        } else if view.active() {
+            let wanted = beacon_remote_agent::session_view::height(&view);
+            if wanted != self.session_height {
+                self.session_height = wanted;
+                self.resize_for_page(wanted);
+            }
+        }
+        let _ = window;
+    }
+    unsafe fn resize_for_page(&mut self, height: i32) {
+        let px = |value: i32| (value as f32 * self.scale).round() as i32;
+        let mut bounds = RECT {
+            left: 0,
+            top: 0,
+            right: px(520),
+            bottom: px(height),
+        };
+        AdjustWindowRectEx(
+            &mut bounds,
+            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+            0,
+            0,
+        );
+        SetWindowPos(
+            self.window,
+            null_mut(),
+            0,
+            0,
+            bounds.right - bounds.left,
+            bounds.bottom - bounds.top,
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+        if !self.session_page.is_null() {
+            let mut client = RECT::default();
+            GetClientRect(self.window, &mut client);
+            MoveWindow(self.session_page, 0, 0, client.right, client.bottom, 1);
+        }
+    }
+    unsafe fn open_session(&mut self, view: &beacon_remote_agent::session_hub::View) {
+        self.close_signin();
+        restore(self.window);
+        let mut shown: Vec<HWND> = Vec::new();
+        unsafe extern "system" fn collect(child: HWND, list: LPARAM) -> i32 {
+            let list = &mut *(list as *mut Vec<HWND>);
+            if IsWindowVisible(child) != 0 {
+                list.push(child);
+            }
+            1
+        }
+        EnumChildWindows(
+            self.window,
+            Some(collect),
+            std::ptr::addr_of_mut!(shown) as LPARAM,
+        );
+        shown.retain(|&child| GetParent(child) == self.window);
+        for &child in &shown {
+            ShowWindow(child, SW_HIDE);
+        }
+        self.session_height = beacon_remote_agent::session_view::height(view);
+        self.resize_for_page(self.session_height);
+        place(self.window);
+        let mut client = RECT::default();
+        GetClientRect(self.window, &mut client);
+        match beacon_remote_agent::session_view::embed(self.window, client, self.scale) {
+            Ok(page) => {
+                self.session_page = page;
+                self.hidden_for_session = shown;
+                // Always on top while anything is being asked or shared, so Stop is never covered.
+                SetWindowPos(
+                    self.window,
+                    HWND_TOPMOST,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE,
+                );
+                SetForegroundWindow(self.window);
+            }
+            Err(_) => {
+                for &child in &shown {
+                    ShowWindow(child, SW_SHOW);
+                }
+            }
+        }
+    }
+    unsafe fn close_session(&mut self) {
+        if self.session_page.is_null() {
+            return;
+        }
+        DestroyWindow(self.session_page);
+        self.session_page = null_mut();
+        SetWindowPos(
+            self.window,
+            HWND_NOTOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE,
+        );
+        for child in self.hidden_for_session.drain(..) {
+            ShowWindow(child, SW_SHOW);
+        }
+        self.controls();
+    }
     unsafe fn poll(&mut self, window: HWND) {
+        self.follow_session(window);
         if self
             .signin_check
             .as_ref()
@@ -1043,12 +1299,57 @@ unsafe fn paint(window: HWND, state: &State) {
             3 => ("Online", p.success_soft, p.success, p.success),
             _ => ("Needs attention", p.danger_soft, p.danger, p.danger),
         };
+        // The character at the top: awake and signalling when reachable, asleep when stopped.
+        let (mood, body, tile) = match state.pill_mode() {
+            0 => (ui::Mood::Wow, ui::SUN, p.warn_soft),
+            1 => (ui::Mood::Asleep, ui::SLEEP, p.subtle),
+            2 => (ui::Mood::Awake, p.accent, p.accent_soft),
+            3 => (ui::Mood::Awake, ui::MINT, p.success_soft),
+            _ => (ui::Mood::Wow, ui::CORAL, p.danger_soft),
+        };
+        ui::mark(&canvas, p, (28.0, 14.0, 46.0), mood, body);
+        let on_home = state.paired && state.tab == 0;
+        if on_home {
+            canvas.fill(28.0, 156.0, 464.0, 96.0, 16.0, tile);
+            canvas.stroke(28.0, 156.0, 464.0, 96.0, 16.0, p.line, 1.0);
+            ui::icon(&canvas, ui::Icon::Monitor, 44.0, 194.0, p.accent);
+            ui::icon(&canvas, ui::Icon::Lock, 44.0, 218.0, p.accent);
+            canvas.fill(28.0, 332.0, 464.0, 132.0, 16.0, p.surface);
+            canvas.stroke(28.0, 332.0, 464.0, 132.0, 16.0, p.line, 1.0);
+            canvas.line(44.0, 382.0, 476.0, 382.0, p.line, 1.0);
+            canvas.line(44.0, 422.0, 476.0, 422.0, p.line, 1.0);
+        } else if state.paired && state.tab == 2 {
+            canvas.fill(28.0, 156.0, 464.0, 134.0, 16.0, p.surface);
+            canvas.stroke(28.0, 156.0, 464.0, 134.0, 16.0, p.line, 1.0);
+        } else if state.paired && state.tab == 1 {
+            canvas.line(28.0, 278.0, 492.0, 278.0, p.line, 1.0);
+        } else if state.paired && state.tab == 3 {
+            canvas.line(28.0, 344.0, 492.0, 344.0, p.line, 1.0);
+        }
+        if state.paired {
+            // The tab strip's rule, under the tabs.
+            canvas.line(28.0, 142.0, 492.0, 142.0, p.line, 1.0);
+        } else {
+            for top in [124.0, 192.0, 260.0] {
+                canvas.fill(28.0, top, 464.0, 34.0, 17.0, p.subtle);
+                canvas.stroke(28.0, top, 464.0, 34.0, 17.0, p.line, 1.0);
+            }
+        }
+        // On the Home tile the capsule sits on the tinted tile, so it takes the white surface to stay visible;
+        // a stopped computer's tile is plain, so its capsule takes the window colour to show against it.
+        let fill = if !on_home {
+            fill
+        } else if state.pill_mode() == 1 {
+            p.window
+        } else {
+            p.surface
+        };
         let pill_width = if state.pill_mode() == 4 { 124.0 } else { 100.0 };
         ui::pill(
             &canvas,
             (
-                (if state.paired { 476.0 } else { 492.0 }) - pill_width,
-                if state.paired { 112.0 } else { 26.0 },
+                (if on_home { 476.0 } else { 492.0 }) - pill_width,
+                if on_home { 164.0 } else { 26.0 },
                 pill_width,
                 26.0,
             ),
@@ -1057,20 +1358,6 @@ unsafe fn paint(window: HWND, state: &State) {
             line,
             ink,
         );
-        if state.paired {
-            canvas.fill(28.0, 104.0, 464.0, 84.0, 10.0, p.subtle);
-            canvas.stroke(28.0, 104.0, 464.0, 84.0, 10.0, p.line, 1.0);
-            ui::icon(&canvas, ui::Icon::Monitor, 44.0, 142.0, p.accent);
-            ui::icon(&canvas, ui::Icon::Lock, 44.0, 166.0, p.accent);
-            if state.more {
-                canvas.line(28.0, 424.0, 492.0, 424.0, p.line, 1.0);
-            }
-        } else {
-            for top in [124.0, 192.0, 260.0] {
-                canvas.fill(28.0, top, 464.0, 34.0, 8.0, p.surface);
-                canvas.stroke(28.0, top, 464.0, 34.0, 8.0, p.line, 1.0);
-            }
-        }
     }
     BitBlt(hdc, 0, 0, w, h, buffer, 0, 0, SRCCOPY);
     SelectObject(buffer, old);
@@ -1109,30 +1396,61 @@ unsafe fn draw_item(state: &State, item: &DRAWITEMSTRUCT) {
         HELPERS_CONTROL => Some(state.access.helpers == 2),
         _ => None,
     };
-    if let Some(selected) = selected {
-        // A radio row: the ring, the dot when chosen, and the label.
-        let ink = if flags.disabled { p.faint } else { p.text };
-        let ring = if selected { p.accent } else { p.faint };
-        canvas.ring(11.0, h / 2.0, 8.0, ring, 1.6);
-        if selected {
-            canvas.circle(
-                11.0,
-                h / 2.0,
-                4.0,
-                if flags.disabled { p.faint } else { p.accent },
-            );
+    if matches!(id, TAB_HOME | TAB_ACCESS | TAB_UNATTENDED | TAB_SUPPORT) {
+        // A tab: the chosen one is a tinted pill, the rest are plain words.
+        let chosen = TABS
+            .iter()
+            .position(|(tab, _)| *tab == id)
+            .is_some_and(|index| index as u8 == state.tab);
+        if chosen {
+            canvas.fill(0.0, 0.0, w, h, h / 2.0, p.accent_soft);
+        } else if flags.hot || flags.pressed {
+            canvas.fill(0.0, 0.0, w, h, h / 2.0, p.subtle);
         }
         canvas.text(
             &label,
-            (30.0, 0.0, w - 30.0, h),
-            13.5,
-            if selected { 600 } else { 400 },
-            ink,
-            ui::Align::Left,
+            (0.0, 0.0, w, h),
+            14.0,
+            if chosen { 700 } else { 500 },
+            if chosen { p.accent } else { p.muted },
+            ui::Align::Center,
             true,
         );
         if flags.focused {
-            canvas.stroke(0.0, 0.0, w, h, 6.0, p.accent, 2.0);
+            canvas.stroke(1.0, 1.0, w - 2.0, h - 2.0, (h - 2.0) / 2.0, p.accent, 2.0);
+        }
+    } else if let Some(selected) = selected {
+        // A segment of a three-way choice: the chosen one is tinted and outlined.
+        let (fill, border, ink) = if flags.disabled {
+            (p.surface, p.line, p.faint)
+        } else if selected {
+            (p.accent_soft, p.accent, p.strong)
+        } else if flags.hot || flags.pressed {
+            (p.tile_hover, p.line, p.strong)
+        } else {
+            (p.surface, p.line, p.text)
+        };
+        canvas.fill(0.0, 0.0, w, h, 12.0, fill);
+        canvas.stroke(
+            1.0,
+            1.0,
+            w - 2.0,
+            h - 2.0,
+            11.0,
+            border,
+            if selected { 2.0 } else { 1.0 },
+        );
+        canvas.text(
+            &label,
+            (8.0, 0.0, w - 16.0, h),
+            13.5,
+            if selected { 700 } else { 500 },
+            ink,
+            ui::Align::Center,
+            true,
+        );
+        if flags.focused {
+            canvas.stroke(3.0, 3.0, w - 6.0, h - 6.0, 9.0, p.accent, 1.5);
         }
     } else if id == AUTOSTART || id == FILES || id == BOOT_START {
         let on = match id {
@@ -1162,10 +1480,16 @@ unsafe fn draw_item(state: &State, item: &DRAWITEMSTRUCT) {
             canvas.stroke(0.0, 0.0, w, h, 6.0, p.accent, 2.0);
         }
     } else {
-        let role = if id == ACTION {
-            ui::Role::Primary
-        } else {
-            ui::Role::Secondary
+        let configured = state.access.trusted
+            && state.access.allow_control
+            && state.access.files
+            && state.autostart_on;
+        let role = match id {
+            // Stopping is routine, so it is the quiet button; starting and pairing lead.
+            ACTION if label == "Stop host" => ui::Role::Secondary,
+            ACTION | UNATTENDED => ui::Role::Primary,
+            UNATTENDED_OFF if configured => ui::Role::Danger,
+            _ => ui::Role::Secondary,
         };
         ui::button(&canvas, p, (w, h), &label, role, flags);
     }
@@ -1215,8 +1539,8 @@ unsafe extern "system" fn procedure(
         WM_CTLCOLOREDIT if !state.is_null() => {
             let p = &(*state).palette;
             SetTextColor(wparam as _, ui::colorref(p.strong));
-            SetBkColor(wparam as _, ui::colorref(p.surface));
-            return ui::surface_brush(p.surface) as isize;
+            SetBkColor(wparam as _, ui::colorref(p.subtle));
+            return ui::surface_brush(p.subtle) as isize;
         }
         WM_COMMAND if !state.is_null() && (wparam >> 16) == BN_CLICKED as usize => {
             match wparam & 0xffff {
@@ -1250,9 +1574,12 @@ unsafe extern "system" fn procedure(
                     }
                     InvalidateRect((*state).files, null(), 0);
                 }
-                MORE => {
-                    (*state).more = !(*state).more;
-                    (*state).controls();
+                id @ (TAB_HOME | TAB_ACCESS | TAB_UNATTENDED | TAB_SUPPORT) => {
+                    if let Some(index) = TABS.iter().position(|(tab, _)| *tab == id) {
+                        (*state).tab = index as u8;
+                        (*state).controls();
+                        SetFocus(GetDlgItem(window, id as i32));
+                    }
                 }
                 SUPPORT_VIEW => (*state).ask_support(false),
                 SUPPORT_CONTROL => (*state).ask_support(true),
@@ -1270,13 +1597,8 @@ unsafe extern "system" fn procedure(
                         && (*state).helpers_job.is_none()
                         && !(*state).closing
                     {
-                        if let Err(error) = beacon_remote_agent::signin_settings::show(window) {
-                            text(
-                                (*state).status,
-                                &format!("Could not open sign-in settings: {error}"),
-                            );
-                        }
-                        (*state).check_signin();
+                        restore(window);
+                        (*state).open_signin();
                     }
                 }
                 UNATTENDED_OFF => {
@@ -1302,7 +1624,16 @@ unsafe extern "system" fn procedure(
             return 0;
         }
         WM_SIZE if !state.is_null() && wparam == SIZE_MINIMIZED as usize && (*state).tray => {
+            if !(*state).session_page.is_null() {
+                // Never hidden while a request is open or a screen is shared.
+                ShowWindow(window, SW_RESTORE);
+                return 0;
+            }
             ShowWindow(window, SW_HIDE);
+            return 0;
+        }
+        beacon_remote_agent::signin_settings::BACK if !state.is_null() => {
+            (*state).close_signin();
             return 0;
         }
         TRAY_MESSAGE if !state.is_null() => {
@@ -1358,7 +1689,12 @@ unsafe extern "system" fn procedure(
             (*state).poll(window);
             return 0;
         }
+        WM_CLOSE if !state.is_null() && !(*state).session_page.is_null() && !(*state).closing => {
+            // Closing is not a way to hide a shared screen; Stop ends the session first.
+            return 0;
+        }
         WM_CLOSE if !state.is_null() => {
+            (*state).close_signin();
             (*state).closing = true;
             if (*state).worker.is_some() {
                 restore(window);
@@ -1387,6 +1723,8 @@ unsafe extern "system" fn procedure(
 
 pub fn show(background: bool) -> Result<(), io::Error> {
     unsafe {
+        // Draw at the screen's real scale instead of letting Windows stretch a 96 dpi bitmap, which blurs the text.
+        SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_SYSTEM_AWARE);
         let local = std::env::var_os("LOCALAPPDATA")
             .ok_or_else(|| io::Error::other("LOCALAPPDATA required"))?;
         let mut hasher = DefaultHasher::new();
@@ -1406,10 +1744,28 @@ pub fn show(background: bool) -> Result<(), io::Error> {
         }
         let _instance_guard = Instance(mutex);
         if GetLastError() == ERROR_ALREADY_EXISTS {
-            MessageBoxW(null_mut(), wide("Beacon Remote host is already open. Use its existing window to start or stop sharing.").as_ptr(), wide("Beacon Remote").as_ptr(), MB_OK | MB_ICONINFORMATION);
+            // Bring the open window forward rather than putting a second window on screen.
+            let existing = FindWindowW(wide("BeaconRemoteHostWindow").as_ptr(), null());
+            if existing.is_null() {
+                MessageBoxW(null_mut(), wide("Beacon Remote host is already open. Use its existing window to start or stop sharing.").as_ptr(), wide("Beacon Remote").as_ptr(), MB_OK | MB_ICONINFORMATION);
+            } else {
+                restore(existing);
+            }
             return Ok(());
         }
-        let factor = GetDpiForSystem().max(96) as f32 / 96.0;
+        let system = GetDpiForSystem().max(96) as f32 / 96.0;
+        // The window is a fixed layout at 100%. On a small, high-DPI screen it could be taller than the
+        // work area, which would push its bottom (and the Stop button) off screen, so shrink it to fit.
+        let mut work = RECT::default();
+        SystemParametersInfoW(SPI_GETWORKAREA, 0, std::ptr::addr_of_mut!(work).cast(), 0);
+        let available = (work.bottom - work.top) as f32;
+        // The tallest page plus the title bar and frame, at 100%.
+        let needed = (PAIRED_HEIGHT + 48) as f32;
+        let factor = if available > 0.0 {
+            system.min(available / needed).max(system * 0.7)
+        } else {
+            system
+        };
         let scale = move |value: i32| (value as f32 * factor).round() as i32;
         let instance = GetModuleHandleW(null());
         let class = wide("BeaconRemoteHostWindow");
@@ -1437,9 +1793,13 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             introduction: null_mut(),
             last_status: None,
             enrollment: Vec::new(),
-            paired_details: Vec::new(),
-            more: false,
-            more_button: null_mut(),
+            members: Vec::new(),
+            tab: 0,
+            access_help: null_mut(),
+            helper_help: null_mut(),
+            unattended_status: null_mut(),
+            version_line: null_mut(),
+            summary: [null_mut(); 3],
             tray: false,
             tray_status: String::new(),
             incoming_seen: beacon_remote_agent::incoming::mark(),
@@ -1471,6 +1831,11 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             files: null_mut(),
             pill_key: 255,
             fonts: Vec::new(),
+            signin_page: null_mut(),
+            hidden_for_page: Vec::new(),
+            session_page: null_mut(),
+            hidden_for_session: Vec::new(),
+            session_height: 0,
         };
         let style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
         let mut bounds = RECT {
@@ -1478,7 +1843,7 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             top: 0,
             right: scale(520),
             bottom: scale(if paired {
-                SIMPLE_HEIGHT
+                PAIRED_HEIGHT
             } else {
                 UNPAIRED_HEIGHT
             }),
@@ -1542,9 +1907,9 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                 } else {
                     "Set up this computer"
                 },
-                28,
+                84,
                 22,
-                340,
+                290,
                 32,
                 SS_NOPREFIX,
                 H_HEADING as usize,
@@ -1602,198 +1967,338 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                 .enrollment
                 .extend([state.server, state.name, state.code]);
 
-            // Paired: the computer, then the two access choices, then the actions.
-            let name_line = child(
+            // Paired view: four tabs on one fixed-size page. Every control is created once, with the tabs it
+            // belongs to and its place; `controls()` shows and moves them.
+            let mut members: Vec<Member> = Vec::new();
+            let mut titles: Vec<HWND> = Vec::new();
+            let mut bodies: Vec<HWND> = Vec::new();
+            const HOME: u8 = 1;
+            const ACCESS: u8 = 2;
+            const UNATT: u8 = 4;
+            const SUPPORT: u8 = 8;
+            const EVERY: u8 = 15;
+            let mut add = |class: &str,
+                           label: &str,
+                           tabs: u8,
+                           rect: (i32, i32, i32, i32),
+                           extra: u32,
+                           id: usize|
+             -> Result<HWND, io::Error> {
+                let handle = child(class, label, rect.0, rect.1, rect.2, rect.3, extra, id)?;
+                members.push(Member {
+                    window: handle,
+                    tabs,
+                    rect,
+                });
+                Ok(handle)
+            };
+            // Tab strip.
+            for (index, (id, label)) in TABS.into_iter().enumerate() {
+                add(
+                    "BUTTON",
+                    label,
+                    EVERY,
+                    (28 + 118 * index as i32, 98, 110, 40),
+                    owner_draw,
+                    id,
+                )?;
+            }
+            // Home.
+            let name_line = add(
                 "STATIC",
                 &computer,
-                44,
-                114,
-                300,
-                22,
+                HOME,
+                (44, 166, 300, 22),
                 SS_NOPREFIX,
                 H_NAME as usize,
             )?;
-            let info_one = child(
+            let info_one = add(
                 "STATIC",
                 &format!(
                     "{} · Beacon Remote host {}",
                     windows_name(),
                     env!("CARGO_PKG_VERSION")
                 ),
-                70,
-                140,
-                410,
-                20,
+                HOME,
+                (70, 192, 410, 20),
                 SS_NOPREFIX,
                 H_INFO as usize,
             )?;
-            let info_two = child(
+            let info_two = add(
                 "STATIC",
                 &format!(
                     "Paired to {}",
                     beacon_remote_agent::paired_server().unwrap_or_else(|| "your workspace".into())
                 ),
-                70,
-                164,
-                410,
-                20,
+                HOME,
+                (70, 216, 410, 20),
                 SS_NOPREFIX,
                 H_INFO as usize,
             )?;
-            let section_trust = child(
+            let home_hint = add(
                 "STATIC",
-                "Connect to this computer without asking (your own account)",
-                28,
-                206,
-                464,
-                22,
+                "Change these on the Access and Unattended tabs. Anyone else always asks first.",
+                HOME,
+                (28, 476, 464, 40),
                 SS_NOPREFIX,
-                H_SECTION as usize,
+                H_INFO as usize,
             )?;
-            let section_helpers = child(
-                "STATIC",
-                "Remembered helpers (people you added in your workspace)",
-                28,
-                308,
-                464,
-                22,
-                SS_NOPREFIX,
-                H_SECTION as usize,
-            )?;
-            state.paired_details.extend([
-                name_line,
-                info_one,
-                info_two,
-                section_trust,
-                section_helpers,
-            ]);
-            for (index, (label, id)) in [
-                ("Ask me every time", ACCESS_ASK),
-                ("View without asking", ACCESS_VIEW),
-                ("View and control without asking", ACCESS_CONTROL),
+            let mut summary_labels = Vec::new();
+            for (index, label) in [
+                "Your own account",
+                "People you remembered",
+                "Unattended access",
             ]
             .into_iter()
             .enumerate()
             {
-                let radio = child(
-                    "BUTTON",
+                let top = 346 + 40 * index as i32;
+                summary_labels.push(add(
+                    "STATIC",
                     label,
-                    28,
-                    232 + 26 * index as i32,
-                    464,
-                    24,
-                    owner_draw,
-                    id,
+                    HOME,
+                    (44, top, 200, 22),
+                    SS_NOPREFIX,
+                    H_INFO as usize,
+                )?);
+                state.summary[index] = add(
+                    "STATIC",
+                    "",
+                    HOME,
+                    (250, top, 226, 22),
+                    SS_NOPREFIX,
+                    H_NAME as usize,
                 )?;
-                state.radios[index] = radio;
-                state.paired_details.push(radio);
             }
+            // Access.
+            let access_title = add(
+                "STATIC",
+                "Your own account",
+                ACCESS,
+                (28, 158, 464, 22),
+                SS_NOPREFIX,
+                H_SECTION as usize,
+            )?;
             for (index, (label, id)) in [
-                ("Ask me every time", HELPERS_OFF),
-                ("They can view without asking", HELPERS_VIEW),
-                ("They can view and control without asking", HELPERS_CONTROL),
+                ("Ask each time", ACCESS_ASK),
+                ("View only", ACCESS_VIEW),
+                ("View and control", ACCESS_CONTROL),
             ]
             .into_iter()
             .enumerate()
             {
-                let radio = child(
+                state.radios[index] = add(
                     "BUTTON",
                     label,
-                    28,
-                    334 + 26 * index as i32,
-                    464,
-                    24,
+                    ACCESS,
+                    (28 + 156 * index as i32, 186, 152, 44),
                     owner_draw,
                     id,
                 )?;
-                state.helper_radios[index] = radio;
-                state.paired_details.push(radio);
             }
-            state.autostart = child(
-                "BUTTON",
-                "Start Beacon Remote when I sign in to Windows",
-                28,
-                434,
-                464,
-                24,
-                owner_draw,
-                AUTOSTART,
+            state.access_help = add(
+                "STATIC",
+                "",
+                ACCESS,
+                (28, 238, 464, 38),
+                SS_NOPREFIX,
+                H_INFO as usize,
             )?;
-            state.paired_details.push(state.autostart);
-            state.files = child(
+            let helpers_title = add(
+                "STATIC",
+                "People you remembered",
+                ACCESS,
+                (28, 290, 464, 22),
+                SS_NOPREFIX,
+                H_SECTION as usize,
+            )?;
+            for (index, (label, id)) in [
+                ("Ask each time", HELPERS_OFF),
+                ("View only", HELPERS_VIEW),
+                ("View and control", HELPERS_CONTROL),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                state.helper_radios[index] = add(
+                    "BUTTON",
+                    label,
+                    ACCESS,
+                    (28 + 156 * index as i32, 318, 152, 44),
+                    owner_draw,
+                    id,
+                )?;
+            }
+            state.helper_help = add(
+                "STATIC",
+                "",
+                ACCESS,
+                (28, 370, 464, 38),
+                SS_NOPREFIX,
+                H_INFO as usize,
+            )?;
+            state.files = add(
                 "BUTTON",
                 "Also let my account send files to this computer",
-                28,
-                460,
-                464,
-                24,
+                ACCESS,
+                (28, 424, 464, 26),
                 owner_draw,
                 FILES,
             )?;
-            state.paired_details.push(state.files);
-            state.boot_start = child(
+            // Unattended.
+            let unattended_title = add(
+                "STATIC",
+                "Unattended access",
+                UNATT,
+                (44, 168, 432, 22),
+                SS_NOPREFIX,
+                H_SECTION as usize,
+            )?;
+            let unattended_text = add(
+                "STATIC",
+                "Connect to your own computers when nobody is there to click Allow. The sharing indicator and Stop stay on screen, and you can turn this off here at any time.",
+                UNATT,
+                (44, 194, 432, 62),
+                SS_NOPREFIX,
+                H_INFO as usize,
+            )?;
+            state.unattended_status = add(
+                "STATIC",
+                "",
+                UNATT,
+                (44, 260, 432, 22),
+                SS_NOPREFIX,
+                H_STATUS as usize,
+            )?;
+            add(
                 "BUTTON",
-                "Start boot status before Windows sign-in (admin setup)",
-                28,
-                634,
-                464,
-                24,
+                "Set up unattended access",
+                UNATT,
+                (28, 300, 464, 44),
+                owner_draw,
+                UNATTENDED,
+            )?;
+            add(
+                "BUTTON",
+                "Turn off unattended access",
+                UNATT,
+                (28, 352, 464, 44),
+                owner_draw,
+                UNATTENDED_OFF,
+            )?;
+            state.autostart = add(
+                "BUTTON",
+                "Start Beacon Remote when I sign in to Windows",
+                UNATT,
+                (28, 410, 464, 26),
+                owner_draw,
+                AUTOSTART,
+            )?;
+            state.boot_start = add(
+                "BUTTON",
+                "Start before Windows sign-in (administrator setup)",
+                UNATT,
+                (28, 440, 464, 26),
                 owner_draw,
                 BOOT_START,
             )?;
-            state.paired_details.push(state.boot_start);
-            for (label, id, x, width) in [
-                ("Set up unattended access", UNATTENDED, 28, 248),
-                ("Turn off unattended", UNATTENDED_OFF, 286, 206),
-            ] {
-                state
-                    .paired_details
-                    .push(child("BUTTON", label, x, 594, width, 34, owner_draw, id)?);
+            // Support.
+            let support_title = add(
+                "STATIC",
+                "Help from, or for, someone you trust",
+                SUPPORT,
+                (28, 158, 464, 22),
+                SS_NOPREFIX,
+                H_SECTION as usize,
+            )?;
+            let support_text = add(
+                "STATIC",
+                "Create a one-time code. Whoever enters it asks to view or control this computer, and you still approve it.",
+                SUPPORT,
+                (28, 184, 464, 40),
+                SS_NOPREFIX,
+                H_INFO as usize,
+            )?;
+            for (index, (label, id, top)) in [
+                ("Support code: view only", SUPPORT_VIEW, 234),
+                ("Support code: view and control", SUPPORT_CONTROL, 286),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                state.support[index] =
+                    add("BUTTON", label, SUPPORT, (28, top, 464, 44), owner_draw, id)?;
             }
-            state.paired_details.push(child(
+            let updates_title = add(
+                "STATIC",
+                "Updates",
+                SUPPORT,
+                (28, 362, 464, 22),
+                SS_NOPREFIX,
+                H_SECTION as usize,
+            )?;
+            state.version_line = add(
+                "STATIC",
+                &format!(
+                    "Beacon Remote host {}. Updates are signed and only installed when you ask.",
+                    env!("CARGO_PKG_VERSION")
+                ),
+                SUPPORT,
+                (28, 388, 464, 40),
+                SS_NOPREFIX,
+                H_INFO as usize,
+            )?;
+            state.update_button = add(
                 "BUTTON",
-                "Sign-in access…",
-                324,
-                10,
-                168,
-                44,
+                "Check for updates",
+                SUPPORT,
+                (28, 436, 464, 44),
+                owner_draw,
+                UPDATE,
+            )?;
+            // Sign-in screen access is a page of its own; its entry sits with the setup it belongs to.
+            let signin_entry = add(
+                "BUTTON",
+                "Sign-in screen access…",
+                UNATT,
+                (28, 474, 464, 40),
                 owner_draw,
                 SIGNIN_SETTINGS,
-            )?);
+            )?;
+            let _ = signin_entry;
+            titles.extend([
+                name_line,
+                access_title,
+                helpers_title,
+                unattended_title,
+                support_title,
+                updates_title,
+            ]);
+            titles.extend(state.summary);
+            bodies.extend(summary_labels);
+            bodies.extend([
+                info_one,
+                info_two,
+                home_hint,
+                state.access_help,
+                state.helper_help,
+                unattended_text,
+                state.unattended_status,
+                support_text,
+                state.version_line,
+            ]);
+            state.members = members;
+            // The main button is shared by pairing and the host toggle; it is not a tab member.
             state.action = child(
                 "BUTTON",
                 "Pair computer",
                 28,
-                if paired { 498 } else { 322 },
+                if paired { 268 } else { 322 },
                 220,
                 38,
                 owner_draw | WS_VISIBLE,
                 ACTION,
             )?;
-            state.update_button = child(
-                "BUTTON",
-                "Check for updates",
-                260,
-                498,
-                232,
-                38,
-                owner_draw,
-                UPDATE,
-            )?;
-            state.paired_details.push(state.update_button);
-            state.more_button =
-                child("BUTTON", "More options", 324, 10, 168, 44, owner_draw, MORE)?;
-            for (index, (label, id, x, width)) in [
-                ("Support code: view only", SUPPORT_VIEW, 28, 236),
-                ("Support code: view and control", SUPPORT_CONTROL, 276, 216),
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                let button = child("BUTTON", label, x, 546, width, 38, owner_draw, id)?;
-                state.support[index] = button;
-                state.paired_details.push(button);
-            }
 
             // Fonts: semibold headings, regular body.
             let font = |height: i32, weight: i32| ui::gdi_font(scale(height), weight);
@@ -1809,13 +2314,16 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                 SendMessageW(handle, WM_SETFONT, f as usize, 1);
             };
             set(heading, heading_font);
-            set(name_line, strong);
-            set(section_trust, strong);
-            set(section_helpers, strong);
+            for &handle in &titles {
+                set(handle, strong);
+            }
             for &label in state.enrollment.iter().take(3) {
                 set(label, label_font);
             }
-            for handle in [state.introduction, state.status, info_one, info_two] {
+            for handle in [state.introduction, state.status] {
+                set(handle, body);
+            }
+            for &handle in &bodies {
                 set(handle, body);
             }
             for handle in [state.server, state.name, state.code] {
@@ -1864,7 +2372,13 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             if result <= 0 {
                 break;
             }
-            if IsDialogMessageW(window, &message) == 0 {
+            // The sign-in page is a child; keyboard navigation then stays inside it.
+            let target = if !state.signin_page.is_null() && IsWindow(state.signin_page) != 0 {
+                state.signin_page
+            } else {
+                window
+            };
+            if IsDialogMessageW(target, &message) == 0 {
                 TranslateMessage(&message);
                 DispatchMessageW(&message);
             }

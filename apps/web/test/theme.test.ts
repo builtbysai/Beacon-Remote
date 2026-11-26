@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { readTheme, saveTheme } from "../src/ThemePicker.js";
+import { readTheme, resolveTheme, saveTheme } from "../src/ThemePicker.js";
 
 test("appearance tolerates unavailable storage and discards unsupported saved modes", () => {
   const previous = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
@@ -32,4 +32,11 @@ test("appearance tolerates unavailable storage and discards unsupported saved mo
     if (previous) Object.defineProperty(globalThis, "localStorage", previous);
     else Reflect.deleteProperty(globalThis, "localStorage");
   }
+});
+
+test("an explicit choice is shown as is, and without a device preference System shows light", () => {
+  assert.equal(resolveTheme("dark"), "dark");
+  assert.equal(resolveTheme("light"), "light");
+  // No window here, so there is no device preference to follow.
+  assert.equal(resolveTheme("system"), "light");
 });

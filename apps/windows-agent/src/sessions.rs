@@ -11,6 +11,9 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+/// The helper's stop message (ADR 0059): one JSON line.
+const STOP_LINE: &str = "{\"t\":\"stop\"}\n";
+
 type HelperEntry = (Option<u64>, Child, Arc<Mutex<ChildStdin>>);
 
 fn helper_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
@@ -90,7 +93,7 @@ impl Helpers {
                     if let Ok(writers) = writers.lock() {
                         for writer in writers.iter().filter_map(Weak::upgrade) {
                             if let Ok(mut pipe) = writer.lock() {
-                                let _ = pipe.write_all(b"stop\n");
+                                let _ = pipe.write_all(STOP_LINE.as_bytes());
                             }
                         }
                     }
@@ -130,7 +133,7 @@ impl Helpers {
         self.children.retain(|_, (expiry, child, pipe)| {
             if expiry.is_some_and(|end| end <= now) {
                 if let Ok(mut pipe) = pipe.lock() {
-                    let _ = pipe.write_all(b"stop\n");
+                    let _ = pipe.write_all(STOP_LINE.as_bytes());
                 }
             }
             match child.try_wait() {
@@ -213,7 +216,7 @@ impl Helpers {
             let mut child = match helper_command(helper)
                 .arg("media-host")
                 .stdin(Stdio::piped())
-                .stdout(Stdio::inherit())
+                .stdout(Stdio::piped())
                 .stderr(Stdio::inherit())
                 .spawn()
             {
@@ -245,6 +248,11 @@ impl Helpers {
                 continue;
             }
             let pipe = Arc::new(Mutex::new(pipe));
+            // The helper draws nothing: its reports come back here and the host window shows them.
+            #[cfg(windows)]
+            if let Some(stdout) = child.stdout.take() {
+                crate::session_hub::attach(stdout, &pipe);
+            }
             {
                 let mut stops = self
                     .stops
@@ -255,7 +263,7 @@ impl Helpers {
             }
             if self.cancel.load(Ordering::Acquire) {
                 if let Ok(mut pipe) = pipe.lock() {
-                    let _ = pipe.write_all(b"stop\n");
+                    let _ = pipe.write_all(STOP_LINE.as_bytes());
                 }
             }
             // The host window turns this into one Windows notification; the consent window (or trusted access)
@@ -276,7 +284,7 @@ impl Drop for Helpers {
         self.cancel.store(true, Ordering::Release);
         for (_, _, pipe) in self.children.values() {
             if let Ok(mut pipe) = pipe.lock() {
-                let _ = pipe.write_all(b"stop\n");
+                let _ = pipe.write_all(STOP_LINE.as_bytes());
             }
         }
         if let Some(watcher) = self.watcher.take() {

@@ -1,5 +1,16 @@
 # Beacon Remote delivery roadmap
 
+## Not yet released (internal; not shown on the public Security page)
+
+The public Security page describes only what ships. These items stay here until each one is accepted:
+
+- Windows sign-in screen access: capture and input on the secure sign-in desktop. The supervisor and worker now start at
+  the sign-in screen after a reboot and the server offers "Open sign-in" for a signed-out computer (November 26, 2026);
+  the viewer's media connection to it is still being fixed. See [sign-in authority](signin-authority.md).
+- The full device and network acceptance matrix ([remaining testing](testing-remaining.md)).
+- Peer authentication against the signaling service.
+- Email recovery depends on the operator's server setup.
+
 ## Current owner scope — November 17, 2026
 
 Latest development continuation: `be832b2` and `2fd40a3` fix stale viewer modifier state and

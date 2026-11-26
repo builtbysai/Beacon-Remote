@@ -5,9 +5,11 @@ import { MfaPanel } from "./MfaPanel.js";
 import { TeamPanel } from "./TeamPanel.js";
 import { api } from "./api.js";
 import { AccountIdentity } from "./AccountIdentity.js";
+import { ThemeChoice, type Theme } from "./ThemePicker.js";
 
 const settingsSections = [
   { id: "account", label: "Account" },
+  { id: "appearance", label: "Appearance" },
   { id: "team", label: "Team" },
   { id: "data", label: "Data" },
 ] as const;
@@ -91,7 +93,15 @@ export function activityLabel(action: string) {
   }
 }
 
-export function AccountPanels({ activity }: { activity: boolean }) {
+export function AccountPanels({
+  activity,
+  theme,
+  onTheme,
+}: {
+  activity: boolean;
+  theme: Theme;
+  onTheme: (theme: Theme) => void;
+}) {
   const [sessions, setSessions] = useState<BrowserSession[] | null>(null);
   const [events, setEvents] = useState<Activity[] | null>(null);
   const [error, setError] = useState("");
@@ -368,6 +378,23 @@ export function AccountPanels({ activity }: { activity: boolean }) {
                   {busy ? "Ending sessions…" : "End other browser sessions"}
                 </button>
               </div>
+            </div>
+          </section>
+          <section
+            className="settings-section"
+            id="settings-appearance"
+            aria-label="Appearance"
+            hidden={section !== "appearance"}
+          >
+            <div className="quiet-panel">
+              <div className="settings-section-heading">
+                <h2>Appearance</h2>
+              </div>
+              <p>
+                Light or dark can also be switched from the button in the
+                header. System follows your device and changes with it.
+              </p>
+              <ThemeChoice theme={theme} onChange={onTheme} />
             </div>
           </section>
           <section

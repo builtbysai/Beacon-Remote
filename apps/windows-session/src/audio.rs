@@ -195,8 +195,6 @@ static MUTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new
 
 /// The owner muted this computer's sound toward the viewer. Muting keeps the session and video running and only
 /// stops sound. It is cleared when the owner unmutes or the process restarts.
-// Nothing calls this until the sharing window has a mute control; the gate already honours the state.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn set_muted(on: bool) {
     MUTED.store(on, std::sync::atomic::Ordering::Release);
 }

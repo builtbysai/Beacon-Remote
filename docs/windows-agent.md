@@ -93,3 +93,96 @@ publisher identity, digest verification, downgrade protection, staged atomic
 replacement and rollback. The owner must supply legitimate Windows code-signing
 credentials before distributing signed installers. Never fake signing or instruct
 users to bypass SmartScreen. No signing credentials belong in Git.
+
+## One window (November 25, 2026)
+
+The host shows one window. The Windows sign-in settings are a page inside it (Back returns), and a second launch brings
+the open window forward instead of showing a message box. The temporary support program is a separate mode for a
+different person and keeps its own window.
+
+During a session the same window is the only window ([ADR 0059](decisions/0059-host-window-owns-all-ui.md)). The
+capture helper (`beacon-remote-session media-host`) is headless: it draws nothing and reports what the person must
+decide and what is being shared as one JSON line per message on its stdout (at most 4 KiB: `prompt`, `withdraw`,
+`state`, `ended`). The host reads them (`session_hub.rs`), shows them as a page inside its window (`session_view.rs`),
+and writes the person's answers on the helper's stdin (`answer`, `stop`, `pause`, `mute`, `revoke-extras`, `send-file`,
+`alive`). The helper's ordinary output goes to stderr, so the protocol channel carries nothing else. The wire format and
+the helper's side are `ui_protocol.rs` and `ui_bridge.rs`; the old consent window and sharing card are gone.
+
+Invariants, covered by `ui_bridge::tests` and `ui_protocol::tests`; the host only sends messages, the helper decides:
+
+- An answer counts only for the one pending prompt id, only the first answer, only with `allow` true, before the
+  deadline, while the request is still pending, the grant has not expired and the input desktop is the shared one.
+  Anything else, including a forged or repeated id, declines.
+- Decline is the default answer: it is the focused button. Escape or Enter with nothing focused declines and never
+  stops sharing.
+- A malformed or oversized line, end of input, or Stop fails closed and ends the session.
+- Liveness lease: the host sends `alive` from its own UI thread; the helper ends if none arrives for 5 seconds (5 seconds
+  of startup grace), so a hung or killed host cannot leave the screen shared. Run standalone with no host, requests
+  decline and no session starts.
+- Stop, Pause, Mute and turning off extras are never behind another click. The window stays on top while a request or
+  share is open and cannot be closed or minimized then; the closing control is Stop sharing.
+- One request at a time; a second is declined. The request screen shows who, what, View only or View and control, the
+  optional file, recording and sound choices, Decline and Allow once, and no Stop because nothing is shared yet. Once
+  allowed it becomes the sharing screen in place; more access asked during a share is shown under Stop.
+
+Checked on the Surfiena lab laptop on November 26, 2026: the request screen and all its options, the sharing screen,
+Mute and turn off extras, Decline and Allow once on a mid-session request for control (a declined request leaves the
+session view only and tells the viewer), local Stop, the helper ending within two seconds of the host being killed, and
+the helper ending after about five seconds when the host process is frozen rather than killed. A viewer click did reach
+the laptop, but the target button was not confirmed. Not yet exercised there: file send, recording, and light mode. Two
+viewer-side oddities were seen and are not caused by this change: a session sometimes ended with "Media consumer
+stalled" a second after the first video packet, and a finished session's card survives a page reload and swallows the
+next click until it is closed.
+
+## Layout of the host window (November 26, 2026)
+
+A paired computer's window is one fixed size (it no longer grows and shrinks) with four tabs under the header:
+
+- **Home:** the computer, its status, Start or Stop host, and who can connect without asking and whether unattended
+  access is on.
+- **Access:** two three-way choices, for your own account and for people you remembered (Ask each time, View only,
+  View and control), each with a one-line explanation, and sending files.
+- **Unattended:** what unattended access means, its status, set up or turn off, start at sign-in, start before Windows
+  sign-in (administrator setup), and the Windows sign-in screen access page.
+- **Support:** one-time support codes and the update check.
+
+The same fixed grid is used on every tab. On a small, high-DPI screen the scale is reduced only as far as needed for
+the window to fit its work area, so the bottom of a page (including Stop) is never off screen. The request and sharing
+screens are separate pages of the same window (ADR 0059).
+
+## Look of the native windows (November 25, 2026)
+
+The host window (including its request and sharing screens), the sign-in page and the support window share `native_ui.rs`, so one set of tokens drives
+all of them, following the web direction: cool-neutral window, soft tiles with no hairlines, pill buttons (ink for the
+main action, a soft tile for the rest, a coral wash for danger), tinted capsule status and the monitor character in
+the header (awake with signal arcs when reachable, asleep when stopped, surprised when someone is knocking). Dark mode
+and high contrast keep the same structure; high contrast falls back to system colours.
+
+## Installer lifecycle check (November 26, 2026)
+
+`scripts/Test-Installer.ps1` runs the per-user installer in a throwaway profile (temp `LOCALAPPDATA`/`APPDATA`, a
+test-only registry key, sandbox mode on) and checks 26 things: clean install, shortcut, Apps and features entry,
+start at sign-in, installing over an install, upgrade while the old host is running (it is stopped, replaced, the new
+version shows, an owner's choice to not start at sign-in is kept, the saved sign-in survives), repair of a missing and
+a damaged program, and uninstall while the host is running (programs, shortcut, entry and saved sign-in removed,
+files the installer did not create left alone). It needs no administrator approval and touches no real install.
+
+Not covered, because they need administrator approval and real hardware: trusting the signing certificate, installing
+and removing the boot service, the sign-in worker, cold boot and signed-out states, and crash or reboot recovery.
+
+## Boot availability service on Surfiena (November 26, 2026)
+
+Installed from the host window's Unattended tab with Windows administrator approval on the lab laptop, then checked:
+`BeaconRemoteAvailability-<machine>` runs as LocalSystem, starts automatically, and its program folder under Program
+Files is read-only for ordinary users while the identity file under ProgramData is readable only by SYSTEM and
+Administrators. The server recorded `bootState: starting` and kept it current (the field is only returned while the
+service's heartbeat is under 45 seconds old). After a reboot, with nobody signed in, the service started on its own
+and the server still showed the computer as not online but with a current boot heartbeat, so presence before sign-in
+works. After sign-in the host window showed the option ticked from the real service state. Unattended access (owner
+account, view and control, start at sign-in) was then switched on and a connection from the viewer started with no
+click on the laptop. Removal of the service was not exercised.
+
+Not available yet: connecting to the Windows sign-in screen itself (capture and input on the secure sign-in desktop).
+That is the separate sign-in endpoint, which needs a build with the `signin-media` feature, the backend flags
+`SIGNIN_AUTHORITY_ENABLED` and `SIGNIN_MEDIA_ENABLED`, and its own administrator setup. See
+[the sign-in authority notes](signin-authority.md).

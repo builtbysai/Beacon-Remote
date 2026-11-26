@@ -307,7 +307,10 @@ where
 pub fn run() -> Result<(), Error> {
     let mut input = String::new();
     io::stdin().take(8193).read_to_string(&mut input)?;
-    run_grant(input, Arc::new(AtomicBool::new(true)))
+    let active = Arc::new(AtomicBool::new(true));
+    // No host window: requests decline and no session can start, because nothing could show Stop.
+    crate::ui_bridge::connect_none(active.clone());
+    run_grant(input, active)
 }
 
 // The host owns an anonymous child stdin pipe. No discoverable local endpoint,
@@ -321,13 +324,9 @@ pub fn run_host() -> Result<(), Error> {
         return Err("Missing framed host grant".into());
     }
     let active = Arc::new(AtomicBool::new(true));
-    let stopping = active.clone();
-    std::thread::spawn(move || {
-        let mut command = [0_u8; 5];
-        // Any Stop, malformed control or pipe EOF fails closed.
-        let _ = reader.read_exact(&mut command);
-        stopping.store(false, Ordering::Release);
-    });
+    // The host window owns every piece of local UI (ADR 0059): its messages arrive on the rest of stdin, ours go out
+    // on stdout. Stop, a malformed line, a silent host or pipe EOF all fail closed.
+    crate::ui_bridge::connect_host(reader, active.clone())?;
     run_grant(input, active)
 }
 
@@ -455,6 +454,13 @@ async fn stream(
             grant.controller
         );
     }
+    // What the window shows and the helper receives, set once the person has answered. The window itself opens
+    // asking for the first approval and then becomes the sharing card, so one window serves the whole session.
+    let active = parent_active.clone();
+    let connected = Arc::new(AtomicBool::new(false));
+    let indicator_control = Arc::new(AtomicBool::new(control_allowed));
+    let extras = Arc::new(AtomicU8::new(0));
+    let mut approval_window: Option<crate::ui_bridge::Session> = None;
     if desktop && !by_policy {
         let unlimited = grant.expires_at_millis == 0;
         let controller = grant.controller.clone();
@@ -474,24 +480,36 @@ async fn stream(
         let reported_recording = chosen_recording.clone();
         let chosen_audio = Arc::new(AtomicBool::new(false));
         let reported_audio = chosen_audio.clone();
+        // The control the viewer asked for is not active until the person allows it.
+        indicator_control.store(false, Ordering::Release);
+        let first = crate::ui_bridge::FirstRequest {
+            control,
+            unlimited,
+            display: display_label,
+        };
+        let window = crate::ui_bridge::Session::start_for_approval(
+            active.clone(),
+            connected.clone(),
+            desktop,
+            controller,
+            deadline,
+            indicator_control.clone(),
+            extras.clone(),
+            session_label,
+            first.clone(),
+        )?;
+        let card = window.card();
+        approval_window = Some(window);
         let mut dialog = tokio::task::spawn_blocking(move || {
-            let decision = crate::consent::request_access(
-                &controller,
-                dialog_pending,
-                deadline,
-                control,
-                unlimited,
-                &display_label,
-                &session_label,
-            )?;
+            let decision = card.ask_first(&first, &dialog_pending, deadline);
             reported_control.store(
-                decision.decision == crate::consent::Decision::Control,
+                decision.decision == crate::ui_bridge::Decision::Control,
                 Ordering::Release,
             );
             reported_files.store(decision.files, Ordering::Release);
             reported_recording.store(decision.recording, Ordering::Release);
             reported_audio.store(decision.audio, Ordering::Release);
-            Ok::<_, Error>(decision.decision != crate::consent::Decision::Declined)
+            Ok::<_, Error>(decision.decision != crate::ui_bridge::Decision::Declined)
         });
         let accepted = tokio::select! {
             accepted = consent_while_signaling(&mut socket, async { (&mut dialog).await? }, deadline, control) => accepted,
@@ -533,32 +551,39 @@ async fn stream(
         audio_allowed = chosen_audio.load(Ordering::Acquire);
     }
     let deadline = (grant.expires_at_millis != 0).then_some(deadline);
-    let active = parent_active;
-    let connected = Arc::new(AtomicBool::new(false));
-    let indicator_control = Arc::new(AtomicBool::new(control_allowed));
     let _stop = StopOnDrop(active.clone());
-    // Refuse media if a visible local Stop control cannot be created.
-    let extras = Arc::new(AtomicU8::new(
+    indicator_control.store(control_allowed, Ordering::Release);
+    extras.store(
         crate::files_transport::Permissions {
             files: files_allowed,
             recording: recording_allowed,
         }
         .bits(),
-    ));
-    let _indicator = crate::indicator::Indicator::start_access(
-        active.clone(),
-        connected.clone(),
-        desktop,
-        grant.controller.clone(),
-        deadline,
-        indicator_control.clone(),
-        extras.clone(),
-        audio_allowed && desktop,
-        format!(
-            "S-{}",
-            grant.id.chars().take(4).collect::<String>().to_uppercase()
-        ),
-    )?;
+        Ordering::Release,
+    );
+    // Refuse media if a visible local Stop control cannot be created.
+    let _indicator = match approval_window {
+        Some(window) => {
+            // The approval window carries on as the sharing card.
+            window.set_audio(audio_allowed && desktop);
+            window.set_deadline(deadline);
+            window
+        }
+        None => crate::ui_bridge::Session::start_access(
+            active.clone(),
+            connected.clone(),
+            desktop,
+            grant.controller.clone(),
+            deadline,
+            indicator_control.clone(),
+            extras.clone(),
+            audio_allowed && desktop,
+            format!(
+                "S-{}",
+                grant.id.chars().take(4).collect::<String>().to_uppercase()
+            ),
+        )?,
+    };
     timeout(
         Duration::from_millis(500),
         socket.send(Message::Text(
@@ -687,13 +712,13 @@ impl LiveScope {
             Self::Print => "print",
         }
     }
-    fn consent(self) -> crate::consent::LivePermission {
+    fn consent(self) -> crate::ui_bridge::LivePermission {
         match self {
-            Self::Control => crate::consent::LivePermission::Control,
-            Self::Files => crate::consent::LivePermission::Files,
-            Self::Recording => crate::consent::LivePermission::Recording,
-            Self::Drive => crate::consent::LivePermission::Drive,
-            Self::Print => crate::consent::LivePermission::Print,
+            Self::Control => crate::ui_bridge::LivePermission::Control,
+            Self::Files => crate::ui_bridge::LivePermission::Files,
+            Self::Recording => crate::ui_bridge::LivePermission::Recording,
+            Self::Drive => crate::ui_bridge::LivePermission::Drive,
+            Self::Print => crate::ui_bridge::LivePermission::Print,
         }
     }
 }
@@ -1318,9 +1343,17 @@ async fn media_cycle(
             };
             let encode_time = encode_started.elapsed();
             for packet in encoded {
-                if packets.try_send(packet).is_err() {
-                    worker_active.store(false, Ordering::Release);
-                    return Err("Media consumer stalled".into());
+                match packets.try_send(packet) {
+                    Ok(()) => {}
+                    Err(mpsc::error::TrySendError::Closed(_)) => {
+                        // The sending task already ended; its own reason is the one that matters.
+                        worker_active.store(false, Ordering::Release);
+                        return Err("Media sender had already ended".into());
+                    }
+                    Err(mpsc::error::TrySendError::Full(_)) => {
+                        worker_active.store(false, Ordering::Release);
+                        return Err("Media consumer stalled".into());
+                    }
                 }
             }
             index += 1;
@@ -1454,7 +1487,10 @@ async fn media_cycle(
                 }
                 _=tick.tick()=>{
                     indicator_connected.store(connected.load(Ordering::Acquire), Ordering::Release);
-                    if !active.load(Ordering::Acquire) || !session_active.load(Ordering::Acquire) || deadline.is_some_and(|end| Instant::now() >= end) {break;}
+                    if !active.load(Ordering::Acquire) || !session_active.load(Ordering::Acquire) || deadline.is_some_and(|end| Instant::now() >= end) {
+                        println!("Signaling stopped: sharing is no longer active (local stop, desktop change or time limit).");
+                        break;
+                    }
                     layout_ticks = layout_ticks.wrapping_add(1);
                     if layout_ticks.is_multiple_of(20) {
                         if let (Some(before), Some(now)) = (&layout_at_start, crate::capture::layout_snapshot()) {
@@ -1540,7 +1576,7 @@ async fn media_cycle(
                     if !reported_first_packet {println!("First video packet sent: generation {generation}, {} ms.",setup_started.elapsed().as_millis()); reported_first_packet=true;}
                 }
                 message=socket.next()=>{
-                    let text=match message {Some(Ok(Message::Text(text)))=>text,Some(Ok(Message::Ping(_) | Message::Pong(_)))=>continue,_=>break};
+                    let text=match message {Some(Ok(Message::Text(text)))=>text,Some(Ok(Message::Ping(_) | Message::Pong(_)))=>continue,other=>{println!("Signaling stopped: the server closed the connection ({}).",match other {None=>"stream ended".to_owned(),Some(Ok(message))=>format!("{message:?}").chars().take(60).collect(),Some(Err(error))=>error.to_string()});break}};
                     if text.len()>65536 {return Err("Oversized signaling".into());}
                     let body:Value=serde_json::from_str(&text)?;
                     match body["type"].as_str() {
@@ -1580,7 +1616,7 @@ async fn media_cycle(
                                     let display = crate::capture::display_label(grant.display_id.as_deref());
                                     let session = format!("S-{}", grant.id.chars().take(4).collect::<String>().to_uppercase());
                                     let dialog = tokio::task::spawn_blocking(move ||
-                                        crate::consent::request_live_permission(&controller, dialog_open, expires, &display, &session, scope.consent())
+                                        crate::ui_bridge::request_live_permission(&controller, dialog_open, expires, &display, &session, scope.consent())
                                     );
                                     permission_prompt = Some(PermissionPrompt { id, scope, deadline: expires, open, dialog: Some(dialog), locally_approved: false });
                                 }
@@ -1679,7 +1715,7 @@ async fn media_cycle(
                             }
                         }
                         Some("ended")=>break,
-                        Some("viewer-detached")=>{ detached = true; break; },
+                        Some("viewer-detached")=>{ println!("Signaling stopped: the viewer left."); detached = true; break; },
                         Some("joined")=>{},
                         _=>return Err("Unexpected signaling".into())
                     }

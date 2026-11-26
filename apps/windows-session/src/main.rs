@@ -6,8 +6,6 @@ mod capture;
 #[cfg(windows)]
 mod clipboard;
 #[cfg(windows)]
-mod consent;
-#[cfg(windows)]
 use beacon_remote_session::{
     drive_exec, drive_map, drive_wire, encoder, pixels, print_session, print_submit,
 };
@@ -20,21 +18,19 @@ mod files_transport;
 #[cfg(windows)]
 mod folder_picker;
 #[cfg(windows)]
-mod indicator;
-#[cfg(windows)]
 mod input;
 #[cfg(windows)]
 mod input_transport;
 #[cfg(windows)]
 mod media;
 #[cfg(windows)]
-mod native_ui;
-#[cfg(windows)]
 mod pause;
 #[cfg(windows)]
 mod print_transport;
 #[cfg(any(windows, test))]
 mod renewal;
+#[cfg(windows)]
+mod ui_bridge;
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // The owner's one-time folder choice for drive mapping runs on its own and exits.
