@@ -153,3 +153,20 @@ files the installer did not create left alone). It needs no administrator approv
 
 Not covered, because they need administrator approval and real hardware: trusting the signing certificate, installing
 and removing the boot service, the sign-in worker, cold boot and signed-out states, and crash or reboot recovery.
+
+## Boot availability service on Surfiena (November 26, 2026)
+
+Installed from the host window's Unattended tab with Windows administrator approval on the lab laptop, then checked:
+`BeaconRemoteAvailability-<machine>` runs as LocalSystem, starts automatically, and its program folder under Program
+Files is read-only for ordinary users while the identity file under ProgramData is readable only by SYSTEM and
+Administrators. The server recorded `bootState: starting` and kept it current (the field is only returned while the
+service's heartbeat is under 45 seconds old). After a reboot, with nobody signed in, the service started on its own
+and the server still showed the computer as not online but with a current boot heartbeat, so presence before sign-in
+works. After sign-in the host window showed the option ticked from the real service state. Unattended access (owner
+account, view and control, start at sign-in) was then switched on and a connection from the viewer started with no
+click on the laptop. Removal of the service was not exercised.
+
+Not available yet: connecting to the Windows sign-in screen itself (capture and input on the secure sign-in desktop).
+That is the separate sign-in endpoint, which needs a build with the `signin-media` feature, the backend flags
+`SIGNIN_AUTHORITY_ENABLED` and `SIGNIN_MEDIA_ENABLED`, and its own administrator setup. See
+[the sign-in authority notes](signin-authority.md).
