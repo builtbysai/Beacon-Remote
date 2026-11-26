@@ -220,7 +220,17 @@ fn identity(machine: &str) -> Result<MachineIdentity, HostError> {
 }
 fn binary_hash(path: &Path) -> Result<String, HostError> {
     let bytes = signin_files::read(path, signin_files::PUBLIC_FILE, MAX_BINARY)?;
-    Ok(format!("{:x}", Sha256::digest(&bytes)))
+    Ok(hex_lower(&Sha256::digest(&bytes)))
+}
+/// Lower-case hex of a digest (the digest type no longer implements `LowerHex`).
+fn hex_lower(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    bytes
+        .iter()
+        .fold(String::with_capacity(bytes.len() * 2), |mut text, byte| {
+            let _ = write!(text, "{byte:02x}");
+            text
+        })
 }
 fn version_name(value: &str) -> bool {
     value.len() == 64
@@ -372,7 +382,7 @@ fn matches_bundle(installed: &Path, bundle: &Path) -> Result<bool, HostError> {
     if bytes.len() > MAX_BINARY {
         return Err("Bundled sign-in binary exceeded its limit".into());
     }
-    Ok(version == format!("{:x}", Sha256::digest(bytes)))
+    Ok(version == hex_lower(&Sha256::digest(bytes)))
 }
 fn stop(service: &Service) -> Result<(), HostError> {
     let initial = service.query_status()?;
@@ -485,7 +495,7 @@ fn install(machine: &str, server: &str, owner: &str, enable: bool) -> Result<(),
         return Err("Sign-in service binary is too large".into());
     }
     let bytes = fs::read(source)?;
-    let version = programs.join(format!("{:x}", Sha256::digest(&bytes)));
+    let version = programs.join(hex_lower(&Sha256::digest(&bytes)));
     secure_directory(&version, availability::PUBLIC_ACL)?;
     let executable = version.join("beacon-remote-agent.exe");
     signin_files::create(&executable, &bytes, signin_files::PUBLIC_FILE)?;
@@ -1513,7 +1523,7 @@ mod tests {
         let original = b"owned fixture version one";
         std::fs::write(&bundle, original).unwrap();
         let installed = folder
-            .join(format!("{:x}", Sha256::digest(original)))
+            .join(hex_lower(&Sha256::digest(original)))
             .join("beacon-remote-agent.exe");
         assert!(super::matches_bundle(&installed, &bundle).unwrap());
         std::fs::write(&bundle, b"owned fixture version two").unwrap();

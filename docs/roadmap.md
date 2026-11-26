@@ -22,15 +22,14 @@ done when a real run is recorded in [testing-remaining.md](testing-remaining.md)
 
 ## Blockers
 
-| Blocker                                                                       | Who unblocks it          | What it holds up                                              |
-| ----------------------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------- |
-| #134 needs an approving review before it can merge into main                  | Owner (GitHub)           | Everything stacked on it; any hosted release                  |
-| Each Windows service change needs a UAC approval on the laptop                | Owner at the machine     | Every worker/service test cycle                               |
-| Typing a password or PIN through the viewer                                   | Owner (credentials)      | Sign-in screen acceptance                                     |
-| Unlocked Pixel, and a second real network                                     | Owner                    | Android and network acceptance                                |
-| Physical hardware: wired Wake-on-LAN peer, audio by ear, extra monitors, GPUs | Owner                    | Power, audio, display and performance acceptance              |
-| Dependency audit: high picomatch advisory GHSA-fc5q-39xc-vjpf                 | Upstream/reviewer        | Release; CI's security job passes now, recheck before release |
-| Production deploy and signing-identity actions                                | Owner, explicit go-ahead | Hosted release of anything below                              |
+| Blocker                                                                       | Who unblocks it          | What it holds up                                 |
+| ----------------------------------------------------------------------------- | ------------------------ | ------------------------------------------------ |
+| #134 needs an approving review before it can merge into main                  | Owner (GitHub)           | Everything stacked on it; any hosted release     |
+| Each Windows service change needs a UAC approval on the laptop                | Owner at the machine     | Every worker/service test cycle                  |
+| Typing a password or PIN through the viewer                                   | Owner (credentials)      | Sign-in screen acceptance                        |
+| Unlocked Pixel, and a second real network                                     | Owner                    | Android and network acceptance                   |
+| Physical hardware: wired Wake-on-LAN peer, audio by ear, extra monitors, GPUs | Owner                    | Power, audio, display and performance acceptance |
+| Production deploy and signing-identity actions                                | Owner, explicit go-ahead | Hosted release of anything below                 |
 
 ## Order of work
 
@@ -41,8 +40,9 @@ without the owner; **owner** needs the owner present; **device** needs a physica
 
 1. Merge the stack: #139 and #140 into the #134 branch, then #134 into main once approved. (owner approves)
 2. #126 (startup, pairing, Android consent) is already contained in the stack branch (no commits ahead of it, checked
-   November 26), so close it as superseded once #134 merges. Ask Dependabot to rebase #127–#133 after the merge, review
-   each against the new lockfiles, recheck the picomatch advisory, and never waive the audit. (solo)
+   November 26), so close it as superseded once #134 merges. The dependency updates in #127-#133 are applied together
+   in one tested branch (sha2 0.11 needed a small code change); close those PRs when it merges. `pnpm audit` reports no
+   known vulnerabilities on that branch (November 26); rerun it before any release and never waive it. (solo)
 3. Build matching signed artifacts and migrations 023–028; choose rollout and rollback images; update docs/deployment
    steps. (solo to prepare, owner go-ahead to deploy)
 4. Keep local-only work on pushed branches: a delete on November 26 took the local git history and unpushed branches. (solo)
