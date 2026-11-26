@@ -466,8 +466,13 @@ fn run(
                         Message::Ping(_) => flush(&mut socket, gate.as_ref())?,
                         Message::Pong(_) => {}
                         other => {
+                            let kind = match other {
+                                Message::Binary(_) => "binary",
+                                Message::Close(_) => "close",
+                                _ => "other",
+                            };
                             crate::signin_worker::trace(&format!(
-                                "signaling: unexpected frame {other:?}"
+                                "signaling: unexpected {kind} frame"
                             ));
                             return Err(rejected());
                         }

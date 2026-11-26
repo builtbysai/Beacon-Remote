@@ -1109,7 +1109,8 @@ pub(crate) fn diag(machine: &str, line: &str) {
     };
     let path = data.join("supervisor.log");
     if fs::metadata(&path).is_ok_and(|meta| meta.len() >= 32 * 1024) {
-        return;
+        // Keep the newest 32 KiB window: move the full log aside (replacing the previous one) and start again.
+        let _ = fs::rename(&path, data.join("supervisor.old.log"));
     }
     if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(&path) {
         use std::io::Write;

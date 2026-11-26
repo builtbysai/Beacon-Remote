@@ -119,6 +119,8 @@ pub(crate) fn known_folder(id: &GUID) -> Result<PathBuf, HostError> {
     if let Some(value) = name.and_then(std::env::var_os) {
         let path = PathBuf::from(value);
         if path.is_absolute() && !path.to_string_lossy().contains('%') {
+            // Recovered: a later, unrelated failure must not be reported as this lookup.
+            LAST_FOLDER_RESULT.store(0, std::sync::atomic::Ordering::Relaxed);
             return Ok(path);
         }
     }

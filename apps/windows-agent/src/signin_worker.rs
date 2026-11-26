@@ -1062,7 +1062,9 @@ pub(crate) fn run_as_process(arguments: &[String]) -> Result<(), HostError> {
         };
         let check = signin_endpoint::VALIDATE_STEP.load(Relaxed) & 0xff;
         let stage = STAGE.load(Relaxed) & 0xff;
-        std::process::exit(((os_error << 16) | (check << 8) | stage) as i32);
+        let status = (os_error << 16) | (check << 8) | stage;
+        // 259 (STILL_ACTIVE) would read as a running worker.
+        std::process::exit(if status == 259 { 260 } else { status } as i32);
     }
     result
 }
