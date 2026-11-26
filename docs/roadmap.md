@@ -40,8 +40,9 @@ without the owner; **owner** needs the owner present; **device** needs a physica
 ### M1. Land and release safely
 
 1. Merge the stack: #139 and #140 into the #134 branch, then #134 into main once approved. (owner approves)
-2. Reconcile and review the open dependency PRs (#127–#133) and #126 (startup, pairing, Android consent) against the
-   new stack; recheck the picomatch advisory; never waive the audit. (solo)
+2. #126 (startup, pairing, Android consent) is already contained in the stack branch (no commits ahead of it, checked
+   November 26), so close it as superseded once #134 merges. Ask Dependabot to rebase #127–#133 after the merge, review
+   each against the new lockfiles, recheck the picomatch advisory, and never waive the audit. (solo)
 3. Build matching signed artifacts and migrations 023–028; choose rollout and rollback images; update docs/deployment
    steps. (solo to prepare, owner go-ahead to deploy)
 4. Keep local-only work on pushed branches: a delete on November 26 took the local git history and unpushed branches. (solo)
