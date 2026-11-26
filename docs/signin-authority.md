@@ -21,6 +21,36 @@ No positive SYSTEM/media acceptance
 has exercised this path; readiness/public connectability remain false.
 This is not full unattended access and is not a released feature.
 
+## First device run (November 26, 2026)
+
+The first run on a real computer (Windows 11 Home, high-DPI display, lab laptop, view-and-control standing access, the
+boot service installed first) found these, all fixed in source on `windows/signin-screen-access`:
+
+- **Which console counts.** After a reboot or a sign-out the console session is _Connected with nobody signed in_
+  (`WTSConnected`, no user), not _Active and locked_. The supervisor only accepted the latter, so it never started a
+  worker at a fresh sign-in screen. Both now count; an unlocked user session still does not.
+- **Lock screen picture.** Right after a user locks, Windows shows the lock-screen picture on a desktop that is not the
+  Winlogon desktop; Winlogon receives input only once the password prompt is up. The worker waits (its desktop check
+  fails and the supervisor retries). A reboot or sign-out goes straight to the prompt. A future wake-on-request
+  (bring up the password prompt when a viewer asks) would cover the locked case.
+- **Launch.** The worker is a console program; started with a hidden console inside a job that forbids child processes
+  it died with `0xC0000142` before running. It is now launched detached.
+- **Known folders.** `SHGetKnownFolderPath` fails for the worker's restricted SYSTEM token in a user session. The
+  supervisor now hands the worker the Program Files and ProgramData folders it resolved, and the worker falls back to
+  those (it still verifies the folder's owner and permissions and the binary's hash). The default-path flag was
+  rejected because it can return an unexpanded `%SystemDrive%`.
+- **DPI.** The worker is not DPI-aware, so the output's desktop rectangle is scaled down; frames are not. The expected
+  frame size now comes from the duplication's mode description and the snapshot uses the real surface size.
+- **Diagnostics.** A worker cannot reliably write the normal logs, so a size-capped, de-duplicated log in the protected
+  ProgramData folder records states and errors only (never grants, keys, pixels, input or credentials): supervisor
+  heartbeats with the raw session values, worker steps, why a worker started draining, how it ended, and where the media
+  runner stopped. A failing worker also reports its stage in its exit status.
+
+Result so far: at the sign-in screen after a reboot or sign-out the worker starts, the server reports the endpoint ready
+and offers "Open sign-in" for the signed-out computer, the viewer connects, and capture and the encoder start and the first
+frame is captured and encoded. Not yet accepted: the browser shows no picture (the session ends shortly after the first
+frame; tracing is in place), typing a Windows password through the viewer, secure attention, and a lock-screen wake-up.
+
 ## Configured connection readiness
 
 Current source can opt into the integrated journey using both a Windows build
