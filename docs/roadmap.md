@@ -51,6 +51,9 @@ Exit: main contains the stack, CI green on main, signed candidates staged, nothi
 
 ### M2. Windows unattended access, accepted on a real laptop
 
+0. Before the secure-attention test the owner sets the machine policy `SoftwareSASGeneration` to 1 (services) as an
+   administrator; Beacon never writes it ([signin-authority.md](signin-authority.md)). Without it the viewer correctly
+   reports "policy does not allow Ctrl+Alt+Delete". (owner)
 1. Sign-in screen: type the PIN or password through the viewer (owner types it); secure attention (Ctrl+Alt+Delete);
    wake the lock screen without a click; Stop, Disable and input release on the sign-in desktop. (owner, device)
 2. Restart recovery: restart or fast-restart from the viewer, the fresh-policy reconnect and the hand-off to the user
