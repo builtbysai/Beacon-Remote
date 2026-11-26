@@ -133,7 +133,7 @@ Wake-on-LAN, sleep and update recovery. (design first; hardware where listed)
 
 ### M9. Trust and operations (P3-1, P3-2)
 
-Peer authentication against signaling, an explicit end-to-end threat model, key change and recovery, public-trust
+Peer authentication against signaling and the end-to-end threat model ([ADR 0061](decisions/0061-peer-authentication-above-signaling.md), proposed), key change and recovery, public-trust
 signing, abuse protection, retired-device rejection and re-enrollment, provider and backup retention, and logs that
 never hold credentials, pixels or input. Real account lifecycle, MFA and email delivery. (solo for design and code,
 owner for real accounts and signing)
