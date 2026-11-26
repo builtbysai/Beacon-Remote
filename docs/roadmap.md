@@ -44,7 +44,7 @@ without the owner; **owner** needs the owner present; **device** needs a physica
    new stack; recheck the picomatch advisory; never waive the audit. (solo)
 3. Build matching signed artifacts and migrations 023–028; choose rollout and rollback images; update docs/deployment
    steps. (solo to prepare, owner go-ahead to deploy)
-4. Fix the line-ending noise in four tracked files and keep local-only work in pushed branches. (solo)
+4. Keep local-only work on pushed branches: a delete on November 26 took the local git history and unpushed branches. (solo)
 
 Exit: main contains the stack, CI green on main, signed candidates staged, nothing deployed without sign-off.
 
@@ -89,7 +89,7 @@ In source: folder mapping under its own permission with host-side boundary check
 monitor-layout diffing and reconnect on layout change (P1-6), and a tested sound and mute gate (P1-9). Not accepted on
 a device, and clipboard, file workflows, input fidelity, performance and reconnect are open.
 
-Clipboard in both directions with local approval (revise ADR 0021 first); file workflows (browse, batch, resume,
+Clipboard in both directions with local approval ([ADR 0060](decisions/0060-windows-clipboard-modes.md), proposed, needs your review before code); file workflows (browse, batch, resume,
 conflicts, Android outbound); drive and folder mapping; full input fidelity (layouts, dead keys, AltGr, IME, wheel,
 relative mouse, touch and pen); multi-monitor, mixed DPI, hotplug and high refresh; reconnect after reload, network
 change, sleep and host restart; adaptive quality and diagnostics; audio. (solo to build, device for acceptance)
@@ -148,7 +148,7 @@ Pick one as the next goal; each is self-contained and has an end state.
 
 ## Decisions already made
 
-- Clipboard writing approved in both directions, each gated by local approval; ADR 0021 must be revised before code.
+- Clipboard writing approved in both directions, each gated by local approval; the Windows design is [ADR 0060](decisions/0060-windows-clipboard-modes.md), proposed; no code until it is accepted.
 - A privileged SYSTEM service for native session attach is approved, subject to its own security review.
 - USB forwarding and microphone redirection are approved, each with its own consent and revocation rules.
 - Native downloads and update feeds advance only after the matching signed candidates pass physical acceptance.
