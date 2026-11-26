@@ -28,8 +28,9 @@ use windows_sys::Win32::{
     },
 };
 
-pub const BACK_HEIGHT_REQUEST: i32 = 480;
-pub const BACK_HEIGHT_SHARING: i32 = 560;
+pub const BACK_HEIGHT_REQUEST: i32 = 464;
+pub const BACK_HEIGHT_SHARING: i32 = 392;
+pub const BACK_HEIGHT_MORE: i32 = 524;
 const CLASS: &str = "BeaconRemoteSessionPage";
 
 const DECLINE: i32 = 401;
@@ -79,7 +80,8 @@ struct Page {
 pub fn height(view: &View) -> i32 {
     match &view.prompt {
         Some((prompt, _)) if prompt.kind == PromptKind::First => BACK_HEIGHT_REQUEST,
-        _ => BACK_HEIGHT_SHARING,
+        Some(_) => BACK_HEIGHT_MORE,
+        None => BACK_HEIGHT_SHARING,
     }
 }
 
@@ -421,7 +423,7 @@ unsafe fn draw_item(page: &Page, item: &DRAWITEMSTRUCT) {
             p,
             (w, h),
             &label,
-            "They can also use mouse and keyboard",
+            "Also mouse and keyboard",
             page.control,
             flags,
         ),
@@ -555,4 +557,89 @@ unsafe fn choose_file(window: HWND) -> Option<std::path::PathBuf> {
     }
     let length = buffer.iter().position(|unit| *unit == 0)?;
     Some(std::path::PathBuf::from(String::from_utf16_lossy(&buffer[..length])))
+}
+
+#[cfg(test)]
+mod preview {
+    use super::*;
+    use beacon_remote_session::ui_protocol::{Prompt, SessionState};
+    use std::time::Instant;
+    use windows_sys::Win32::Graphics::Gdi::{GetDC, ReleaseDC, GetDIBits, CreateCompatibleBitmap, CreateCompatibleDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS};
+    use windows_sys::Win32::Storage::Xps::PrintWindow;
+    const PW_RENDERFULLCONTENT: u32 = 2;
+
+    fn prompt(kind: PromptKind) -> Prompt {
+        Prompt {
+            id: 1,
+            kind,
+            controller: "helper@example.test".into(),
+            session: "S-1A2B".into(),
+            display: "Primary display".into(),
+            control: kind == PromptKind::First,
+            unlimited: false,
+            detail: "Allow mouse and keyboard for this connection".into(),
+            deadline_ms: 120_000,
+        }
+    }
+    fn state() -> SessionState {
+        SessionState {
+            controller: "helper@example.test".into(),
+            session: "S-1A2B".into(),
+            desktop: true,
+            connected: true,
+            files: true,
+            audio: true,
+            remaining_ms: Some(540_000),
+            ..Default::default()
+        }
+    }
+    unsafe fn shot(path: &str, view: View) {
+        beacon_remote_agent_seed(view);
+        let parent = CreateWindowExW(0, wide("STATIC").as_ptr(), wide("preview").as_ptr(), WS_OVERLAPPED | WS_VISIBLE, 100, 100, 520, 560, null_mut(), null_mut(), GetModuleHandleW(null()), null());
+        let mut client = RECT::default();
+        GetClientRect(parent, &mut client);
+        let page = embed(parent, client, 1.0).unwrap();
+        let mut msg: MSG = std::mem::zeroed();
+        let end = Instant::now() + std::time::Duration::from_millis(900);
+        while Instant::now() < end {
+            while PeekMessageW(&mut msg, null_mut(), 0, 0, PM_REMOVE) != 0 {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let (w, h) = (client.right, client.bottom);
+        let screen = GetDC(null_mut());
+        let dc = CreateCompatibleDC(screen);
+        let bitmap = CreateCompatibleBitmap(screen, w, h);
+        SelectObject(dc, bitmap);
+        PrintWindow(page, dc, PW_RENDERFULLCONTENT);
+        let mut info: BITMAPINFO = std::mem::zeroed();
+        info.bmiHeader = BITMAPINFOHEADER { biSize: 40, biWidth: w, biHeight: -h, biPlanes: 1, biBitCount: 32, ..std::mem::zeroed() };
+        let mut pixels = vec![0u8; (w * h * 4) as usize];
+        GetDIBits(dc, bitmap, 0, h as u32, pixels.as_mut_ptr().cast(), &mut info, DIB_RGB_COLORS);
+        ReleaseDC(null_mut(), screen);
+        let mut raw = format!("P6
+{w} {h}
+255
+").into_bytes();
+        for px in pixels.chunks(4) {
+            raw.extend_from_slice(&[px[2], px[1], px[0]]);
+        }
+        std::fs::write(path, raw).unwrap();
+        DestroyWindow(parent);
+    }
+    fn beacon_remote_agent_seed(view: View) {
+        crate::session_hub::seed(view);
+    }
+    #[test]
+    #[ignore = "writes preview images; run by hand"]
+    fn preview_screens() {
+        let dir = std::env::var("PREVIEW_DIR").unwrap_or_else(|_| ".".into());
+        unsafe {
+            shot(&format!("{dir}/first.ppm"), View { prompt: Some((prompt(PromptKind::First), Instant::now())), session: None });
+            shot(&format!("{dir}/sharing.ppm"), View { prompt: None, session: Some(state()) });
+            shot(&format!("{dir}/more.ppm"), View { prompt: Some((prompt(PromptKind::More), Instant::now())), session: Some(state()) });
+        }
+    }
 }

@@ -148,6 +148,12 @@ pub fn answer(id: u32, allow: bool, control: bool, files: bool, recording: bool,
     }
 }
 
+/// Shows a made-up state, for the preview test.
+#[cfg(test)]
+pub(crate) fn seed(view: View) {
+    hub().view = view;
+}
+
 /// How long is left to answer a prompt, from when it arrived.
 pub fn time_left(prompt: &(Prompt, Instant)) -> Duration {
     Duration::from_millis(prompt.0.deadline_ms).saturating_sub(prompt.1.elapsed())
