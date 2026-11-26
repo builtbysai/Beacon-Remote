@@ -139,7 +139,7 @@ export async function reviewSettings({
       deviceScaleFactor: 1,
       mobile: false,
     });
-    for (const section of ["account", "team", "data"]) {
+    for (const section of ["account", "appearance", "team", "data"]) {
       await nav(section);
       assert.equal(
         await browser.evaluate(
@@ -162,13 +162,15 @@ export async function reviewSettings({
   await browser.evaluate(
     "document.querySelector('.settings-nav button').focus()",
   );
-  await key("Tab");
-  assert.equal(
-    await browser.evaluate(
-      "document.activeElement.getAttribute('aria-controls')",
-    ),
-    "settings-team",
-  );
-  await key(" ", "Space");
-  await waitFor("!document.querySelector('#settings-team').hidden");
+  for (const section of ["appearance", "team"]) {
+    await key("Tab");
+    assert.equal(
+      await browser.evaluate(
+        "document.activeElement.getAttribute('aria-controls')",
+      ),
+      `settings-${section}`,
+    );
+    await key(" ", "Space");
+    await waitFor(`!document.querySelector('#settings-${section}').hidden`);
+  }
 }
