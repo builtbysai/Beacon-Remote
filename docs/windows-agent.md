@@ -134,6 +134,22 @@ viewer-side oddities were seen and are not caused by this change: a session some
 stalled" a second after the first video packet, and a finished session's card survives a page reload and swallows the
 next click until it is closed.
 
+## Layout of the host window (November 26, 2026)
+
+A paired computer's window is one fixed size (it no longer grows and shrinks) with four tabs under the header:
+
+- **Home:** the computer, its status, Start or Stop host, and who can connect without asking and whether unattended
+  access is on.
+- **Access:** two three-way choices, for your own account and for people you remembered (Ask each time, View only,
+  View and control), each with a one-line explanation, and sending files.
+- **Unattended:** what unattended access means, its status, set up or turn off, start at sign-in, start before Windows
+  sign-in (administrator setup), and the Windows sign-in screen access page.
+- **Support:** one-time support codes and the update check.
+
+The same fixed grid is used on every tab. On a small, high-DPI screen the scale is reduced only as far as needed for
+the window to fit its work area, so the bottom of a page (including Stop) is never off screen. The request and sharing
+screens are separate pages of the same window (ADR 0059).
+
 ## Look of the native windows (November 25, 2026)
 
 The host window (including its request and sharing screens), the sign-in page and the support window share `native_ui.rs`, so one set of tokens drives
