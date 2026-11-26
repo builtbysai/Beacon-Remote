@@ -1,32 +1,24 @@
+/*
+ * The Windows sign-in viewer uses the desktop viewer's layout (viewer.css): a top bar, one notice line, then the
+ * rail and the picture. Only what differs is here.
+ */
 .signin-view .viewer-toolbar {
-  flex-wrap: wrap;
-  gap: 10px;
-  padding-top: max(8px, env(safe-area-inset-top));
-}
-.signin-view .viewer-toolbar,
-.signin-view .viewer-status {
-  padding-left: max(10px, env(safe-area-inset-left));
-  padding-right: max(10px, env(safe-area-inset-right));
+  padding-top: max(0px, env(safe-area-inset-top));
+  padding-left: max(8px, env(safe-area-inset-left));
+  padding-right: max(12px, env(safe-area-inset-right));
 }
 .signin-view .viewer-identity {
   min-width: 0;
-  flex-wrap: wrap;
-  gap: 8px;
   overflow-wrap: anywhere;
-}
-.signin-view .viewer-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.signin-view .viewer-actions button {
-  min-height: 44px;
-  font-size: 12px;
 }
 .signin-view .viewer-status {
   margin: 0;
   overflow-wrap: anywhere;
-  padding-bottom: max(8px, env(safe-area-inset-bottom));
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
+}
+.signin-view .viewer-status[hidden] {
+  display: none;
 }
 .signin-view.is-controlling video {
   cursor: none;

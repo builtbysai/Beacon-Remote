@@ -922,6 +922,11 @@
   .live-view .rail-button {
     width: 64px;
   }
+  .live-view .rail-rule {
+    width: 1px;
+    height: 34px;
+    margin: 0 6px;
+  }
   .live-view .viewer-stage {
     padding: 8px;
   }

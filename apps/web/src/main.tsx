@@ -1240,6 +1240,7 @@ function App() {
                 })}
               </div>
               {selected &&
+                !signInView &&
                 machines.find((machine) => machine.id === selected) && (
                   <ComputerInspector
                     key={selected}
