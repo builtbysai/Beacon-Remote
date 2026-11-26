@@ -65,11 +65,15 @@ Exit: [signin-authority.md](signin-authority.md) "Not yet accepted" list is empt
 
 ### M3. In-session permission requests (P0-4)
 
-From a view-only session, request control, files, audio or recording. Fresh local approval for broader access, one
-controller at a time, old input released, timeouts, never expanding a grant silently; Windows and Android hosts, web
-viewer, backend policy. (solo to build and test with fixtures; device to accept)
+In source on every surface: a shared protocol (`packages/protocol/src/session-permissions.ts`: control, files, audio,
+recording, drive, print), backend arbitration with generations and 30-second timeouts, viewer controls
+(`permission-requests.ts`), the Windows sharing card ("More access requested") and the Android live prompt
+(`LivePermissionRequest.kt`). Pixel results for the live prompts are recorded; web and backend unit tests pass.
 
-Exit: browser, backend and native tests for approve/deny/timeout/revoke, then one device run each.
+Left: a device run of each scope on Windows (approve, deny, expire, cancel, revoke, one controller, old input
+released), the Windows side with the new tabbed window, and refusal paths for drive and print. (device; fixtures solo)
+
+Exit: the permission matrix in testing-remaining recorded for Windows and Android.
 
 ### M4. Android dependable host (P0-3)
 
@@ -80,6 +84,10 @@ overflow and large-text behaviour. (solo for code and layout, device for accepta
 Exit: the Android permission matrix and lifecycle units in testing-remaining pass on the Pixel.
 
 ### M5. Remote-work fidelity (P1)
+
+In source: folder mapping under its own permission with host-side boundary checks and a Windows folder picker (P1-4),
+monitor-layout diffing and reconnect on layout change (P1-6), and a tested sound and mute gate (P1-9). Not accepted on
+a device, and clipboard, file workflows, input fidelity, performance and reconnect are open.
 
 Clipboard in both directions with local approval (revise ADR 0021 first); file workflows (browse, batch, resume,
 conflicts, Android outbound); drive and folder mapping; full input fidelity (layouts, dead keys, AltGr, IME, wheel,
@@ -99,11 +107,19 @@ Exit: browser matrix tests green; owner sign-off on Windows and Android layouts.
 
 ### M7. Agent control and Motive (P1-1, P3-3)
 
+In source, not exposed: a default-deny scope gate, control tool handlers, a viewer-side control sender, a scope tied to
+the owner's granted control, and tool registration behind an explicit operator setting. Not done: the live consented
+session, receipts, emergency Stop acceptance, semantic UI targets and Motive.
+
 Merge and exercise view-only MCP (#105) in a live consented session; then per-device, time and tool scopes,
 short-lived revocable credentials, idempotent bounded commands, receipts and emergency Stop; semantic UI targets and
 Motive integration. A green protocol test is not a working integration. (solo, with a live session at the end)
 
 ### M8. Platform, fleet, network and power (P2)
+
+In source: printing (printer discovery, checked RAW submission, job lifecycle, a print permission and channel; never
+run against a printer), a default-deny peripheral allow list and forwarding boundary (P2-3), the native-first decision
+for independent sessions and a read-only Windows session list (P2-5).
 
 Printing, cameras, USB and microphone redirection (each approved in principle, each needs hardware and its own
 consent and revocation rules); a privileged SYSTEM session-attach service (needs its own security review first);
