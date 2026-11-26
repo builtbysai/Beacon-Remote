@@ -100,25 +100,39 @@ The host shows one window. The Windows sign-in settings are a page inside it (Ba
 the open window forward instead of showing a message box. The temporary support program is a separate mode for a
 different person and keeps its own window.
 
-During a session the sharing card (the visible Stop control) is the only window. A viewer's request for more access
-(control, files, recording, shared folder, printing) is asked inside the card, below Stop, while it is pending. The
-invariants, all covered by `indicator::tests`:
+During a session the same window is the only window ([ADR 0059](decisions/0059-host-window-owns-all-ui.md)). The
+capture helper (`beacon-remote-session media-host`) is headless: it draws nothing and reports what the person must
+decide and what is being shared as one JSON line per message on its stdout (at most 4 KiB: `prompt`, `withdraw`,
+`state`, `ended`). The host reads them (`session_hub.rs`), shows them as a page inside its window (`session_view.rs`),
+and writes the person's answers on the helper's stdin (`answer`, `stop`, `pause`, `mute`, `revoke-extras`, `send-file`,
+`alive`). The helper's ordinary output goes to stderr, so the protocol channel carries nothing else. The wire format and
+the helper's side are `ui_protocol.rs` and `ui_bridge.rs`; the old consent window and sharing card are gone.
 
-- Decline is the default answer: it is the default button and has focus. Escape or Enter with nothing focused declines
-  and never stops sharing; closing the card still stops it.
-- Only an explicit Allow once approves, and only while the request is pending, the deadline has not passed and the
-  desktop still receives input. Cancellation, expiry, lock or the card closing decline.
-- Stop stays where it is and enabled; the request is added underneath and the card grows, staying on screen.
-- One request at a time; a second is declined.
-- The first approval is asked in the same window. It opens as the request (who, what, View only or Allow control, the
-  optional file, recording and sound choices, Decline and Allow once, no Stop because nothing is shared yet) and, once
-  allowed, becomes the sharing card in place. A declined, cancelled or expired first approval closes the window and
-  nothing is captured. The standalone consent window is kept only for the guard tests.
+Invariants, covered by `ui_bridge::tests` and `ui_protocol::tests`; the host only sends messages, the helper decides:
+
+- An answer counts only for the one pending prompt id, only the first answer, only with `allow` true, before the
+  deadline, while the request is still pending, the grant has not expired and the input desktop is the shared one.
+  Anything else, including a forged or repeated id, declines.
+- Decline is the default answer: it is the focused button. Escape or Enter with nothing focused declines and never
+  stops sharing.
+- A malformed or oversized line, end of input, or Stop fails closed and ends the session.
+- Liveness lease: the host sends `alive` from its own UI thread; the helper ends if none arrives for 5 seconds (5 seconds
+  of startup grace), so a hung or killed host cannot leave the screen shared. Run standalone with no host, requests
+  decline and no session starts.
+- Stop, Pause, Mute and turning off extras are never behind another click. The window stays on top while a request or
+  share is open and cannot be closed or minimized then; the closing control is Stop sharing.
+- One request at a time; a second is declined. The request screen shows who, what, View only or View and control, the
+  optional file, recording and sound choices, Decline and Allow once, and no Stop because nothing is shared yet. Once
+  allowed it becomes the sharing screen in place; more access asked during a share is shown under Stop.
+
+Checked on the Surfiena lab laptop on November 26, 2026: request screen and all options, sharing screen, Mute and turn
+off extras, and the helper ending within two seconds of the host being killed. Not yet exercised there: input from
+the viewer through the new path, file send, recording, and the five-second lease timeout of a hung (not killed) host.
 
 ## Look of the native windows (November 25, 2026)
 
-The host, the sharing card, the sign-in page and the support window share `native_ui.rs`, so one set of tokens drives
-all of them, following the web direction: warm paper window, soft tiles with no hairlines, pill buttons (ink for the
+The host window (including its request and sharing screens), the sign-in page and the support window share `native_ui.rs`, so one set of tokens drives
+all of them, following the web direction: cool-neutral window, soft tiles with no hairlines, pill buttons (ink for the
 main action, a soft tile for the rest, a coral wash for danger), tinted capsule status and the monitor character in
 the header (awake with signal arcs when reachable, asleep when stopped, surprised when someone is knocking). Dark mode
 and high contrast keep the same structure; high contrast falls back to system colours.
