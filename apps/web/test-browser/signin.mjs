@@ -527,10 +527,19 @@ try {
     });
     await new Promise((done) => setTimeout(done, 150));
     const geometry = await browser.evaluate(
-      "(()=>{const root=document.querySelector('.signin-view');const stop=[...root.querySelectorAll('button')].find(button=>button.textContent==='Stop control').getBoundingClientRect();return {overflow:root.scrollWidth>innerWidth,stop:{left:stop.left,top:stop.top,right:stop.right,bottom:stop.bottom},picture:root.querySelector('video').readyState>=2};})()",
+      "(()=>{const root=document.querySelector('.signin-view');const stop=[...root.querySelectorAll('button')].find(button=>button.textContent==='Stop control').getBoundingClientRect();const video=root.querySelector('video').getBoundingClientRect();const bar=root.querySelector('.viewer-toolbar').getBoundingClientRect();return {overflow:root.scrollWidth>innerWidth,stop:{left:stop.left,top:stop.top,right:stop.right,bottom:stop.bottom},video:{left:video.left,top:video.top,right:video.right,bottom:video.bottom,width:video.width},barBottom:bar.bottom,picture:root.querySelector('video').readyState>=2};})()",
     );
     assert.equal(geometry.overflow, false);
     assert.equal(geometry.picture, true);
+    // The picture sits fully inside the window, below the top bar, and is not squeezed to nothing.
+    assert.ok(
+      geometry.video.left >= 0 &&
+        geometry.video.right <= width &&
+        geometry.video.bottom <= height &&
+        geometry.video.top >= geometry.barBottom - 1 &&
+        geometry.video.width >= Math.min(width, 120),
+      `picture out of place at ${width}x${height}: ${JSON.stringify(geometry.video)}`,
+    );
     assert.ok(
       geometry.stop.left >= 0 &&
         geometry.stop.top >= 0 &&
@@ -629,7 +638,13 @@ try {
     join(artifacts, "handoff-desktop.png"),
     Buffer.from(handoffScreenshot.result.data, "base64"),
   );
-  assert.equal(await browser.clickText("Stop control"), true);
+  // The desktop viewer that follows the hand-off has its own End session button.
+  assert.equal(
+    await browser.evaluate(
+      "(()=>{const stop=document.querySelector('.live-view .viewer-stop');if(!stop)return false;stop.click();return true;})()",
+    ),
+    true,
+  );
   await waitFor("!document.querySelector('.live-view')");
   assert.ok(desktopStops >= 1);
   // Exercise the real restart confirmation/reconnect entry. Only fixture
@@ -639,6 +654,11 @@ try {
   );
   machineOnline = true;
   handoffReady = false;
+  // Device actions live on the inspector's More tab.
+  await waitFor("!!document.querySelector('#inspector-tab-more')");
+  await browser.evaluate(
+    "document.querySelector('#inspector-tab-more').click()",
+  );
   await waitFor(
     "[...document.querySelectorAll('button')].some(button=>button.textContent==='Restart computer…')",
   );
@@ -745,10 +765,19 @@ try {
     join(artifacts, "restart-desktop.png"),
     Buffer.from(restartedScreenshot.result.data, "base64"),
   );
-  assert.equal(await browser.clickText("Stop control"), true);
+  assert.equal(
+    await browser.evaluate(
+      "(()=>{const stop=document.querySelector('.live-view .viewer-stop');if(!stop)return false;stop.click();return true;})()",
+    ),
+    true,
+  );
   await waitFor("!document.querySelector('.live-view')");
   machineOnline = true;
   holdOnRestart = true;
+  await waitFor("!!document.querySelector('#inspector-tab-more')");
+  await browser.evaluate(
+    "document.querySelector('#inspector-tab-more').click()",
+  );
   await waitFor(
     "[...document.querySelectorAll('button')].some(button=>button.textContent==='Restart computer…')",
   );
