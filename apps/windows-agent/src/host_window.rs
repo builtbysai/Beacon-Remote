@@ -1721,6 +1721,15 @@ unsafe extern "system" fn procedure(
     DefWindowProcW(window, message, wparam, lparam)
 }
 
+/// How much to scale the fixed layout: the system scale, reduced so the tallest page plus the (system-scaled)
+/// frame fits the work area, but never below 70% of the system scale.
+fn fit_factor(system: f32, available: f32, frame: f32, content: f32) -> f32 {
+    if available <= frame {
+        return system;
+    }
+    system.min((available - frame) / content).max(system * 0.7)
+}
+
 pub fn show(background: bool) -> Result<(), io::Error> {
     unsafe {
         // Draw at the screen's real scale instead of letting Windows stretch a 96 dpi bitmap, which blurs the text.
@@ -1758,14 +1767,20 @@ pub fn show(background: bool) -> Result<(), io::Error> {
         // work area, which would push its bottom (and the Stop button) off screen, so shrink it to fit.
         let mut work = RECT::default();
         SystemParametersInfoW(SPI_GETWORKAREA, 0, std::ptr::addr_of_mut!(work).cast(), 0);
-        let available = (work.bottom - work.top) as f32;
-        // The tallest page plus the title bar and frame, at 100%.
-        let needed = (PAIRED_HEIGHT + 48) as f32;
-        let factor = if available > 0.0 {
-            system.min(available / needed).max(system * 0.7)
-        } else {
-            system
-        };
+        // The title bar and frame are drawn at the system DPI whatever the content is scaled to.
+        let mut frame = RECT::default();
+        AdjustWindowRectEx(
+            &mut frame,
+            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+            0,
+            0,
+        );
+        let factor = fit_factor(
+            system,
+            (work.bottom - work.top) as f32,
+            (frame.bottom - frame.top) as f32,
+            PAIRED_HEIGHT as f32,
+        );
         let scale = move |value: i32| (value as f32 * factor).round() as i32;
         let instance = GetModuleHandleW(null());
         let class = wide("BeaconRemoteHostWindow");
@@ -2406,5 +2421,24 @@ pub fn show_startup_error() {
             wide("Beacon Remote").as_ptr(),
             MB_OK | MB_ICONERROR,
         );
+    }
+}
+
+#[cfg(test)]
+mod fit_tests {
+    use super::fit_factor;
+
+    #[test]
+    fn the_window_keeps_the_system_scale_when_it_fits_and_shrinks_only_as_far_as_needed() {
+        // Plenty of room: 175% system scale, tall work area.
+        assert_eq!(fit_factor(1.75, 1700.0, 90.0, 526.0), 1.75);
+        // 1280x720 at 150%: the 72 px frame at system DPI comes off the 680 px work area first.
+        let factor = fit_factor(1.5, 680.0, 72.0, 526.0);
+        assert!((1.05..1.5).contains(&factor));
+        assert!(526.0 * factor + 72.0 <= 680.0 + 0.01);
+        // Never below 70% of the system scale, even if that still does not fit.
+        assert_eq!(fit_factor(2.0, 400.0, 100.0, 526.0), 1.4);
+        // An unknown or tiny work area keeps the system scale.
+        assert_eq!(fit_factor(1.25, 0.0, 60.0, 526.0), 1.25);
     }
 }

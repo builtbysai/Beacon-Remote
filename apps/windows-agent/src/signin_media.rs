@@ -182,6 +182,22 @@ impl Drop for VideoDone {
 
 // This thread owns COM/encoder/DXGI resources. It never starts them until the
 // actual peer-connected callback has opened the separate native media gate.
+/// What the video loop does with this pass: encode, or wait for the next one.
+#[derive(Debug, PartialEq, Eq)]
+enum Pace {
+    Encode,
+    Wait,
+}
+/// A still sign-in screen produces no new frames, but the viewer still needs a steady stream (and the encoder's
+/// periodic keyframes) to start and keep showing a picture. A new frame is always encoded; with none, the last image
+/// is sent again at the frame rate, but only once there is a last image.
+fn pace(new_frame: bool, encoded_before: bool, since_last: Duration) -> Pace {
+    if new_frame || (encoded_before && since_last >= INTERVAL) {
+        Pace::Encode
+    } else {
+        Pace::Wait
+    }
+}
 fn video(scope: Arc<SignInScope>, packets: mpsc::Sender<Packet>) -> Result<(), HostError> {
     let _end = EndScope(scope.clone());
     scope.authorize()?;
@@ -209,32 +225,29 @@ fn video(scope: Arc<SignInScope>, packets: mpsc::Sender<Packet>) -> Result<(), H
     loop {
         scope.authorize()?;
         let started = Instant::now();
-        match capture.next_frame() {
-            Ok(Some(frame)) => {
-                if index == 0 {
-                    crate::signin_worker::trace("video: first frame captured");
-                }
-                pixels::nv12(
-                    &frame.image.bgra,
-                    frame.image.width,
-                    frame.image.height,
-                    &mut nv12,
-                    WIDTH,
-                    HEIGHT,
-                )?;
-            }
-            // A still sign-in screen produces no new frames, but the viewer still needs a steady
-            // stream (and the encoder's periodic keyframes) to start and keep showing a picture:
-            // send the last image again at the normal frame rate instead of going quiet.
-            Ok(None) if index > 0 && last_encoded.elapsed() >= INTERVAL => {}
-            Ok(None) => {
-                thread::sleep(Duration::from_millis(5));
-                continue;
-            }
+        let captured = match capture.next_frame() {
+            Ok(captured) => captured,
             Err(error) => {
                 crate::signin_worker::trace(&format!("video: capturing a frame failed: {error}"));
                 return Err(error);
             }
+        };
+        if pace(captured.is_some(), index > 0, last_encoded.elapsed()) == Pace::Wait {
+            thread::sleep(Duration::from_millis(5));
+            continue;
+        }
+        if let Some(frame) = captured {
+            if index == 0 {
+                crate::signin_worker::trace("video: first frame captured");
+            }
+            pixels::nv12(
+                &frame.image.bgra,
+                frame.image.width,
+                frame.image.height,
+                &mut nv12,
+                WIDTH,
+                HEIGHT,
+            )?;
         }
         last_encoded = Instant::now();
         scope.authorize()?;
@@ -657,6 +670,18 @@ impl Drop for SignInMedia {
 mod tests {
     use super::*;
     use std::io;
+    #[test]
+    fn a_still_screen_repeats_the_last_image_at_the_frame_rate_but_never_before_the_first() {
+        let late = INTERVAL + Duration::from_millis(1);
+        // A new frame is always encoded, first or not.
+        assert_eq!(pace(true, false, Duration::ZERO), Pace::Encode);
+        assert_eq!(pace(true, true, Duration::ZERO), Pace::Encode);
+        // No new frame: nothing to repeat before the first one.
+        assert_eq!(pace(false, false, late), Pace::Wait);
+        // After the first, wait out the interval, then repeat.
+        assert_eq!(pace(false, true, Duration::ZERO), Pace::Wait);
+        assert_eq!(pace(false, true, late), Pace::Encode);
+    }
     #[test]
     fn pending_media_cleanup_can_be_polled_without_blocking_or_reauthorizing() {
         let scope = SignInScope::new(
