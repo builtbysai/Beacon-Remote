@@ -798,7 +798,11 @@ function App() {
             )}
           </>
         ) : page === "settings" || page === "activity" ? (
-          <AccountPanels activity={page === "activity"} />
+          <AccountPanels
+            activity={page === "activity"}
+            theme={theme}
+            onTheme={setTheme}
+          />
         ) : (
           <ProductPage page={page} signedIn={signedIn} />
         )

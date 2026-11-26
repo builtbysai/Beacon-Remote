@@ -44,26 +44,60 @@ function ThemeIcon({ theme }: { theme: Theme }) {
   );
 }
 
-const order: Theme[] = ["system", "dark", "light"];
 const labels: Record<Theme, string> = {
   system: "System",
   dark: "Dark",
   light: "Light",
 };
 
+/** The look actually shown: "System" follows the device's current preference. */
+export function resolveTheme(theme: Theme): "light" | "dark" {
+  if (theme !== "system") return theme;
+  try {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light";
+  } catch {
+    return "light";
+  }
+}
+
 type ThemeProps = { theme: Theme; onChange: (theme: Theme) => void };
 
+/** The header switch: light or dark, nothing else. Following the system is chosen in Settings. */
 export function ThemePicker({ theme, onChange }: ThemeProps) {
-  const next = order[(order.indexOf(theme) + 1) % order.length]!;
+  const current = resolveTheme(theme);
+  const next = current === "dark" ? "light" : "dark";
   return (
     <button
       type="button"
       className="theme-trigger"
-      aria-label={`Appearance: ${labels[theme]}`}
-      title={`${labels[theme]} · switch to ${labels[next].toLowerCase()}`}
+      aria-label={`Appearance: ${labels[current]}`}
+      title={`${labels[current]} · switch to ${labels[next].toLowerCase()}`}
       onClick={() => onChange(next)}
     >
-      <ThemeIcon theme={theme} />
+      <ThemeIcon theme={current} />
     </button>
+  );
+}
+
+/** The full choice, for Settings: System, Light or Dark. */
+export function ThemeChoice({ theme, onChange }: ThemeProps) {
+  return (
+    <div className="theme-choice" role="radiogroup" aria-label="Appearance">
+      {(["system", "light", "dark"] as const).map((option) => (
+        <button
+          key={option}
+          type="button"
+          role="radio"
+          aria-checked={theme === option}
+          className="theme-choice-option"
+          onClick={() => onChange(option)}
+        >
+          <ThemeIcon theme={option} />
+          <span>{labels[option]}</span>
+        </button>
+      ))}
+    </div>
   );
 }
