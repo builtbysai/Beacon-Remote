@@ -151,17 +151,19 @@ pub fn encode<T: Serialize>(message: &T) -> String {
     line
 }
 
-/// Control characters dropped, whitespace collapsed, at most `limit` characters.
+/// Control characters dropped, at most `limit` characters.
 pub fn clean(text: &str, limit: usize) -> String {
     let mut out = String::new();
-    let mut count = 0;
-    for character in text.chars().filter(|character| !character.is_control()) {
+    for (count, character) in text
+        .chars()
+        .filter(|character| !character.is_control())
+        .enumerate()
+    {
         if count == limit {
             out.push('…');
             break;
         }
         out.push(character);
-        count += 1;
     }
     out.trim().to_owned()
 }

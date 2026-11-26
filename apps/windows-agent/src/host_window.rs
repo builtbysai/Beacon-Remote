@@ -1,7 +1,5 @@
 //! Interactive host enrollment and presence. Closing waits for the worker to release sharing.
-#[path = "../../windows-session/src/native_ui.rs"]
-pub mod native_ui;
-use native_ui as ui;
+use beacon_remote_agent::native_ui as ui;
 
 use beacon_remote_agent::{HostError, HostStatus, LocalAccess, SupportCode, UpdateOffer};
 use std::{
@@ -137,8 +135,10 @@ struct State {
     // The Windows sign-in page, shown inside this window in place of the main view, and the controls it hides.
     signin_page: HWND,
     hidden_for_page: Vec<HWND>,
-    // This window stepped aside because the sharing card is showing, and comes back when the card goes.
-    tucked: bool,
+    // The request / sharing page (ADR 0059) and the controls it hides.
+    session_page: HWND,
+    hidden_for_session: Vec<HWND>,
+    session_height: i32,
 }
 // Starting at sign-in is a visible, per-user choice made here. No service or elevation is involved.
 const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
@@ -713,7 +713,7 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
         SetFocus(self.action);
     }
     unsafe fn controls(&self) {
-        if !self.signin_page.is_null() {
+        if !self.signin_page.is_null() || !self.session_page.is_null() {
             return;
         }
         text(
@@ -877,24 +877,93 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
             }));
         }
     }
-    /// One window at a time: while a connection request or the sharing card is on screen, this window steps aside
-    /// (to the tray, or the taskbar without one) and returns when the card closes. A window the person had
-    /// already minimized is left alone.
-    unsafe fn tuck_for_card(&mut self, window: HWND) {
-        let card = FindWindowW(wide("BeaconRemoteVisibleStop").as_ptr(), null());
-        if !card.is_null() && IsWindowVisible(card) != 0 {
-            if !self.tucked && IsWindowVisible(window) != 0 && IsIconic(window) == 0 {
-                self.tucked = true;
-                ShowWindow(window, SW_MINIMIZE);
+    /// One window, one place for everything: a connection request or a running session replaces the main view and
+    /// the window stays on top and cannot be closed until it ends. The page is driven by the helper's reports.
+    unsafe fn follow_session(&mut self, window: HWND) {
+        beacon_remote_agent::session_hub::alive();
+        let view = beacon_remote_agent::session_hub::view();
+        if view.active() && self.session_page.is_null() {
+            self.open_session(&view);
+        } else if !view.active() && !self.session_page.is_null() {
+            self.close_session();
+        } else if view.active() {
+            let wanted = beacon_remote_agent::session_view::height(&view);
+            if wanted != self.session_height {
+                self.session_height = wanted;
+                self.resize_for_page(wanted);
             }
-        } else if self.tucked {
-            self.tucked = false;
-            ShowWindow(window, SW_SHOWNOACTIVATE);
-            ShowWindow(window, SW_RESTORE);
+        }
+        let _ = window;
+    }
+    unsafe fn resize_for_page(&mut self, height: i32) {
+        let px = |value: i32| (value as f32 * self.scale).round() as i32;
+        let mut bounds = RECT { left: 0, top: 0, right: px(520), bottom: px(height) };
+        AdjustWindowRectEx(&mut bounds, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, 0, 0);
+        SetWindowPos(
+            self.window,
+            null_mut(),
+            0,
+            0,
+            bounds.right - bounds.left,
+            bounds.bottom - bounds.top,
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+        if !self.session_page.is_null() {
+            let mut client = RECT::default();
+            GetClientRect(self.window, &mut client);
+            MoveWindow(self.session_page, 0, 0, client.right, client.bottom, 1);
         }
     }
+    unsafe fn open_session(&mut self, view: &beacon_remote_agent::session_hub::View) {
+        self.close_signin();
+        restore(self.window);
+        let mut shown: Vec<HWND> = Vec::new();
+        unsafe extern "system" fn collect(child: HWND, list: LPARAM) -> i32 {
+            let list = &mut *(list as *mut Vec<HWND>);
+            if IsWindowVisible(child) != 0 {
+                list.push(child);
+            }
+            1
+        }
+        EnumChildWindows(self.window, Some(collect), std::ptr::addr_of_mut!(shown) as LPARAM);
+        shown.retain(|&child| GetParent(child) == self.window);
+        for &child in &shown {
+            ShowWindow(child, SW_HIDE);
+        }
+        self.session_height = beacon_remote_agent::session_view::height(view);
+        self.resize_for_page(self.session_height);
+        place(self.window);
+        let mut client = RECT::default();
+        GetClientRect(self.window, &mut client);
+        match beacon_remote_agent::session_view::embed(self.window, client, self.scale) {
+            Ok(page) => {
+                self.session_page = page;
+                self.hidden_for_session = shown;
+                // Always on top while anything is being asked or shared, so Stop is never covered.
+                SetWindowPos(self.window, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+                SetForegroundWindow(self.window);
+            }
+            Err(_) => {
+                for &child in &shown {
+                    ShowWindow(child, SW_SHOW);
+                }
+            }
+        }
+    }
+    unsafe fn close_session(&mut self) {
+        if self.session_page.is_null() {
+            return;
+        }
+        DestroyWindow(self.session_page);
+        self.session_page = null_mut();
+        SetWindowPos(self.window, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+        for child in self.hidden_for_session.drain(..) {
+            ShowWindow(child, SW_SHOW);
+        }
+        self.controls();
+    }
     unsafe fn poll(&mut self, window: HWND) {
-        self.tuck_for_card(window);
+        self.follow_session(window);
         if self
             .signin_check
             .as_ref()
@@ -1420,6 +1489,11 @@ unsafe extern "system" fn procedure(
             return 0;
         }
         WM_SIZE if !state.is_null() && wparam == SIZE_MINIMIZED as usize && (*state).tray => {
+            if !(*state).session_page.is_null() {
+                // Never hidden while a request is open or a screen is shared.
+                ShowWindow(window, SW_RESTORE);
+                return 0;
+            }
             ShowWindow(window, SW_HIDE);
             return 0;
         }
@@ -1478,6 +1552,10 @@ unsafe extern "system" fn procedure(
         }
         WM_TIMER if !state.is_null() => {
             (*state).poll(window);
+            return 0;
+        }
+        WM_CLOSE if !state.is_null() && !(*state).session_page.is_null() && !(*state).closing => {
+            // Closing is not a way to hide a shared screen; Stop ends the session first.
             return 0;
         }
         WM_CLOSE if !state.is_null() => {
@@ -1604,7 +1682,9 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             fonts: Vec::new(),
             signin_page: null_mut(),
             hidden_for_page: Vec::new(),
-            tucked: false,
+            session_page: null_mut(),
+            hidden_for_session: Vec::new(),
+            session_height: 0,
         };
         let style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
         let mut bounds = RECT {

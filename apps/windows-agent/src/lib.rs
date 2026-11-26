@@ -35,6 +35,12 @@ mod signin_revoke;
 #[cfg(windows)]
 pub mod signin_scope;
 #[cfg(windows)]
+pub mod native_ui;
+#[cfg(windows)]
+pub mod session_hub;
+#[cfg(windows)]
+pub mod session_view;
+#[cfg(windows)]
 pub mod signin_settings;
 #[cfg(windows)]
 pub mod signin_signaling;

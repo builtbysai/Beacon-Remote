@@ -1,7 +1,7 @@
 //! The temporary support window (ADR 0038): who is helping, whether they are connected, one clear way to end support,
 //! and the choice to remove Beacon Remote afterwards. Viewing and control are still approved and stopped through the
 //! same session consent window and sharing indicator as every other session.
-use crate::host_window::native_ui as ui;
+use beacon_remote_agent::native_ui as ui;
 use beacon_remote_agent::{support, HostError, HostStatus};
 use std::{
     io,

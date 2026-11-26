@@ -307,7 +307,10 @@ where
 pub fn run() -> Result<(), Error> {
     let mut input = String::new();
     io::stdin().take(8193).read_to_string(&mut input)?;
-    run_grant(input, Arc::new(AtomicBool::new(true)))
+    let active = Arc::new(AtomicBool::new(true));
+    // No host window: requests decline and no session can start, because nothing could show Stop.
+    crate::ui_bridge::connect_none(active.clone());
+    run_grant(input, active)
 }
 
 // The host owns an anonymous child stdin pipe. No discoverable local endpoint,
@@ -321,13 +324,9 @@ pub fn run_host() -> Result<(), Error> {
         return Err("Missing framed host grant".into());
     }
     let active = Arc::new(AtomicBool::new(true));
-    let stopping = active.clone();
-    std::thread::spawn(move || {
-        let mut command = [0_u8; 5];
-        // Any Stop, malformed control or pipe EOF fails closed.
-        let _ = reader.read_exact(&mut command);
-        stopping.store(false, Ordering::Release);
-    });
+    // The host window owns every piece of local UI (ADR 0059): its messages arrive on the rest of stdin, ours go out
+    // on stdout. Stop, a malformed line, a silent host or pipe EOF all fail closed.
+    crate::ui_bridge::connect_host(reader, active.clone())?;
     run_grant(input, active)
 }
 
@@ -461,7 +460,7 @@ async fn stream(
     let connected = Arc::new(AtomicBool::new(false));
     let indicator_control = Arc::new(AtomicBool::new(control_allowed));
     let extras = Arc::new(AtomicU8::new(0));
-    let mut approval_window: Option<crate::indicator::Indicator> = None;
+    let mut approval_window: Option<crate::ui_bridge::Session> = None;
     if desktop && !by_policy {
         let unlimited = grant.expires_at_millis == 0;
         let controller = grant.controller.clone();
@@ -483,7 +482,12 @@ async fn stream(
         let reported_audio = chosen_audio.clone();
         // The control the viewer asked for is not active until the person allows it.
         indicator_control.store(false, Ordering::Release);
-        let window = crate::indicator::Indicator::start_for_approval(
+        let first = crate::ui_bridge::FirstRequest {
+            control,
+            unlimited,
+            display: display_label,
+        };
+        let window = crate::ui_bridge::Session::start_for_approval(
             active.clone(),
             connected.clone(),
             desktop,
@@ -492,24 +496,20 @@ async fn stream(
             indicator_control.clone(),
             extras.clone(),
             session_label,
-            crate::indicator::FirstRequest {
-                control,
-                unlimited,
-                display: display_label,
-            },
+            first.clone(),
         )?;
         let card = window.card();
         approval_window = Some(window);
         let mut dialog = tokio::task::spawn_blocking(move || {
-            let decision = card.ask_first(&dialog_pending, deadline);
+            let decision = card.ask_first(&first, &dialog_pending, deadline);
             reported_control.store(
-                decision.decision == crate::consent::Decision::Control,
+                decision.decision == crate::ui_bridge::Decision::Control,
                 Ordering::Release,
             );
             reported_files.store(decision.files, Ordering::Release);
             reported_recording.store(decision.recording, Ordering::Release);
             reported_audio.store(decision.audio, Ordering::Release);
-            Ok::<_, Error>(decision.decision != crate::consent::Decision::Declined)
+            Ok::<_, Error>(decision.decision != crate::ui_bridge::Decision::Declined)
         });
         let accepted = tokio::select! {
             accepted = consent_while_signaling(&mut socket, async { (&mut dialog).await? }, deadline, control) => accepted,
@@ -569,7 +569,7 @@ async fn stream(
             window.set_deadline(deadline);
             window
         }
-        None => crate::indicator::Indicator::start_access(
+        None => crate::ui_bridge::Session::start_access(
             active.clone(),
             connected.clone(),
             desktop,
@@ -712,13 +712,13 @@ impl LiveScope {
             Self::Print => "print",
         }
     }
-    fn consent(self) -> crate::consent::LivePermission {
+    fn consent(self) -> crate::ui_bridge::LivePermission {
         match self {
-            Self::Control => crate::consent::LivePermission::Control,
-            Self::Files => crate::consent::LivePermission::Files,
-            Self::Recording => crate::consent::LivePermission::Recording,
-            Self::Drive => crate::consent::LivePermission::Drive,
-            Self::Print => crate::consent::LivePermission::Print,
+            Self::Control => crate::ui_bridge::LivePermission::Control,
+            Self::Files => crate::ui_bridge::LivePermission::Files,
+            Self::Recording => crate::ui_bridge::LivePermission::Recording,
+            Self::Drive => crate::ui_bridge::LivePermission::Drive,
+            Self::Print => crate::ui_bridge::LivePermission::Print,
         }
     }
 }
@@ -1605,7 +1605,7 @@ async fn media_cycle(
                                     let display = crate::capture::display_label(grant.display_id.as_deref());
                                     let session = format!("S-{}", grant.id.chars().take(4).collect::<String>().to_uppercase());
                                     let dialog = tokio::task::spawn_blocking(move ||
-                                        crate::consent::request_live_permission(&controller, dialog_open, expires, &display, &session, scope.consent())
+                                        crate::ui_bridge::request_live_permission(&controller, dialog_open, expires, &display, &session, scope.consent())
                                     );
                                     permission_prompt = Some(PermissionPrompt { id, scope, deadline: expires, open, dialog: Some(dialog), locally_approved: false });
                                 }
