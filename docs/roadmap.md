@@ -47,6 +47,11 @@ without the owner; **owner** needs the owner present; **device** needs a physica
    steps. (solo to prepare, owner go-ahead to deploy)
 4. Keep local-only work on pushed branches: a delete on November 26 took the local git history and unpushed branches. (solo)
 
+Built November 26 from the merged stack head `1ecbab23`: the signed sign-in-media installer
+`dist/BeaconRemoteSetup-1ecbab23-signin-media.exe` (SHA-256 `98E4DB364060CC3A7E137B9BFE6CE6247E5022522131898D0378EE64E8B4A518`),
+its development package and trust folder, signed with Beacon Remote's own certificate. Local only: not installed,
+published or deployed, and no device has run it.
+
 Exit: main contains the stack, CI green on main, signed candidates staged, nothing deployed without sign-off.
 
 ### M2. Windows unattended access, accepted on a real laptop
