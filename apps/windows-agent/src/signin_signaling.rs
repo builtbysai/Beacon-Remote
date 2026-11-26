@@ -413,6 +413,7 @@ fn run(
         loop {
             gate.check()?;
             if traffic.elapsed() > Duration::from_secs(5) {
+                crate::signin_worker::trace("signaling: no reply from the server for 5 seconds");
                 return Err(rejected());
             }
             if window.elapsed() >= Duration::from_secs(60) {
@@ -450,17 +451,33 @@ fn run(
                     gate.check()?;
                     match message {
                         Message::Text(body) => {
-                            let event = protocol.receive(&body)?;
+                            let event = match protocol.receive(&body) {
+                                Ok(event) => event,
+                                Err(error) => {
+                                    crate::signin_worker::trace(&format!(
+                                        "signaling: message refused: {error}"
+                                    ));
+                                    return Err(error);
+                                }
+                            };
                             gate.check()?;
                             channels.events.try_send(event).map_err(|_| rejected())?;
                         }
                         Message::Ping(_) => flush(&mut socket, gate.as_ref())?,
                         Message::Pong(_) => {}
-                        _ => return Err(rejected()),
+                        other => {
+                            crate::signin_worker::trace(&format!(
+                                "signaling: unexpected frame {other:?}"
+                            ));
+                            return Err(rejected());
+                        }
                     }
                 }
                 Err(error) if idle(&error) => {}
-                _ => return Err(rejected()),
+                Err(error) => {
+                    crate::signin_worker::trace(&format!("signaling: read failed: {error}"));
+                    return Err(rejected());
+                }
             }
         }
     })();

@@ -46,10 +46,16 @@ boot service installed first) found these, all fixed in source on `windows/signi
   heartbeats with the raw session values, worker steps, why a worker started draining, how it ended, and where the media
   runner stopped. A failing worker also reports its stage in its exit status.
 
+- **Still screen.** Screen duplication delivers nothing while the sign-in screen does not change, so the one frame sent as
+  the connection came up could be lost and the viewer showed no picture and gave up after 10 seconds. The worker now
+  re-encodes the last image at the frame rate when there is no new frame, and the encoder's keyframe each second lets a
+  viewer start showing it at once.
+
 Result so far: at the sign-in screen after a reboot or sign-out the worker starts, the server reports the endpoint ready
-and offers "Open sign-in" for the signed-out computer, the viewer connects, and capture and the encoder start and the first
-frame is captured and encoded. Not yet accepted: the browser shows no picture (the session ends shortly after the first
-frame; tracing is in place), typing a Windows password through the viewer, secure attention, and a lock-screen wake-up.
+and offers "Open sign-in" for the signed-out computer, the viewer connects, the picture of the real sign-in screen
+streams at 25 frames per second (checked for over 20 seconds), and a click in the viewer wakes the lock screen to the PIN
+prompt. Not yet accepted: typing a Windows password or PIN through the viewer (the person types it, never an agent),
+secure attention, and a lock-screen wake-up without a viewer click.
 
 ## Configured connection readiness
 

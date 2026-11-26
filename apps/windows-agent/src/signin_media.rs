@@ -205,11 +205,28 @@ fn video(scope: Arc<SignInScope>, packets: mpsc::Sender<Packet>) -> Result<(), H
     crate::signin_worker::trace("video: encoder started");
     let mut nv12 = Zeroizing::new(vec![0u8; (WIDTH * HEIGHT * 3 / 2) as usize]);
     let mut index = 0u64;
+    let mut last_encoded = Instant::now();
     loop {
         scope.authorize()?;
         let started = Instant::now();
-        let frame = match capture.next_frame() {
-            Ok(Some(frame)) => frame,
+        match capture.next_frame() {
+            Ok(Some(frame)) => {
+                if index == 0 {
+                    crate::signin_worker::trace("video: first frame captured");
+                }
+                pixels::nv12(
+                    &frame.image.bgra,
+                    frame.image.width,
+                    frame.image.height,
+                    &mut nv12,
+                    WIDTH,
+                    HEIGHT,
+                )?;
+            }
+            // A still sign-in screen produces no new frames, but the viewer still needs a steady
+            // stream (and the encoder's periodic keyframes) to start and keep showing a picture:
+            // send the last image again at the normal frame rate instead of going quiet.
+            Ok(None) if index > 0 && last_encoded.elapsed() >= INTERVAL => {}
             Ok(None) => {
                 thread::sleep(Duration::from_millis(5));
                 continue;
@@ -218,19 +235,8 @@ fn video(scope: Arc<SignInScope>, packets: mpsc::Sender<Packet>) -> Result<(), H
                 crate::signin_worker::trace(&format!("video: capturing a frame failed: {error}"));
                 return Err(error);
             }
-        };
-        if index == 0 {
-            crate::signin_worker::trace("video: first frame captured");
         }
-        pixels::nv12(
-            &frame.image.bgra,
-            frame.image.width,
-            frame.image.height,
-            &mut nv12,
-            WIDTH,
-            HEIGHT,
-        )?;
-        drop(frame);
+        last_encoded = Instant::now();
         scope.authorize()?;
         let encoded = match encoder.encode(&nv12, index) {
             Ok(encoded) => encoded,
@@ -433,6 +439,7 @@ async fn peer(
             let mut answered=false;let mut remote=Vec::<RTCIceCandidateInit>::new();
             let (packets,mut receiver)=mpsc::channel::<Packet>(2);
             let mut video_thread=None::<JoinHandle<()>>;
+            let mut sent=0u64;
             let mut tick=tokio::time::interval(Duration::from_millis(10));
             let result=async {loop {tokio::select! {biased;
                 _=tick.tick()=>{
@@ -474,6 +481,8 @@ async fn peer(
                     // Bytes owns zeroizing storage, including while buffered in RTP.
                     let data=bytes::Bytes::from_owner(PacketBytes(packet.bytes));
                     checked(&scope,true,track.sample_writer(SSRC,payload).write_sample(&Sample{data,duration:INTERVAL,..Sample::new(Instant::now())})).await?;
+                    sent+=1;
+                    if sent==1||sent.is_multiple_of(125){crate::signin_worker::trace(&format!("video: {sent} samples sent"));}
                 },
             }}}.await;
             scope.stop();
