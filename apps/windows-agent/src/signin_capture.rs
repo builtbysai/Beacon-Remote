@@ -28,8 +28,6 @@ struct Primary {
     output: IDXGIOutput,
     desc: DXGI_OUTPUT_DESC,
     rotation: Rotation,
-    raw_width: u32,
-    raw_height: u32,
 }
 // Enumeration only. Creating a duplication or acquiring pixels belongs solely
 // to SignInCapture::start after the authenticated peer opens the media gate.
@@ -59,24 +57,12 @@ fn primary() -> Result<Primary, HostError> {
                 continue;
             }
             let rotation = Rotation::from_code(desc.Rotation.0)?;
-            let rect = desc.DesktopCoordinates;
-            let (raw_width, raw_height) = rotation.size(
-                rect.right.abs_diff(rect.left),
-                rect.bottom.abs_diff(rect.top),
-            );
-            signin_pixels::dimensions(
-                raw_width,
-                raw_height,
-                raw_width.checked_mul(4).ok_or("Invalid sign-in width")?,
-            )?;
             let _: IDXGIOutput1 = output.cast()?;
             return Ok(Primary {
                 adapter,
                 output,
                 desc,
                 rotation,
-                raw_width,
-                raw_height,
             });
         }
     }
@@ -176,8 +162,7 @@ impl SignInCapture {
             output,
             desc,
             rotation,
-            raw_width,
-            raw_height,
+            ..
         } = primary()?;
         scope.authorize()?;
         let mut device = None;
@@ -200,6 +185,15 @@ impl SignInCapture {
         scope.authorize()?;
         let duplication = unsafe { output.cast::<IDXGIOutput1>()?.DuplicateOutput(&device)? };
         scope.authorize()?;
+        // The real surface size comes from the duplication itself. The output's desktop coordinates are scaled
+        // down for a process that is not DPI-aware (this worker is not), so they do not match the frames.
+        let mode = unsafe { duplication.GetDesc() };
+        let (raw_width, raw_height) = (mode.ModeDesc.Width, mode.ModeDesc.Height);
+        signin_pixels::dimensions(
+            raw_width,
+            raw_height,
+            raw_width.checked_mul(4).ok_or("Invalid sign-in width")?,
+        )?;
         Ok(Self {
             scope,
             inner: Some(Device {
@@ -327,11 +321,8 @@ impl SignInCapture {
                 context: &inner.context,
                 texture: staging,
             };
-            let rect = inner.desc.DesktopCoordinates;
-            let (width, height) = (
-                rect.right.abs_diff(rect.left),
-                rect.bottom.abs_diff(rect.top),
-            );
+            // The upright frame size, from the real surface (not the DPI-scaled desktop rectangle).
+            let (width, height) = inner.rotation.size(inner.raw_width, inner.raw_height);
             let (_, length) =
                 signin_pixels::dimensions(inner.raw_width, inner.raw_height, mapped.RowPitch)?;
             if mapped.pData.is_null() {

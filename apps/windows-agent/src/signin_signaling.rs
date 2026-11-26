@@ -388,7 +388,14 @@ fn run(
     channels: Channels,
 ) -> Result<(), HostError> {
     let public_key = STANDARD.encode(SigningKey::from_bytes(&key).verifying_key().as_bytes());
-    let mut socket = connect(&server, &machine, &binding, &key, gate.as_ref())?;
+    let mut socket = match connect(&server, &machine, &binding, &key, gate.as_ref()) {
+        Ok(socket) => socket,
+        Err(error) => {
+            crate::signin_worker::trace(&format!("signaling could not connect: {error}"));
+            return Err(error);
+        }
+    };
+    crate::signin_worker::trace("signaling connected");
     drop(key); // No reconnect/re-signing under this lease.
     let mut protocol = Protocol {
         binding,
@@ -512,7 +519,7 @@ impl SignInSignaling {
             .name("signin-signaling".into())
             .spawn(move || {
                 let _authority = EndScope(owned_gate.clone());
-                let _ = run(
+                match run(
                     server,
                     machine,
                     binding,
@@ -522,7 +529,10 @@ impl SignInSignaling {
                         commands: receiver,
                         events: sender,
                     },
-                );
+                ) {
+                    Ok(()) => crate::signin_worker::trace("signaling finished"),
+                    Err(error) => crate::signin_worker::trace(&format!("signaling ended: {error}")),
+                }
                 finished.store(true, Ordering::Release);
             })
             .map_err(|_| {

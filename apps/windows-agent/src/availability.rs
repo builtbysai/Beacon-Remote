@@ -69,24 +69,67 @@ fn valid_machine(machine: &str) -> Result<(), HostError> {
     Ok(())
 }
 
-pub(crate) fn known_folder(id: &GUID) -> Result<PathBuf, HostError> {
+/// The Windows result of the last failed known-folder lookup (0 when none failed).
+pub(crate) static LAST_FOLDER_RESULT: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
+
+/// Asks Windows for a known folder with the given flags and returns the Windows result and the text.
+fn ask_known_folder(id: &GUID, flags: u32) -> (i32, Option<PathBuf>) {
     let mut raw = null_mut();
-    if unsafe { SHGetKnownFolderPath(id, 0, null_mut(), &mut raw) } < 0 {
-        return Err("Windows folder unavailable".into());
+    let result = unsafe { SHGetKnownFolderPath(id, flags as _, null_mut(), &mut raw) };
+    if result < 0 || raw.is_null() {
+        return (result, None);
     }
     let path = unsafe {
         let mut len = 0;
         while *raw.add(len) != 0 {
             len += 1;
         }
-        PathBuf::from(String::from_utf16_lossy(std::slice::from_raw_parts(
-            raw, len,
-        )))
-    };
-    unsafe {
+        let text = String::from_utf16_lossy(std::slice::from_raw_parts(raw, len));
         CoTaskMemFree(raw.cast());
+        PathBuf::from(text)
+    };
+    (result, Some(path))
+}
+
+pub(crate) fn known_folder(id: &GUID) -> Result<PathBuf, HostError> {
+    // The sign-in worker is a restricted SYSTEM token running in a user session, where per-user folder
+    // resolution can fail. Program Files and ProgramData are never redirected per user.
+    const KF_FLAG_DEFAULT_PATH: u32 = 0x0000_0400;
+    const KF_FLAG_DONT_VERIFY: u32 = 0x0000_4000;
+    let (result, path) = ask_known_folder(id, 0);
+    if let Some(path) = path {
+        return Ok(path);
     }
-    Ok(path)
+    // Keep the Windows result: a failing worker reports it in its exit status.
+    LAST_FOLDER_RESULT.store(result as u32, std::sync::atomic::Ordering::Relaxed);
+    // The sign-in supervisor resolves these two folders itself and hands them to its worker in the
+    // environment. Callers still verify the folder's owner, permissions and the binary hash.
+    use windows_sys::Win32::UI::Shell::{FOLDERID_ProgramData, FOLDERID_ProgramFiles};
+    let same = |a: &GUID, b: &GUID| {
+        a.data1 == b.data1 && a.data2 == b.data2 && a.data3 == b.data3 && a.data4 == b.data4
+    };
+    let name = if same(id, &FOLDERID_ProgramFiles) {
+        Some("ProgramFiles")
+    } else if same(id, &FOLDERID_ProgramData) {
+        Some("ProgramData")
+    } else {
+        None
+    };
+    if let Some(value) = name.and_then(std::env::var_os) {
+        let path = PathBuf::from(value);
+        if path.is_absolute() && !path.to_string_lossy().contains('%') {
+            return Ok(path);
+        }
+    }
+    // Last resort: the default location, without creating or verifying anything. Windows can return it with an
+    // unexpanded variable such as %SystemDrive%, which is never a usable path.
+    if let (_, Some(path)) = ask_known_folder(id, KF_FLAG_DEFAULT_PATH | KF_FLAG_DONT_VERIFY) {
+        if path.is_absolute() && !path.to_string_lossy().contains('%') {
+            return Ok(path);
+        }
+    }
+    Err(format!("Windows folder unavailable ({result:#010x})").into())
 }
 fn roots() -> Result<(PathBuf, PathBuf), HostError> {
     use windows_sys::Win32::UI::Shell::{FOLDERID_ProgramData, FOLDERID_ProgramFiles};
