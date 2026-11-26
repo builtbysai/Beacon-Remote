@@ -4,9 +4,11 @@
 
 The public Security page describes only what ships. These items stay here until each one is accepted:
 
-- Windows sign-in screen access: capture and input on the secure sign-in desktop. The supervisor and worker now start at
-  the sign-in screen after a reboot and the server offers "Open sign-in" for a signed-out computer (November 26, 2026);
-  the viewer's media connection to it is still being fixed. See [sign-in authority](signin-authority.md).
+- Windows sign-in screen access: capture and input on the secure sign-in desktop. After a reboot or sign-out the worker
+  starts at the sign-in screen, the server offers "Open sign-in", the viewer connects, and the real sign-in screen
+  streams at 25 frames per second; a click in the viewer woke the lock screen to the PIN prompt (November 26, 2026).
+  Not yet accepted: typing a password or PIN through the viewer, secure attention, a lock-screen wake-up without a
+  click, and a boot-to-sign-in run on a clean install. See [sign-in authority](signin-authority.md).
 - The full device and network acceptance matrix ([remaining testing](testing-remaining.md)).
 - Peer authentication against the signaling service.
 - Email recovery depends on the operator's server setup.
