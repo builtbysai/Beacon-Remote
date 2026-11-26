@@ -125,9 +125,14 @@ Invariants, covered by `ui_bridge::tests` and `ui_protocol::tests`; the host onl
   optional file, recording and sound choices, Decline and Allow once, and no Stop because nothing is shared yet. Once
   allowed it becomes the sharing screen in place; more access asked during a share is shown under Stop.
 
-Checked on the Surfiena lab laptop on November 26, 2026: request screen and all options, sharing screen, Mute and turn
-off extras, and the helper ending within two seconds of the host being killed. Not yet exercised there: input from
-the viewer through the new path, file send, recording, and the five-second lease timeout of a hung (not killed) host.
+Checked on the Surfiena lab laptop on November 26, 2026: the request screen and all its options, the sharing screen,
+Mute and turn off extras, Decline and Allow once on a mid-session request for control (a declined request leaves the
+session view only and tells the viewer), local Stop, the helper ending within two seconds of the host being killed, and
+the helper ending after about five seconds when the host process is frozen rather than killed. A viewer click did reach
+the laptop, but the target button was not confirmed. Not yet exercised there: file send, recording, and light mode. Two
+viewer-side oddities were seen and are not caused by this change: a session sometimes ended with "Media consumer
+stalled" a second after the first video packet, and a finished session's card survives a page reload and swallows the
+next click until it is closed.
 
 ## Look of the native windows (November 25, 2026)
 

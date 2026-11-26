@@ -253,30 +253,44 @@ unsafe fn arrange(window: HWND, page: &mut Page) {
         sharing && session.is_some_and(|s| s.files || s.recording),
     );
     if let Some(session) = session {
-        SetWindowTextW(
-            GetDlgItem(window, PAUSE),
-            wide(if session.paused { "Resume" } else { "Pause" }).as_ptr(),
+        set_label(
+            window,
+            PAUSE,
+            if session.paused { "Resume" } else { "Pause" },
         );
-        SetWindowTextW(
-            GetDlgItem(window, MUTE),
-            wide(if session.muted {
+        set_label(
+            window,
+            MUTE,
+            if session.muted {
                 "Unmute sound"
             } else {
                 "Mute sound"
-            })
-            .as_ptr(),
+            },
         );
-        SetWindowTextW(
-            GetDlgItem(window, REVOKE),
-            wide(if session.files && session.recording {
+        set_label(
+            window,
+            REVOKE,
+            if session.files && session.recording {
                 "Turn off files and recording"
             } else if session.files {
                 "Turn off files"
             } else {
                 "Turn off recording"
-            })
-            .as_ptr(),
+            },
         );
+    }
+}
+
+/// Changes a control's text only when it differs: rewriting the same text repaints an owner-drawn button every tick.
+unsafe fn set_label(window: HWND, id: i32, text: &str) {
+    let control = GetDlgItem(window, id);
+    if control.is_null() {
+        return;
+    }
+    let mut current = [0u16; 128];
+    let length = GetWindowTextW(control, current.as_mut_ptr(), current.len() as i32).max(0);
+    if String::from_utf16_lossy(&current[..length as usize]) != text {
+        SetWindowTextW(control, wide(text).as_ptr());
     }
 }
 
@@ -475,8 +489,8 @@ unsafe fn paint(window: HWND, page: &Page) {
             canvas.fill(28.0, 376.0, 464.0, 72.0, 16.0, p.warn_soft);
             canvas.stroke(28.0, 376.0, 464.0, 72.0, 16.0, p.warn_line, 1.0);
             canvas.text(
-                &format!("{} asks for more access", prompt.controller),
-                (44.0, 382.0, 432.0, 28.0),
+                "More access requested",
+                (44.0, 388.0, 432.0, 24.0),
                 14.0,
                 700,
                 p.strong,
@@ -485,7 +499,7 @@ unsafe fn paint(window: HWND, page: &Page) {
             );
             canvas.text(
                 &prompt.detail,
-                (44.0, 410.0, 432.0, 30.0),
+                (44.0, 414.0, 432.0, 28.0),
                 12.5,
                 400,
                 p.text,
