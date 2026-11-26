@@ -11,14 +11,14 @@
   },
   "dependencies": {
     "@beacon-remote/protocol": "workspace:*",
-    "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   },
   "devDependencies": {
     "@types/node": "26.1.1",
     "@types/react": "19.3.0",
-    "@types/react-dom": "19.2.3",
+    "@types/react-dom": "19.3.0",
     "tsx": "4.23.15",
-    "vite": "8.1.6"
+    "vite": "8.3.8"
   }
 }
