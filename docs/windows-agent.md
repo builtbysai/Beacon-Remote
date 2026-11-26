@@ -141,3 +141,15 @@ all of them, following the web direction: cool-neutral window, soft tiles with n
 main action, a soft tile for the rest, a coral wash for danger), tinted capsule status and the monitor character in
 the header (awake with signal arcs when reachable, asleep when stopped, surprised when someone is knocking). Dark mode
 and high contrast keep the same structure; high contrast falls back to system colours.
+
+## Installer lifecycle check (November 26, 2026)
+
+`scripts/Test-Installer.ps1` runs the per-user installer in a throwaway profile (temp `LOCALAPPDATA`/`APPDATA`, a
+test-only registry key, sandbox mode on) and checks 26 things: clean install, shortcut, Apps and features entry,
+start at sign-in, installing over an install, upgrade while the old host is running (it is stopped, replaced, the new
+version shows, an owner's choice to not start at sign-in is kept, the saved sign-in survives), repair of a missing and
+a damaged program, and uninstall while the host is running (programs, shortcut, entry and saved sign-in removed,
+files the installer did not create left alone). It needs no administrator approval and touches no real install.
+
+Not covered, because they need administrator approval and real hardware: trusting the signing certificate, installing
+and removing the boot service, the sign-in worker, cold boot and signed-out states, and crash or reboot recovery.

@@ -1,6 +1,7 @@
-# Installs and uninstalls the Windows setup program in a throwaway profile and checks each step.
+# Installs, upgrades, repairs and uninstalls the Windows setup program in a throwaway profile and checks each step.
 # Needs `cargo build --release` first (the three programs). Touches no real install: LOCALAPPDATA and APPDATA point
-# into a temp folder and registry writes go under HKCU\Software\BeaconRemoteSetupTest.
+# into a temp folder and registry writes go under HKCU\Software\BeaconRemoteSetupTest. Nothing here needs
+# administrator approval, so the trust step and the boot service are not covered (see docs/windows-agent.md).
 [CmdletBinding()]
 param()
 Set-StrictMode -Version Latest
@@ -20,14 +21,21 @@ try {
         if (-not (Test-Path $source)) { throw "Build $name first: cargo build --release" }
         Copy-Item $source $payload
     }
-    '{"kind":"beacon-remote-development-v2","commit":"0123456789abcdef0123456789abcdef01234567","files":[]}' | Set-Content "$payload\manifest.json"
-    Push-Location $repo
-    try {
-        $env:BEACON_PAYLOAD_DIR = $payload
-        cargo build --release -p beacon-remote-setup
-        if ($LASTEXITCODE -ne 0) { throw 'setup build failed' }
-    } finally { Remove-Item Env:BEACON_PAYLOAD_DIR -ErrorAction SilentlyContinue; Pop-Location }
-    $setup = Join-Path $repo 'target\release\beacon-remote-setup.exe'
+    # Builds a setup program that carries the payload and a manifest naming this commit, and keeps a copy of it.
+    function Build-Setup($commit) {
+        ('{"kind":"beacon-remote-development-v2","commit":"' + $commit + '","files":[]}') | Set-Content "$payload\manifest.json"
+        Push-Location $repo
+        try {
+            $env:BEACON_PAYLOAD_DIR = $payload
+            cargo build --release -p beacon-remote-setup
+            if ($LASTEXITCODE -ne 0) { throw 'setup build failed' }
+        } finally { Remove-Item Env:BEACON_PAYLOAD_DIR -ErrorAction SilentlyContinue; Pop-Location }
+        $copy = Join-Path $temp "setup-$commit.exe"
+        Copy-Item (Join-Path $repo 'target\release\beacon-remote-setup.exe') $copy
+        return $copy
+    }
+    $setup = Build-Setup '0123456789abcdef0123456789abcdef01234567'
+    $setupNext = Build-Setup 'fedcba9876543210fedcba9876543210fedcba98'
     $env:LOCALAPPDATA = "$profileRoot\Local"
     $env:APPDATA = "$profileRoot\Roaming"
     $env:BEACON_SETUP_SANDBOX = '1'
@@ -35,6 +43,18 @@ try {
     Set-Content "$profileRoot\Local\BeaconRemote\identity.bin" 'saved sign-in'
     $install = "$profileRoot\Local\Programs\Beacon Remote"
     $link = "$profileRoot\Roaming\Microsoft\Windows\Start Menu\Programs\Beacon Remote.lnk"
+    $realHost = (Get-FileHash "$payload\beacon-remote-host.exe").Hash
+    $realSession = (Get-FileHash "$payload\beacon-remote-session.exe").Hash
+
+    # A program running from the install folder locks its own file. Stand in for the host with a harmless
+    # long-running program under the host's name, so replacing it proves the installer stops what it must.
+    function Start-StandIn {
+        Copy-Item "$env:SystemRoot\System32\PING.EXE" "$install\beacon-remote-host.exe" -Force
+        $process = Start-Process "$install\beacon-remote-host.exe" -ArgumentList '-t', '127.0.0.1' -WindowStyle Hidden -PassThru
+        Start-Sleep 1
+        Check (-not $process.HasExited) 'a program is running from the install folder'
+        return $process
+    }
 
     Start-Process $setup -ArgumentList '--silent' -WindowStyle Hidden -Wait
     foreach ($name in 'beacon-remote-agent.exe', 'beacon-remote-host.exe', 'beacon-remote-session.exe', 'manifest.json', 'Uninstall Beacon Remote.exe') {
@@ -49,8 +69,32 @@ try {
     Start-Process $setup -ArgumentList '--silent' -WindowStyle Hidden -Wait
     Check (Test-Path "$install\beacon-remote-host.exe") 'installing again over an install works'
 
+    # Upgrade: a newer build replaces the programs while the old host runs, shows the new version,
+    # and keeps the owner's choice not to start at sign-in.
+    $running = Start-StandIn
+    Remove-ItemProperty "$key\Run" -Name BeaconRemoteHost
+    Start-Process $setupNext -ArgumentList '--silent' -WindowStyle Hidden -Wait
+    $running.Refresh()
+    Check $running.HasExited 'upgrade stops the host that was running'
+    Check ((Get-FileHash "$install\beacon-remote-host.exe").Hash -eq $realHost) 'upgrade replaces the host that was running'
+    Check ((Get-ItemProperty "$key\Uninstall").DisplayVersion -eq '0.1.0 (fedcba98)') 'upgrade shows the new version'
+    $run = Get-ItemProperty "$key\Run" -ErrorAction SilentlyContinue
+    Check (-not $run -or -not $run.PSObject.Properties['BeaconRemoteHost']) 'upgrade keeps start at sign-in off when the owner turned it off'
+    Check ((Get-Content "$install\manifest.json" -Raw) -match 'fedcba98') 'upgrade writes the new manifest'
+
+    # Repair: running setup again restores a damaged install.
+    Remove-Item "$install\beacon-remote-host.exe"
+    Set-Content "$install\beacon-remote-session.exe" 'damaged'
+    Start-Process $setupNext -ArgumentList '--silent' -WindowStyle Hidden -Wait
+    Check ((Get-FileHash "$install\beacon-remote-host.exe").Hash -eq $realHost) 'repair restores a missing program'
+    Check ((Get-FileHash "$install\beacon-remote-session.exe").Hash -eq $realSession) 'repair restores a damaged program'
+    Check (Test-Path "$profileRoot\Local\BeaconRemote\identity.bin") 'upgrade and repair keep the saved sign-in'
+
     Set-Content "$install\keep.txt" 'not ours'
+    $running = Start-StandIn
     Start-Process "$install\Uninstall Beacon Remote.exe" -ArgumentList '--uninstall', '--silent' -WindowStyle Hidden -Wait
+    $running.Refresh()
+    Check $running.HasExited 'uninstall stops the host that was running'
     Start-Sleep 5
     Check (-not (Test-Path "$profileRoot\Local\BeaconRemote")) 'uninstall removes the saved sign-in'
     Check (-not (Test-Path $link)) 'uninstall removes the shortcut'
