@@ -168,8 +168,9 @@ Printing, cameras, USB and microphone redirection (each approved in principle, e
 consent and revocation rules); a privileged SYSTEM session-attach service (needs its own security review first);
 independent sessions and RemoteApp (decide native or gateway); organization roles, policy, scheduled access and audit
 ([ADR 0065](decisions/0065-organization-roles-policy-and-audit.md), a proposal);
-Linux and Raspberry Pi hosting; macOS only with native permissions; direct, relay, IPv6, proxy and offline-LAN modes;
-Wake-on-LAN, sleep and update recovery. (design first; hardware where listed)
+Linux and Raspberry Pi hosting and macOS only with native permissions ([ADR 0066](decisions/0066-hosting-beyond-windows-and-android.md),
+a proposal); direct, relay, IPv6, proxy and offline-LAN modes, Wake-on-LAN, sleep and update recovery
+([ADR 0067](decisions/0067-connection-modes-and-recovery.md), a proposal). (design first; hardware where listed)
 
 ### M9. Trust and operations (P3-1, P3-2)
 
