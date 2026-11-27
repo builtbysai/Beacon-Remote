@@ -19,7 +19,7 @@ computer id (ADR 0061), so a re-enrolled computer starts a fresh pin; it does no
    returned a different key for an id the browser pinned, which the server's own code never does. The viewer's
    "Trust the new key" button (built) stays, but its words must say this plainly: compare the code with the one in the
    host window, and if you cannot, do not trust it and use a new enrollment instead.
-3. **Show the new-enrollment case clearly (the removed-computer half is built).** When a person enrolls a computer with the same name as a revoked one, the
+3. **Show the new-enrollment case clearly (built: a removed computer and a same-name replacement each carry a note).** When a person enrolls a computer with the same name as a revoked one, the
    list says the old entry is revoked and the new one has a new key code, so nobody reads the new code as a change.
 4. **Backups of the host key are not offered.** The Windows key lives under DPAPI and the Android key under the
    keystore so that copying a profile does not copy an identity. A restored image therefore cannot impersonate the

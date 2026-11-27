@@ -12,6 +12,7 @@ import { AccountPanels } from "./AccountPanels.js";
 import { PairComputer } from "./PairComputer.js";
 import { SessionHistory } from "./SessionHistory.js";
 import { ComputerInspector } from "./ComputerInspector.js";
+import { replacesRemoved } from "./computer-replacement.js";
 import { AssistPanel } from "./AssistPanel.js";
 import { SupportInvite } from "./SupportInvite.js";
 import { AccountMenu } from "./AccountMenu.js";
@@ -1293,6 +1294,10 @@ function App() {
                     machine={machines.find(
                       (machine) => machine.id === selected,
                     )!}
+                    replacesRemoved={replacesRemoved(
+                      machines.find((machine) => machine.id === selected)!,
+                      machines,
+                    )}
                     onRestart={
                       !view || view.machineId === selected
                         ? restartCallback(

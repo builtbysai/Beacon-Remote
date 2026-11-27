@@ -17,9 +17,11 @@ import { Character, toneFor } from "./Characters.js";
 function IdentityKeyRow({
   identityKey,
   removed,
+  replacement,
 }: {
   identityKey: string | undefined;
   removed: boolean;
+  replacement: boolean;
 }) {
   const [code, setCode] = useState("");
   useEffect(() => {
@@ -46,6 +48,13 @@ function IdentityKeyRow({
         <span>Identity key</span>
         <code>{code}</code>
       </div>
+      {replacement && !removed && (
+        <p className="inspector-note">
+          This computer replaces a removed one with the same name, so its key
+          code is new. That is expected, not a changed key; compare the code
+          with the one in the Beacon Remote window on the computer.
+        </p>
+      )}
       {removed && (
         <p className="inspector-note">
           This computer was removed. Setting it up again makes a new entry with
@@ -70,6 +79,7 @@ export function ComputerInspector({
   sessionActive = false,
   onRestart,
   onRequestSignIn,
+  replacesRemoved = false,
 }: {
   machine: Machine;
   onClose: () => void;
@@ -84,6 +94,8 @@ export function ComputerInspector({
   sessionActive?: boolean;
   onRestart?: (previousInstance: string | null) => void;
   onRequestSignIn?: () => void;
+  /** Whether a removed computer has this one's name (see computer-replacement.ts). */
+  replacesRemoved?: boolean;
 }) {
   const [display, setDisplay] = useState("");
   const displays = machine.displays ?? [];
@@ -598,6 +610,7 @@ export function ComputerInspector({
           <IdentityKeyRow
             identityKey={machine.identityKey}
             removed={Boolean(machine.revokedAt)}
+            replacement={replacesRemoved}
           />
           <div className="inspector-manage">
             <DeviceActions
