@@ -4,6 +4,7 @@ import { handoffDesktop, cancelSignInHandoff } from "./signin-handoff.js";
 import type { ViewGrant } from "./LiveView.js";
 import { attachRemoteInput } from "./remote-input.js";
 import { ViewerIcon } from "./viewer-icons.js";
+import { wakeSignIn } from "./signin-wake.js";
 import "./signin-view.css";
 
 export function SignInView({
@@ -32,6 +33,10 @@ export function SignInView({
     [needsPlay, setNeedsPlay] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [attentionPending, setAttentionPending] = useState(false);
+  // Windows puts an idle password prompt away after a short while; the view raises it again and reconnects, as a
+  // person at the keyboard would by pressing a key, a few times per opening.
+  const [attempt, setAttempt] = useState(0);
+  const reconnects = useRef(0);
   useEffect(() => {
     const abort = new AbortController();
     let disposed = false;
@@ -70,6 +75,27 @@ export function SignInView({
         .catch(() => {
           if (!disposed) setNeedsPlay(true);
         });
+    };
+    const endForGood = () => {
+      setEnded(true);
+      setStatus("Sign-in connection ended. Return to Computers to reconnect.");
+    };
+    const rewake = () => {
+      if (disposed) return;
+      if (reconnects.current >= 5) {
+        endForGood();
+        return;
+      }
+      reconnects.current += 1;
+      setEnded(false);
+      setStatus("Windows put the password prompt away. Bringing it back…");
+      void wakeSignIn(machineId, AbortSignal.any([signal, abort.signal])).then(
+        (ready) => {
+          if (disposed) return;
+          if (ready) setAttempt((value) => value + 1);
+          else endForGood();
+        },
+      );
     };
     void SignInConnection.start(
       machineId,
@@ -149,16 +175,19 @@ export function SignInView({
                     void cancelSignInHandoff(context.leaseId, grant.id);
                 })
                 .catch(() => {
+                  // No desktop to hand over to: the prompt went back to the lock-screen picture.
                   if (!disposed) {
-                    setEnded(true);
-                    setStatus(
-                      "Sign-in connection ended. Return to Computers to reconnect.",
-                    );
+                    active.stop();
+                    rewake();
                   }
                 });
               return;
             }
             active?.stop();
+            if (reason === "unavailable") {
+              rewake();
+              return;
+            }
             setEnded(true);
             setStatus(
               reason === "expired"
@@ -218,7 +247,7 @@ export function SignInView({
       if (previous instanceof HTMLElement && previous.isConnected)
         previous.focus();
     };
-  }, [machineId, signal]);
+  }, [machineId, signal, attempt]);
   const close = () => {
     connection.current?.stop();
     onClose();
