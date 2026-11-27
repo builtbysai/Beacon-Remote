@@ -37,6 +37,7 @@ import {
   type PermissionLogEntry,
 } from "./permission-log.js";
 import { PrintClient } from "./print-client.js";
+import { UiTreeClient } from "./ui-tree-client.js";
 import type { HostProof } from "@beacon-remote/protocol";
 import {
   browserPinStore,
@@ -332,6 +333,8 @@ export function LiveView({
   const [printStatus, setPrintStatus] = useState("");
   // Clipboard sharing (ADR 0060): the computer opens a channel and tells us its setting; null until it does.
   const clipboardChannel = useRef<ClipboardClient | null>(null);
+  // Semantic targets (ADR 0064): the channel that returns the shared window's interface tree to an approved assistant.
+  const uiTreeChannel = useRef<UiTreeClient | null>(null);
   const [clipMode, setClipMode] = useState<ClipboardMode | null>(null);
   const [clipStatus, setClipStatus] = useState("");
   // Whether the offer really came from the computer whose key this browser pinned (ADR 0061).
@@ -592,8 +595,25 @@ export function LiveView({
       if (mode === "off" || mode === "button" || mode === "auto")
         setClipboardMode(mode);
     };
+    // The assistant's tools drive this page through events on the video, as they do for input. "read" asks the
+    // computer for the tree and hands the checked answer back; "ask" requests the Screen structure permission, which the
+    // person at the computer must approve.
+    const onUiTreeRead = (event: Event) => {
+      const done = (event as CustomEvent).detail?.done;
+      if (typeof done !== "function") return;
+      const client = uiTreeChannel.current;
+      if (!client) done({ ok: false, reason: "closed" });
+      else void client.request().then(done);
+    };
+    const onUiTreeAsk = () => permissions.current?.request("ui_tree");
     target.addEventListener("beacon-clipboard-mode", onMode);
-    return () => target.removeEventListener("beacon-clipboard-mode", onMode);
+    target.addEventListener("beacon-ui-tree-read", onUiTreeRead);
+    target.addEventListener("beacon-ui-tree-ask", onUiTreeAsk);
+    return () => {
+      target.removeEventListener("beacon-clipboard-mode", onMode);
+      target.removeEventListener("beacon-ui-tree-read", onUiTreeRead);
+      target.removeEventListener("beacon-ui-tree-ask", onUiTreeAsk);
+    };
   }, [transportAttempt]);
   if (ice.current.id !== grant.id)
     ice.current = { id: grant.id, servers: grant.iceServers };
@@ -961,6 +981,27 @@ export function LiveView({
           setClipMode(null);
         };
         if (channel.readyState === "open") client.hello();
+        return;
+      }
+      if (
+        event.channel.label === "beacon-ui-tree-v1" &&
+        grant.source === "desktop" &&
+        !uiTreeChannel.current &&
+        event.channel.ordered
+      ) {
+        const channel = event.channel;
+        const client = new UiTreeClient({
+          get open() {
+            return channel.readyState === "open";
+          },
+          send: (text) => channel.send(text),
+        });
+        uiTreeChannel.current = client;
+        channel.onmessage = (message) => client.receive(String(message.data));
+        channel.onclose = () => {
+          client.close();
+          uiTreeChannel.current = null;
+        };
         return;
       }
       if (

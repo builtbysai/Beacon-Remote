@@ -1,4 +1,9 @@
-import { buildControlScript } from "./control-sender.mjs";
+import {
+  buildControlScript,
+  uiTreeAskScript,
+  uiTreeReadScript,
+} from "./control-sender.mjs";
+import { createSnapshotStore } from "./ui-snapshot.mjs";
 import { createScope, revoke } from "./agent-scope.mjs";
 import { runControl } from "./control-tools.mjs";
 const delay = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -48,6 +53,65 @@ export class RemoteSession {
     return record.scope;
   }
 
+  /**
+   * The interface tree of the shared window, as a snapshot whose elements are addressed by number (ADR 0064). The person
+   * at the computer decides: until they approve the Screen structure permission the computer answers "denied", this asks
+   * for it and says so, and no scope exists. The scope is created only once the computer has actually returned a tree,
+   * so it reflects an approval that really happened; it ends with the session and lasts at most ten minutes.
+   */
+  async uiTree(computerId, key) {
+    const record = this.current;
+    if (!record || !this.live(record) || !record.viewer)
+      return { ok: false, reason: "no-session" };
+    let first = null;
+    if (!record.uiScope) {
+      const probe = await record.viewer.evaluate(uiTreeReadScript);
+      if (!probe?.ok) {
+        if (probe?.reason === "denied") {
+          await record.viewer.evaluate(uiTreeAskScript);
+          return { ok: false, reason: "awaiting-owner-approval" };
+        }
+        return {
+          ok: false,
+          reason:
+            typeof probe?.reason === "string" ? probe.reason : "unavailable",
+        };
+      }
+      record.uiScope = createScope({
+        computerId,
+        tools: ["ui_tree"],
+        expiresAt: Math.min(record.deadline, Date.now() + 10 * 60 * 1000),
+      });
+      first = probe;
+    }
+    record.snapshots ??= createSnapshotStore();
+    const result = await runControl({
+      scope: record.uiScope,
+      command: { computerId, tool: "ui_tree", args: {}, key },
+      send: async () =>
+        first ?? (await record.viewer.evaluate(uiTreeReadScript)),
+    });
+    if (!result.ok) return result;
+    if (result.duplicate) return result;
+    const answer = result.result;
+    if (!answer?.ok)
+      return {
+        ok: false,
+        reason:
+          typeof answer?.reason === "string" ? answer.reason : "unavailable",
+        receipt: result.receipt,
+      };
+    const shot = record.snapshots.add(answer.tree);
+    return {
+      ok: true,
+      snapshot: shot.snapshot,
+      expiresAt: shot.expiresAt,
+      truncated: shot.truncated || answer.truncated === true,
+      nodes: shot.nodes,
+      receipt: result.receipt,
+    };
+  }
+
   /** Runs one control command in the live viewer through the scope gate. Stop ends the session. */
   async control(tool, args, key) {
     const record = this.current;
@@ -74,6 +138,7 @@ export class RemoteSession {
     if (!record) return false;
     record.ended = true;
     if (record.scope) revoke(record.scope);
+    if (record.uiScope) revoke(record.uiScope);
     clearTimeout(record.timer);
     if (!record.cleanup)
       record.cleanup = (async () => {

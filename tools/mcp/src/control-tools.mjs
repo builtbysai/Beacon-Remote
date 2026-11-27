@@ -41,6 +41,9 @@ const validators = {
   clipboard_read() {
     return null;
   },
+  ui_tree() {
+    return null;
+  },
   stop() {
     return null;
   },

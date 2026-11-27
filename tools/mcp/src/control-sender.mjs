@@ -17,6 +17,20 @@ const KEY_CODES = Object.freeze({
   Delete: "Delete",
 });
 
+const video = `(document.querySelector('[data-state="viewing"] video') ?? document.querySelector('video'))`;
+
+/**
+ * Page scripts for the semantic-target tool (ADR 0064). "Read" asks the viewer for the computer's interface tree and
+ * resolves with its checked answer (`{ ok, tree }` or `{ ok: false, reason }`); "ask" requests the Screen structure
+ * permission, which only the person at the computer can approve.
+ */
+export const uiTreeReadScript = `new Promise((done) => {
+  const el = ${video};
+  if (!el) { done({ ok: false, reason: "closed" }); return; }
+  el.dispatchEvent(new CustomEvent("beacon-ui-tree-read", { detail: { done } }));
+})`;
+export const uiTreeAskScript = `(() => { const el = ${video}; if (!el) return false; el.dispatchEvent(new Event("beacon-ui-tree-ask")); return true; })()`;
+
 /** The keyboard event `code` for a key name, or null if the name is not one we send. */
 export function keyCode(name) {
   if (typeof name !== "string") return null;
