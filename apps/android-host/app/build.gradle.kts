@@ -7,6 +7,11 @@ android {
     namespace = "com.beaconremote.host"
     compileSdk = 35
 
+    buildFeatures {
+        // BuildConfig.DEBUG lets a debug build, and only a debug build, reach a local test server through `adb reverse`.
+        buildConfig = true
+    }
+
     defaultConfig {
         applicationId = "com.beaconremote.host"
         minSdk = 26
@@ -31,6 +36,11 @@ android {
         }
     }
     buildTypes {
+        debug {
+            // A side-by-side test copy for a phone that already has the real app, which a debug build must never replace:
+            // ./gradlew -PlabSuffix=.lab :app:assembleDebug. Without the property the debug build is unchanged.
+            (project.findProperty("labSuffix") as String?)?.let { applicationIdSuffix = it }
+        }
         release {
             isMinifyEnabled = false
             if (releaseKey != null) signingConfig = signingConfigs.getByName("release")
