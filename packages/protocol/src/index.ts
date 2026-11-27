@@ -4,6 +4,7 @@ export * from "./session-permissions.js";
 export * from "./drive-mapping.js";
 export * from "./peer-identity.js";
 export * from "./peer-wire.js";
+export * from "./ui-tree.js";
 
 export const PROTOCOL_VERSION = 1;
 // Separate signing domain and credential: a boot agent never receives a session grant.
