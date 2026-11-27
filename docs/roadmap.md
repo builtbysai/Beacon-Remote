@@ -50,6 +50,12 @@ Built November 26 from the merged stack head `1ecbab23`: the signed sign-in-medi
 its development package and trust folder, signed with Beacon Remote's own certificate. Local only: not installed,
 published or deployed, and no device has run it.
 
+Rebuilt a third time November 27 from main `e9e67dc4` (adds acting on semantic targets and the display the tree reports, to
+everything in `60048f0f`): the signed sign-in-media installer
+`dist/BeaconRemoteSetup-e9e67dc4-signin-media.exe` (SHA-256 `52B187695D65FADEED47F719BDC5504A95A1373190AF48C09A4384E6EF81ED53`),
+its development package and trust folder, signed with Beacon Remote's own certificate. Local only: not installed, published or
+deployed, and no device has run it. It supersedes `60048f0f` for the M2 laptop run; deploy the web build and protocol first.
+
 Rebuilt again November 27 from main `60048f0f` (adds the semantic-target channels, stricter folder and download names and
 the viewer/protocol changes since `a3737240`): the signed sign-in-media installer
 `dist/BeaconRemoteSetup-60048f0f-signin-media.exe` (SHA-256 `467F68ADD0D1A4C898BD75EF108DB4965A8CCB74A807572E7846FE45F76DD396`),
