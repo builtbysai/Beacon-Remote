@@ -8,7 +8,7 @@ packet loss) every 15 seconds, shown under **Sessions → Connection**, so you o
 when: the numbers are already saved.
 
 Use an exact matching development build with the refreshed signing identities; the current local artifacts and
-trust instructions are listed in roadmap.md. The Windows installer is self-signed and needs explicit trust approval;
+trust instructions are listed in roadmap-history.md. The Windows installer is self-signed and needs explicit trust approval;
 do not substitute an old hosted installer. Uninstall from Apps and features; that also removes the saved sign-in.
 
 ## 1. Install and pair
