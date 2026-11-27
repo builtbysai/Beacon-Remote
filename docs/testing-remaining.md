@@ -128,6 +128,14 @@ shutdown, with no network and no stored pixels. The runner had gone stale: it st
 pixels while capture now scales up to 1920, so it is now 1920. When a capture conversion fails the app now logs the kind
 of failure (never screen content). Not a phone: the physical matrix above is still open.
 
+November 27, 2026, emulator only: the paired Android screens (Device, Access, Privacy) at the system's 200% font scale,
+paired against a disposable local stack (state kept in a scratch folder, a throwaway local account, the emulator's
+read-only AVD), with Beacon accessibility left off. Every screen scrolled to its end with no clipped control and no overlap.
+One defect: switching tabs kept the previous tab's scroll offset, so Access and Privacy opened part-way down. A tab change
+now starts at the top and a refresh of the same tab keeps the place (verified on the emulator). The Clipboard row on the
+Device tab is crowded at 200% but readable. Not covered: the "..." menu and the sheets behind each row, large display
+size, landscape, and a physical phone.
+
 The physical acceptance matrix should
 exercise both switches independently. With general notifications still enabled,
 turn off **While sharing** in Android Settings before an attended request, during
