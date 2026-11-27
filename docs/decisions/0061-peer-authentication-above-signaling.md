@@ -1,7 +1,7 @@
 # Peer authentication above signaling
 
-Status: proposed for review, 26 November 2026. No code follows until this record is accepted. It is the first piece of
-roadmap item P3-1 ("trust above transport") and gives the end-to-end threat model that item asks for.
+Status: accepted 26 November 2026 (the owner approved the proposals); steps 1 and 2 are built, steps 3 to 5 are not. It is
+the first piece of roadmap item P3-1 ("trust above transport") and gives the end-to-end threat model that item asks for.
 
 ## The problem
 
@@ -56,8 +56,14 @@ What the backend can and cannot do today (to be confirmed by tests before this r
 ## What to build, in order
 
 1. Threat-model tests: run the backend as a hostile relay in a fixture and confirm today's behavior in the table.
+   (Not done: the table above is by design review, not by test.)
 2. Protocol: the signed statement, the browser pin store and the key-change flow; unit tests for tamper, replay,
-   wrong key, expired statement and changed key.
+   wrong key, expired statement and changed key. **Built**: `packages/protocol/src/peer-identity.ts` and
+   `crates/remote-core/src/peer_identity.rs` build the same bytes and check the same signature and key code from
+   `packages/protocol/test-vectors/peer-statement-v1.json`. A statement is
+   `beacon-peer-v1` plus session, generation, role, DTLS fingerprint, the other side's nonce and an expiry (at most one
+   minute), signed with Ed25519; the key code is 120 bits of the key's SHA-256 as six groups of four base32 letters.
+   Nothing enforces it yet.
 3. Windows and Android hosts: sign on connect; show the key fingerprint at pairing and in the host window.
 4. Viewer: verify, pin and warn; the strict-mode account setting.
 5. Device checks: a hostile-relay run on real hosts, then an honest upgrade, key change and re-enrollment.
