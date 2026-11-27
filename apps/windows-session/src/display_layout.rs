@@ -91,4 +91,51 @@ mod tests {
         assert_eq!(diff(&before, &resized), vec![Change::Resized("A".into())]);
         assert_eq!(diff(&before, &rescaled), vec![Change::Rescaled("A".into())]);
     }
+
+    #[test]
+    fn a_rotation_and_a_reorder_are_told_apart() {
+        let before = vec![monitor("A", 0, 1920, 100), monitor("B", 1920, 1280, 100)];
+        // Windows listing the same monitors in another order is not a change.
+        let reordered = vec![before[1].clone(), before[0].clone()];
+        assert!(diff(&before, &reordered).is_empty());
+        // Turning one monitor to portrait changes its size, and only its size.
+        let mut turned = before.clone();
+        turned[0].width = 1080;
+        turned[0].height = 1920;
+        assert_eq!(diff(&before, &turned), vec![Change::Resized("A".into())]);
+    }
+
+    #[test]
+    fn several_changes_to_one_monitor_and_to_others_are_all_reported() {
+        let before = vec![monitor("A", 0, 1920, 100), monitor("B", 1920, 1920, 100)];
+        let mut after = vec![
+            monitor("A", -1920, 2560, 150),
+            monitor("C", 3840, 1280, 100),
+        ];
+        after[0].origin_y = 40;
+        assert_eq!(
+            diff(&before, &after),
+            vec![
+                Change::Moved("A".into()),
+                Change::Resized("A".into()),
+                Change::Rescaled("A".into()),
+                Change::Removed("B".into()),
+                Change::Added("C".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_empty_snapshot_on_either_side_adds_or_removes_everything() {
+        let layout = vec![monitor("A", 0, 1920, 100), monitor("B", 1920, 1920, 100)];
+        assert_eq!(
+            diff(&[], &layout),
+            vec![Change::Added("A".into()), Change::Added("B".into())]
+        );
+        assert_eq!(
+            diff(&layout, &[]),
+            vec![Change::Removed("A".into()), Change::Removed("B".into())]
+        );
+        assert!(diff(&[], &[]).is_empty());
+    }
 }
