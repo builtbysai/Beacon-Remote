@@ -375,8 +375,12 @@ impl Ui {
                 return unit(minimum);
             }
             let previous = SelectObject(dc, SendMessageW(control, WM_GETFONT, 0, 0) as _);
+            // Measure a little narrower than the control: a scroll bar appears after this pass when the page grows
+            // taller than the window, and a line the control wraps that this count missed would be drawn over the
+            // next row. Spare space below a row is harmless; a missing line is not.
+            let reserve = GetSystemMetrics(SM_CXVSCROLL).max(unit(17)) + unit(8);
             let mut bounds = RECT {
-                right: (rect.right - unit(40)).max(1),
+                right: (rect.right - unit(40) - reserve).max(1),
                 ..Default::default()
             };
             DrawTextW(
@@ -388,7 +392,7 @@ impl Ui {
             );
             SelectObject(dc, previous);
             ReleaseDC(control, dc);
-            bounds.bottom.max(unit(minimum))
+            (bounds.bottom + unit(2)).max(unit(minimum))
         };
         let mut rows = Vec::new();
         let mut y = unit(20);
