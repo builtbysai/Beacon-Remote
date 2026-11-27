@@ -200,6 +200,18 @@ Beacon View health independently. Do not reuse local test passwords. General
 consumer access additionally requires the account lifecycle/security gates in
 `security.md`. Never expose an unfinished input/capture endpoint.
 
+## Release order for the November 2026 candidates
+
+Source only; nothing here has been deployed. Roll out in this order and stop at the first failed check:
+
+1. Back up and test a restore, then apply migrations 023-029 ([migrations](../apps/backend/migrations)) and verify the schema.
+2. Deploy the backend and web build first. The backend accepts the optional `peer` proof beside a host's offer and lists
+   each computer's public identity key; both are ignored by older hosts and viewers, so this step is safe on its own.
+3. Then ship signed host builds (Windows installer, Android). A host that signs before the backend is updated would have
+   its offers rejected for the unknown `peer` field.
+4. Strict identity stays a per-browser opt-in until every computer a person uses has an updated host.
+5. Rollback is the previous image set; the new migrations are additive. Hosts keep working unsigned.
+
 ## Operator invitation
 
 After migration, an operator may run the compiled
