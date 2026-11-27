@@ -4,8 +4,10 @@ Status: proposed November 27, 2026. The pure core is built and unit-tested (`too
 snapshots, protected fields without text, snapshot-scoped references, expiry, receipts without element text). The
 Windows reader is built too (`apps/windows-session/src/ui_tree.rs`, UI Automation: role, name, state and box only, a password
 field with no name, never invoking or changing anything) and was checked against the live taskbar on a development machine,
-whose real tree went through the snapshot code (18 nodes, 12 buttons, a button resolved). Nothing else is built: nothing
-calls the reader, no tool exposes it, and the closed tool list is unchanged, so it widens no authority
+whose real tree went through the snapshot code (18 nodes, 12 buttons, a button resolved). The Android reader is built as well (`UiTree.kt`: the active window's accessibility nodes, an editable field named only
+by its label or hint and never by what was typed, a password field with no name; the rules are JVM unit-tested, the real
+node wrapper has not been run on a device). Nothing else is built: nothing
+calls the readers, no tool exposes it, and the closed tool list is unchanged, so it widens no authority
 until the owner approves wiring it up. Builds on [0046](0046-mcp-server-view-only.md) (view only) and [0052](0052-agent-control-consent.md)
 (control consent). Part of P3-3 "better agent experience".
 
