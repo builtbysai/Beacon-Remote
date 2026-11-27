@@ -112,6 +112,11 @@ Windows host window at other DPIs and sizes (checked on the lab laptop), sign-in
 screen reader. Visible capture, consent and Stop stay obvious on every surface. (solo, owner for screen-reader and
 visual judgement)
 
+Checked November 26 on the redesigned stack: the sign-in, workspace, appearance and auth browser suites pass; the
+workspace screens pass Chromium's real 200% zoom; the native sharing and "More access requested" cards render cleanly
+offline; the Android pairing screen on an emulator at 200% font scale scrolls fully with no clipped control. Not yet
+checked: the other Android screens (they need a paired host), the Windows host window at other DPIs, and screen readers.
+
 Exit: browser matrix tests green; owner sign-off on Windows and Android layouts.
 
 ### M7. Agent control and Motive (P1-1, P3-3)
