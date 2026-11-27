@@ -80,3 +80,25 @@ worker are required. The existing presence key retains no desktop authority.
 Restart recovery requests new authorization and rejects a grant whose policy
 no longer permits unattended access. Signed host process markers detect fast
 host restarts; they convey no additional permission.
+
+## Abuse protection review (November 27, 2026)
+
+A read of every mutating backend route against its rate limit. Source review only: no load or abuse test has been run,
+and nothing here was changed.
+
+- **Global floor.** Every route is limited to 120 requests a minute per client address (`@fastify/rate-limit`, behind
+  the configured private proxy network only, so a forged forwarding header does not choose the address).
+- **Credentials and guessable codes are tighter.** Sign-in, account setup and recovery, sign-up and its resend, MFA
+  setup/enable/disable/login, device pairing start/approve/lookup, enrollment codes, support claim and guest claim,
+  account export/delete and support-link creation each have their own limit of 4 to 20 a minute (sign-up is per hour).
+- **Machine-signed routes rely on the signature and the floor.** The agent and boot heartbeats and the boot and
+  sign-in binding routes verify a signature from the enrolled key, a 30-second timestamp and a one-time nonce before
+  they change anything, so they hold no secret an outsider can guess. The binding routes read the machine row before
+  the signature is checked, so a flood from one address is bounded only by the 120 a minute floor and a database
+  lookup per request. That is acceptable for the hosted alpha; a lower limit on these two routes is the first thing to
+  add if the floor is ever seen to be used against them.
+- **Request size.** The body limit is 4 KiB; the pairing and offer schemas are strict, so an unknown field is refused
+  rather than stored.
+- **Not covered here.** Distributed floods (the per-address floor does not stop many addresses), WebSocket message
+  rates after a connection is accepted (bounded by the session and lease rules, not by a separate limit), and the TURN
+  relay's own limits, which belong to the relay.
