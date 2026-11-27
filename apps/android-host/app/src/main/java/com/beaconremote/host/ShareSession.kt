@@ -661,6 +661,11 @@ class ShareSession(
                                                     .put("type", "offer")
                                                     .put("sdp", description.description)
                                                     .put("generation", thisGeneration)
+                                                    .also { offer ->
+                                                        // Beside the offer, a public proof of who made it (ADR 0061).
+                                                        peerProof(description.description, thisGeneration.toLong())
+                                                            ?.let { offer.put("peer", it) }
+                                                    }
                                                     .toString(),
                                             )
                                         }
@@ -677,6 +682,37 @@ class ShareSession(
     }
 
     private var talkReceiver: org.webrtc.RtpReceiver? = null
+
+    // Peer authentication (ADR 0061): a key minted for this session and delegated by this phone's identity key.
+    private val peerSession: PeerProof.Session? by lazy {
+        runCatching {
+            PeerProof.Session(
+                grant.id,
+                { bytes -> Identity(context).signBytes(bytes) },
+                System.currentTimeMillis() + 12L * 3_600_000L,
+            )
+        }.getOrNull()
+    }
+
+    private fun peerProof(sdp: String, generation: Long): JSONObject? {
+        val proof = peerSession?.proof(generation, sdp, PeerProof.newNonce(), System.currentTimeMillis()) ?: return null
+        return JSONObject()
+            .put(
+                "delegation",
+                JSONObject()
+                    .put("sessionId", proof.sessionId)
+                    .put("sessionKey", proof.sessionKey)
+                    .put("expiresAtMs", proof.delegationExpiresAtMs)
+                    .put("signature", proof.delegationSignature),
+            )
+            .put(
+                "statement",
+                JSONObject()
+                    .put("nonce", proof.nonce)
+                    .put("expiresAtMs", proof.statementExpiresAtMs)
+                    .put("signature", proof.statementSignature),
+            )
+    }
 
     /** Keep text resolution within a bounded video budget; responsiveness also depends on sender queue time. */
     private fun tuneVideoSender(connection: PeerConnection) {
