@@ -171,7 +171,9 @@ object HostUi {
         }
         val close = TextView(activity).apply {
             text = "×"
-            textSize = 22f
+            // An icon in a fixed-size circle is sized in dp, so a large system font cannot push it out of the circle.
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 22f)
+            includeFontPadding = false
             gravity = Gravity.CENTER
             contentDescription = "Close"
             setTextColor(activity.getColor(R.color.beacon_text))
