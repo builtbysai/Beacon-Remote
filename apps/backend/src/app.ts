@@ -560,11 +560,11 @@ export async function createApp(
       if (pending.rows[0].n >= MAX_PENDING_ENROLLMENTS)
         return reply.code(429).send({ error: "Too many pending codes" });
       const symbols = Array.from(
-        { length: 12 },
+        { length: 8 },
         () =>
           ENROLLMENT_CODE_ALPHABET[randomInt(ENROLLMENT_CODE_ALPHABET.length)],
       ).join("");
-      const code = `${symbols.slice(0, 4)}-${symbols.slice(4, 8)}-${symbols.slice(8)}`;
+      const code = `${symbols.slice(0, 4)}-${symbols.slice(4)}`;
       await pool.query(
         "INSERT INTO enrollments(code_hash,account_id,expires_at) VALUES ($1,$2,now()+interval '5 minutes')",
         [digest(code), account],

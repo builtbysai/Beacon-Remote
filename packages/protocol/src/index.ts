@@ -48,8 +48,9 @@ export function bootHeartbeatMessage(
   return `beacon-remote:boot-heartbeat:v1\n${machine}\n${timestamp}\n${nonce}\n${state}`;
 }
 export const capability = z.enum(["desktop:view", "desktop:control"]);
-// Twelve independent base32 symbols provide 60 bits of entropy. Grouping is
-// presentation only; existing case-sensitive bearer invitations stay valid.
+// New codes are eight independent base32 symbols shown as XXXX-XXXX (40 bits; ADR 0068: one use, five minutes, a few tries
+// from any one address). Codes issued before that were twelve symbols and stay valid until they expire. Grouping, case and
+// spaces are presentation only; existing case-sensitive bearer invitations stay valid.
 export const ENROLLMENT_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 export const enrollmentCode = z
   .string()
@@ -58,6 +59,8 @@ export const enrollmentCode = z
   .transform((value) => {
     if (/^[A-Za-z0-9_-]{32,64}$/.test(value)) return value;
     const compact = value.replace(/[ -]/g, "").toUpperCase();
+    if (/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/.test(compact))
+      return `${compact.slice(0, 4)}-${compact.slice(4)}`;
     return /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{12}$/.test(compact)
       ? `${compact.slice(0, 4)}-${compact.slice(4, 8)}-${compact.slice(8)}`
       : value;
@@ -66,7 +69,7 @@ export const enrollmentCode = z
     z
       .string()
       .regex(
-        /^(?:[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}|[A-Za-z0-9_-]{32,64})$/,
+        /^(?:[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}(?:-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4})?|[A-Za-z0-9_-]{32,64})$/,
       ),
   );
 export const enrollment = z
