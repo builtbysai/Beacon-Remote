@@ -67,3 +67,25 @@ What the backend can and cannot do today (to be confirmed by tests before this r
 3. Windows and Android hosts: sign on connect; show the key fingerprint at pairing and in the host window.
 4. Viewer: verify, pin and warn; the strict-mode account setting.
 5. Device checks: a hostile-relay run on real hosts, then an honest upgrade, key change and re-enrollment.
+
+## Integration design (steps 3 and 4)
+
+Worked out November 26 from how the code is arranged today; not built.
+
+- **The machine key stays in the host process.** The Windows agent holds it; the capture helper
+  (`beacon-remote-session.exe`) never does, and gets its grant from the agent on stdin. So the agent mints a key for each
+  session, signs a delegation with the machine key (`beacon-peer-delegation-v1`, session id, the session key's public
+  half, an expiry of the session's lifetime) and hands the helper the session key and the delegation in the grant. The
+  helper signs each offer's statement with the session key. The viewer checks the chain: pinned machine key, then
+  delegation, then statement. The server sees only public values.
+- **On the wire.** Offers and answers gain an optional `peer` object (delegation, statement signature, nonce, expiry).
+  The backend's strict signaling schema must accept it before any host sends it, so it ships first. The statement's
+  fingerprint is the one in the SDP `a=fingerprint` line; the viewer compares them itself rather than trusting a field.
+- **Where the viewer gets the key.** The machines list gains the computer's public key from enrollment. The first one the
+  browser sees is pinned (trust on first use) and shown as the key code beside the computer; the person can compare it with
+  the code in the host window's Support tab (to be added) for more than first use.
+- **Android.** The same chain with the Android keystore key and a delegation signed there; until it does, the viewer treats
+  Android hosts as unsigned.
+- **Rollout.** Advisory first: the viewer shows "Computer identity verified" or a clear warning and still connects. Strict
+  mode, off by default, refuses an unsigned or mismatched offer. Strict becomes the default only once Windows and Android
+  hosts sign and the key-change and re-enrollment flow has been exercised on devices.
