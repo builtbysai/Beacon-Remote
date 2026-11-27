@@ -611,15 +611,20 @@ fn uninstall(machine: &str, owner: &str) -> Result<(), HostError> {
         validate_binary(machine, &path.join("beacon-remote-agent.exe"))?;
         versions.push(path);
     }
-    for entry in fs::read_dir(&data)?.take(4) {
+    // The service's own diagnostic log (and its one rotated copy) is ours to delete too; anything else stops cleanup.
+    let mut logs = Vec::new();
+    for entry in fs::read_dir(&data)?.take(5) {
         let path = entry?.path();
-        if !matches!(
-            path.file_name().and_then(|name| name.to_str()),
-            Some("identity.dpapi" | "maintenance.lock")
-        ) {
-            return Err("Unexpected sign-in private state; files were preserved".into());
+        match path.file_name().and_then(|name| name.to_str()) {
+            Some(name) if private_state_name(name) == PrivateState::Log => {
+                reject_reparse(&path)?;
+                logs.push(path);
+            }
+            Some(name) if private_state_name(name) == PrivateState::Secret => {
+                signin_files::verify(&path, signin_files::PRIVATE_FILE)?;
+            }
+            _ => return Err("Unexpected sign-in private state; files were preserved".into()),
         }
-        signin_files::verify(&path, signin_files::PRIVATE_FILE)?;
     }
     let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)?;
     match manager.open_service(
@@ -650,10 +655,28 @@ fn uninstall(machine: &str, owner: &str) -> Result<(), HostError> {
     if state.exists() {
         fs::remove_file(state)?;
     }
+    for log in logs {
+        fs::remove_file(log)?;
+    }
     drop(maintenance);
     fs::remove_file(data.join("maintenance.lock"))?;
     fs::remove_dir(data)?;
     Ok(())
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum PrivateState {
+    Secret,
+    Log,
+    Unknown,
+}
+/// What uninstall may find in a sign-in endpoint's private ProgramData folder.
+fn private_state_name(name: &str) -> PrivateState {
+    match name {
+        "identity.dpapi" | "maintenance.lock" => PrivateState::Secret,
+        "supervisor.log" | "supervisor.old.log" => PrivateState::Log,
+        _ => PrivateState::Unknown,
+    }
 }
 
 fn elevate(action: &str, machine: &str, server: &str, owner: &str) -> Result<(), HostError> {
@@ -1565,6 +1588,18 @@ pub fn command(arguments: &[String]) -> Option<Result<(), HostError>> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn uninstall_deletes_its_own_diagnostic_logs_and_still_refuses_anything_else() {
+        use super::{private_state_name, PrivateState};
+        assert_eq!(private_state_name("identity.dpapi"), PrivateState::Secret);
+        assert_eq!(private_state_name("maintenance.lock"), PrivateState::Secret);
+        assert_eq!(private_state_name("supervisor.log"), PrivateState::Log);
+        assert_eq!(private_state_name("supervisor.old.log"), PrivateState::Log);
+        for other in ["notes.txt", "supervisor.log.bak", "Identity.dpapi", ""] {
+            assert_eq!(private_state_name(other), PrivateState::Unknown, "{other}");
+        }
+    }
+
     #[test]
     fn the_wake_question_is_signed_in_its_own_domain_and_the_answer_is_strict() {
         assert_eq!(
