@@ -50,6 +50,11 @@ Built November 26 from the merged stack head `1ecbab23`: the signed sign-in-medi
 its development package and trust folder, signed with Beacon Remote's own certificate. Local only: not installed,
 published or deployed, and no device has run it.
 
+Rebuilt November 27 from main `a3737240` (adds clipboard modes and peer authentication): the signed sign-in-media installer
+`dist/BeaconRemoteSetup-a3737240-signin-media.exe` (SHA-256 `FC8080B68EC7EEDE34DD6BAF381F65C1A19A4FEBFE3007F0E0BE2E3F32A3E4DA`),
+its development package and trust folder, signed with Beacon Remote's own certificate. Local only: not installed,
+published or deployed, and no device has run it. It supersedes the `1ecbab23` candidate for the M2 laptop run.
+
 Exit: main contains the stack, CI green on main, signed candidates staged, nothing deployed without sign-off.
 
 ### M2. Windows unattended access, accepted on a real laptop
