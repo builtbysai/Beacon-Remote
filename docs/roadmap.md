@@ -166,7 +166,8 @@ SYSTEM session-attach service is [ADR 0063](decisions/0063-system-session-attach
 
 Printing, cameras, USB and microphone redirection (each approved in principle, each needs hardware and its own
 consent and revocation rules); a privileged SYSTEM session-attach service (needs its own security review first);
-independent sessions and RemoteApp (decide native or gateway); organization roles, policy, scheduled access and audit;
+independent sessions and RemoteApp (decide native or gateway); organization roles, policy, scheduled access and audit
+([ADR 0065](decisions/0065-organization-roles-policy-and-audit.md), a proposal);
 Linux and Raspberry Pi hosting; macOS only with native permissions; direct, relay, IPv6, proxy and offline-LAN modes;
 Wake-on-LAN, sleep and update recovery. (design first; hardware where listed)
 
