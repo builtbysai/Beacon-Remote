@@ -9,16 +9,16 @@ done when a real run is recorded in [testing-remaining.md](testing-remaining.md)
 
 ## Where the product stands
 
-| Area                   | State                                                                                                                                                                 |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Hosted baseline        | Attended, trusted and support access, remembered helpers, accounts/MFA/export/deletion, teams, signed updates, installer, two-way files, recording, TURN, backups     |
-| Windows host UI        | One tabbed window owns all local UI; the helper is headless (ADR 0059). Merged (#135–#140); the Support tab shows the identity key code (#149)                        |
-| Windows boot service   | Installed and verified on the lab laptop: presence while signed out after a reboot                                                                                    |
-| Windows sign-in screen | After reboot or sign-out the worker starts, the server offers "Open sign-in", the real sign-in screen streams at 25 fps and a viewer click wakes it to the PIN prompt |
-| Windows installer      | Sandbox install/upgrade/repair/uninstall test (26 checks) passes; a real installed lifecycle is not yet accepted                                                      |
+| Area                   | State                                                                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Hosted baseline        | Attended, trusted and support access, remembered helpers, accounts/MFA/export/deletion, teams, signed updates, installer, two-way files, recording, TURN, backups        |
+| Windows host UI        | One tabbed window owns all local UI; the helper is headless (ADR 0059). Merged (#135–#140); the Support tab shows the identity key code (#149)                           |
+| Windows boot service   | Installed and verified on the lab laptop: presence while signed out after a reboot                                                                                       |
+| Windows sign-in screen | After reboot or sign-out the worker starts, the server offers "Open sign-in", the real sign-in screen streams at 25 fps and a viewer click wakes it to the PIN prompt    |
+| Windows installer      | Sandbox install/upgrade/repair/uninstall test (26 checks) passes; a real installed lifecycle is not yet accepted                                                         |
 | Web                    | Redesign (#134) merged with responsive/theme/overflow work and browser tests; the key code shows on the More tab and a changed key needs an explicit choice (#153, #154) |
-| Android host           | Physical Pixel evidence for pairing, video, touch, typing, unattended connect, files; sheets now scroll and cap their width                                           |
-| Agents                 | View-only MCP (#105) is unmerged and unexercised against a live session                                                                                               |
+| Android host           | Physical Pixel evidence for pairing, video, touch, typing, unattended connect, files; sheets now scroll and cap their width                                              |
+| Agents                 | View-only MCP (#105) is unmerged and unexercised against a live session                                                                                                  |
 
 ## Blockers
 
