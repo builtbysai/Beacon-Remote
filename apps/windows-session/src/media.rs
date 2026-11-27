@@ -764,6 +764,7 @@ impl LiveState {
             // Asked for only in Button mode: Off allows nothing and Automatic already counts as the approval.
             LiveScope::Clipboard => {
                 self.clipboard_channel
+                    && self.input_busy
                     && self.clipboard_mode == crate::clipboard::Mode::Button
                     && self.extras & crate::files_transport::CLIPBOARD_BIT == 0
             }
@@ -1255,6 +1256,7 @@ async fn media_cycle(
             channel,
             input_authority(false),
             extras.clone(),
+            indicator_control.clone(),
         ))
     } else {
         None
@@ -1853,24 +1855,34 @@ mod tests {
         };
         assert!(!no_drive.allows(LiveScope::Drive));
 
-        // Clipboard writing (ADR 0060) is asked for only in Button mode, once, and only with its channel open.
-        assert!(open.allows(LiveScope::Clipboard));
+        // Clipboard writing (ADR 0060) is asked for only in Button mode, once, with its channel open and control
+        // already in use: it is for a controller.
+        let controlled = LiveState {
+            input_busy: true,
+            ..open
+        };
+        assert!(controlled.allows(LiveScope::Clipboard));
+        let view_only = LiveState {
+            input_busy: false,
+            ..controlled
+        };
+        assert!(!view_only.allows(LiveScope::Clipboard));
         let granted = LiveState {
             extras: crate::files_transport::CLIPBOARD_BIT,
-            ..open
+            ..controlled
         };
         assert!(!granted.allows(LiveScope::Clipboard));
         assert!(granted.allows(LiveScope::Files));
         for mode in [crate::clipboard::Mode::Off, crate::clipboard::Mode::Auto] {
             let other = LiveState {
                 clipboard_mode: mode,
-                ..open
+                ..controlled
             };
             assert!(!other.allows(LiveScope::Clipboard), "{mode:?}");
         }
         let no_clipboard = LiveState {
             clipboard_channel: false,
-            ..open
+            ..controlled
         };
         assert!(!no_clipboard.allows(LiveScope::Clipboard));
         assert_eq!(

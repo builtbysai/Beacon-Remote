@@ -7,7 +7,7 @@
 use crate::clipboard::{ClipboardText, Mode, MAX_WRITE_CHARS};
 use crate::files_transport::CLIPBOARD_BIT;
 use serde_json::{json, Value};
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use webrtc::data_channel::{DataChannel, DataChannelEvent};
@@ -64,6 +64,8 @@ pub struct Context<'a> {
     pub mode: Mode,
     pub flags: &'a AtomicU8,
     pub paused: bool,
+    /// Whether this connection has control: the clipboard, like the keyboard, is for a controller.
+    pub control: bool,
     pub now: Instant,
 }
 
@@ -80,6 +82,7 @@ pub fn answer(
         mode,
         flags,
         paused,
+        control,
         now,
     } = *context;
     let Ok(value) = serde_json::from_slice::<Value>(message) else {
@@ -97,6 +100,9 @@ pub fn answer(
     }
     if paused {
         return refused("paused");
+    }
+    if !control {
+        return refused("needs-control");
     }
     match op {
         "write" => {
@@ -139,9 +145,10 @@ pub fn start(
     channel: Arc<dyn DataChannel>,
     authority: crate::input_transport::Authority,
     flags: Arc<AtomicU8>,
+    control: Arc<AtomicBool>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let result = run(channel.clone(), &authority, &flags).await;
+        let result = run(channel.clone(), &authority, &flags, &control).await;
         let _ = tokio::time::timeout(Duration::from_millis(500), channel.close()).await;
         if result.is_err() {
             println!("Clipboard channel stopped: invalid message or expired authority.");
@@ -163,6 +170,7 @@ async fn run(
     channel: Arc<dyn DataChannel>,
     authority: &crate::input_transport::Authority,
     flags: &AtomicU8,
+    control: &AtomicBool,
 ) -> Result<(), ()> {
     let mut tick = tokio::time::interval(Duration::from_millis(250));
     // The channel is created before the connection is up, so authority is only judged once it has opened;
@@ -217,6 +225,7 @@ async fn run(
                             mode,
                             flags,
                             paused: crate::pause::is_paused(),
+                            control: control.load(Ordering::Acquire),
                             now: Instant::now(),
                         },
                         &mut limiter,
@@ -264,6 +273,7 @@ mod tests {
                 mode,
                 flags: &flags,
                 paused,
+                control: true,
                 now,
             },
             limiter,
@@ -337,6 +347,29 @@ mod tests {
         );
         assert_eq!(reply, json!({"type": "written", "chars": 2}));
         assert_eq!(written.as_deref(), Some("hi"));
+    }
+
+    #[test]
+    fn a_view_only_connection_has_no_clipboard() {
+        let now = Instant::now();
+        let mut limiter = Limiter::new(now);
+        let flags = AtomicU8::new(CLIPBOARD_BIT);
+        for message in [r#"{"op":"write","text":"x"}"#, r#"{"op":"read"}"#] {
+            let reply = answer(
+                message.as_bytes(),
+                &Context {
+                    mode: Mode::Auto,
+                    flags: &flags,
+                    paused: false,
+                    control: false,
+                    now,
+                },
+                &mut limiter,
+                |_| panic!("must not write"),
+                || panic!("must not read"),
+            );
+            assert_eq!(reply, refused("needs-control"));
+        }
     }
 
     #[test]
