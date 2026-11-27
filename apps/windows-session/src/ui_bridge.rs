@@ -56,6 +56,7 @@ pub enum LivePermission {
     Recording,
     Drive,
     Print,
+    Clipboard,
 }
 impl LivePermission {
     fn detail(self) -> &'static str {
@@ -65,6 +66,9 @@ impl LivePermission {
             Self::Recording => "Allow the viewer to record the shared stream",
             Self::Drive => "Allow the viewer to use the shared folder for this connection",
             Self::Print => "Allow the viewer to print on the selected printers for this connection",
+            Self::Clipboard => {
+                "Allow the viewer to set this computer's clipboard for this connection"
+            }
         }
     }
 }

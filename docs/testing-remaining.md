@@ -201,6 +201,30 @@ write the sanitized result immediately. Save failed/blocked evidence too. Finish
 that sequence before broadening the run. Commit checkpoints before context is
 exhausted; do not launch a large undifferentiated suite without a bounded end state.
 
+## Windows clipboard modes (ADR 0060) - device checks
+
+Built and unit-tested November 26, 2026; none of this has run on a device. Run on Surfiena with a signed-in desktop and
+a control session. Record each result, including refusals.
+
+1. **Default is Button only.** Host window, Access tab: Clipboard shows Button only chosen. Copy text on Surfiena; "Copy
+   from computer" in the viewer returns it. "Send clipboard to computer" first answers that access is needed and asks the
+   person on Surfiena (sharing card: "Allow the viewer to set this computer's clipboard"); Decline leaves it unset; Allow
+   once, then send again, and paste into Notepad on Surfiena.
+2. **Off.** Choose Off while connected: the viewer's button disables and says clipboard sharing is off; read and write
+   are both refused without reconnecting; nothing moves.
+3. **Automatic.** Choose Automatic: copy on Surfiena and it appears in the browser clipboard; copy in the browser, return
+   to the viewer, and it lands on Surfiena. A copy from a password manager (marks its clip as excluded) is not pushed.
+   The viewer's own write is not echoed back.
+4. **Limits.** A 9,000-character send is refused in the viewer; a second send within a second is refused; thirty in a
+   minute stops further ones.
+5. **Pause, Stop and view-only.** Pause: refusals say sharing is paused. A view-only connection has no clipboard button
+   effect (the computer says it needs control). Stop clears the approval; a new connection starts unapproved in Button
+   only.
+6. **Granting files keeps the clipboard approval** (a file grant must not undo it).
+7. **Sign-in screen.** The sign-in session has no clipboard channel.
+8. **Host window.** The Access tab with the extra section fits on the real screen at its DPI, "A viewer last set it ..."
+   appears after a write, and nothing is clipped.
+
 ## Current blockers and limits
 
 - Draft PR #126. At `1afcc9e`, CI `44144389550` passed Android/native/security and

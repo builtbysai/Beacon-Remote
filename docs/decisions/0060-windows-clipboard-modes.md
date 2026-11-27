@@ -1,8 +1,8 @@
 # Windows clipboard sharing
 
-Status: proposed for review, 26 November 2026. The owner approved clipboard writing in both directions on
-19 November 2026, each direction gated by a local approval on the device. No code follows until this record is
-accepted. It supersedes the clipboard sentences of [ADR 0021](0021-access-policy-and-session-lifecycle.md) for
+Status: accepted and implemented, 26 November 2026 (the owner approved clipboard writing in both directions on
+19 November 2026, each direction gated by a local approval on the device, and approved the proposals on
+26 November). Source and unit tests exist; no device run is recorded yet. It supersedes the clipboard sentences of [ADR 0021](0021-access-policy-and-session-lifecycle.md) for
 Windows ("the viewer's clipboard reaches the computer only as typed input") and gives Windows the same three modes
 Android already has in [ADR 0053](0053-device-clipboard-sharing.md).
 
@@ -28,8 +28,9 @@ Android already has in [ADR 0053](0053-device-clipboard-sharing.md).
    Approval lasts for that connection only. Choosing Automatic in the host window counts as that approval for the
    connection. Revoke, Stop, Pause and the end of the session clear it.
 6. **Reading** follows the mode and needs control, as today. It does not need a separate approval.
-7. **Control is required** for either direction, because the clipboard rides on the controlled input channel; a
-   view-only session has no clipboard.
+7. **Control is required** for either direction, as for the keyboard; a view-only session has no clipboard. The
+   clipboard has its own data channel, `beacon-clipboard-v1`, because the input channel carries messages of at most
+   2,048 bytes and a write can be 8,000 characters. The approval is only asked while control is in use.
 8. **Text only**, plus the bounded HTML beside it that Android uses. At most 8,000 characters to the computer and
    16,384 UTF-16 units from it. Images and files stay out of scope ([ADR 0056](0056-image-clipboard-proposal.md)).
 9. **Protected content stays put.** Automatic skips a clip whose source marks it as excluded from history or monitoring
@@ -61,3 +62,17 @@ Android already has in [ADR 0053](0053-device-clipboard-sharing.md).
 
 Images, files and rich formats beyond bounded HTML; clipboard history; clipboard sync across more than one viewer
 (there is one controller at a time).
+
+## As built
+
+- Windows session helper: `clipboard.rs` (mode, read, write, protected-source check), `clipboard_transport.rs` (the
+  channel: `hello`, `read`, `write`; replies `mode`, `clipboard`, `written`, `refused` with a reason), the `clipboard`
+  live permission and its own flag bit beside files, drive and print. The old input-channel clipboard read honours Off.
+- Setting: `%LOCALAPPDATA%\BeaconRemote\clipboard-mode.txt` (`off`, `button`, `auto`; anything else is Button only),
+  written by the host window (Access tab, Clipboard) and read afresh by the helper. `clipboard-last-write.txt` holds the
+  time of the last viewer write, for the host window; never the text.
+- Viewer: `clipboard-client.ts`, a "Send clipboard to computer" button, the plain-words refusals, and in Automatic the
+  browser's clipboard is sent when the page regains focus and text copied on the computer is written to the browser.
+- Refusal reasons: `off`, `paused`, `needs-control`, `needs-approval`, `too-long`, `too-fast`, `unavailable`, `invalid`.
+
+Still to do: the device checks listed above on Surfiena.

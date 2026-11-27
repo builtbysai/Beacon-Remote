@@ -186,3 +186,11 @@ Not available yet: connecting to the Windows sign-in screen itself (capture and 
 That is the separate sign-in endpoint, which needs a build with the `signin-media` feature, the backend flags
 `SIGNIN_AUTHORITY_ENABLED` and `SIGNIN_MEDIA_ENABLED`, and its own administrator setup. See
 [the sign-in authority notes](signin-authority.md).
+
+## Clipboard sharing (November 26, 2026)
+
+The Access tab has a Clipboard section: **Off**, **Button only** (the default) or **Automatic**, with a line saying how
+long ago a viewer last set the clipboard. The window is taller to fit it. The choice applies to the session in progress.
+Writing the clipboard in Button only is a separate request the viewer makes and the person approves for that connection;
+Automatic counts as the approval; Off refuses reading and writing. See
+[ADR 0060](decisions/0060-windows-clipboard-modes.md). Not yet checked on a real window or device.

@@ -98,7 +98,7 @@ In source: folder mapping under its own permission with host-side boundary check
 monitor-layout diffing and reconnect on layout change (P1-6), and a tested sound and mute gate (P1-9). Not accepted on
 a device, and clipboard, file workflows, input fidelity, performance and reconnect are open.
 
-Clipboard in both directions with local approval ([ADR 0060](decisions/0060-windows-clipboard-modes.md), proposed, needs your review before code); file workflows (browse, batch, resume,
+Clipboard in both directions with local approval ([ADR 0060](decisions/0060-windows-clipboard-modes.md): built and unit-tested November 26; needs the device checks); file workflows (browse, batch, resume,
 conflicts, Android outbound); drive and folder mapping; full input fidelity (layouts, dead keys, AltGr, IME, wheel,
 relative mouse, touch and pen); multi-monitor, mixed DPI, hotplug and high refresh; reconnect after reload, network
 change, sleep and host restart; adaptive quality and diagnostics; audio. (solo to build, device for acceptance)
@@ -157,7 +157,7 @@ Pick one as the next goal; each is self-contained and has an end state.
 
 ## Decisions already made
 
-- Clipboard writing approved in both directions, each gated by local approval; the Windows design is [ADR 0060](decisions/0060-windows-clipboard-modes.md), proposed; no code until it is accepted.
+- Clipboard writing approved in both directions, each gated by local approval; the Windows design is [ADR 0060](decisions/0060-windows-clipboard-modes.md), accepted and built.
 - A privileged SYSTEM service for native session attach is approved, subject to its own security review.
 - USB forwarding and microphone redirection are approved, each with its own consent and revocation rules.
 - Native downloads and update feeds advance only after the matching signed candidates pass physical acceptance.

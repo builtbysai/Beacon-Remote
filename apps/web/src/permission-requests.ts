@@ -11,6 +11,7 @@ export const permissionNames: Record<SessionPermission, string> = {
   recording: "Recording",
   drive: "Shared folder",
   print: "Printing",
+  clipboard: "Clipboard",
 };
 
 export type PermissionRequestView = {
