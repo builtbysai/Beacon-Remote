@@ -7,6 +7,7 @@ import {
   identityNotice,
   judgeOffer,
   strictIdentity,
+  trustChangedKey,
 } from "../src/peer-trust.js";
 
 const vector = JSON.parse(
@@ -103,6 +104,12 @@ test("a different key from the one pinned is reported and never replaces the pin
   assert.equal(verdict.state === "changed" && verdict.pinned, pinned);
   assert.equal(store.get("machine-1"), pinned);
   assert.match(identityNotice(verdict)!, /identity key changed/);
+  // Only the person's explicit choice replaces the pin, and only with the key that was reported.
+  assert.equal(trustChangedKey(store, "machine-1", verdict), true);
+  assert.equal(store.get("machine-1"), verdict.code);
+  const unsigned = { state: "unsigned" } as const;
+  assert.equal(trustChangedKey(store, "machine-1", unsigned), false);
+  assert.equal(store.get("machine-1"), verdict.code);
 });
 
 test("a proof that does not verify is reported and pins nothing", async () => {
