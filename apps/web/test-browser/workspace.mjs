@@ -276,6 +276,11 @@ try {
       ),
       /^Identity key([A-Z2-7]{4}-){5}[A-Z2-7]{4}$/,
     );
+    // The "removed computer" note belongs only to a removed computer.
+    assert.equal(
+      await browser.evaluate("!!document.querySelector('.inspector-note')"),
+      false,
+    );
     await click("#inspector-tab-overview");
     await click(".inspector-edit");
     await wait("document.activeElement?.id==='computer-name'");
