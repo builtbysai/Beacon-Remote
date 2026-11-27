@@ -699,7 +699,12 @@ pub fn run(cancel: Arc<AtomicBool>, status: SyncSender<HostStatus>) -> Result<()
                         ..local_now
                     });
                 }
-                helpers.update(body, &identity.server, local_access())?;
+                helpers.update(
+                    body,
+                    &identity.server,
+                    local_access(),
+                    &SigningKey::from_bytes(&identity.secret_key),
+                )?;
                 if let Some(id) = request_id {
                     if helpers.handled(&id) {
                         handled_request = Some(id);

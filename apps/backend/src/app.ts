@@ -442,6 +442,7 @@ export async function createApp(
     const result = await pool.query(
       `SELECT m.id,m.name,m.group_name AS "group",m.last_seen_at AS "lastSeenAt",m.revoked_at AS "revokedAt",m.host_instance_id AS "hostInstanceId",
        m.host_console_session_id::double precision AS "hostConsoleSessionId",
+       translate(encode(m.public_key,'base64'),'+/=','-_') AS "identityKey",
        ${interactiveReadySql} AS online,
        COALESCE(a.mode,'attended') AS "accessMode",COALESCE(a.allow_control,false) AS "allowControl",COALESCE(a.helpers_unattended,'off') AS "helpersUnattended",m.displays,(m.support_link_id IS NOT NULL) AS temporary,
        (m.revoked_at IS NULL AND NOT COALESCE(m.last_seen_at>now()-interval '45 seconds',false) AND m.macs IS NOT NULL

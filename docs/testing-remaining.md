@@ -354,3 +354,17 @@ Pixel acceptance device.
 
 The phone screen was locked during the run, so the lock screen needed the temporary
 passcode before Beacon could be reached.
+
+## Peer identity (ADR 0061) - device checks
+
+Built and unit-tested November 26, 2026 in advisory mode; none of this has run on a device. Needs the backend with the
+`peer` schema deployed first (the old backend rejects an offer that carries it), then a signed Windows host.
+
+1. **First use.** Connect to a Windows computer: the status line says the computer's identity was checked and shows its
+   key code; reconnecting shows nothing. The code is stored in the browser under `beacon-remote-computer-keys`.
+2. **Unsigned host.** An older host (or Android) connects and the status line says it does not prove who it is yet.
+3. **Hostile relay.** With a relay that rewrites the offer's SDP fingerprint, the viewer reports a failed proof.
+4. **Changed key.** After re-enrolling a computer, the viewer reports a changed key and does not replace the pin.
+5. **Strict mode.** With `localStorage.setItem("beacon-remote-strict-identity", "1")`, an unsigned or failed host is
+   refused and a verified one connects.
+6. **Resume and new generations.** After a reload or a transport retry, the next offer is signed again and verifies.
