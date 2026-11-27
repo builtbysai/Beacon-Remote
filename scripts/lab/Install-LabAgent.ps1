@@ -18,7 +18,8 @@ if ($Remove) {
     return
 }
 if (-not (Test-Path -LiteralPath $agent)) { throw "Copy lab-agent.ps1 to $Root first." }
-$action = "powershell.exe -NoProfile -WindowStyle Hidden -File `"$agent`""
+# conhost --headless: with Windows Terminal as the default console, -WindowStyle Hidden alone still opens a visible tab.
+$action = "conhost.exe --headless powershell.exe -NoProfile -WindowStyle Hidden -File `"$agent`""
 schtasks.exe /Create /TN $task /SC ONLOGON /IT /RL LIMITED /RU "$env:USERDOMAIN\$env:USERNAME" /TR $action /F | Out-String
 # A second task restarts it if it ever stops (a second copy exits at once, the helper holds a mutex).
 schtasks.exe /Create /TN "$task-watch" /SC MINUTE /MO 10 /IT /RL LIMITED /RU "$env:USERDOMAIN\$env:USERNAME" /TR $action /F | Out-String
