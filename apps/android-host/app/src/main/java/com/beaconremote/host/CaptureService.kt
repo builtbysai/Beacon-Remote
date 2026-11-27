@@ -177,6 +177,7 @@ class CaptureService : Service() {
         LivePermission.CONTROL -> PromptWords("Allow this viewer to control the phone?", "They can touch and type until this connection ends. Pause or Stop at any time.", "Allow control")
         LivePermission.RECORDING -> PromptWords("Allow this viewer to record your screen?", "The recording is saved in their browser, not on this phone, and stops when this connection ends.", "Allow recording")
         LivePermission.FILES -> PromptWords("Allow this viewer to send files?", "Files are saved in Downloads/Beacon Remote during this connection.", "Allow files")
+        LivePermission.UI_TREE -> PromptWords("Allow this viewer to read what is on your screen?", "They can see the names of buttons and fields, never what you type or passwords, until this connection ends.", "Allow reading")
     }
 
     /** The owner allowed trusted viewers to hear the microphone and Android allows this app to record. */

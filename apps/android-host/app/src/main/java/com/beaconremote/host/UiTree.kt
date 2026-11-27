@@ -129,8 +129,16 @@ internal object UiTree {
             put("children", JSONArray(raw.children.map { toJson(it) }))
         }
 
+    /** A tree and whether the node limit cut it short. */
+    internal class Read(val tree: JSONObject, val truncated: Boolean)
+
     /** The active window's tree, or null when there is none. The caller owns [root] and releases it as usual. */
-    fun read(root: AccessibilityNodeInfo?): JSONObject? = root?.let { toJson(build(Node(it))) }
+    fun read(root: AccessibilityNodeInfo?): Read? {
+        if (root == null) return null
+        val count = intArrayOf(0)
+        val raw = build(Node(root), 0, count)
+        return Read(toJson(raw), count[0] >= MAX_NODES)
+    }
 
     private class Node(private val info: AccessibilityNodeInfo) : Source {
         override val className get() = info.className?.toString()

@@ -17,7 +17,9 @@ into a numbered snapshot, asks for the permission while the computer says denied
 tree really came back. That whole path ran in the synthetic live journey (real viewer page, Chromium and WebRTC data
 channel, a fixture standing in for the host): refused, then approved, then a tree whose password field has no name. Not
 built: acting on a snapshot target (it needs the screen-to-video coordinate mapping, which only a live run can check),
-the Android channel and any device run. Nothing
+and any device run. The Android channel is built too (`UiTreeChannel.kt`: the same request rules as the Windows host, denied
+until the person on the phone approves "Allow reading" for the connection, one read a second, the phone's control service
+required; the decisions are JVM unit-tested, the wiring compiles and passes lint, and none of it has run on a phone). Nothing
 calls the readers, no tool exposes it, and the closed tool list is unchanged, so it widens no authority
 until the owner approves wiring it up. Builds on [0046](0046-mcp-server-view-only.md) (view only) and [0052](0052-agent-control-consent.md)
 (control consent). Part of P3-3 "better agent experience".
