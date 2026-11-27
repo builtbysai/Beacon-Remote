@@ -136,6 +136,15 @@ now starts at the top and a refresh of the same tab keeps the place (verified on
 Device tab is crowded at 200% but readable. Not covered: the "..." menu and the sheets behind each row, large display
 size, landscape, and a physical phone.
 
+November 27, 2026, emulator only, second pass on the paired Android app (same disposable local stack): the "..." menu and
+its Connection details sheet, a very large display size (about 316 dp wide) with 200% font, and landscape with 200% font.
+The menu and Connection details read cleanly. The sheet's close mark was sized in sp inside a fixed circle, so at 200% font
+it sat low in the circle; it, and the consent screen's decline mark, are now sized in dp (verified for the sheet). The
+Device, Access and Privacy tabs stay readable and scroll at the largest size; in landscape at 200% font the fixed header and
+navigation leave about 400 px of content, which scrolls but is cramped. The rows on the Device tab open the Access and
+Privacy tabs rather than sheets. Not covered: the consent screen itself (it needs a viewer request), the system dialogs,
+tablets and a physical phone.
+
 The physical acceptance matrix should
 exercise both switches independently. With general notifications still enabled,
 turn off **While sharing** in Android Settings before an attended request, during

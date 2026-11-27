@@ -190,7 +190,9 @@ class ConsentActivity : Activity() {
             addView(
                 TextView(this@ConsentActivity).apply {
                     text = "×"
-                    textSize = 26f
+                    // Sized in dp so a large system font cannot push the decline mark out of its 48 dp target.
+                    setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 26f)
+                    includeFontPadding = false
                     gravity = Gravity.CENTER
                     contentDescription = "Decline request"
                     setTextColor(getColor(R.color.beacon_text))
