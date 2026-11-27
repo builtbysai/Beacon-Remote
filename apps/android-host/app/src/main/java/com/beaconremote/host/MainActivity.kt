@@ -327,8 +327,11 @@ class MainActivity : Activity() {
 
     private fun selectPage(id: String) {
         if (!identity.paired) return
+        val changed = page != id
         page = id
         render()
+        // A new tab starts at its top; a refresh of the same tab keeps the person's place.
+        if (changed) (root.parent as? android.widget.ScrollView)?.let { scroll -> scroll.post { scroll.scrollTo(0, 0) } }
     }
 
     private fun updateNav() {
