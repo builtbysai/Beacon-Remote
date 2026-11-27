@@ -1,0 +1,16 @@
+{
+  "seedHex": "0707070707070707070707070707070707070707070707070707070707070707",
+  "publicKeyHex": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+  "keyFingerprint": "72AS-YEXT-VNGO-NLC5-W2NM-GUXZ",
+  "statement": {
+    "sessionId": "0f8fad5b-d9cb-469f-a165-70867728950e",
+    "generation": 3,
+    "role": "host",
+    "fingerprint": "sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA",
+    "nonce": "q83vEjRWeJA3tbfQ-_kLmA",
+    "expiresAtMs": 1795736000000
+  },
+  "statementText": "beacon-peer-v1\nsession:0f8fad5b-d9cb-469f-a165-70867728950e\ngeneration:3\nrole:host\nfingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\nnonce:q83vEjRWeJA3tbfQ-_kLmA\nexpires:1795736000000",
+  "signature": "6bLqZcg7J8Qm2pAjmz-tNL89FQ43kkJwb2h9tC1yDfxFQMSZWQ1vlhXM5U0teemoqM_IYLS0UAsRhsit62TcBQ",
+  "signatureLength": 86
+}

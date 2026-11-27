@@ -1,5 +1,7 @@
 //! Transport-independent, fail-closed desktop capabilities.
 //! No HTTP, browser, or future automation dependency belongs here.
+pub mod peer_identity;
+
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 

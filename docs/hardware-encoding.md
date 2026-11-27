@@ -12,12 +12,12 @@ quality) uses the measured encode cost, so a slow encoder lowers the tier instea
 
 ## What has been proven
 
-| Hardware                                                                                        | Result                                                                                               |
-| ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| Intel Iris Xe (the owner's PC)                                                                  | Hardware encoder used, low CPU, measured earlier (see the milestone record in `docs/roadmap.md`)     |
-| NVIDIA (NVENC)                                                                                  | **Not tested.** Expected to work through the same path; do not claim it until the check below passes |
-| AMD                                                                                             | **Not tested.** Same                                                                                 |
-| Older Intel (pre-Quick Sync H.264 async MFT), no GPU, Remote Desktop sessions, virtual machines | Software fallback is the designed result; confirm with the check below                               |
+| Hardware                                                                                        | Result                                                                                                   |
+| ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Intel Iris Xe (the owner's PC)                                                                  | Hardware encoder used, low CPU, measured earlier (see the milestone record in `docs/roadmap-history.md`) |
+| NVIDIA (NVENC)                                                                                  | **Not tested.** Expected to work through the same path; do not claim it until the check below passes     |
+| AMD                                                                                             | **Not tested.** Same                                                                                     |
+| Older Intel (pre-Quick Sync H.264 async MFT), no GPU, Remote Desktop sessions, virtual machines | Software fallback is the designed result; confirm with the check below                                   |
 
 ## The check to run on any computer
 

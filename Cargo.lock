@@ -181,7 +181,11 @@ dependencies = [
 name = "beacon-remote-core"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
+ "ed25519-dalek",
  "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
