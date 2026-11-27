@@ -52,7 +52,7 @@ What the backend can and cannot do today (to be confirmed by tests before this r
 
 - A compromised computer or browser. The key lives where the software runs; this protects the path between them.
 - Metadata. The server still knows who connects to which computer and when.
-- Recovery. Losing the key is a re-enrollment, which is why step 3 exists.
+- Recovery. Losing the key is a re-enrollment, which is why step 3 exists; see [0062](0062-computer-key-change-and-recovery.md).
 
 ## What to build, in order
 
