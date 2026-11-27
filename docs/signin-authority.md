@@ -44,7 +44,7 @@ prompt. Beacon keeps the worker on Winlogon only and raises the prompt instead:
    endpoint `wakeable` for an owner whose trusted access includes control.
 2. The viewer's **Open sign-in** asks `POST /api/machines/:id/signin-wake` (owner, web origin, audited
    `signin.wake.requested`). The backend keeps a 30-second in-memory request; one backend owns each database.
-3. Every 3 seconds while locked without a worker, the supervisor asks `POST /api/signin/wake` with a proof signed by
+3. Every second while locked without a worker, the supervisor asks `POST /api/signin/wake` with a proof signed by
    its endpoint key in its own domain (`beacon-remote:signin-wake:v1`, console bound, nonce checked). The answer is a
    yes or no only; a yes is consumed once and grants nothing. An older backend answers 404 and the supervisor stops
    asking for a minute.

@@ -1344,7 +1344,7 @@ fn run_service() -> Result<(), HostError> {
             // waiting, and if so raise the prompt so the next launch finds it.
             if acknowledged && worker.is_none() && Instant::now() >= next_wake_poll {
                 if let Some(console) = crate::signin_worker::locked_console() {
-                    next_wake_poll = Instant::now() + Duration::from_secs(3);
+                    next_wake_poll = Instant::now() + Duration::from_secs(1);
                     match wake_requested(&http, &server, machine, &key, console) {
                         Some(true) => {
                             match crate::signin_worker::wake_prompt(machine, console) {
@@ -1392,6 +1392,13 @@ fn run_service() -> Result<(), HostError> {
                             || crate::signin_worker::locked_console() != Some(console)
                             || session_epoch.load(Ordering::Acquire) != observed_epoch
                     }) {
+                        // Signing in unlocks the console between probes: hand the viewer over to the desktop here
+                        // too, or it is left with an ended sign-in view (only a signed-in, same console qualifies).
+                        if let Some(active) = worker.as_mut() {
+                            attempt_handoff(
+                                active, &http, &server, machine, &key, &cancel, &revoke,
+                            )?;
+                        }
                         worker.take();
                     }
                     if revoke.pending()? {
@@ -1465,7 +1472,13 @@ fn run_service() -> Result<(), HostError> {
                     worker.take();
                     acknowledged = false;
                 }
-                next_heartbeat = Instant::now() + Duration::from_secs(5);
+                // A ready worker waiting for its viewer's lease looks every second, so the picture starts promptly.
+                next_heartbeat = Instant::now()
+                    + if worker.as_ref().is_some_and(|active| !active.has_lease()) {
+                        Duration::from_secs(1)
+                    } else {
+                        Duration::from_secs(5)
+                    };
             }
             crate::pause(&cancel, Duration::from_millis(500));
         }

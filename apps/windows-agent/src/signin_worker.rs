@@ -523,6 +523,9 @@ impl Worker {
         }
         Some(candidate)
     }
+    pub(crate) fn has_lease(&self) -> bool {
+        self.lease.is_some()
+    }
     pub(crate) fn attention_pending(&self) -> bool {
         self.attention.is_some()
     }
