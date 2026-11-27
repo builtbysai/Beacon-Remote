@@ -12,6 +12,8 @@ pub mod incoming;
 pub mod native_ui;
 pub mod network;
 #[cfg(windows)]
+mod self_removal;
+#[cfg(windows)]
 pub mod session_hub;
 #[cfg(windows)]
 pub mod session_view;

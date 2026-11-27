@@ -768,6 +768,104 @@ pub fn setup() -> Result<(), HostError> {
     availability::finish_setup()
 }
 
+/// Not elevated: asks Windows once for administrator approval and runs `cleanup-all` for this Windows user. `tool`
+/// is the uninstaller, run elevated afterwards with `--remove-trust` to withdraw the certificate it trusted.
+pub fn cleanup_local(tool: Option<&str>) -> Result<(), HostError> {
+    let owner = availability::current_sid()?;
+    valid_owner(&owner)?;
+    if let Some(tool) = tool {
+        cleanup_tool(tool)?;
+    }
+    let executable = wide(
+        &std::env::current_exe()?
+            .with_file_name("beacon-remote-agent.exe")
+            .to_string_lossy(),
+    );
+    let parameters = wide(&match tool {
+        Some(tool) => format!("cleanup-all {owner} \"{tool}\""),
+        None => format!("cleanup-all {owner}"),
+    });
+    let verb = wide("runas");
+    let mut info = SHELLEXECUTEINFOW {
+        cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+        fMask: SEE_MASK_NOCLOSEPROCESS,
+        lpVerb: verb.as_ptr(),
+        lpFile: executable.as_ptr(),
+        lpParameters: parameters.as_ptr(),
+        nShow: 0,
+        ..unsafe { std::mem::zeroed() }
+    };
+    if unsafe { ShellExecuteExW(&mut info) } == 0 {
+        return Err("Windows administrator approval was cancelled".into());
+    }
+    let result = unsafe { WaitForSingleObject(info.hProcess, u32::MAX) };
+    let mut code = 1;
+    let ok = unsafe { GetExitCodeProcess(info.hProcess, &mut code) };
+    unsafe {
+        CloseHandle(info.hProcess);
+    }
+    if result != 0 || ok == 0 || code != 0 {
+        return Err(
+            "Some Beacon Remote services could not be removed; files were preserved".into(),
+        );
+    }
+    Ok(())
+}
+
+/// The uninstaller that `cleanup-all` may run: Beacon Remote's own, by name, an existing file, no link.
+fn cleanup_tool(tool: &str) -> Result<PathBuf, HostError> {
+    let path = PathBuf::from(tool);
+    if path.file_name().and_then(|name| name.to_str()) != Some("Uninstall Beacon Remote.exe")
+        || !path.is_absolute()
+        || !path.is_file()
+    {
+        return Err("Unexpected uninstaller".into());
+    }
+    reject_reparse(&path)?;
+    Ok(path)
+}
+
+/// Elevated: removes every sign-in and boot install that belongs to `owner`, old pairings included, then withdraws
+/// the certificate trust through the uninstaller. Other Windows users' installs are never touched.
+fn cleanup_all(owner: &str, tool: Option<&str>) -> Result<(), HostError> {
+    require_admin()?;
+    valid_owner(owner)?;
+    let mut problems = Vec::new();
+    if let Ok((programs, _)) = roots() {
+        if let Ok(entries) = fs::read_dir(&programs) {
+            for entry in entries.take(64).flatten() {
+                let machine = entry.file_name().to_string_lossy().into_owned();
+                if valid_machine(&machine).is_err() {
+                    continue;
+                }
+                match read_binding(&machine) {
+                    Ok(binding) if binding.owner_sid == owner => {
+                        if let Err(error) = uninstall(&machine, owner) {
+                            problems.push(format!("sign-in {machine}: {error}"));
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(error) => problems.push(format!("sign-in {machine}: {error}")),
+                }
+            }
+        }
+    }
+    problems.extend(availability::uninstall_owned(owner));
+    if let Some(tool) = tool {
+        let status = std::process::Command::new(cleanup_tool(tool)?)
+            .arg("--remove-trust")
+            .status()?;
+        if !status.success() {
+            problems.push("certificate trust could not be withdrawn".into());
+        }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems.join("; ").into())
+    }
+}
+
 /// Repair preserves the durable Disable marker and existing backend binding.
 /// It never re-enables access; that requires the separate explicit setup action.
 pub fn repair() -> Result<(), HostError> {
@@ -1021,6 +1119,47 @@ fn wake_answer(bytes: &[u8]) -> bool {
     }
     bytes.len() <= 4096 && serde_json::from_slice::<Answer>(bytes).is_ok_and(|answer| answer.wake)
 }
+fn removed_answer(bytes: &[u8]) -> bool {
+    #[derive(Deserialize)]
+    struct Answer {
+        removed: bool,
+    }
+    bytes.len() <= 4096
+        && serde_json::from_slice::<Answer>(bytes).is_ok_and(|answer| answer.removed)
+}
+
+/// After the owner removed the computer: other versions and private files go now; the service is marked for deletion
+/// and the running program with its folders goes once this process has exited.
+fn remove_after_owner_removal(machine: &str) -> Result<(), HostError> {
+    let (programs, data) = paths(machine)?;
+    reject_reparse(&programs)?;
+    reject_reparse(&data)?;
+    let current = std::env::current_exe()?;
+    let mut files = vec![
+        programs.join("public.json"),
+        programs.join("disabled.latch"),
+        programs.join("enabled.marker"),
+        data.join("identity.dpapi"),
+        data.join("maintenance.lock"),
+        data.join("supervisor.old.log"),
+        data.join("supervisor.log"),
+    ];
+    let mut folders = Vec::new();
+    for entry in fs::read_dir(&programs)?.take(132).flatten() {
+        let path = entry.path();
+        if !path.is_dir() || reject_reparse(&path).is_err() {
+            continue;
+        }
+        // Each version folder holds one program; the running one is deleted after exit, the others now.
+        if !current.starts_with(&path) {
+            files.push(path.join("beacon-remote-agent.exe"));
+        }
+        folders.push(path);
+    }
+    folders.extend([programs, data]);
+    crate::self_removal::remove_after_exit(&name(machine), &files, &folders)
+}
+
 fn send_local_disable(
     http: &reqwest::blocking::Client,
     server: &reqwest::Url,
@@ -1447,9 +1586,26 @@ fn run_service() -> Result<(), HostError> {
                     acknowledged = false;
                     let mut media_allowed = false;
                     if let Ok(response) = response {
-                        if ever_acknowledged
-                            && matches!(response.status().as_u16(), 401 | 403 | 410)
-                        {
+                        if response.status().as_u16() == 410 {
+                            let mut body = Vec::new();
+                            let _ = response.take(4097).read_to_end(&mut body);
+                            if removed_answer(&body) {
+                                // Signed heartbeat, explicit answer: the owner removed this computer.
+                                worker.take();
+                                diag(
+                                    machine,
+                                    "the owner removed this computer; removing the sign-in service",
+                                );
+                                if let Err(error) = remove_after_owner_removal(machine) {
+                                    diag(
+                                        machine,
+                                        &format!("could not remove the sign-in service: {error}"),
+                                    );
+                                }
+                            }
+                            break;
+                        }
+                        if ever_acknowledged && matches!(response.status().as_u16(), 401 | 403) {
                             break;
                         }
                         if response.status().is_success() {
@@ -1581,6 +1737,14 @@ pub fn command(arguments: &[String]) -> Option<Result<(), HostError>> {
             Ok(())
         })()),
         Some("signin-worker") => Some(crate::signin_worker::run_as_process(arguments)),
+        // One-step cleanup: the uninstaller asks for one administrator approval and everything goes.
+        Some("cleanup-local") if arguments.len() <= 3 => {
+            Some(cleanup_local(arguments.get(2).map(String::as_str)))
+        }
+        Some("cleanup-all") if (3..=4).contains(&arguments.len()) => Some(cleanup_all(
+            &arguments[2],
+            arguments.get(3).map(String::as_str),
+        )),
         Some("signin-wake") => Some(crate::signin_worker::run_wake(arguments)),
         _ => None,
     }
@@ -1588,6 +1752,16 @@ pub fn command(arguments: &[String]) -> Option<Result<(), HostError>> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_an_explicit_removed_answer_makes_the_service_remove_itself() {
+        assert!(super::removed_answer(
+            br#"{"error":"This computer was removed","removed":true}"#
+        ));
+        assert!(!super::removed_answer(br#"{"error":"Presence rejected"}"#));
+        assert!(!super::removed_answer(br#"{"removed":false}"#));
+        assert!(!super::removed_answer(b""));
+    }
+
     #[test]
     fn uninstall_deletes_its_own_diagnostic_logs_and_still_refuses_anything_else() {
         use super::{private_state_name, PrivateState};
