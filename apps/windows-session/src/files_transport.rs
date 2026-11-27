@@ -444,6 +444,8 @@ pub const RECORDING_BIT: u8 = 2;
 pub const DRIVE_BIT: u8 = 4;
 /// Printing approved for this connection (P2-1), its own bit like drive.
 pub const PRINT_BIT: u8 = 8;
+/// Writing the clipboard approved for this connection (ADR 0060), its own bit like print.
+pub const CLIPBOARD_BIT: u8 = 16;
 
 impl Permissions {
     pub fn from_bits(bits: u8) -> Self {

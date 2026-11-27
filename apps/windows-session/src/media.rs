@@ -690,6 +690,7 @@ enum LiveScope {
     Recording,
     Drive,
     Print,
+    Clipboard,
 }
 
 impl LiveScope {
@@ -700,6 +701,7 @@ impl LiveScope {
             "recording" => Some(Self::Recording),
             "drive" => Some(Self::Drive),
             "print" => Some(Self::Print),
+            "clipboard" => Some(Self::Clipboard),
             _ => None,
         }
     }
@@ -710,6 +712,7 @@ impl LiveScope {
             Self::Recording => "recording",
             Self::Drive => "drive",
             Self::Print => "print",
+            Self::Clipboard => "clipboard",
         }
     }
     fn consent(self) -> crate::ui_bridge::LivePermission {
@@ -719,6 +722,7 @@ impl LiveScope {
             Self::Recording => crate::ui_bridge::LivePermission::Recording,
             Self::Drive => crate::ui_bridge::LivePermission::Drive,
             Self::Print => crate::ui_bridge::LivePermission::Print,
+            Self::Clipboard => crate::ui_bridge::LivePermission::Clipboard,
         }
     }
 }
@@ -733,6 +737,8 @@ struct LiveState {
     files_channel: bool,
     drive_channel: bool,
     print_channel: bool,
+    clipboard_channel: bool,
+    clipboard_mode: crate::clipboard::Mode,
     extras: u8,
 }
 
@@ -754,6 +760,12 @@ impl LiveState {
             }
             LiveScope::Print => {
                 self.print_channel && self.extras & crate::files_transport::PRINT_BIT == 0
+            }
+            // Asked for only in Button mode: Off allows nothing and Automatic already counts as the approval.
+            LiveScope::Clipboard => {
+                self.clipboard_channel
+                    && self.clipboard_mode == crate::clipboard::Mode::Button
+                    && self.extras & crate::files_transport::CLIPBOARD_BIT == 0
             }
         }
     }
@@ -1228,6 +1240,25 @@ async fn media_cycle(
     } else {
         None
     };
+    // Clipboard sharing (ADR 0060) gets its own channel, answered according to the mode the person here chose.
+    let clipboard_worker = if desktop {
+        let channel = pc
+            .create_data_channel(
+                "beacon-clipboard-v1",
+                Some(webrtc::data_channel::RTCDataChannelInit {
+                    ordered: true,
+                    ..Default::default()
+                }),
+            )
+            .await?;
+        Some(crate::clipboard_transport::start(
+            channel,
+            input_authority(false),
+            extras.clone(),
+        ))
+    } else {
+        None
+    };
     pc.set_local_description(pc.create_offer(None).await?)
         .await?;
     let description = pc
@@ -1429,6 +1460,10 @@ async fn media_cycle(
         files_channel,
         drive_channel,
         print_channel,
+        clipboard_channel: clipboard_worker
+            .as_ref()
+            .is_some_and(|worker| !worker.is_finished()),
+        clipboard_mode: crate::clipboard::mode(),
         extras: extras.load(Ordering::Acquire),
     };
     // A monitor plugged in, moved or rescaled changes what the viewer sees. The check is every two seconds; a change
@@ -1509,7 +1544,7 @@ async fn media_cycle(
                     let drive_channel = drive_worker.as_ref().is_some_and(|worker| !worker.is_finished());
                     let print_channel = print_worker.as_ref().is_some_and(|worker| !worker.is_finished());
                     let state = live_state(input_worker.is_some(), files_channel, drive_channel, print_channel);
-                    let offered: Vec<&'static str> = [LiveScope::Control, LiveScope::Files, LiveScope::Recording, LiveScope::Drive, LiveScope::Print]
+                    let offered: Vec<&'static str> = [LiveScope::Control, LiveScope::Files, LiveScope::Recording, LiveScope::Drive, LiveScope::Print, LiveScope::Clipboard]
                         .into_iter()
                         .filter(|scope| state.allows(*scope))
                         .map(LiveScope::wire)
@@ -1673,6 +1708,13 @@ async fn media_cycle(
                                                 }
                                             }
                                         }
+                                        LiveScope::Clipboard => {
+                                            // Approval to set the clipboard, for this connection only.
+                                            if Instant::now() < expires {
+                                                extras.fetch_or(crate::files_transport::CLIPBOARD_BIT, Ordering::AcqRel);
+                                                println!("Viewer {} permission added for this connection.", scope.wire());
+                                            }
+                                        }
                                         LiveScope::Drive => {
                                             // Drive mapping only adds its own bit; file and recording permissions are untouched.
                                             // With no folder set up in advance, the person picks the one to share now, in a task of its
@@ -1780,6 +1822,8 @@ mod tests {
             files_channel: true,
             drive_channel: true,
             print_channel: true,
+            clipboard_channel: true,
+            clipboard_mode: crate::clipboard::Mode::Button,
             extras: 0,
         };
         assert!(open.allows(LiveScope::Control));
@@ -1808,6 +1852,32 @@ mod tests {
             ..open
         };
         assert!(!no_drive.allows(LiveScope::Drive));
+
+        // Clipboard writing (ADR 0060) is asked for only in Button mode, once, and only with its channel open.
+        assert!(open.allows(LiveScope::Clipboard));
+        let granted = LiveState {
+            extras: crate::files_transport::CLIPBOARD_BIT,
+            ..open
+        };
+        assert!(!granted.allows(LiveScope::Clipboard));
+        assert!(granted.allows(LiveScope::Files));
+        for mode in [crate::clipboard::Mode::Off, crate::clipboard::Mode::Auto] {
+            let other = LiveState {
+                clipboard_mode: mode,
+                ..open
+            };
+            assert!(!other.allows(LiveScope::Clipboard), "{mode:?}");
+        }
+        let no_clipboard = LiveState {
+            clipboard_channel: false,
+            ..open
+        };
+        assert!(!no_clipboard.allows(LiveScope::Clipboard));
+        assert_eq!(
+            LiveScope::parse(&serde_json::json!("clipboard")),
+            Some(LiveScope::Clipboard)
+        );
+        assert_eq!(LiveScope::Clipboard.wire(), "clipboard");
 
         // Control already in use does not block files, and a granted file permission does not add recording.
         let busy = LiveState {

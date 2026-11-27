@@ -138,9 +138,13 @@ async fn run(channel: Arc<dyn DataChannel>, authority: &Authority) -> Result<(),
                     // A clipboard read is answered only after the lease check above, at most once a second.
                     if matches!(body.input, Input::ClipboardRead) && last_clipboard.is_none_or(|at| at.elapsed() >= Duration::from_secs(1)) {
                         last_clipboard = Some(Instant::now());
-                        let reply = match crate::clipboard::read_text() {
+                        // Off means no viewer reads the clipboard at all (ADR 0060).
+                        let reply = match crate::clipboard::mode() {
+                            crate::clipboard::Mode::Off => serde_json::json!({"type":"clipboard","text":"","truncated":false,"unavailable":true,"reason":"off"}),
+                            _ => match crate::clipboard::read_text() {
                             Some(clip) => serde_json::json!({"type":"clipboard","text":clip.text,"truncated":clip.truncated}),
                             None => serde_json::json!({"type":"clipboard","text":"","truncated":false,"unavailable":true}),
+                            },
                         };
                         tokio::time::timeout(Duration::from_millis(500), channel.send_text(&reply.to_string())).await.map_err(|_| ())?.map_err(|_| ())?;
                     }

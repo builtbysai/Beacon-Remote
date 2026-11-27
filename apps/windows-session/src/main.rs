@@ -6,6 +6,8 @@ mod capture;
 #[cfg(windows)]
 mod clipboard;
 #[cfg(windows)]
+mod clipboard_transport;
+#[cfg(windows)]
 use beacon_remote_session::{
     drive_exec, drive_map, drive_wire, encoder, pixels, print_session, print_submit,
 };
