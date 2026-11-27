@@ -1,6 +1,13 @@
 package com.beaconremote.host
 
-enum class LivePermission(val wire: String) { FILES("files"), CONTROL("control"), RECORDING("recording") }
+enum class LivePermission(val wire: String) {
+    FILES("files"),
+    CONTROL("control"),
+    RECORDING("recording"),
+
+    /** Reading the names of buttons and fields on the screen for an assistant (ADR 0064). */
+    UI_TREE("ui_tree"),
+}
 
 data class LivePermissionPrompt(
     val sessionId: String,

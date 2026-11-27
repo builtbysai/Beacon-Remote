@@ -99,6 +99,7 @@ class ShareSession(
     private var peer: PeerConnection? = null
     private var control: RemoteControl? = null
     private var files: FileReceiver? = null
+    private var uiTree: UiTreeChannel? = null
     private var screenWidth = 0
     private var screenHeight = 0
     private var displayListener: DisplayManager.DisplayListener? = null
@@ -197,6 +198,9 @@ class ShareSession(
             if (files?.isOpen() == true && !permissions.allowed(generation, LivePermission.RECORDING)) add(LivePermission.RECORDING)
             if (dataTransportAvailable && control == null && ControlService.enabled(context) && ControlService.instance != null &&
                 !permissions.allowed(generation, LivePermission.CONTROL)) add(LivePermission.CONTROL)
+            // Reading the screen's structure (ADR 0064) is its own approval, offered once the phone's control service is on.
+            if (uiTree?.isOpen() == true && ControlService.enabled(context) && ControlService.instance != null &&
+                !permissions.allowed(generation, LivePermission.UI_TREE)) add(LivePermission.UI_TREE)
         }
     }
 
@@ -409,6 +413,8 @@ class ShareSession(
                     permissions.commit(id, generation, SystemClock.elapsedRealtime())) {
                     when (prompt.scope) {
                         LivePermission.FILES, LivePermission.RECORDING -> files?.publishReady()
+                        // The channel itself checks the approval on every request, so there is nothing to open.
+                        LivePermission.UI_TREE -> Unit
                         LivePermission.CONTROL -> openInput(generation, "beacon-approved-input-v1:$id") {
                             permissions.allowed(generation, LivePermission.CONTROL) && deviceUnlocked()
                         }
@@ -633,6 +639,16 @@ class ShareSession(
                 }
             }
         }
+        // Semantic targets (ADR 0064): a channel that answers only once the person on this phone approves it.
+        if (onPermissionPrompt != null && ControlService.enabled(context) && ControlService.instance != null) {
+            connection.createDataChannel("beacon-ui-tree-v1", DataChannel.Init().apply { ordered = true })?.let { channel ->
+                uiTree?.close()
+                uiTree = UiTreeChannel(channel, {
+                    permissions.allowed(thisGeneration, LivePermission.UI_TREE) && canShare(thisGeneration) &&
+                        localActionsAllowed() && deviceUnlocked()
+                }).also { it.start() }
+            }
+        }
         // A trusted viewer may talk through the speaker when the owner allowed it: an extra receive-only audio line,
         // muted until the viewer asks and the phone agrees (see setTalk).
         if (Identity(context).talkIn && grant.capability == "desktop:control" && controlAllowed && ControlService.instance != null) {
@@ -801,6 +817,8 @@ class ShareSession(
         onControl(false)
         files?.stop()
         files = null
+        uiTree?.close()
+        uiTree = null
         peer?.let {
             runCatching { it.close() }
             runCatching { it.dispose() }
