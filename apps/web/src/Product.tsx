@@ -1,4 +1,5 @@
 import { GuestSupport } from "./GuestSupport.js";
+import { Badge, Character, Spark } from "./Characters.js";
 import { DownloadsPage } from "./DownloadsPage.js";
 export { useRelease } from "./release.js";
 
@@ -36,9 +37,42 @@ export function pageFromHash(): Page {
 export function Brand() {
   return (
     <a className="brand" href="#home" aria-label="Beacon Remote home">
-      <img src="/beacon-mark.svg" alt="" />
+      <svg
+        className="brand-mark"
+        viewBox="0 0 48 48"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <rect width="48" height="48" rx="13" fill="#2D6CF6" />
+        <rect x="6" y="15" width="27" height="19" rx="5.5" fill="#fff" />
+        <rect x="9" y="18" width="21" height="13" rx="3" fill="#2D6CF6" />
+        <circle cx="15.5" cy="23.2" r="1.8" fill="#fff" />
+        <circle cx="23.5" cy="23.2" r="1.8" fill="#fff" />
+        <path
+          d="M16 27 q4 3.2 8 0"
+          fill="none"
+          stroke="#fff"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+        <rect x="17" y="34" width="6" height="3.5" fill="#fff" />
+        <rect x="12" y="37" width="16" height="3.5" rx="1.75" fill="#fff" />
+        <g className="brand-arcs" fill="none" stroke="#73E4CD">
+          <circle cx="36.5" cy="12.5" r="2.5" fill="#73E4CD" stroke="none" />
+          <path
+            d="M36.5 6.5 a6 6 0 0 1 6 6"
+            strokeWidth="2.8"
+            strokeLinecap="round"
+          />
+          <path
+            d="M36.5 1.5 a11 11 0 0 1 11 11"
+            strokeWidth="2.8"
+            strokeLinecap="round"
+          />
+        </g>
+      </svg>
       <span>
-        beacon<small>REMOTE</small>
+        Beacon <small>Remote</small>
       </span>
     </a>
   );
@@ -56,129 +90,157 @@ export function ProductPage({
     return (
       <>
         <section className="hero">
-          <div>
-            <p className="eyebrow">BEACON / REMOTE</p>
-            <h1>Remote access for your computers.</h1>
-            <p>
-              Connect to an enrolled Windows computer from your browser. Approve
-              each connection on the computer, or turn on trusted access there
-              once for your own account.
+          <div className="hero-art hero-art-left" aria-hidden="true">
+            <Character tone="blue" mood="wave" className="hero-char big" />
+            <Character tone="mint" mood="awake" className="hero-char small" />
+            <Spark className="p1" />
+            <Spark className="p2" />
+            <Badge kind="lock" className="p3" />
+          </div>
+          <div className="hero-copy">
+            <h1>
+              Remote access that{" "}
+              <span className="scribbled">
+                knocks first.
+                <svg viewBox="0 0 340 22" aria-hidden="true" focusable="false">
+                  <path d="M3 14 C 52 4, 118 18, 176 9 S 292 12, 337 5" />
+                </svg>
+              </span>
+            </h1>
+            <p className="hero-lede">
+              Open your Windows computers from any browser. The person at the
+              keyboard says yes, sees everything, and can stop it at any time.
             </p>
             <div className="actions">
               <a className="button" href={workspace}>
-                Open my computers →
+                Open my computers
               </a>
-              <a className="button secondary" href="#downloads">
+              <a className="button soft" href="#downloads">
                 Download for Windows
               </a>
             </div>
-            <p className="note">Private alpha · Windows computers</p>
+            <p className="fine">Android phones can be paired too.</p>
           </div>
-          <div
-            className="product-preview"
-            aria-label="Illustration of the computer workspace; example data, not connected"
-          >
-            <div className="preview-bar">
-              <span className="preview-dots" aria-hidden="true">
-                ● ● ●
-              </span>
-              <span>remote.builtbysai.com</span>
-            </div>
-            <div className="preview-layout">
-              <div className="preview-sidebar" aria-hidden="true">
-                <strong>▣&nbsp; Computers</strong>
-                <span>◷&nbsp; Sessions</span>
-                <span>♧&nbsp; Assist</span>
-                <span>◇&nbsp; Activity</span>
-              </div>
-              <div className="preview-content">
-                <div className="preview-heading">
-                  <strong>Computers</strong>
-                  <span>6 online</span>
-                </div>
-                {[
-                  "STUDIO-WS",
-                  "ZBOOK-15",
-                  "HOME-PC",
-                  "FRONTDESK-02",
-                  "LAB-NODE-03",
-                ].map((name, index) => (
-                  <div
-                    className={`preview-device${index === 0 ? " selected" : ""}`}
-                    key={name}
-                  >
-                    <Monitor />
-                    <strong>{name}</strong>
-                    <span>{index === 4 ? "Offline" : "Online"}</span>
-                    {index === 0 && <b>Remote</b>}
-                  </div>
-                ))}
-                <p>EXAMPLE DATA · NOT CONNECTED</p>
-              </div>
-            </div>
+          <div className="hero-art hero-art-right" aria-hidden="true">
+            <Character tone="sun" mood="awake" className="hero-char big" />
+            <Character tone="coral" mood="asleep" className="hero-char small" />
+            <Badge kind="check" className="p3" />
+            <Spark className="p1" />
+            <Spark className="p2" />
           </div>
         </section>
-        <div className="public-steps-band">
-          <div className="steps">
-            <p>
-              <strong>01</strong> Install the Windows agent
-            </p>
-            <p>
-              <strong>02</strong> Pair with your account
-            </p>
-            <p>
-              <strong>03</strong> Connect from the browser
-            </p>
+
+        <section className="section reveal">
+          <h2 className="section-title">You stay in charge.</h2>
+          <div className="bento">
+            <article className="tile tile-ask">
+              <div className="tile-ui">
+                <div className="shot-dialog" aria-hidden="true">
+                  <div className="shot-dialog-title">
+                    <img src="/beacon-mark.svg" alt="" />
+                    Beacon Remote
+                  </div>
+                  <p className="shot-dialog-ask">
+                    Allow a browser to view this computer?
+                  </p>
+                  <p>
+                    It can see your screen. It cannot use your keyboard or mouse
+                    unless you allow that as well.
+                  </p>
+                  <div className="shot-dialog-actions">
+                    <span>Decline</span>
+                    <span className="is-primary">Allow once</span>
+                  </div>
+                </div>
+              </div>
+              <h3>It asks first.</h3>
+              <p>
+                A computer asks before every connection. Trusted access, if you
+                turn it on, applies to your own account only.
+              </p>
+            </article>
+            <article className="tile tile-visible">
+              <div className="tile-ui" aria-hidden="true">
+                <div className="banner">
+                  <span className="banner-dot" />
+                  <span>A browser is viewing this computer</span>
+                  <span className="banner-stop">Stop</span>
+                </div>
+              </div>
+              <h3>You can always see it.</h3>
+              <p>
+                Sharing shows on the computer, with a Stop button that works at
+                any time.
+              </p>
+            </article>
+            <article className="tile tile-input">
+              <div className="tile-ui" aria-hidden="true">
+                <div className="segmented">
+                  <span className="is-on">View only</span>
+                  <span>Control</span>
+                </div>
+              </div>
+              <h3>Viewing is not control.</h3>
+              <p>
+                Control is a separate request, and held keys are released when a
+                session ends.
+              </p>
+            </article>
+            <article className="tile tile-revoke">
+              <div className="tile-ui" aria-hidden="true">
+                <div className="mini-row">
+                  <Character tone="coral" mood="locked" className="mini-char" />
+                  <span>
+                    <strong>LAB-NODE-03</strong>
+                    <small>Access revoked</small>
+                  </span>
+                </div>
+              </div>
+              <h3>Revoke it and it stays out.</h3>
+              <p>
+                A revoked computer cannot connect again until you pair it again.
+              </p>
+            </article>
           </div>
-        </div>
-        <section className="public-section access-section">
-          <div className="access-heading">
-            <h2>Access and support</h2>
-            <a href="#support">Get support →</a>
-          </div>
-          <div className="feature-columns access-features">
-            <div>
-              <Monitor />
-              <h3>Your computers</h3>
+        </section>
+
+        <section className="section reveal">
+          <h2 className="section-title">Set up in three steps.</h2>
+          <ol className="path">
+            <li>
+              <Character tone="sun" mood="awake" className="path-char" />
+              <h3>Install the Windows app</h3>
+              <p>The installer sets it up for your Windows account.</p>
+            </li>
+            <li>
+              <Character tone="mint" mood="wave" className="path-char" />
+              <h3>Pair the computer</h3>
               <p>
-                Enrolled computers appear in your workspace. See connection
-                status and revoke access when needed.
+                In Computers, choose Add a computer, then enter the one-use code
+                in the app.
               </p>
-            </div>
-            <div>
-              <span className="access-feature-icon" aria-hidden="true">
-                ◎
-              </span>
-              <h3>You choose how a computer is reached</h3>
+            </li>
+            <li>
+              <Character tone="blue" mood="awake" className="path-char" />
+              <h3>Connect</h3>
               <p>
-                Approve each request on the computer, or set it to trusted
-                access there. Sharing is always visible, and the person at the
-                computer can stop it at any time.
+                Pick a computer, then Remote or View only. Whoever is at the
+                computer approves it, unless you turned on trusted access there.
               </p>
-            </div>
-            <div>
-              <span className="access-feature-icon" aria-hidden="true">
-                ◇
-              </span>
-              <h3>Connection controls</h3>
-              <p>
-                Device identity, revocation, session history and a visible Stop
-                control protect access. Guest support requires the person at the
-                computer to approve each connection.
-              </p>
-            </div>
-          </div>
-          <div className="setup-callout">
-            <div>
-              <h3>Set up your first computer</h3>
-              <p>
-                Install the Windows or Android host and pair it with your
-                account.
-              </p>
-            </div>
-            <a className="button" href="#downloads">
-              Downloads →
+            </li>
+          </ol>
+        </section>
+
+        <section className="cta-block reveal">
+          <div className="cta-copy">
+            <h2>Ready when your computers are.</h2>
+            <a className="button light" href="#downloads">
+              Download for Windows
             </a>
+          </div>
+          <div className="cta-art" aria-hidden="true">
+            <Character tone="mint" mood="wave" className="cta-char" />
+            <Character tone="sun" mood="awake" className="cta-char two" />
           </div>
         </section>
       </>
@@ -187,14 +249,15 @@ export function ProductPage({
   if (page === "support" || page === "assist")
     return (
       <section className="public-section">
-        <p className="eyebrow">SUPPORT</p>
-        <h1>Help, with permission.</h1>
+        <div className="page-head">
+          <h1>Support</h1>
+          <Character tone="sun" mood="wave" className="page-char" />
+        </div>
         <div className="support-columns">
           <div>
             <h2>Getting help</h2>
             <p>
-              If a technician sent you a link, just open it: it explains what to
-              download and run, and everything is removed when support ends.
+              If a technician sent you a link, open it and follow the steps.
               Otherwise:
             </p>
             <ol className="help-steps">
@@ -208,72 +271,60 @@ export function ProductPage({
               </li>
               <li>
                 Choose Allow when they connect. You can pause or stop at any
-                time, and nothing is shared until you allow it.
+                time.
               </li>
             </ol>
           </div>
           <div>
             <h2>Helping someone</h2>
-            <p>
-              Enter the code they read out. You do not need an account; a
-              temporary guest session is created that can only run this one
-              support session.
-            </p>
+            <p>Enter the code they read to you. No account needed.</p>
             <GuestSupport />
           </div>
-        </div>
-        <div className="quiet-panel">
-          <h2>Already paired?</h2>
-          <p>
-            Open Computers to connect to your own computers, or Assist for
-            computers shared with you.
-          </p>
-          <a className="button" href={workspace}>
-            My computers →
-          </a>
         </div>
       </section>
     );
   if (page === "security")
     return (
       <section className="public-section">
-        <p className="eyebrow">SECURITY</p>
-        <h1>Visible access. Explicit control.</h1>
-        <div className="feature-columns">
-          <div>
-            <h2>Local approval</h2>
+        <div className="page-head">
+          <h1>Security</h1>
+          <Character tone="blue" mood="awake" className="page-char" />
+        </div>
+        <p className="page-lede">Nothing connects unless you allow it.</p>
+        <div className="security-grid">
+          <article className="tile mint">
+            <h2>Asks first</h2>
             <p>
-              Devices require local approval or an explicitly enabled standing
-              access policy. Sharing has a visible Stop control; losing
+              Every connection needs approval on the computer, unless you turn
+              on trusted access.
+            </p>
+          </article>
+          <article className="tile sun">
+            <h2>Always stoppable</h2>
+            <p>
+              A Stop button stays on screen while you share. Losing
               authorization ends access.
             </p>
-          </div>
-          <div>
-            <h2>Device identity</h2>
+          </article>
+          <article className="tile blue">
+            <h2>Keys stay put</h2>
             <p>
               Pairing codes expire and work once. Device keys stay on the
-              endpoint; Windows protects its identity with DPAPI.
+              computer, protected by Windows DPAPI.
             </p>
-          </div>
-          <div>
-            <h2>Access boundaries</h2>
+          </article>
+          <article className="tile coral">
+            <h2>View means view</h2>
             <p>
-              Secure browser sessions and account isolation protect your
-              inventory. Viewing grants do not authorize keyboard or mouse
-              input.
+              Watching never grants mouse or keyboard. Accounts are isolated
+              from each other.
             </p>
-          </div>
+          </article>
         </div>
-        <div className="quiet-panel">
-          <h2>Release boundaries</h2>
-          <p>
-            Email confirmation and recovery are available when configured by the
-            server operator. Build and signing details are listed on Downloads.
-            Windows sign-in access and the full device/network acceptance matrix
-            remain unreleased. WebRTC transport encryption does not establish
-            end-to-end peer authentication against the signaling service.
-          </p>
-        </div>
+        <p className="security-note">
+          Build and signing details are on the{" "}
+          <a href="#downloads">Downloads</a> page.
+        </p>
       </section>
     );
   return null;

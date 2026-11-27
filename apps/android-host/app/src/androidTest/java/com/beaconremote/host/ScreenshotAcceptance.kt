@@ -88,20 +88,38 @@ class ScreenshotAcceptance : Instrumentation() {
             SystemClock.sleep(750)
             check(frames.get() == revoked) { "Frames continued after local revocation" }
             source.stopCapture()
-            source.dispose()
             identity.unattended = true
+            failed.set(false)
+            source.startCapture(720, 1280, 2)
+            waitFor("fresh capture before channel removal") { frames.get() > revoked }
+            val notifications = targetContext.getSystemService(android.app.NotificationManager::class.java)
+            check(notifications.areNotificationsEnabled())
+            try {
+                notifications.deleteNotificationChannel(SharingNotifications.CHANNEL)
+                check(notifications.areNotificationsEnabled())
+                check(!SharingNotifications.ready(targetContext))
+                waitFor("capture stops without sharing channel") { failed.get() }
+                val stopped = frames.get()
+                SystemClock.sleep(750)
+                check(frames.get() == stopped) { "Frames continued without the sharing channel" }
+            } finally {
+                SharingNotifications.register(targetContext)
+            }
+            val afterChannelRemoval = frames.get()
+            source.stopCapture()
+            source.dispose()
             failed.set(false)
             val lockedSource=AccessibilityCapturer(targetContext, {true}, {failed.set(true)}).also {capturer=it}
             lockedSource.initialize(null,targetContext,observer)
             lockedSource.startCapture(720,1280,2)
-            waitFor("fresh capture before lock") {frames.get()>revoked}
+            waitFor("fresh capture before lock") {frames.get()>afterChannelRemoval}
             runOnMainSync { activity!!.setTurnScreenOn(false) }
             check(ControlService.instance!!.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN))
             waitFor("capture stops on lock") {failed.get()}
             val locked=frames.get()
             SystemClock.sleep(750)
             check(frames.get()==locked) {"Frames continued after screen lock"}
-            result.putString("stream", "PASS: Android screenshot API, real WebRTC source, bounded frame size, pause/resume, availability shutdown, local revocation, lock-screen shutdown; no network or stored pixels\n")
+            result.putString("stream", "PASS: Android screenshot API, real WebRTC source, bounded frame size, pause/resume, availability shutdown, local revocation, sharing-channel loss, lock-screen shutdown; no network or stored pixels\n")
             resultCode=Activity.RESULT_OK
         } catch (error: Throwable) {
             val keyguard=targetContext.getSystemService(android.app.KeyguardManager::class.java)

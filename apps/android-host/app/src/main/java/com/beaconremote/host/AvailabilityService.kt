@@ -20,7 +20,12 @@ import org.json.JSONObject
 object HostState {
     @Volatile var status: String = "Not available"
     @Volatile var sharing: Boolean = false
+    @Volatile var paused: Boolean = false
     @Volatile var controlling: Boolean = false
+    /** A viewer is talking through the phone's speaker right now. */
+    @Volatile var talking: Boolean = false
+    /** Set by the sharing service so a change here shows in its notification. */
+    @Volatile var refreshNotification: (() -> Unit)? = null
 }
 
 /**
@@ -38,6 +43,7 @@ class AvailabilityService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            android.util.Log.w("BeaconHost", "Availability stop requested")
             Identity(this).wantsAvailable = false
             if (HostState.sharing) runCatching { startService(Intent(this, CaptureService::class.java).setAction(CaptureService.ACTION_STOP)) }
             running = false
@@ -61,7 +67,7 @@ class AvailabilityService : Service() {
             NotificationCompat.Builder(this, AVAILABLE)
                 .setSmallIcon(R.drawable.ic_stat_beacon)
                 .setContentTitle("Beacon Remote is available")
-                .setContentText(if (identity.unattended) "Your account can connect while this phone is unlocked. Tap to manage access." else "Someone you allow can ask to see this screen. You approve each request.")
+                .setContentText(if (identity.unattended) (if (StandingScreen.active) "Smooth video is on. Your account can connect while this phone is unlocked." else "Tap to turn on smooth video. Your account can connect while this phone is unlocked.") else "Someone you allow can ask to see this screen. You approve each request.")
                 .setContentIntent(open)
                 .addAction(0, "Stop", stop)
                 .setOngoing(true)
@@ -94,14 +100,14 @@ class AvailabilityService : Service() {
                 }
             }
         }
-        var handled: String? = null
+        val delivery = ConsentRequestDelivery()
         var delay = 2000L
         while (active()) {
             try {
                 apply { HostState.status = if (HostState.sharing) "Sharing your screen" else "Available" }
                 val accessRevision = AccessIntents.fence.revision()
                 val before = identity.unattended
-                val reply = Api.heartbeat(identity, wait = true, handled = handled, expected = binding)
+                val reply = Api.heartbeat(identity, wait = true, handled = delivery.handled, expected = binding)
                 if (!active()) return
                 val access = reply.optJSONObject("access")
                 if (!before && access?.optString("mode") == "trusted") {
@@ -111,21 +117,21 @@ class AvailabilityService : Service() {
                 delay = 2000L
                 val sessions = reply.optJSONArray("sessions")
                 val grant = if (sessions != null && sessions.length() > 0) sessions.getJSONObject(0) else null
-                handled = grant?.getString("id")
                 apply {
                     val trusted = access?.optString("mode") == "trusted" && access.optBoolean("allowControl")
                     if (before && AccessIntents.fence.revision() == accessRevision && identity.unattended && access != null && !trusted) {
                         identity.unattended = false
                         startService(Intent(this, CaptureService::class.java).setAction(CaptureService.ACTION_STOP))
                     }
-                    if (grant != null && !HostState.sharing) {
+                    if (grant != null && delivery.claim(grant.getString("id"), HostState.sharing)) {
                         if (UnattendedAccess.accepts(identity.unattended, grant.optString("approval") == "policy", grant.optBoolean("viaRelationship"), UnattendedAccess.ready(this))) {
                             startForegroundService(Intent(this, CaptureService::class.java)
+                                .withAccessBinding(binding)
                                 .putExtra("grant", grant.toString()).putExtra("unattended", true))
                         } else if (grant.optString("approval") == "policy") {
                             ShareSession(applicationContext, Grant.from(grant), binding.server, null) {}.decline()
                         } else {
-                            askForConsent(grant)
+                            askForConsent(grant, binding)
                         }
                     }
                 }
@@ -152,11 +158,8 @@ class AvailabilityService : Service() {
         }
     }
 
-    private fun askForConsent(grant: JSONObject) {
-        val consent =
-            Intent(this, ConsentActivity::class.java)
-                .putExtra("grant", grant.toString())
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+    private fun askForConsent(grant: JSONObject, binding: AccessBinding) {
+        val consent = ConsentActivity.requestIntent(this, grant, binding)
         val pending = PendingIntent.getActivity(this, 2, consent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val manager = getSystemService(NotificationManager::class.java)
         manager.notify(
@@ -181,7 +184,7 @@ class AvailabilityService : Service() {
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel(AVAILABLE, "Availability", NotificationManager.IMPORTANCE_LOW))
         manager.createNotificationChannel(NotificationChannel(REQUEST, "Requests to see your screen", NotificationManager.IMPORTANCE_HIGH))
-        manager.createNotificationChannel(NotificationChannel(SHARING, "While sharing", NotificationManager.IMPORTANCE_LOW))
+        SharingNotifications.register(this)
     }
 
     override fun onDestroy() {
@@ -196,7 +199,6 @@ class AvailabilityService : Service() {
         const val ACTION_STOP = "com.beaconremote.host.STOP_AVAILABILITY"
         const val AVAILABLE = "available"
         const val REQUEST = "request"
-        const val SHARING = "sharing"
 
         fun start(context: Context) {
             context.startForegroundService(Intent(context, AvailabilityService::class.java))

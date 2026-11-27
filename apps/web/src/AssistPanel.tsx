@@ -63,7 +63,7 @@ export function AssistPanel({
       setError(
         failure instanceof ApiError && failure.status === 409
           ? "That computer is already sharing with someone."
-          : "Could not connect. The computer may be offline, or the access may have ended.",
+          : "Could not connect. The computer may be offline or access may have ended.",
       );
     } finally {
       setBusy(false);
@@ -87,7 +87,7 @@ export function AssistPanel({
     } catch (failure) {
       setError(
         failure instanceof ApiError && failure.status === 404
-          ? "That support code did not work. Check it, or ask for a new one."
+          ? "That code didn’t work. Check it or ask for a new one."
           : failure instanceof ApiError && failure.status === 409
             ? "That computer is already sharing with someone."
             : failure instanceof ApiError
@@ -102,10 +102,7 @@ export function AssistPanel({
   return (
     <section className="workspace-page assist-page">
       <div className="workspace-page-heading">
-        <div>
-          <h1>Assist</h1>
-          <p>One-time remote support</p>
-        </div>
+        <h1>Assist</h1>
       </div>
       <div className="assist-layout">
         <SupportSessions
@@ -118,8 +115,8 @@ export function AssistPanel({
           </div>
           <form className="assist-panel-body" onSubmit={connect}>
             <p>
-              Enter the code the person at the computer read out. They still
-              approve the connection on their screen, and the code works once.
+              Enter the code they read to you. They still approve on their
+              screen.
             </p>
             <label className="assist-code">
               Support code
@@ -159,8 +156,8 @@ export function AssistPanel({
             </div>
             <div className="assist-panel-body">
               <p>
-                Computers whose owners allowed you to ask for support. They
-                still approve each connection.
+                Computers whose owners let you ask for support. They still
+                approve each connection.
               </p>
               {sharedError && (
                 <p className="error" role="alert">
@@ -235,9 +232,9 @@ export function AssistPanel({
           <div className="assist-panel-body">
             <p>
               Open Beacon Remote on the Windows computer and choose Support
-              code. Read the code to the person helping you. It expires in 15
-              minutes and works once. You approve the connection, choose view or
-              control when you get the code, and can stop at any time.
+              code. Read the code to the person helping you. It works once and
+              expires in 15 minutes. You approve the connection and can stop at
+              any time.
             </p>
             <a className="button secondary" href="#downloads">
               Windows setup

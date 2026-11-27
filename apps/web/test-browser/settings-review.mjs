@@ -27,11 +27,11 @@ export async function reviewSettings({
     ),
     1,
   );
-  await nav("security");
+  await nav("account");
   await click("#settings-security .quiet-panel > button");
   await waitFor("document.querySelector('.mfa-key')");
-  await nav("appearance");
-  await nav("security");
+  await nav("data");
+  await nav("account");
   assert.equal(
     await browser.evaluate("document.querySelector('.mfa-key').textContent"),
     "JBSWY3DPEHPK3PXP",
@@ -43,7 +43,7 @@ export async function reviewSettings({
   await click("#settings-security form button");
   await waitFor("document.querySelector('.recovery-codes')");
   await nav("team");
-  await nav("security");
+  await nav("account");
   assert.match(
     await browser.evaluate(
       "document.querySelector('.recovery-codes').textContent",
@@ -139,13 +139,7 @@ export async function reviewSettings({
       deviceScaleFactor: 1,
       mobile: false,
     });
-    for (const section of [
-      "appearance",
-      "account",
-      "security",
-      "team",
-      "data",
-    ]) {
+    for (const section of ["account", "appearance", "team", "data"]) {
       await nav(section);
       assert.equal(
         await browser.evaluate(
@@ -168,13 +162,15 @@ export async function reviewSettings({
   await browser.evaluate(
     "document.querySelector('.settings-nav button').focus()",
   );
-  await key("Tab");
-  assert.equal(
-    await browser.evaluate(
-      "document.activeElement.getAttribute('aria-controls')",
-    ),
-    "settings-account",
-  );
-  await key(" ", "Space");
-  await waitFor("!document.querySelector('#settings-account').hidden");
+  for (const section of ["appearance", "team"]) {
+    await key("Tab");
+    assert.equal(
+      await browser.evaluate(
+        "document.activeElement.getAttribute('aria-controls')",
+      ),
+      `settings-${section}`,
+    );
+    await key(" ", "Space");
+    await waitFor(`!document.querySelector('#settings-${section}').hidden`);
+  }
 }

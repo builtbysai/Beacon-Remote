@@ -17,6 +17,8 @@ import {
   accessMessage,
   accessRequest,
   enrollment,
+  enrollmentCode,
+  ENROLLMENT_CODE_ALPHABET,
   heartbeat,
   heartbeatMessage,
   helpersMessage,
@@ -36,6 +38,7 @@ import { registerSupportWorkflow } from "./support-workflow.js";
 import { registerMfa } from "./mfa.js";
 import { createMailer, type Mailer } from "./mail.js";
 import { registerSignup } from "./signup.js";
+import { registerDevicePairing } from "./device-pairing.js";
 import { registerBootAvailability } from "./boot-availability.js";
 import { registerSigninAuthority } from "./signin-authority.js";
 import { interactiveReadySql } from "./machine-readiness.js";
@@ -239,6 +242,7 @@ export async function createApp(
     owner,
     sessionRequests.stopSession,
   );
+  registerDevicePairing(app, pool, owner, sameOrigin);
   registerTeam(
     app,
     pool,
@@ -554,7 +558,12 @@ export async function createApp(
       );
       if (pending.rows[0].n >= MAX_PENDING_ENROLLMENTS)
         return reply.code(429).send({ error: "Too many pending codes" });
-      const code = randomBytes(24).toString("base64url");
+      const symbols = Array.from(
+        { length: 12 },
+        () =>
+          ENROLLMENT_CODE_ALPHABET[randomInt(ENROLLMENT_CODE_ALPHABET.length)],
+      ).join("");
+      const code = `${symbols.slice(0, 4)}-${symbols.slice(4, 8)}-${symbols.slice(8)}`;
       await pool.query(
         "INSERT INTO enrollments(code_hash,account_id,expires_at) VALUES ($1,$2,now()+interval '5 minutes')",
         [digest(code), account],
@@ -576,7 +585,7 @@ export async function createApp(
         if (!account)
           return reply.code(401).send({ error: "Sign in required" });
         const parsed = z
-          .object({ code: z.string().regex(/^[A-Za-z0-9_-]{32}$/) })
+          .object({ code: enrollmentCode })
           .strict()
           .safeParse(request.body);
         if (!parsed.success)
@@ -682,7 +691,9 @@ export async function createApp(
       .object({ wait: z.literal("1").optional(), handled: z.uuid().optional() })
       .strict()
       .safeParse(request.query);
-    if (!query.success || (query.data.handled && !query.data.wait))
+    // `handled` only hides a grant the host already dealt with, so it is fine without a long poll. Older
+    // hosts send it alone after one failed request and must be able to recover.
+    if (!query.success)
       return reply.code(400).send({ error: "Invalid heartbeat options" });
     const parsed = heartbeat.safeParse(request.body);
     if (!parsed.success)

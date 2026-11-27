@@ -10,7 +10,10 @@ use crate::{
 };
 use serde::Deserialize;
 use std::{
-    sync::{atomic::Ordering, Arc},
+    sync::{
+        atomic::{AtomicU8, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 use webrtc::data_channel::{DataChannel, DataChannelEvent};
@@ -429,20 +432,54 @@ impl Outbound {
 }
 
 /// What the person at the computer allowed for this session on the extras channel.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Permissions {
     pub files: bool,
     pub recording: bool,
+}
+/// Bit layout shared with the sharing window: file transfer is bit 0 and recording bit 1.
+pub const FILES_BIT: u8 = 1;
+pub const RECORDING_BIT: u8 = 2;
+/// Drive mapping approved for this connection (P1-4); it sits beside the file and recording bits.
+pub const DRIVE_BIT: u8 = 4;
+/// Printing approved for this connection (P2-1), its own bit like drive.
+pub const PRINT_BIT: u8 = 8;
+
+impl Permissions {
+    pub fn from_bits(bits: u8) -> Self {
+        Self {
+            files: bits & FILES_BIT != 0,
+            recording: bits & RECORDING_BIT != 0,
+        }
+    }
+    pub fn bits(self) -> u8 {
+        (u8::from(self.files) * FILES_BIT) | (u8::from(self.recording) * RECORDING_BIT)
+    }
+    pub fn read(flags: &AtomicU8) -> Self {
+        Self::from_bits(flags.load(Ordering::Acquire))
+    }
+    pub fn publish(self, flags: &AtomicU8) {
+        flags.store(self.bits(), Ordering::Release);
+    }
 }
 
 pub fn start(
     channel: Arc<dyn DataChannel>,
     authority: Authority,
-    permissions: Permissions,
+    permissions: Arc<AtomicU8>,
+    retain_file_parts: bool,
     downloads: Arc<DownloadCache>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let result = run(channel, &authority, permissions, &downloads).await;
+        let result = run(
+            channel.clone(),
+            &authority,
+            &permissions,
+            retain_file_parts,
+            &downloads,
+        )
+        .await;
+        let _ = tokio::time::timeout(Duration::from_millis(500), channel.close()).await;
         files::set_recording(false);
         if result.is_err() {
             println!("File transfer stopped: invalid message, expired authority or no folder.");
@@ -490,19 +527,15 @@ async fn send_download(
 async fn run(
     channel: Arc<dyn DataChannel>,
     authority: &Authority,
-    permissions: Permissions,
+    flags: &AtomicU8,
+    retain_file_parts: bool,
     downloads: &DownloadCache,
 ) -> Result<(), ()> {
-    let folder = files::received_folder().ok_or(())?;
-    // Left over from a session that ended abnormally.
-    files::sweep_stale(&folder);
-    let mut receiver = Receiver::new(folder);
-    let mut outbound = downloads
-        .0
-        .lock()
-        .map_err(|_| ())?
-        .take()
-        .unwrap_or_else(Outbound::new);
+    let mut receiver: Option<Receiver> = None;
+    let mut outbound = Outbound::new();
+    let mut reported = None;
+    let mut granted = Permissions::default();
+    let mut initialized_files = false;
     // The browser's buffer fills when the network is slower than the disk; wait for it to drain.
     let mut blocked = false;
     let mut pump = tokio::time::interval(Duration::from_millis(2));
@@ -510,6 +543,38 @@ async fn run(
     let mut opened = false;
     let mut last_message = Instant::now();
     loop {
+        let mut permissions = Permissions::read(flags);
+        if granted.files && !permissions.files {
+            // Revoked at this computer: stop any transfer in either direction at once.
+            if let Some(receiver) = &mut receiver {
+                receiver.abort();
+            }
+            if let Some(frame) = outbound.abort() {
+                send_frame(&channel, frame).await?;
+            }
+        }
+        if granted.recording && !permissions.recording {
+            files::set_recording(false);
+            send(
+                &channel,
+                serde_json::json!({"t":"recording","on":false,"denied":true}),
+            )
+            .await?;
+        }
+        granted = permissions;
+        if permissions.files && !initialized_files {
+            initialized_files = true;
+            if let Some(folder) = files::received_folder() {
+                files::sweep_stale(&folder);
+                receiver = Some(Receiver::new(folder));
+                if retain_file_parts {
+                    if let Some(saved) = downloads.0.lock().map_err(|_| ())?.take() {
+                        outbound = saved;
+                    }
+                }
+            }
+        }
+        permissions.files &= receiver.is_some();
         tokio::select! {
             _ = tick.tick() => {
                 if !authority.session_active.load(Ordering::Acquire)
@@ -518,24 +583,33 @@ async fn run(
                     || (opened && !authority.live())
                 {
                     // A viewer that is only reconnecting leaves the session alive: keep what has arrived for it.
-                    if retain(authority) && !authority.peer_active.load(Ordering::Acquire)
+                    if retain_file_parts && retain(authority) && (!authority.peer_active.load(Ordering::Acquire) ||
+                        authority.viewer_generation.load(Ordering::Acquire) != authority.generation)
                     {
-                        receiver.interrupted();
+                        if let Some(receiver) = &mut receiver { receiver.interrupted(); }
                         *downloads.0.lock().map_err(|_| ())? = Some(std::mem::replace(&mut outbound, Outbound::new()));
                     } else {
-                        receiver.abort();
+                        if let Some(receiver) = &mut receiver { receiver.abort(); }
                     }
                     if let Some(frame) = outbound.abort() { let _ = send_frame(&channel, frame).await; }
                     return Ok(());
                 }
-                if (receiver.active() || !outbound.idle()) && (crate::pause::is_paused() || outbound.pause_generation != crate::pause::generation()) {
-                    receiver.abort();
+                if (receiver.as_ref().is_some_and(Receiver::active) || !outbound.idle()) && (crate::pause::is_paused() || outbound.pause_generation != crate::pause::generation()) {
+                    if let Some(receiver) = &mut receiver { receiver.abort(); }
                     if let Some(frame) = outbound.abort() { send_frame(&channel, frame).await?; }
                     outbound.pause_generation = crate::pause::generation();
                     send(&channel, serde_json::json!({"t":"paused"})).await?;
                 }
-                if receiver.active() && last_message.elapsed() >= Duration::from_secs(30) {
-                    receiver.abort();
+                if last_message.elapsed() >= Duration::from_secs(30) {
+                    if let Some(receiver) = &mut receiver { receiver.abort(); }
+                }
+                if opened && authority.live() && reported != Some(permissions) {
+                    let first = reported.is_none();
+                    reported = Some(permissions);
+                    send(&channel, serde_json::json!({"t":"ready","maxFile":MAX_FILE,"chunk":MAX_CHUNK,"files":permissions.files,"recording":permissions.recording,"downloadTransferId":if outbound.idle(){None}else{Some(&outbound.token)}})).await?;
+                    if first {
+                        if let Some(frame) = outbound.reoffer() { send_download(&channel, frame, &mut outbound, downloads, authority).await?; }
+                    }
                 }
                 outbound.expire();
                 // A file the person at this computer picked in the sharing window.
@@ -566,8 +640,6 @@ async fn run(
                     last_message = Instant::now();
                     channel.set_buffered_amount_low_threshold(256 * 1024).await.map_err(|_| ())?;
                     channel.set_buffered_amount_high_threshold(1024 * 1024).await.map_err(|_| ())?;
-                    send(&channel, serde_json::json!({"t":"ready","maxFile":MAX_FILE,"chunk":MAX_CHUNK,"files":permissions.files,"recording":permissions.recording,"downloadTransferId":if outbound.idle(){None}else{Some(&outbound.token)}})).await?;
-                    if let Some(frame) = outbound.reoffer() { send_download(&channel, frame, &mut outbound, downloads, authority).await?; }
                 }
                 Some(DataChannelEvent::OnBufferedAmountHigh) => blocked = true,
                 Some(DataChannelEvent::OnBufferedAmountLow) => blocked = false,
@@ -580,7 +652,7 @@ async fn run(
                         let control = parse(&message.data)?;
                         if let Control::Recording { on } = control {
                             // Only the announcement is honoured, and only when it was allowed.
-                            if permissions.recording {
+                            if permissions.recording && (!on || !crate::pause::is_paused()) {
                                 files::set_recording(on);
                                 send(&channel, serde_json::json!({"t":"recording","on":on})).await?;
                             } else {
@@ -605,9 +677,11 @@ async fn run(
                             if let Some(frame) = outbound.answer_checked(&control, || authority.live() && !crate::pause::is_paused()) { send_frame(&channel, frame).await?; }
                             continue;
                         }
+                        let Some(receiver) = &mut receiver else {continue;};
                         receiver.handle(control, crate::pause::is_paused())?
                     } else {
                         if !permissions.files { continue; }
+                        let Some(receiver) = &mut receiver else {continue;};
                         if crate::pause::is_paused() { receiver.abort(); continue; }
                         receiver.chunk(&message.data)?
                     };
@@ -622,11 +696,11 @@ async fn run(
                 }
                 Some(DataChannelEvent::OnClose | DataChannelEvent::OnError) | None => {
                     // The connection went; the session may not have. Keep the part for a reconnecting viewer.
-                    if retain(authority) {
-                        receiver.interrupted();
+                    if retain_file_parts && retain(authority) {
+                        if let Some(receiver) = &mut receiver {receiver.interrupted();}
                         *downloads.0.lock().map_err(|_| ())? = Some(std::mem::replace(&mut outbound, Outbound::new()));
                     } else {
-                        receiver.abort();
+                        if let Some(receiver) = &mut receiver {receiver.abort();}
                     }
                     let _ = outbound.abort();
                     return Ok(());
@@ -641,6 +715,45 @@ async fn run(
 mod tests {
     use super::*;
     use sha2::{Digest, Sha256};
+
+    #[test]
+    fn shared_permission_flags_round_trip_each_scope_independently() {
+        let flags = AtomicU8::new(0);
+        assert_eq!(Permissions::read(&flags), Permissions::default());
+        Permissions {
+            files: true,
+            recording: false,
+        }
+        .publish(&flags);
+        assert_eq!(
+            Permissions::read(&flags),
+            Permissions {
+                files: true,
+                recording: false
+            }
+        );
+        Permissions {
+            files: false,
+            recording: true,
+        }
+        .publish(&flags);
+        assert_eq!(
+            Permissions::read(&flags),
+            Permissions {
+                files: false,
+                recording: true
+            }
+        );
+        Permissions {
+            files: true,
+            recording: true,
+        }
+        .publish(&flags);
+        assert_eq!(flags.load(Ordering::Acquire), FILES_BIT | RECORDING_BIT);
+        // The sharing window's revoke publishes the default; nothing else remains granted.
+        Permissions::default().publish(&flags);
+        assert_eq!(Permissions::read(&flags), Permissions::default());
+    }
 
     fn folder() -> std::path::PathBuf {
         let path = std::env::temp_dir().join(format!(

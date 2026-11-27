@@ -6,15 +6,17 @@ mod capture;
 #[cfg(windows)]
 mod clipboard;
 #[cfg(windows)]
-mod consent;
+use beacon_remote_session::{
+    drive_exec, drive_map, drive_wire, encoder, pixels, print_session, print_submit,
+};
 #[cfg(windows)]
-use beacon_remote_session::{encoder, pixels};
+mod drive_transport;
 #[cfg(windows)]
 mod files;
 #[cfg(windows)]
 mod files_transport;
 #[cfg(windows)]
-mod indicator;
+mod folder_picker;
 #[cfg(windows)]
 mod input;
 #[cfg(windows)]
@@ -22,13 +24,52 @@ mod input_transport;
 #[cfg(windows)]
 mod media;
 #[cfg(windows)]
-mod native_ui;
-#[cfg(windows)]
 mod pause;
+#[cfg(windows)]
+mod print_transport;
 #[cfg(any(windows, test))]
 mod renewal;
+#[cfg(windows)]
+mod ui_bridge;
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // The owner's one-time folder choice for drive mapping runs on its own and exits.
+    #[cfg(windows)]
+    if std::env::args().any(|arg| arg == "--choose-printers") {
+        let names: Vec<String> = std::env::args()
+            .skip(1)
+            .filter(|arg| !arg.starts_with("--"))
+            .collect();
+        return folder_picker::run_printer_chooser(&names).map_err(
+            |error| -> Box<dyn std::error::Error + Send + Sync> { error.to_string().into() },
+        );
+    }
+    // One folder pick for a connection in progress: prints the chosen folder and exits, storing nothing. It runs
+    // in its own process so a problem in the dialog cannot take the sharing session down with it.
+    #[cfg(windows)]
+    if std::env::args().any(|arg| arg == "--pick-folder") {
+        return match folder_picker::pick() {
+            Ok(Some(folder)) => {
+                println!("{}", folder.display());
+                Ok(())
+            }
+            Ok(None) => Ok(()),
+            Err(error) => Err(error.to_string().into()),
+        };
+    }
+    #[cfg(windows)]
+    if std::env::args().any(|arg| arg == "--pick-printer") {
+        if let Some(name) = folder_picker::pick_printer() {
+            println!("{name}");
+        }
+        return Ok(());
+    }
+    if std::env::args().any(|arg| arg == "--choose-drive-folder") {
+        let write = std::env::args().any(|arg| arg == "--write");
+        return folder_picker::run_chooser(write).map_err(
+            |error| -> Box<dyn std::error::Error + Send + Sync> { error.to_string().into() },
+        );
+    }
     #[cfg(windows)]
     {
         // Whatever ends this helper, an interrupted file kept for resuming is deleted with it.

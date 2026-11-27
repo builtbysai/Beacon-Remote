@@ -69,7 +69,9 @@ class UiLayoutAcceptance : Instrumentation() {
             onMain {
                 screen.findViewById<EditText>(R.id.pair_server).setText(server)
                 screen.findViewById<EditText>(R.id.pair_name).setText("Synthetic Android device with a long name")
-                screen.findViewById<EditText>(R.id.pair_code).setText("DUMMY-CODE")
+                val code = screen.findViewById<EditText>(R.id.pair_code)
+                check(code.inputType and android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS == 0) { "Keyboard must preserve code case" }
+                code.setText("aB3_dE6-gH9_jK2-mN5_pQ8-rS1_tU4v")
                 screen.window.decorView.findViewWithTag<Button>("pair-submit").performClick()
                 check(!screen.findViewById<EditText>(R.id.pair_name).isEnabled)
             }
@@ -126,7 +128,8 @@ class UiLayoutAcceptance : Instrumentation() {
             val grant = JSONObject().put("id", UUID.randomUUID().toString()).put("token", "synthetic-not-a-real-grant")
                 .put("controller", "Long synthetic helper identity — fixture@example.test")
                 .put("capability", "desktop:control")
-            startActivitySync(Intent(targetContext, ConsentActivity::class.java).putExtra("grant", grant.toString()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            val consent = ConsentActivity.requestIntent(targetContext, grant, identity.accessBinding())
+            startActivitySync(consent)
             waitFor("approval") { current.get() is ConsentActivity }
             val before = Bundle()
             onMain {
@@ -166,11 +169,33 @@ class UiLayoutAcceptance : Instrumentation() {
                 }
                 screenshot(automation, name)
             }
+            val original = current.get()!!
+            onMain { targetContext.startActivity(consent) }
+            waitForIdleSync()
+            onMain {
+                check(current.get() === original) { "Duplicate delivery restarted consent" }
+                val duplicate = Bundle()
+                callActivityOnSaveInstanceState(original, duplicate)
+                check(duplicate.getLong("deadline") == before.getLong("deadline")) { "Duplicate delivery extended approval" }
+            }
+            val nextId = UUID.randomUUID().toString()
+            val replacement = JSONObject(grant.toString()).put("id", nextId)
+            onMain { targetContext.startActivity(ConsentActivity.requestIntent(targetContext, replacement, identity.accessBinding())) }
+            waitFor("replacement approval") {
+                val active = current.get()
+                active is ConsentActivity && active !== original &&
+                    JSONObject(active.intent.getStringExtra("grant")!!).getString("id") == nextId
+            }
+            waitFor("superseded approval was declined") { fixture(server).optInt("declines") == 1 }
             onMain { (tagged(current.get(), "consent-decline") as Button).performClick() }
             waitFor("decline returns to setup") { current.get() is MainActivity }
-            waitFor("decline reached the dummy server") { fixture(server).optInt("declines") == 1 }
+            waitFor("decline reached the dummy server") { fixture(server).optInt("declines") == 2 }
+            val expired = JSONObject(grant.toString()).put("id", UUID.randomUUID().toString())
+                .put("approvalExpiresAtMillis", System.currentTimeMillis() - 1)
+            onMain { targetContext.startActivity(ConsentActivity.requestIntent(targetContext, expired, identity.accessBinding())) }
+            waitFor("expired delivery was declined") { fixture(server).optInt("declines") == 3 }
             check(!HostState.sharing)
-            result.putString("stream", "PASS: real native setup/approval, async completion, late-enable cancellation, light/dark, portrait/landscape, enlarged text, visible approval controls and unchanged deadline; dummy API only\n")
+            result.putString("stream", "PASS: real native setup/approval, async completion, late-enable cancellation, light/dark, portrait/landscape, enlarged text, duplicate delivery, replacement and expired approval; dummy API only\n")
             code = Activity.RESULT_OK
         } catch (error: Throwable) {
             result.putString("stream", "FAIL: ${error.javaClass.simpleName}: ${error.message}\n${error.stackTraceToString()}\n")

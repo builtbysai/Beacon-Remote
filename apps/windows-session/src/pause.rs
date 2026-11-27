@@ -13,6 +13,12 @@ pub fn generation() -> u64 {
 pub fn is_paused() -> bool {
     PAUSED.load(Ordering::Acquire)
 }
+/// Sets the state the host window asked for.
+pub fn set(on: bool) {
+    if on != is_paused() {
+        toggle();
+    }
+}
 /// Returns the new state.
 pub fn toggle() -> bool {
     let paused = !PAUSED.fetch_xor(true, Ordering::AcqRel);

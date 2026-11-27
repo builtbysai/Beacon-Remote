@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Images a viewer copied to this phone live here until the session ends. -->
+    <cache-path name="clips" path="clips/" />
+</paths>

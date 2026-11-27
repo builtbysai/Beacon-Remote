@@ -171,6 +171,100 @@ test(
         accepted: true,
         resumable: true,
       });
+      const options = once(viewer, "message", {
+        signal: AbortSignal.timeout(3000),
+      });
+      viewer.send(JSON.stringify({ type: "permission-hello", generation: 0 }));
+      await options;
+      const offered = once(viewer, "message", {
+        signal: AbortSignal.timeout(3000),
+      });
+      native.send(
+        JSON.stringify({
+          type: "permission-options",
+          generation: 0,
+          scopes: ["files"],
+        }),
+      );
+      assert.deepEqual(JSON.parse((await offered)[0].toString()), {
+        type: "permission-options",
+        generation: 0,
+        scopes: ["files"],
+      });
+      const prompting = once(native, "message", {
+        signal: AbortSignal.timeout(3000),
+      });
+      const pending = once(viewer, "message", {
+        signal: AbortSignal.timeout(3000),
+      });
+      const attempt = randomUUID();
+      viewer.send(
+        JSON.stringify({
+          type: "permission-request",
+          generation: 0,
+          attempt,
+          scope: "files",
+        }),
+      );
+      const prompt = JSON.parse((await prompting)[0].toString());
+      assert.equal(prompt.type, "permission-prompt");
+      assert.equal(prompt.scope, "files");
+      assert.deepEqual(JSON.parse((await pending)[0].toString()), {
+        ...prompt,
+        type: "permission-pending",
+        attempt,
+      });
+      const duplicate = once(viewer, "message", {
+        signal: AbortSignal.timeout(3000),
+      });
+      viewer.send(
+        JSON.stringify({
+          type: "permission-decision",
+          generation: 0,
+          id: prompt.id,
+          approved: true,
+        }),
+      );
+      const nextAttempt = randomUUID();
+      viewer.send(
+        JSON.stringify({
+          type: "permission-request",
+          generation: 0,
+          attempt: nextAttempt,
+          scope: "files",
+        }),
+      );
+      assert.deepEqual(JSON.parse((await duplicate)[0].toString()), {
+        type: "permission-unavailable",
+        generation: 0,
+        attempt: nextAttempt,
+        scope: "files",
+      });
+      const result = once(viewer, "message", {
+        signal: AbortSignal.timeout(3000),
+      });
+      const dismissed = once(native, "message", {
+        signal: AbortSignal.timeout(3000),
+      });
+      native.send(
+        JSON.stringify({
+          type: "permission-decision",
+          generation: 0,
+          id: prompt.id,
+          approved: false,
+        }),
+      );
+      assert.deepEqual(JSON.parse((await result)[0].toString()), {
+        type: "permission-result",
+        generation: 0,
+        id: prompt.id,
+        outcome: "denied",
+      });
+      assert.deepEqual(JSON.parse((await dismissed)[0].toString()), {
+        type: "permission-dismiss",
+        generation: 0,
+        id: prompt.id,
+      });
       assert.equal(
         (
           await pool.query(

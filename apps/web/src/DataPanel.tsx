@@ -66,11 +66,7 @@ export function DataPanel() {
   return (
     <div className="quiet-panel">
       <h2>Your data</h2>
-      <p>
-        Download everything this service holds about your account: your
-        computers, session history and activity. Passwords and keys are never
-        included.
-      </p>
+      <p>Computers, session history and activity. No passwords or keys.</p>
       <form onSubmit={download} className="mfa-form">
         <label>
           Password
@@ -82,7 +78,7 @@ export function DataPanel() {
           />
         </label>
         <label>
-          Authenticator code (only if two-step sign-in is on)
+          Authenticator code (if two-step is on)
           <input name="code" autoComplete="one-time-code" />
         </label>
         <button disabled={busy}>
@@ -96,15 +92,18 @@ export function DataPanel() {
           {error}
         </p>
       )}
-      {notice && <p role="status">{notice}</p>}
+      {notice && (
+        <p role="status" className="notice">
+          {notice}
+        </p>
+      )}
       <div className="settings-danger">
         <h2>Delete account</h2>
         {deleting ? (
           <form onSubmit={erase} className="mfa-form">
             <p>
-              This removes your account, every computer paired to it, and all
-              history. It cannot be undone. Computers stop being reachable at
-              once and can be paired again to a new account.
+              This removes your account, every paired computer and all history.
+              It can’t be undone. The computers can be paired to a new account.
             </p>
             <label>
               Password
@@ -116,7 +115,7 @@ export function DataPanel() {
               />
             </label>
             <label>
-              Authenticator code (only if two-step sign-in is on)
+              Authenticator code (if two-step is on)
               <input name="code" autoComplete="one-time-code" />
             </label>
             <label>

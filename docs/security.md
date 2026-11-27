@@ -12,7 +12,10 @@ shared plaintext files.
 
 Enrollment codes are sensitive bearer invitations, delivered only to an
 authenticated owner with an exact same-origin check. They expire after five
-minutes and are claimed atomically. Signed heartbeats bind version, machine ID,
+minutes and are claimed atomically. New readable device codes use 12 independent
+base32 symbols (60 bits); rate limits and owner/device bounds remain enforced.
+Legacy bearer codes retain exact case. See [the pairing decision](decisions/0050-readable-device-pairing.md).
+Signed heartbeats bind version, machine ID,
 timestamp, and nonce; the server rejects forgery, stale timestamps and replay.
 Revocation prevents presence immediately on the server and terminates the agent
 when it next receives rejection. No desktop session is created by enrollment.

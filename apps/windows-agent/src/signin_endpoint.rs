@@ -220,7 +220,17 @@ fn identity(machine: &str) -> Result<MachineIdentity, HostError> {
 }
 fn binary_hash(path: &Path) -> Result<String, HostError> {
     let bytes = signin_files::read(path, signin_files::PUBLIC_FILE, MAX_BINARY)?;
-    Ok(format!("{:x}", Sha256::digest(&bytes)))
+    Ok(hex_lower(&Sha256::digest(&bytes)))
+}
+/// Lower-case hex of a digest (the digest type no longer implements `LowerHex`).
+fn hex_lower(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    bytes
+        .iter()
+        .fold(String::with_capacity(bytes.len() * 2), |mut text, byte| {
+            let _ = write!(text, "{byte:02x}");
+            text
+        })
 }
 fn version_name(value: &str) -> bool {
     value.len() == 64
@@ -228,12 +238,25 @@ fn version_name(value: &str) -> bool {
             .bytes()
             .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
 }
+/// Which check inside `validate_binary` ran last; a failing worker reports it in its exit status.
+pub(crate) static VALIDATE_STEP: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
+fn validated(step: u32) {
+    VALIDATE_STEP.store(step, Ordering::Relaxed);
+}
+
 pub(crate) fn validate_binary(machine: &str, executable: &Path) -> Result<(), HostError> {
+    validated(1);
     let (root, _) = roots()?;
+    validated(2);
     signin_files::verify_directory(&root, availability::PUBLIC_ACL)?;
+    validated(3);
     let (programs, _) = paths(machine)?;
+    validated(4);
     signin_files::verify_directory(&programs, availability::PUBLIC_ACL)?;
+    validated(5);
     reject_reparse(executable)?;
+    validated(6);
     let version = executable
         .parent()
         .ok_or("Missing sign-in binary version")?;
@@ -247,10 +270,13 @@ pub(crate) fn validate_binary(machine: &str, executable: &Path) -> Result<(), Ho
     {
         return Err("Service executable is outside the protected sign-in installation".into());
     }
+    validated(7);
     signin_files::verify_directory(version, availability::PUBLIC_ACL)?;
+    validated(8);
     if binary_hash(executable)? != hash {
         return Err("Sign-in service binary integrity check failed".into());
     }
+    validated(9);
     Ok(())
 }
 fn command_parts(command: &Path) -> Result<Vec<String>, HostError> {
@@ -356,7 +382,7 @@ fn matches_bundle(installed: &Path, bundle: &Path) -> Result<bool, HostError> {
     if bytes.len() > MAX_BINARY {
         return Err("Bundled sign-in binary exceeded its limit".into());
     }
-    Ok(version == format!("{:x}", Sha256::digest(bytes)))
+    Ok(version == hex_lower(&Sha256::digest(bytes)))
 }
 fn stop(service: &Service) -> Result<(), HostError> {
     let initial = service.query_status()?;
@@ -469,7 +495,7 @@ fn install(machine: &str, server: &str, owner: &str, enable: bool) -> Result<(),
         return Err("Sign-in service binary is too large".into());
     }
     let bytes = fs::read(source)?;
-    let version = programs.join(format!("{:x}", Sha256::digest(&bytes)));
+    let version = programs.join(hex_lower(&Sha256::digest(&bytes)));
     secure_directory(&version, availability::PUBLIC_ACL)?;
     let executable = version.join("beacon-remote-agent.exe");
     signin_files::create(&executable, &bytes, signin_files::PUBLIC_FILE)?;
@@ -1069,7 +1095,40 @@ fn attempt_handoff(
 }
 define_windows_service!(ffi_signin, service_main);
 fn service_main(_: Vec<OsString>) {
-    let _ = run_service();
+    if let Err(error) = run_service() {
+        if let Some(machine) = MACHINE.get() {
+            diag(machine, &format!("supervisor stopped: {error}"));
+        }
+    }
+}
+
+/// Appends one line to the supervisor's protected log (SYSTEM and Administrators only, capped at 32 KiB).
+/// Errors and states only: never grants, keys, pixels, input or credentials.
+pub(crate) fn diag(machine: &str, line: &str) {
+    // A repeating condition is recorded once, not every retry.
+    static LAST: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+    if let Ok(mut last) = LAST.lock() {
+        if *last == line {
+            return;
+        }
+        last.clear();
+        last.push_str(line);
+    }
+    let Ok((_, data)) = paths(machine) else {
+        return;
+    };
+    let path = data.join("supervisor.log");
+    if fs::metadata(&path).is_ok_and(|meta| meta.len() >= 32 * 1024) {
+        // Keep the newest 32 KiB window: move the full log aside (replacing the previous one) and start again.
+        let _ = fs::rename(&path, data.join("supervisor.old.log"));
+    }
+    if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(&path) {
+        use std::io::Write;
+        let seconds = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_secs());
+        let _ = writeln!(file, "{seconds} {line}");
+    }
 }
 fn run_service() -> Result<(), HostError> {
     if availability::current_sid()? != "S-1-5-18" {
@@ -1136,6 +1195,8 @@ fn run_service() -> Result<(), HostError> {
         let mut worker: Option<crate::signin_worker::Worker> = None;
         let mut observed_epoch = session_epoch.load(Ordering::Acquire);
         let mut next_launch = Instant::now();
+        let mut last_launch_error = String::new();
+        let mut last_ack_note = String::new();
         let mut next_heartbeat = Instant::now();
         let mut disable_acknowledged = false;
         let mut next_disable = Instant::now();
@@ -1187,9 +1248,8 @@ fn run_service() -> Result<(), HostError> {
                 observed_epoch = epoch;
                 next_heartbeat = Instant::now();
             }
-            let failed = worker
-                .as_mut()
-                .is_some_and(|active| active.probe().is_err());
+            let probe_error = worker.as_mut().and_then(|active| active.probe().err());
+            let failed = probe_error.is_some();
             if worker
                 .as_ref()
                 .is_some_and(|active| active.disable_requested())
@@ -1198,6 +1258,21 @@ fn run_service() -> Result<(), HostError> {
                 continue;
             }
             if failed {
+                if let Some(active) = worker.as_ref() {
+                    diag(
+                        machine,
+                        &format!(
+                            "worker ended: {} (probe: {})",
+                            active.exit_status().map_or_else(
+                                || "still running but not answering".to_owned(),
+                                |code| format!("exit status {code:#010x}")
+                            ),
+                            probe_error
+                                .as_ref()
+                                .map_or_else(|| "none".to_owned(), ToString::to_string)
+                        ),
+                    );
+                }
                 if let Some(active) = worker.as_mut() {
                     attempt_handoff(active, &http, &server, machine, &key, &cancel, &revoke)?;
                 }
@@ -1227,7 +1302,14 @@ fn run_service() -> Result<(), HostError> {
                         next_heartbeat = Instant::now();
                     }
                     Ok(_) => break,
-                    Err(_) => next_launch = Instant::now() + Duration::from_secs(5),
+                    Err(error) => {
+                        let text = error.to_string();
+                        if text != last_launch_error {
+                            diag(machine, &format!("worker launch failed: {text}"));
+                            last_launch_error = text;
+                        }
+                        next_launch = Instant::now() + Duration::from_secs(5);
+                    }
                 }
             }
             if Instant::now() >= next_heartbeat {
@@ -1282,6 +1364,15 @@ fn run_service() -> Result<(), HostError> {
                         }
                     }
                     ever_acknowledged |= acknowledged;
+                    let note = format!(
+                        "heartbeat console {console} state {state} acknowledged {acknowledged} worker {} | {}",
+                        worker.is_some(),
+                        crate::signin_worker::console_probe()
+                    );
+                    if note != last_ack_note {
+                        diag(machine, &note);
+                        last_ack_note = note;
+                    }
                     if !acknowledged {
                         worker.take();
                     } else if let Some(active) = worker.as_mut().filter(|_| media_allowed) {
@@ -1374,7 +1465,7 @@ pub fn command(arguments: &[String]) -> Option<Result<(), HostError>> {
             service_dispatcher::start(name(&arguments[2]), ffi_signin)?;
             Ok(())
         })()),
-        Some("signin-worker") => Some(crate::signin_worker::run(arguments)),
+        Some("signin-worker") => Some(crate::signin_worker::run_as_process(arguments)),
         _ => None,
     }
 }
@@ -1432,7 +1523,7 @@ mod tests {
         let original = b"owned fixture version one";
         std::fs::write(&bundle, original).unwrap();
         let installed = folder
-            .join(format!("{:x}", Sha256::digest(original)))
+            .join(hex_lower(&Sha256::digest(original)))
             .join("beacon-remote-agent.exe");
         assert!(super::matches_bundle(&installed, &bundle).unwrap());
         std::fs::write(&bundle, b"owned fixture version two").unwrap();

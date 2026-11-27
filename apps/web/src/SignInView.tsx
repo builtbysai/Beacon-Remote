@@ -3,6 +3,7 @@ import { SignInConnection } from "./signin-connection.js";
 import { handoffDesktop, cancelSignInHandoff } from "./signin-handoff.js";
 import type { ViewGrant } from "./LiveView.js";
 import { attachRemoteInput } from "./remote-input.js";
+import { ViewerIcon } from "./viewer-icons.js";
 import "./signin-view.css";
 
 export function SignInView({
@@ -261,36 +262,68 @@ export function SignInView({
     >
       <header className="viewer-toolbar">
         <div className="viewer-identity">
-          <strong>{name}</strong>
-          <span>Windows sign-in</span>
+          <div className="viewer-identity-text">
+            <strong>{name}</strong>
+            <span>Windows sign-in</span>
+          </div>
         </div>
-        <div className="viewer-actions">
-          {input && picture && !ended && (
+        <div className="viewer-spacer" />
+        <button className="viewer-stop" ref={stopButton} onClick={close}>
+          {ended ? "Close" : "Stop control"}
+        </button>
+      </header>
+      <p
+        className="viewer-status"
+        role="status"
+        hidden={!(picture || ended) || status === "Windows sign-in"}
+      >
+        {status}
+      </p>
+      <div className="v-body">
+        {!ended && (
+          <div
+            className="viewer-rail"
+            role="toolbar"
+            aria-label="Sign-in controls"
+          >
+            {input && picture && (
+              <>
+                <button
+                  type="button"
+                  className="rail-button"
+                  disabled={attentionPending}
+                  onClick={() =>
+                    video.current?.dispatchEvent(
+                      new Event("beacon-secure-attention"),
+                    )
+                  }
+                >
+                  <ViewerIcon name="lock" />
+                  <span>
+                    Ctrl+
+                    <wbr />
+                    Alt+
+                    <wbr />
+                    Delete
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="rail-button"
+                  onClick={() =>
+                    video.current?.dispatchEvent(new Event("beacon-keyboard"))
+                  }
+                >
+                  <ViewerIcon name="keyboard" />
+                  <span>Keyboard</span>
+                </button>
+                <span className="rail-rule" aria-hidden="true" />
+              </>
+            )}
             <button
-              className="viewer-control"
-              disabled={attentionPending}
-              onClick={() =>
-                video.current?.dispatchEvent(
-                  new Event("beacon-secure-attention"),
-                )
-              }
-            >
-              Ctrl+Alt+Delete
-            </button>
-          )}
-          {input && picture && !ended && (
-            <button
-              className="viewer-control"
-              onClick={() =>
-                video.current?.dispatchEvent(new Event("beacon-keyboard"))
-              }
-            >
-              Keyboard
-            </button>
-          )}
-          {!ended && (
-            <button
-              className="viewer-control"
+              type="button"
+              className="rail-button"
+              aria-pressed={fullscreen}
               onClick={() => {
                 if (document.fullscreenElement === shell.current) {
                   void document.exitFullscreen().catch(() => {});
@@ -308,48 +341,43 @@ export function SignInView({
                   .catch(() => {});
               }}
             >
-              {fullscreen ? "Exit full screen" : "Full screen"}
+              <ViewerIcon name="fullscreen" />
+              <span>{fullscreen ? "Exit full screen" : "Full screen"}</span>
+            </button>
+          </div>
+        )}
+        <div className="viewer-stage fit">
+          <video
+            ref={video}
+            autoPlay
+            muted
+            playsInline
+            tabIndex={input && picture && !ended ? 0 : -1}
+            aria-label="Windows sign-in screen. Shift+Escape stops control."
+            onLoadedData={() => {
+              if (connection.current?.canInput()) setPicture(true);
+            }}
+          />
+          {!picture && (
+            <p className="viewer-placeholder" role="status">
+              {status}
+            </p>
+          )}
+          {needsPlay && !ended && (
+            <button
+              className="viewer-play"
+              onClick={() => {
+                void video.current
+                  ?.play()
+                  .then(() => setNeedsPlay(false))
+                  .catch(() => setNeedsPlay(true));
+              }}
+            >
+              Show screen
             </button>
           )}
-          <button className="viewer-stop" ref={stopButton} onClick={close}>
-            {ended ? "Close" : "Stop control"}
-          </button>
         </div>
-      </header>
-      <div className="viewer-stage fit">
-        <video
-          ref={video}
-          autoPlay
-          muted
-          playsInline
-          tabIndex={input && picture && !ended ? 0 : -1}
-          aria-label="Windows sign-in screen. Shift+Escape stops control."
-          onLoadedData={() => {
-            if (connection.current?.canInput()) setPicture(true);
-          }}
-        />
-        {!picture && (
-          <p className="viewer-placeholder" role="status">
-            {status}
-          </p>
-        )}
-        {needsPlay && !ended && (
-          <button
-            className="viewer-play"
-            onClick={() => {
-              void video.current
-                ?.play()
-                .then(() => setNeedsPlay(false))
-                .catch(() => setNeedsPlay(true));
-            }}
-          >
-            Show screen
-          </button>
-        )}
       </div>
-      <p className="viewer-status" role="status">
-        {status}
-      </p>
     </section>
   );
 }

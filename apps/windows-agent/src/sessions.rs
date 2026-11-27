@@ -11,7 +11,45 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+/// The helper's stop message (ADR 0059): one JSON line.
+const STOP_LINE: &str = "{\"t\":\"stop\"}\n";
+
 type HelperEntry = (Option<u64>, Child, Arc<Mutex<ChildStdin>>);
+
+fn helper_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    #[allow(unused_mut)] // CommandExt is Windows-only.
+    let mut command = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
+        // Suppress only the console. The helper's local consent and sharing
+        // windows remain visible in the interactive user's desktop.
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
+#[cfg(all(test, windows))]
+mod console_tests {
+    #[test]
+    fn sharing_helper_launch_does_not_allocate_a_console() {
+        // An actual console-subsystem child catches the GUI-host -> console-
+        // helper regression; the Rust test executable itself uses a GUI subsystem.
+        let shell = std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap())
+            .join("System32/WindowsPowerShell/v1.0/powershell.exe");
+        let result = super::helper_command(shell)
+            .args(["-NoProfile", "-NonInteractive", "-Command",
+                "$ErrorActionPreference='Stop'; Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class ConsoleProbe { [DllImport(\"kernel32.dll\")] public static extern IntPtr GetConsoleWindow(); }'; if ([ConsoleProbe]::GetConsoleWindow() -ne [IntPtr]::Zero) { throw 'Unexpected console' }; [Console]::Write('hidden')"])
+            .output().unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(result.stdout, b"hidden");
+    }
+}
 
 pub struct Helpers {
     #[cfg(windows)]
@@ -55,7 +93,7 @@ impl Helpers {
                     if let Ok(writers) = writers.lock() {
                         for writer in writers.iter().filter_map(Weak::upgrade) {
                             if let Ok(mut pipe) = writer.lock() {
-                                let _ = pipe.write_all(b"stop\n");
+                                let _ = pipe.write_all(STOP_LINE.as_bytes());
                             }
                         }
                     }
@@ -95,7 +133,7 @@ impl Helpers {
         self.children.retain(|_, (expiry, child, pipe)| {
             if expiry.is_some_and(|end| end <= now) {
                 if let Ok(mut pipe) = pipe.lock() {
-                    let _ = pipe.write_all(b"stop\n");
+                    let _ = pipe.write_all(STOP_LINE.as_bytes());
                 }
             }
             match child.try_wait() {
@@ -175,10 +213,10 @@ impl Helpers {
                 .parent()
                 .ok_or("Agent directory missing")?
                 .join("beacon-remote-session.exe");
-            let mut child = match Command::new(helper)
+            let mut child = match helper_command(helper)
                 .arg("media-host")
                 .stdin(Stdio::piped())
-                .stdout(Stdio::inherit())
+                .stdout(Stdio::piped())
                 .stderr(Stdio::inherit())
                 .spawn()
             {
@@ -210,6 +248,11 @@ impl Helpers {
                 continue;
             }
             let pipe = Arc::new(Mutex::new(pipe));
+            // The helper draws nothing: its reports come back here and the host window shows them.
+            #[cfg(windows)]
+            if let Some(stdout) = child.stdout.take() {
+                crate::session_hub::attach(stdout, &pipe);
+            }
             {
                 let mut stops = self
                     .stops
@@ -220,7 +263,7 @@ impl Helpers {
             }
             if self.cancel.load(Ordering::Acquire) {
                 if let Ok(mut pipe) = pipe.lock() {
-                    let _ = pipe.write_all(b"stop\n");
+                    let _ = pipe.write_all(STOP_LINE.as_bytes());
                 }
             }
             // The host window turns this into one Windows notification; the consent window (or trusted access)
@@ -241,7 +284,7 @@ impl Drop for Helpers {
         self.cancel.store(true, Ordering::Release);
         for (_, _, pipe) in self.children.values() {
             if let Ok(mut pipe) = pipe.lock() {
-                let _ = pipe.write_all(b"stop\n");
+                let _ = pipe.write_all(STOP_LINE.as_bytes());
             }
         }
         if let Some(watcher) = self.watcher.take() {

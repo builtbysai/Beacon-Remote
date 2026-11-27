@@ -8,7 +8,13 @@ mod credentials;
 #[cfg(windows)]
 mod helper_lifetime;
 pub mod incoming;
+#[cfg(windows)]
+pub mod native_ui;
 pub mod network;
+#[cfg(windows)]
+pub mod session_hub;
+#[cfg(windows)]
+pub mod session_view;
 mod sessions;
 #[cfg(windows)]
 mod signin_attention;
@@ -552,7 +558,53 @@ fn presence_message(
         console.map_or_else(|| "off".into(), |value| value.to_string())
     )
 }
+/// Confirm a fresh/recovered connection before holding a long poll. The first
+/// acknowledgement makes the host Online immediately, then installs the waiter
+/// without a 15-second gap in which an incoming request would have no listener.
+#[derive(Default)]
+struct PresencePolling {
+    established: bool,
+}
+impl PresencePolling {
+    fn request(
+        &self,
+        client: &reqwest::blocking::Client,
+        server: &reqwest::Url,
+        failures: u32,
+        handled: Option<&str>,
+    ) -> Result<(bool, reqwest::blocking::RequestBuilder), HostError> {
+        // A request that names a handled grant always waits: the server accepts that option only with a
+        // long poll, and sending it alone was rejected forever after one dropped request.
+        let wait = (self.established && failures == 0) || handled.is_some();
+        let mut query = Vec::new();
+        if wait {
+            query.push(("wait", "1"));
+        }
+        if let Some(id) = handled {
+            query.push(("handled", id));
+        }
+        Ok((
+            wait,
+            client
+                .post(server.join("/api/agent/heartbeat")?)
+                .timeout(Duration::from_secs(25))
+                .query(&query),
+        ))
+    }
+    fn acknowledge(&mut self, waited: bool, server_delay: Option<u64>) -> u64 {
+        self.established = true;
+        if !waited {
+            0
+        } else {
+            server_delay
+                .filter(|delay| matches!(delay, 0 | 15000))
+                .unwrap_or(15000)
+        }
+    }
+}
+
 pub fn run(cancel: Arc<AtomicBool>, status: SyncSender<HostStatus>) -> Result<(), HostError> {
+    let mut connection_started = Some(std::time::Instant::now());
     let _ = status.try_send(HostStatus::Connecting);
     let client = client()?;
     let path = state_path()?;
@@ -575,6 +627,7 @@ pub fn run(cancel: Arc<AtomicBool>, status: SyncSender<HostStatus>) -> Result<()
     let server = validate_server(&identity.server)?;
     let key = SigningKey::from_bytes(&identity.secret_key);
     let mut failures: u32 = 0;
+    let mut polling = PresencePolling::default();
     let mut helpers = sessions::Helpers::new(cancel.clone());
     let mut handled_request: Option<String> = None;
     let instance = uuid::Uuid::new_v4().to_string();
@@ -584,12 +637,9 @@ pub fn run(cancel: Arc<AtomicBool>, status: SyncSender<HostStatus>) -> Result<()
         let nonce = uuid::Uuid::new_v4().to_string();
         let console = ordinary_host_console();
         let message = presence_message(&identity.machine_id, timestamp, &nonce, &instance, console);
-        let mut query = vec![("wait", "1")];
-        if let Some(id) = handled_request.as_deref() {
-            query.push(("handled", id));
-        }
-        let response = client.post(server.join("/api/agent/heartbeat")?)
-        .timeout(Duration::from_secs(25)).query(&query).json(&serde_json::json!({
+        let (waited, request) =
+            polling.request(&client, &server, failures, handled_request.as_deref())?;
+        let response = request.json(&serde_json::json!({
             "version": 1, "machineId": identity.machine_id, "timestamp": timestamp,
             "nonce": nonce, "instanceId": instance, "signature": STANDARD.encode(key.sign(message.as_bytes()).to_bytes()),
             "consoleSessionId":console,
@@ -624,10 +674,7 @@ pub fn run(cancel: Arc<AtomicBool>, status: SyncSender<HostStatus>) -> Result<()
                         let _ = network::send_magic(mac);
                     }
                 }
-                let mut poll_after = body["pollAfterMillis"]
-                    .as_u64()
-                    .filter(|delay| matches!(delay, 0 | 15000))
-                    .unwrap_or(15000);
+                let mut poll_after = polling.acknowledge(waited, body["pollAfterMillis"].as_u64());
                 let request_id = body["sessions"]
                     .as_array()
                     .and_then(|grants| grants.first())
@@ -666,6 +713,9 @@ pub fn run(cancel: Arc<AtomicBool>, status: SyncSender<HostStatus>) -> Result<()
                     println!("Connection restored.");
                 }
                 failures = 0;
+                if let Some(started) = connection_started.take() {
+                    println!("Presence ready in {} ms.", started.elapsed().as_millis());
+                }
                 let _ = status.try_send(HostStatus::Online);
                 pause(&cancel, Duration::from_millis(poll_after));
             }
@@ -674,6 +724,7 @@ pub fn run(cancel: Arc<AtomicBool>, status: SyncSender<HostStatus>) -> Result<()
                 return Err("Identity rejected or clock out of sync. Presence stopped; check revocation and Windows time.".into());
             }
             _ => {
+                connection_started.get_or_insert_with(std::time::Instant::now);
                 failures = failures.saturating_add(1);
                 let base = 2_u64.pow(failures.min(6));
                 let jitter = u64::from(rand::random::<u16>()) % 1000;
@@ -928,6 +979,151 @@ Network: {lan}",
 #[cfg(test)]
 mod presence_tests {
     use super::*;
+    use std::{
+        io::{BufRead, BufReader, Read, Write},
+        net::TcpListener,
+        sync::mpsc,
+        time::Instant,
+    };
+
+    #[test]
+    fn online_acknowledgement_precedes_idle_wait_and_next_request_is_already_listening() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let (held_tx, held_rx) = mpsc::channel();
+        let (wake_tx, wake_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            for _ in 0..2 {
+                let deadline = Instant::now() + Duration::from_secs(5);
+                let mut stream = loop {
+                    match listener.accept() {
+                        Ok((stream, _)) => break stream,
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                            assert!(Instant::now() < deadline, "heartbeat did not arrive");
+                            thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(error) => panic!("heartbeat accept failed: {error}"),
+                    }
+                };
+                stream.set_nonblocking(false).unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                let waiting = line.contains("wait=1");
+                let mut length = 0;
+                loop {
+                    let mut header = String::new();
+                    assert!(
+                        reader.read_line(&mut header).unwrap() > 0,
+                        "heartbeat closed before its headers"
+                    );
+                    if header == "\r\n" {
+                        break;
+                    }
+                    if let Some(value) = header.to_ascii_lowercase().strip_prefix("content-length:")
+                    {
+                        length = value.trim().parse::<usize>().unwrap();
+                    }
+                }
+                reader.read_exact(&mut vec![0; length]).unwrap();
+                if waiting {
+                    held_tx.send(line).unwrap();
+                    // A pending connection is held until actual work arrives.
+                    // The initial Online acknowledgement must precede this.
+                    wake_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                }
+                let body = "{\"pollAfterMillis\":15000}";
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                )
+                .unwrap();
+            }
+        });
+        let (online_tx, online_rx) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            let client = reqwest::blocking::Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(4))
+                .build()
+                .unwrap();
+            let origin = reqwest::Url::parse(&format!("http://{address}")).unwrap();
+            let mut polling = PresencePolling::default();
+            for (index, handled) in [None, Some("11111111-1111-4111-8111-111111111111")]
+                .into_iter()
+                .enumerate()
+            {
+                let (waiting, request) = polling.request(&client, &origin, 0, handled).unwrap();
+                let body: serde_json::Value = request
+                    .json(&serde_json::json!({}))
+                    .send()
+                    .unwrap()
+                    .json()
+                    .unwrap();
+                let delay = polling.acknowledge(waiting, body["pollAfterMillis"].as_u64());
+                if index == 0 {
+                    assert_eq!(
+                        delay, 0,
+                        "startup must not sleep before installing its waiter"
+                    );
+                    online_tx.send(()).unwrap();
+                }
+            }
+        });
+        online_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("Online was held behind the first idle long poll");
+        let pending = held_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(pending.contains("handled=11111111-1111-4111-8111-111111111111"));
+        wake_tx.send(()).unwrap();
+        worker.join().unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn recovery_reconfirms_without_wait_but_nonwaiting_servers_keep_their_idle_backoff() {
+        let client = reqwest::blocking::Client::new();
+        let origin = reqwest::Url::parse("http://127.0.0.1:1").unwrap();
+        let mut polling = PresencePolling::default();
+        polling.acknowledge(false, Some(15000));
+        let (waiting, request) = polling.request(&client, &origin, 1, None).unwrap();
+        assert!(!waiting);
+        assert_eq!(request.build().unwrap().url().query_pairs().count(), 0);
+        assert_eq!(polling.acknowledge(waiting, Some(15000)), 0);
+        let (waiting, _) = polling.request(&client, &origin, 0, None).unwrap();
+        assert!(waiting);
+        assert_eq!(polling.acknowledge(waiting, Some(15000)), 15000);
+        assert_eq!(polling.acknowledge(waiting, Some(123)), 15000);
+    }
+
+    #[test]
+    fn a_handled_grant_is_never_sent_without_waiting_even_after_failures() {
+        let client = reqwest::blocking::Client::new();
+        let origin = reqwest::Url::parse("http://127.0.0.1:1").unwrap();
+        let mut polling = PresencePolling::default();
+        polling.acknowledge(true, Some(15000));
+        for failures in [0, 1, 7] {
+            let (waiting, request) = polling
+                .request(
+                    &client,
+                    &origin,
+                    failures,
+                    Some("3499597e-d5ce-412d-8a94-d5f281d59e9a"),
+                )
+                .unwrap();
+            assert!(waiting);
+            let url = request.build().unwrap().url().clone();
+            let query: Vec<_> = url.query_pairs().map(|(key, _)| key.into_owned()).collect();
+            assert_eq!(query, ["wait", "handled"]);
+        }
+    }
+
     #[test]
     fn ordinary_presence_binds_console_and_explicit_unavailable_in_v3_domain() {
         assert_eq!(

@@ -55,5 +55,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.crypto.tink:tink-android:1.15.0")
     implementation("io.github.webrtc-sdk:android:144.7559.08")
+    // Scans the pairing QR code without needing the camera permission; Google Play services does the camera part.
+    implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
     testImplementation("junit:junit:4.13.2")
 }

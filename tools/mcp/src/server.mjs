@@ -125,6 +125,51 @@ server.registerTool(
   },
   async () => text({ ended: await session.end() }),
 );
+// Control tools exist only when the operator turns them on for this server process (BEACON_MCP_CONTROL=enabled).
+// Without it the server stays view only, as ADR 0046 describes, and the owner's grant on the computer is still required.
+const controlEnabled = process.env.BEACON_MCP_CONTROL === "enabled";
+if (controlEnabled)
+  server.registerTool(
+    "grant_control",
+    {
+      description:
+        "Create a short control scope for this session, only if the owner has already granted control on the computer in the sharing window. Lasts at most ten minutes and ends with the session.",
+      inputSchema: { computer_id: z.string().uuid() },
+    },
+    async ({ computer_id }) => {
+      const scope = await session.grantControlScope(
+        session.current,
+        computer_id,
+      );
+      return text(
+        scope
+          ? { granted: true, tools: [...scope.tools] }
+          : {
+              granted: false,
+              reason: "the owner has not granted control on this computer",
+            },
+      );
+    },
+  );
+if (controlEnabled)
+  server.registerTool(
+    "control",
+    {
+      description:
+        "Run one control command in the live viewer: pointer (x, y in video pixels, optional button left|right|none), keyboard (one key name), clipboard_read, or stop. Needs grant_control first. Every command needs a unique idempotency_key of 8-64 characters; a repeated key is not run again.",
+      inputSchema: {
+        tool: z.enum(["pointer", "keyboard", "clipboard_read", "stop"]),
+        x: z.number().int().min(0).max(16384).optional(),
+        y: z.number().int().min(0).max(16384).optional(),
+        button: z.enum(["left", "right", "none"]).optional(),
+        key: z.string().max(32).optional(),
+        idempotency_key: z.string().min(8).max(64),
+      },
+    },
+    async ({ tool, idempotency_key, ...args }) =>
+      text(await session.control(tool, args, idempotency_key)),
+  );
+
 for (const signal of ["SIGINT", "SIGTERM"])
   process.on(
     signal,
@@ -139,4 +184,8 @@ for (const signal of ["SIGINT", "SIGTERM"])
         .finally(() => process.exit(0)),
   );
 await server.connect(new StdioServerTransport());
-console.error("Beacon Remote MCP ready (view only).");
+console.error(
+  controlEnabled
+    ? "Beacon Remote MCP ready (view, plus control the owner grants on the computer)."
+    : "Beacon Remote MCP ready (view only).",
+);

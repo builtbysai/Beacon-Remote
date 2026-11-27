@@ -142,12 +142,12 @@ export function SupportSessions({
       </div>
       <div className="assist-panel-body">
         <p>
-          Send a one-use link to the person you’re helping. They run the
-          temporary app and approve the connection.
+          Send a one-use link. They run a temporary app and approve the
+          connection.
         </p>
         <form className="support-form" onSubmit={create}>
           <label>
-            Who is this for (optional)
+            Who is this for? (optional)
             <input
               value={label}
               onChange={(event) => setLabel(event.target.value)}
@@ -178,7 +178,7 @@ export function SupportSessions({
             </button>
             <p className="note">
               Works once and expires in 24 hours. Anyone with the link can start
-              the session, so send it only to the person you are helping.
+              the session, so send it only to the person you’re helping.
             </p>
           </div>
         )}

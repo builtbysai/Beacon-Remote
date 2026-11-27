@@ -57,6 +57,69 @@ const frame = (id: number, bytes: Uint8Array) => {
   return out.buffer;
 };
 
+for (const interruption of [
+  "cancel",
+  "pause",
+  "disconnect",
+  "timeout",
+  "drain",
+] as const) {
+  test(`an upload waiting for buffer space settles on ${interruption}`, async (t) => {
+    if (interruption === "timeout")
+      t.mock.timers.enable({ apis: ["setTimeout"] });
+    const { channel, raw, sent } = fakeChannel();
+    const sender = new FileSender(
+      channel,
+      () => {},
+      () => {},
+    );
+    sender.ready = true;
+    raw.bufferedAmount = 5 * 1024 * 1024;
+    const result = sender.send(new File(["beacon"], "test.txt"));
+    const deliver = (data: object) =>
+      raw.onmessage!({ data: JSON.stringify(data) });
+    deliver({ t: "accept", id: 1 });
+    for (let attempt = 0; attempt < 20 && !raw.onbufferedamountlow; attempt++) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    assert.ok(raw.onbufferedamountlow, "upload is waiting for its buffer");
+    if (interruption === "cancel") sender.cancel();
+    else if (interruption === "pause") deliver({ t: "paused" });
+    else if (interruption === "disconnect") {
+      raw.readyState = "closed";
+      raw.onclose!();
+    } else if (interruption === "timeout") {
+      t.mock.timers.tick(30_000);
+    } else {
+      raw.bufferedAmount = 0;
+      raw.onbufferedamountlow();
+      for (let attempt = 0; attempt < 20 && sent.length < 3; attempt++) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      assert.deepEqual(
+        sent[1],
+        new Uint8Array(frame(1, Buffer.from("beacon"))),
+      );
+      assert.equal(JSON.parse(sent[2] as string).t, "end");
+      deliver({ t: "done", id: 1 });
+    }
+    const expected =
+      interruption === "drain"
+        ? "done"
+        : interruption === "timeout" || interruption === "disconnect"
+          ? "failed"
+          : "cancelled";
+    assert.equal(await result, expected);
+    assert.equal(raw.onbufferedamountlow, null);
+    if (interruption !== "drain") {
+      assert.deepEqual(
+        sent.slice(1).map((item) => JSON.parse(item as string)),
+        interruption === "disconnect" ? [] : [{ t: "cancel", id: 1 }],
+      );
+    }
+  });
+}
+
 test("a file the computer offers is received only after the person accepts, and only if it arrives intact", async () => {
   const { FileSender } = await import("../src/file-transfer.js");
   const downloads: string[] = [];

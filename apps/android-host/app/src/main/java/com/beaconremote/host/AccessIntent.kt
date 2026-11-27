@@ -1,5 +1,16 @@
 package com.beaconremote.host
 
+import android.content.Intent
+
+internal fun Intent.withAccessBinding(binding: AccessBinding): Intent =
+    putExtra("beacon.server", binding.server).putExtra("beacon.machine", binding.machineId)
+
+internal fun Intent.accessBinding(): AccessBinding? {
+    val server = getStringExtra("beacon.server") ?: return null
+    val machine = getStringExtra("beacon.machine") ?: return null
+    return AccessBinding(server, machine)
+}
+
 /** A stale network result cannot restore access after Disable or re-pairing. */
 data class AccessBinding(val server: String, val machineId: String)
 

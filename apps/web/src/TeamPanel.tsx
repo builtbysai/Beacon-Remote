@@ -90,10 +90,7 @@ export function TeamPanel() {
   return (
     <div className="quiet-panel">
       <h2>Team</h2>
-      <p>
-        Give a trusted account viewing or control access to all computers or one
-        group. Each computer still follows its local approval settings.
-      </p>
+      <p>Give a trusted account access to every computer or one group.</p>
       {loadError && (
         <p className="error" role="alert">
           Couldn’t refresh team access.{" "}
@@ -106,7 +103,11 @@ export function TeamPanel() {
           </button>
         </p>
       )}
-      {notice && <p role="status">{notice}</p>}
+      {notice && (
+        <p role="status" className="notice">
+          {notice}
+        </p>
+      )}
       {loading && members === null ? (
         <p role="status">Loading team access…</p>
       ) : members?.length ? (
@@ -190,8 +191,7 @@ export function TeamPanel() {
           {busy ? "Saving…" : "Add to team"}
         </button>
         <p className="note">
-          Adding someone who is already on your team changes their role or
-          group.
+          Adding an existing member updates their role or group.
         </p>
       </form>
     </div>

@@ -514,31 +514,18 @@ try {
         );
         await shot("inspector-browser-200pct");
         await escape();
-        await click(".theme-trigger");
-        await wait("document.querySelector('.theme-panel')");
-        assert.ok(
-          await browser.evaluate(
-            "(()=>{const r=document.querySelector('.theme-panel').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight})()",
-          ),
-          "Appearance panel clips at 200% page zoom",
-        );
-        await shot("appearance-browser-200pct");
-        await escape();
       }
       if (route === "downloads") {
         await wait(
           'document.querySelectorAll(\'.download-platform a[href$=".exe"],.download-platform a[href$=".apk"]\').length===2',
-        );
-        await browser.evaluate(
-          "document.querySelectorAll('.download-platform details').forEach(el=>el.open=true)",
         );
         await reachable('.download-platform a[href$=".exe"]');
         await shot("download-action-browser-200pct");
         await reachable('.download-platform a[href$=".apk"]');
       }
       if (route === "settings") {
-        await click(".settings-nav [aria-controls=settings-security]");
-        await wait("!document.querySelector('#settings-security').hidden");
+        await click(".settings-nav [aria-controls=settings-account]");
+        await wait("!document.querySelector('#settings-account').hidden");
       }
       const geometry = await browser.evaluate(
         "({width:innerWidth,scroll:document.documentElement.scrollWidth,dpr:devicePixelRatio,scale:visualViewport.scale})",
