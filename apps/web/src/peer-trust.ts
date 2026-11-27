@@ -58,6 +58,20 @@ export async function judgeOffer(input: {
   return { state: "verified", code, firstUse };
 }
 
+/**
+ * The person's explicit decision to accept a changed key after comparing the code with the one in the host window.
+ * Only a "changed" verdict can be accepted, and only the key that verdict carries; nothing else ever replaces a pin.
+ */
+export function trustChangedKey(
+  store: PinStore,
+  machineId: string,
+  verdict: IdentityVerdict,
+): boolean {
+  if (verdict.state !== "changed") return false;
+  store.set(machineId, verdict.code);
+  return true;
+}
+
 const PINS = "beacon-remote-computer-keys";
 const STRICT = "beacon-remote-strict-identity";
 

@@ -938,3 +938,10 @@
     border-radius: 28px;
   }
 }
+
+.viewer-identity-trust {
+  margin-inline-start: 0.5rem;
+  min-height: 2rem;
+  padding: 0 0.75rem;
+  cursor: pointer;
+}
