@@ -114,6 +114,12 @@ class Identity(private val context: Context) {
         runCatching { KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(ALIAS) }
     }
 
+    /** The raw Ed25519 signature of these exact bytes. */
+    fun signBytes(message: ByteArray): ByteArray {
+        val seed = unseal(prefs.getString("seed", null) ?: error("Not paired"))
+        return Ed25519Sign(seed).sign(message)
+    }
+
     /** Base64 Ed25519 signature of the exact canonical message. */
     fun sign(message: String): String {
         val seed = unseal(prefs.getString("seed", null) ?: error("Not paired"))
