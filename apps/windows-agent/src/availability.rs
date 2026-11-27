@@ -350,6 +350,12 @@ pub fn setup() -> Result<(), HostError> {
         &identity.server,
         &current_sid()?,
     )?;
+    finish_setup()
+}
+
+/// After an elevated install (alone or with sign-in access): check the public binding it wrote and tell the server.
+pub(crate) fn finish_setup() -> Result<(), HostError> {
+    let identity = load_identity()?;
     let (programs, _) = roots()?;
     let path = programs.join(&identity.machine_id).join("public.json");
     reject_reparse(&path)?;
@@ -474,6 +480,11 @@ pub fn command(arguments: &[String]) -> Option<Result<(), HostError>> {
         })()),
         _ => None,
     }
+}
+
+/// The elevated half of one-step unattended setup (`unattended-install`), run beside the sign-in service install.
+pub(crate) fn install_elevated(machine: &str, server: &str, owner: &str) -> Result<(), HostError> {
+    install(machine, server, owner)
 }
 
 fn install(machine: &str, server: &str, owner: &str) -> Result<(), HostError> {

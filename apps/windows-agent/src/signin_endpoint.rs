@@ -659,7 +659,11 @@ fn uninstall(machine: &str, owner: &str) -> Result<(), HostError> {
 fn elevate(action: &str, machine: &str, server: &str, owner: &str) -> Result<(), HostError> {
     if !matches!(
         action,
-        "signin-install" | "signin-install-enable" | "signin-uninstall"
+        "signin-install"
+            | "signin-install-enable"
+            | "signin-uninstall"
+            | "unattended-install"
+            | "unattended-repair"
     ) {
         return Err("Unsupported sign-in setup action".into());
     }
@@ -730,17 +734,15 @@ pub fn setup() -> Result<(), HostError> {
         );
     }
     let owner = availability::current_sid()?;
-    elevate(
-        "signin-install-enable",
-        &user.machine_id,
-        &user.server,
-        &owner,
-    )?;
+    // One administrator approval sets up both services unattended access needs: boot status before sign-in, and
+    // sign-in access itself.
+    elevate("unattended-install", &user.machine_id, &user.server, &owner)?;
     let binding = read_binding(&user.machine_id)?;
     if binding.owner_sid != owner || binding.server != validate_server(&user.server)?.to_string() {
         return Err("The new sign-in binding does not match this pairing".into());
     }
-    bind(Some(&binding.public_key))
+    bind(Some(&binding.public_key))?;
+    availability::finish_setup()
 }
 
 /// Repair preserves the durable Disable marker and existing backend binding.
@@ -755,7 +757,9 @@ pub fn repair() -> Result<(), HostError> {
     if binding.owner_sid != owner || binding.server != validate_server(&user.server)?.to_string() {
         return Err("The sign-in binding does not match this pairing".into());
     }
-    elevate("signin-install", &user.machine_id, &user.server, &owner)
+    // The same single approval also brings the boot status service up to this build (or installs it if missing).
+    elevate("unattended-repair", &user.machine_id, &user.server, &owner)?;
+    availability::finish_setup()
 }
 
 /// One-way local disable, independent of backend reachability and UAC. SCM
@@ -1521,6 +1525,14 @@ pub fn command(arguments: &[String]) -> Option<Result<(), HostError>> {
         Some("signin-install-enable") if arguments.len() == 5 => {
             Some(install(&arguments[2], &arguments[3], &arguments[4], true))
         }
+        Some("unattended-install") if arguments.len() == 5 => Some((|| {
+            availability::install_elevated(&arguments[2], &arguments[3], &arguments[4])?;
+            install(&arguments[2], &arguments[3], &arguments[4], true)
+        })()),
+        Some("unattended-repair") if arguments.len() == 5 => Some((|| {
+            availability::install_elevated(&arguments[2], &arguments[3], &arguments[4])?;
+            install(&arguments[2], &arguments[3], &arguments[4], false)
+        })()),
         Some("signin-uninstall") if arguments.len() == 5 => {
             Some(uninstall(&arguments[2], &arguments[4]))
         }
