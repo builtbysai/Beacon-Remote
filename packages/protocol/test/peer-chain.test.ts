@@ -20,9 +20,10 @@ const vector = JSON.parse(
 const machineKey = Uint8Array.from(Buffer.from(vector.machinePublicHex, "hex"));
 const SESSION = vector.delegation.sessionId as string;
 // The vector keeps the session's public half under a neutral name; the wire calls it sessionKey.
+const sessionPublic = vector.delegation.sessionPublic as string;
 const delegation = {
   sessionId: vector.delegation.sessionId as string,
-  sessionKey: vector.delegation.sessionPublic as string,
+  sessionKey: sessionPublic,
   expiresAtMs: vector.delegation.expiresAtMs as number,
   signature: vector.delegation.signature as string,
 };
