@@ -429,10 +429,16 @@ export function LiveView({
         error.reason === "needs-approval"
       ) {
         // The person at the computer approves this for the connection; send again once they have.
-        setClipStatus(
-          "Asking the computer for clipboard access. Send again after it is approved.",
-        );
-        permissions.current?.request("clipboard");
+        if (permissionView.options.includes("clipboard")) {
+          setClipStatus(
+            "Asking the computer for clipboard access. Send again after it is approved.",
+          );
+          permissions.current?.request("clipboard");
+        } else {
+          setClipStatus(
+            "The computer is not offering clipboard access right now. Try again in a moment.",
+          );
+        }
       } else {
         setClipStatus(
           error instanceof Error

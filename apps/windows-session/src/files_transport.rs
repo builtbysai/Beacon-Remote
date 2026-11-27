@@ -460,8 +460,18 @@ impl Permissions {
     pub fn read(flags: &AtomicU8) -> Self {
         Self::from_bits(flags.load(Ordering::Acquire))
     }
+    /// Sets the file and recording bits and leaves the others (drive, print and clipboard approvals) as they are.
     pub fn publish(self, flags: &AtomicU8) {
-        flags.store(self.bits(), Ordering::Release);
+        let mine = FILES_BIT | RECORDING_BIT;
+        let mut old = flags.load(Ordering::Acquire);
+        while let Err(current) = flags.compare_exchange_weak(
+            old,
+            (old & !mine) | self.bits(),
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            old = current;
+        }
     }
 }
 
@@ -755,6 +765,25 @@ mod tests {
         // The sharing window's revoke publishes the default; nothing else remains granted.
         Permissions::default().publish(&flags);
         assert_eq!(Permissions::read(&flags), Permissions::default());
+    }
+
+    #[test]
+    fn publishing_file_permissions_keeps_the_other_approvals() {
+        let flags = AtomicU8::new(DRIVE_BIT | PRINT_BIT | CLIPBOARD_BIT);
+        Permissions {
+            files: true,
+            recording: false,
+        }
+        .publish(&flags);
+        assert_eq!(
+            flags.load(Ordering::Acquire),
+            DRIVE_BIT | PRINT_BIT | CLIPBOARD_BIT | FILES_BIT
+        );
+        Permissions::default().publish(&flags);
+        assert_eq!(
+            flags.load(Ordering::Acquire),
+            DRIVE_BIT | PRINT_BIT | CLIPBOARD_BIT
+        );
     }
 
     fn folder() -> std::path::PathBuf {
