@@ -146,13 +146,16 @@ Exit: browser matrix tests green; owner sign-off on Windows and Android layouts.
 
 In source, not exposed: a default-deny scope gate, control tool handlers, a viewer-side control sender, a scope tied to
 the owner's granted control, and tool registration behind an explicit operator setting. Not done: the live consented
-session, emergency Stop acceptance, semantic UI targets and Motive. Receipts are built (November 27): every control
+session, emergency Stop acceptance and Motive. Semantic UI targets ([ADR 0064](decisions/0064-semantic-ui-targets-for-agents.md))
+are built end to end except a device run: the snapshot core, Windows and Android readers, the `beacon-ui-tree-v1` channels behind
+their own live permission, the viewer relay, the MCP `ui_tree` tool and clicking a named target (unit-tested, and the MCP
+path ran in the synthetic live journey against a fixture host; no real host or phone has run it). Receipts are built (November 27): every control
 command leaves a bounded receipt without its content, a retried key returns the first receipt, and `control_receipts`
 lists them; unit-tested only.
 
 Merge and exercise view-only MCP (#105) in a live consented session; then per-device, time and tool scopes,
-short-lived revocable credentials, idempotent bounded commands, receipts and emergency Stop; semantic UI targets and
-Motive integration. A green protocol test is not a working integration. (solo, with a live session at the end)
+short-lived revocable credentials, idempotent bounded commands, receipts and emergency Stop; the device run of
+semantic UI targets, and Motive integration. A green protocol test is not a working integration. (solo, with a live session at the end)
 
 ### M8. Platform, fleet, network and power (P2)
 
