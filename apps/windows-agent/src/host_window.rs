@@ -64,6 +64,10 @@ const SUPPORT_CONTROL: usize = 131;
 const HELPERS_OFF: usize = 140;
 const HELPERS_VIEW: usize = 141;
 const HELPERS_CONTROL: usize = 142;
+// What a viewer may do with the clipboard (ADR 0060): off, button only or automatic.
+const CLIP_OFF: usize = 160;
+const CLIP_BUTTON: usize = 161;
+const CLIP_AUTO: usize = 162;
 const ACCESS_ASK: usize = 110;
 const ACCESS_VIEW: usize = 111;
 const ACCESS_CONTROL: usize = 112;
@@ -81,7 +85,7 @@ const H_LABEL: i32 = 305;
 const H_STATUS: i32 = 306;
 const H_INTRO: i32 = 307;
 // One size per state: a paired computer's tabs share a height so the window never jumps between them.
-const PAIRED_HEIGHT: i32 = 526;
+const PAIRED_HEIGHT: i32 = 600;
 const UNPAIRED_HEIGHT: i32 = 436;
 /// A control that belongs to some tabs of the paired view, at a fixed place (logical pixels).
 struct Member {
@@ -122,6 +126,9 @@ struct State {
     access: LocalAccess,
     radios: [HWND; 3],
     helper_radios: [HWND; 3],
+    clip_radios: [HWND; 3],
+    clip_help: HWND,
+    clip_mode: u8,
     update_button: HWND,
     update_offer: Option<UpdateOffer>,
     update_check: Option<JoinHandle<Result<Option<UpdateOffer>, HostError>>>,
@@ -599,6 +606,33 @@ impl State {
         self.show_access();
         self.show_helpers();
     }
+    // What a viewer may do with the clipboard is the person's choice, kept in a small local file that the sharing
+    // helper reads afresh, so a change applies to the session in progress.
+    unsafe fn show_clipboard(&self) {
+        let mut help = String::from(match self.clip_mode {
+            0 => "Viewers cannot read or set this computer's clipboard.",
+            1 => "Text moves only when a viewer presses a button. Setting it asks you first.",
+            _ => "Copied text moves both ways while someone is connected.",
+        });
+        if let Some(ago) = last_clip_write_ago() {
+            help.push_str(&format!("\r\nA viewer last set it {ago}."));
+        }
+        text(self.clip_help, &help);
+        for &radio in &self.clip_radios {
+            InvalidateRect(radio, null(), 0);
+        }
+    }
+    unsafe fn choose_clipboard(&mut self, level: u8) {
+        if self.closing || level == self.clip_mode {
+            return;
+        }
+        if write_clip_mode(level) {
+            self.clip_mode = level;
+        } else {
+            text(self.status, "Could not change the clipboard setting.");
+        }
+        self.show_clipboard();
+    }
     unsafe fn show_helpers(&self) {
         text(
             self.summary[1],
@@ -625,6 +659,7 @@ impl State {
                 ),
             );
         }
+        self.show_clipboard();
     }
     // Remembered helpers skip the Allow only if this computer says so, after a confirmation.
     unsafe fn choose_helpers(&mut self, window: HWND, level: u8) {
@@ -1394,6 +1429,9 @@ unsafe fn draw_item(state: &State, item: &DRAWITEMSTRUCT) {
         HELPERS_OFF => Some(state.access.helpers == 0),
         HELPERS_VIEW => Some(state.access.helpers == 1),
         HELPERS_CONTROL => Some(state.access.helpers == 2),
+        CLIP_OFF => Some(state.clip_mode == 0),
+        CLIP_BUTTON => Some(state.clip_mode == 1),
+        CLIP_AUTO => Some(state.clip_mode == 2),
         _ => None,
     };
     if matches!(id, TAB_HOME | TAB_ACCESS | TAB_UNATTENDED | TAB_SUPPORT) {
@@ -1587,6 +1625,9 @@ unsafe extern "system" fn procedure(
                 HELPERS_OFF => (*state).choose_helpers(window, 0),
                 HELPERS_VIEW => (*state).choose_helpers(window, 1),
                 HELPERS_CONTROL => (*state).choose_helpers(window, 2),
+                CLIP_OFF => (*state).choose_clipboard(0),
+                CLIP_BUTTON => (*state).choose_clipboard(1),
+                CLIP_AUTO => (*state).choose_clipboard(2),
                 ACCESS_ASK => (*state).choose_access(window, 0),
                 ACCESS_VIEW => (*state).choose_access(window, 1),
                 ACCESS_CONTROL => (*state).choose_access(window, 2),
@@ -1721,6 +1762,62 @@ unsafe extern "system" fn procedure(
     DefWindowProcW(window, message, wparam, lparam)
 }
 
+fn clip_folder() -> Option<std::path::PathBuf> {
+    std::env::var_os("LOCALAPPDATA").map(|base| std::path::PathBuf::from(base).join("BeaconRemote"))
+}
+
+/// The chosen clipboard mode: 0 off, 1 button only (the default), 2 automatic.
+fn read_clip_mode() -> u8 {
+    let text = clip_folder()
+        .and_then(|folder| std::fs::read_to_string(folder.join("clipboard-mode.txt")).ok());
+    clip_mode_from(text.as_deref())
+}
+
+fn clip_mode_from(text: Option<&str>) -> u8 {
+    match text.map(|text| text.trim().to_ascii_lowercase()).as_deref() {
+        Some("off") => 0,
+        Some("auto") => 2,
+        _ => 1,
+    }
+}
+
+fn write_clip_mode(level: u8) -> bool {
+    let Some(folder) = clip_folder() else {
+        return false;
+    };
+    let name = match level {
+        0 => "off",
+        2 => "auto",
+        _ => "button",
+    };
+    std::fs::create_dir_all(&folder).is_ok()
+        && std::fs::write(folder.join("clipboard-mode.txt"), name).is_ok()
+}
+
+/// How long ago a viewer last set the clipboard, in words, if one ever did.
+fn last_clip_write_ago() -> Option<String> {
+    let folder = clip_folder()?;
+    let at: u128 = std::fs::read_to_string(folder.join("clipboard-last-write.txt"))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_millis();
+    Some(clip_ago(now.saturating_sub(at) / 1000))
+}
+
+fn clip_ago(seconds: u128) -> String {
+    match seconds {
+        0..=59 => "just now".to_owned(),
+        60..=3599 => format!("{} min ago", seconds / 60),
+        3600..=86_399 => format!("{} h ago", seconds / 3600),
+        _ => format!("{} days ago", seconds / 86_400),
+    }
+}
+
 /// How much to scale the fixed layout: the system scale, reduced so the tallest page plus the (system-scaled)
 /// frame fits the work area, but never below 70% of the system scale.
 fn fit_factor(system: f32, available: f32, frame: f32, content: f32) -> f32 {
@@ -1822,6 +1919,9 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             access: beacon_remote_agent::local_access(),
             radios: [null_mut(); 3],
             helper_radios: [null_mut(); 3],
+            clip_radios: [null_mut(); 3],
+            clip_help: null_mut(),
+            clip_mode: read_clip_mode(),
             update_button: null_mut(),
             update_offer: None,
             update_check: None,
@@ -2152,11 +2252,44 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                 SS_NOPREFIX,
                 H_INFO as usize,
             )?;
+            add(
+                "STATIC",
+                "Clipboard",
+                ACCESS,
+                (28, 420, 464, 22),
+                SS_NOPREFIX,
+                H_SECTION as usize,
+            )?;
+            for (index, (label, id)) in [
+                ("Off", CLIP_OFF),
+                ("Button only", CLIP_BUTTON),
+                ("Automatic", CLIP_AUTO),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                state.clip_radios[index] = add(
+                    "BUTTON",
+                    label,
+                    ACCESS,
+                    (28 + 156 * index as i32, 448, 152, 44),
+                    owner_draw,
+                    id,
+                )?;
+            }
+            state.clip_help = add(
+                "STATIC",
+                "",
+                ACCESS,
+                (28, 500, 464, 38),
+                SS_NOPREFIX,
+                H_INFO as usize,
+            )?;
             state.files = add(
                 "BUTTON",
                 "Also let my account send files to this computer",
                 ACCESS,
-                (28, 424, 464, 26),
+                (28, 552, 464, 26),
                 owner_draw,
                 FILES,
             )?;
@@ -2426,7 +2559,19 @@ pub fn show_startup_error() {
 
 #[cfg(test)]
 mod fit_tests {
-    use super::fit_factor;
+    use super::{clip_ago, clip_mode_from, fit_factor};
+
+    #[test]
+    fn the_clipboard_setting_defaults_to_button_only_and_words_are_plain() {
+        assert_eq!(clip_mode_from(None), 1);
+        assert_eq!(clip_mode_from(Some("nonsense")), 1);
+        assert_eq!(clip_mode_from(Some(" Off\r\n")), 0);
+        assert_eq!(clip_mode_from(Some("AUTO")), 2);
+        assert_eq!(clip_ago(5), "just now");
+        assert_eq!(clip_ago(150), "2 min ago");
+        assert_eq!(clip_ago(7200), "2 h ago");
+        assert_eq!(clip_ago(200_000), "2 days ago");
+    }
 
     #[test]
     fn the_window_keeps_the_system_scale_when_it_fits_and_shrinks_only_as_far_as_needed() {
