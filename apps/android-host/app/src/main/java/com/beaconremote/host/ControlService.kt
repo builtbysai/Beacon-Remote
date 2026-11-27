@@ -336,7 +336,7 @@ class ControlService : AccessibilityService() {
         }
         val screen = root ?: run {
             // Counts only: nothing about what was typed.
-            android.util.Log.i("BeaconHost", "PIN screen not found: windows=${windows.size} active=${rootInActiveWindow?.packageName}")
+            android.util.Log.i("BeaconHost", "Lock keypad not found: windows=${windows.size} active=${rootInActiveWindow?.packageName}")
             return "no-pad"
         }
         val target: AccessibilityNodeInfo? = walkTree(screen, 0) { node ->
