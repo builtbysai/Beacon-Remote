@@ -42,7 +42,7 @@ pub fn safe_name(proposed: &str) -> Option<String> {
     let last = proposed.rsplit(['/', '\\']).next().unwrap_or("");
     let cleaned: String = last
         .chars()
-        .filter(|c| !c.is_control())
+        .filter(|c| !c.is_control() && !crate::drive_map::is_invisible_format(*c))
         .map(|c| if "<>:\"|?*".contains(c) { '_' } else { c })
         .collect();
     let cleaned = cleaned
@@ -61,12 +61,7 @@ pub fn safe_name(proposed: &str) -> Option<String> {
     if stem.is_empty() {
         return None;
     }
-    let device = stem.split('.').next().unwrap_or("").to_ascii_uppercase();
-    let reserved = matches!(device.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-        || (device.len() == 4
-            && (device.starts_with("COM") || device.starts_with("LPT"))
-            && device.as_bytes()[3].is_ascii_digit()
-            && device.as_bytes()[3] != b'0');
+    let reserved = crate::drive_map::is_reserved_device(&stem);
     Some(if reserved {
         format!("_{stem}{extension}")
     } else {
@@ -522,6 +517,17 @@ mod tests {
         assert_eq!(safe_name("CON.txt").as_deref(), Some("_CON.txt"));
         assert_eq!(safe_name("com1").as_deref(), Some("_com1"));
         assert_eq!(safe_name("com0.txt").as_deref(), Some("com0.txt"));
+        assert_eq!(safe_name("CON .txt").as_deref(), Some("_CON.txt"));
+        assert_eq!(
+            safe_name("COM\u{B2}.log").as_deref(),
+            Some("_COM\u{B2}.log")
+        );
+        assert_eq!(safe_name("CONIN$").as_deref(), Some("_CONIN$"));
+        // A right-to-left override cannot make an .exe read as a .pdf.
+        assert_eq!(
+            safe_name("invoice\u{202E}fdp.exe").as_deref(),
+            Some("invoicefdp.exe")
+        );
         assert_eq!(safe_name("bad\u{0}\u{7}name").as_deref(), Some("badname"));
         assert_eq!(safe_name(""), None);
         assert_eq!(safe_name("..."), None);

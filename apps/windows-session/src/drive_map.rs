@@ -113,13 +113,46 @@ pub fn safe_segment(segment: &str) -> bool {
     if segment.ends_with('.') || segment.ends_with(' ') {
         return false;
     }
-    let device = segment.split('.').next().unwrap_or("").to_ascii_uppercase();
-    let reserved = matches!(device.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-        || (device.len() == 4
-            && (device.starts_with("COM") || device.starts_with("LPT"))
-            && device.as_bytes()[3].is_ascii_digit()
-            && device.as_bytes()[3] != b'0');
-    !reserved
+    // A name Windows would refuse or read as another: over the 255-unit limit, or carrying direction or other
+    // invisible format characters (for example a right-to-left override that makes `exe` read as `pdf`).
+    if segment.encode_utf16().count() > 255 || segment.chars().any(is_invisible_format) {
+        return false;
+    }
+    !is_reserved_device(segment)
+}
+
+/// Direction and other zero-width format characters that make one name read as another.
+pub fn is_invisible_format(c: char) -> bool {
+    matches!(
+        c,
+        '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}'
+    )
+}
+
+/// Whether Windows would treat this name as a device rather than a file. It ignores trailing spaces in the part before
+/// the extension (`CON .txt` is the device `CON`), counts COM1-9 and LPT1-9 with the superscript digits too, and
+/// reserves CONIN$, CONOUT$ and CLOCK$.
+pub fn is_reserved_device(segment: &str) -> bool {
+    let device = segment
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_end_matches(' ')
+        .to_uppercase();
+    let numbered = |prefix: &str| {
+        device.strip_prefix(prefix).is_some_and(|rest| {
+            let mut chars = rest.chars();
+            matches!(
+                (chars.next(), chars.next()),
+                (Some('1'..='9' | '\u{B9}' | '\u{B2}' | '\u{B3}'), None)
+            )
+        })
+    };
+    matches!(
+        device.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$" | "CLOCK$"
+    ) || numbered("COM")
+        || numbered("LPT")
 }
 
 #[cfg(windows)]
@@ -167,12 +200,32 @@ mod tests {
             segs(&["sp "]),
             segs(&["bad\u{0}"]),
             segs(&[""]),
+            segs(&["CON .txt"]),
+            segs(&["con..txt"]),
+            segs(&["COM\u{B9}"]),
+            segs(&["lpt3.log"]),
+            segs(&["CONIN$"]),
+            segs(&["CLOCK$"]),
+            segs(&["report\u{202E}fdp.exe"]),
+            segs(&[&"x".repeat(256)]),
         ] {
             assert_eq!(
                 grant.resolve(&bad, false, now),
                 Err(Refusal::UnsafePath),
                 "{bad:?}"
             );
+        }
+        // Names that only look close to a reserved one stay allowed.
+        for fine in [
+            "CONSOLE",
+            "COM10",
+            "COM0",
+            "LPT",
+            "comma.txt",
+            "AUXILIARY",
+            &"x".repeat(255),
+        ] {
+            assert!(safe_segment(fine), "{fine}");
         }
         let deep = vec!["d".to_string(); 33];
         assert_eq!(grant.resolve(&deep, false, now), Err(Refusal::TooDeep));
