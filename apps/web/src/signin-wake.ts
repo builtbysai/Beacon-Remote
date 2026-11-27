@@ -14,8 +14,10 @@ const pause = (ms: number, signal: AbortSignal) =>
     );
   });
 
+const REASK_MS = 6000;
+
 /**
- * Brings a locked computer's password prompt up (asking once, when the endpoint is on the lock-screen picture) and
+ * Brings a locked computer's password prompt up (asking while the endpoint is on the lock-screen picture, again every few seconds if it stays) and
  * resolves true when the sign-in screen can be opened. False when the computer is signed in, unreachable or the
  * prompt did not come up in time.
  */
@@ -25,7 +27,9 @@ export async function wakeSignIn(
   timeoutMs = 20_000,
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
-  let asked = false;
+  // When the next ask may go: at once, then again every few seconds while the picture is still up (a press can be
+  // spent waking a dimmed screen).
+  let nextAsk = 0;
   while (Date.now() < deadline && !signal.aborted) {
     let raw: unknown;
     try {
@@ -41,10 +45,10 @@ export async function wakeSignIn(
     if (state.success) {
       if (!state.data.enabled || state.data.state === "signed-in") return false;
       if (state.data.endpointReady && state.data.connectable) return true;
-      if (!asked && state.data.wakeable) {
+      if (Date.now() >= nextAsk && state.data.wakeable) {
         try {
           await api(`machines/${machineId}/signin-wake`, {}, signal);
-          asked = true;
+          nextAsk = Date.now() + REASK_MS;
         } catch {
           // Looked at again on the next pass.
         }

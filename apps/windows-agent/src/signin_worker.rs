@@ -1506,16 +1506,6 @@ pub(crate) fn run_wake(arguments: &[String]) -> Result<(), HostError> {
     if session_id()? != console || locked_console() != Some(console) {
         return Err("The console is not locked".into());
     }
-    let input = unsafe {
-        OpenInputDesktop(
-            0,
-            0,
-            DESKTOP_READOBJECTS | DESKTOP_WRITEOBJECTS | DESKTOP_JOURNALPLAYBACK,
-        )
-    };
-    if input.is_null() {
-        return Err(std::io::Error::last_os_error().into());
-    }
     struct Desktop(windows_sys::Win32::System::StationsAndDesktops::HDESK);
     impl Drop for Desktop {
         fn drop(&mut self) {
@@ -1523,19 +1513,6 @@ pub(crate) fn run_wake(arguments: &[String]) -> Result<(), HostError> {
                 CloseDesktop(self.0);
             }
         }
-    }
-    let input = Desktop(input);
-    match wake_target(object_name(input.0).as_deref()) {
-        WakeTarget::Prompt => return Ok(()),
-        WakeTarget::Other => return Err("The lock-screen picture does not have the input".into()),
-        WakeTarget::Picture => {}
-    }
-    if unsafe { SetThreadDesktop(input.0) } == 0 {
-        return Err(std::io::Error::last_os_error().into());
-    }
-    // The last check before the key: an unlock in between must not send it to someone's desktop.
-    if locked_console() != Some(console) {
-        return Err("The console was unlocked".into());
     }
     let key = |flags| INPUT {
         r#type: INPUT_KEYBOARD,
@@ -1550,18 +1527,59 @@ pub(crate) fn run_wake(arguments: &[String]) -> Result<(), HostError> {
         },
     };
     let keys = [key(0), key(KEYEVENTF_KEYUP)];
-    let sent = unsafe {
-        SendInput(
-            keys.len() as u32,
-            keys.as_ptr(),
-            std::mem::size_of::<INPUT>() as i32,
-        )
-    };
-    if sent as usize != keys.len() {
-        return Err(std::io::Error::last_os_error().into());
+    // With the display asleep or dimmed, the first press only wakes the screen and the picture keeps the input. So
+    // the helper looks again after each press and presses once more, at most WAKE_PRESSES times, and only while the
+    // console is still locked and the picture still has the input.
+    for press in 0..WAKE_PRESSES {
+        let input = unsafe {
+            OpenInputDesktop(
+                0,
+                0,
+                DESKTOP_READOBJECTS | DESKTOP_WRITEOBJECTS | DESKTOP_JOURNALPLAYBACK,
+            )
+        };
+        if input.is_null() {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        let input = Desktop(input);
+        match wake_target(object_name(input.0).as_deref()) {
+            WakeTarget::Prompt => return Ok(()),
+            WakeTarget::Other if press == 0 => {
+                return Err("The lock-screen picture does not have the input".into())
+            }
+            // Between desktops right after a press: wait and look again.
+            WakeTarget::Other => {
+                std::thread::sleep(std::time::Duration::from_millis(WAKE_SETTLE_MS));
+                continue;
+            }
+            WakeTarget::Picture => {}
+        }
+        if unsafe { SetThreadDesktop(input.0) } == 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        // The last check before each key: an unlock in between must not send it to someone's desktop.
+        if locked_console() != Some(console) {
+            return Err("The console was unlocked".into());
+        }
+        let sent = unsafe {
+            SendInput(
+                keys.len() as u32,
+                keys.as_ptr(),
+                std::mem::size_of::<INPUT>() as i32,
+            )
+        };
+        if sent as usize != keys.len() {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(WAKE_SETTLE_MS));
     }
     Ok(())
 }
+
+/// Presses the prompt helper may send in one run, and the pause after each; together well inside the supervisor's
+/// five-second wait for the helper.
+const WAKE_PRESSES: u32 = 4;
+const WAKE_SETTLE_MS: u64 = 700;
 
 #[cfg(test)]
 mod tests {
