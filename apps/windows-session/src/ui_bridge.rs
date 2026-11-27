@@ -57,6 +57,7 @@ pub enum LivePermission {
     Drive,
     Print,
     Clipboard,
+    UiTree,
 }
 impl LivePermission {
     fn detail(self) -> &'static str {
@@ -68,6 +69,9 @@ impl LivePermission {
             Self::Print => "Allow the viewer to print on the selected printers for this connection",
             Self::Clipboard => {
                 "Allow the viewer to set this computer's clipboard for this connection"
+            }
+            Self::UiTree => {
+                "Allow the viewer to read the names of buttons and fields on this screen (never typed text or passwords) for this connection"
             }
         }
     }

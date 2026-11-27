@@ -7,8 +7,12 @@ field with no name, never invoking or changing anything) and was checked against
 whose real tree went through the snapshot code (18 nodes, 12 buttons, a button resolved). The Android reader is built as well (`UiTree.kt`: the active window's accessibility nodes, an editable field named only
 by its label or hint and never by what was typed, a password field with no name; the rules are JVM unit-tested, the real
 node wrapper has not been run on a device). The channel's messages are defined and tested too (`packages/protocol/src/ui-tree.ts`: a request that carries only an id, and
-an answer that is a strict, bounded tree or a refusal reason, with a protected field never carrying a name). Nothing else
-is built: nothing
+an answer that is a strict, bounded tree or a refusal reason, with a protected field never carrying a name). The Windows host now has the channel (`ui_tree_transport.rs`, `beacon-ui-tree-v1`): every request is
+answered `denied` until the person at the computer approves a new `ui_tree` live permission for that connection, reads are
+limited to one a second, pause stops them, and the foreground window is read off the channel's own task; the scope is
+offered, approved and committed like the other live scopes and the shared protocol and the web viewer know it (all unit-tested,
+not run in a live session). Not built: the viewer relay
+to the MCP server, the MCP `ui_tree` tool, the Android channel and any device run. Nothing
 calls the readers, no tool exposes it, and the closed tool list is unchanged, so it widens no authority
 until the owner approves wiring it up. Builds on [0046](0046-mcp-server-view-only.md) (view only) and [0052](0052-agent-control-consent.md)
 (control consent). Part of P3-3 "better agent experience".

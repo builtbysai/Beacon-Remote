@@ -209,6 +209,9 @@ Source only; nothing here has been deployed. Roll out in this order and stop at 
    each computer's public identity key; both are ignored by older hosts and viewers, so this step is safe on its own.
 3. Then ship signed host builds (Windows installer, Android). A host that signs before the backend is updated would have
    its offers rejected for the unknown `peer` field.
+   3a. A Windows host now offers a `ui_tree` permission, and a viewer that does not know that scope rejects the whole
+   permission-options message (and with it the other live requests). Deploy the web build and protocol with step 2,
+   before any host built from this commit is installed.
 4. Strict identity stays a per-browser opt-in until every computer a person uses has an updated host.
 5. Rollback is the previous image set; the new migrations are additive. Hosts keep working unsigned.
 

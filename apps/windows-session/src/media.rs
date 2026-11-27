@@ -726,6 +726,7 @@ enum LiveScope {
     Drive,
     Print,
     Clipboard,
+    UiTree,
 }
 
 impl LiveScope {
@@ -737,6 +738,7 @@ impl LiveScope {
             "drive" => Some(Self::Drive),
             "print" => Some(Self::Print),
             "clipboard" => Some(Self::Clipboard),
+            "ui_tree" => Some(Self::UiTree),
             _ => None,
         }
     }
@@ -748,6 +750,7 @@ impl LiveScope {
             Self::Drive => "drive",
             Self::Print => "print",
             Self::Clipboard => "clipboard",
+            Self::UiTree => "ui_tree",
         }
     }
     fn consent(self) -> crate::ui_bridge::LivePermission {
@@ -758,6 +761,7 @@ impl LiveScope {
             Self::Drive => crate::ui_bridge::LivePermission::Drive,
             Self::Print => crate::ui_bridge::LivePermission::Print,
             Self::Clipboard => crate::ui_bridge::LivePermission::Clipboard,
+            Self::UiTree => crate::ui_bridge::LivePermission::UiTree,
         }
     }
 }
@@ -774,6 +778,7 @@ struct LiveState {
     print_channel: bool,
     clipboard_channel: bool,
     clipboard_mode: crate::clipboard::Mode,
+    ui_tree_channel: bool,
     extras: u8,
 }
 
@@ -802,6 +807,10 @@ impl LiveState {
                     && self.input_busy
                     && self.clipboard_mode == crate::clipboard::Mode::Button
                     && self.extras & crate::files_transport::CLIPBOARD_BIT == 0
+            }
+            // Reading the screen's structure is its own approval, asked for once per connection (ADR 0064).
+            LiveScope::UiTree => {
+                self.ui_tree_channel && self.extras & crate::files_transport::UI_TREE_BIT == 0
             }
         }
     }
@@ -1296,6 +1305,25 @@ async fn media_cycle(
     } else {
         None
     };
+    // Semantic targets (ADR 0064): a channel that answers only once the person here has approved reading the screen's structure.
+    let ui_tree_worker = if desktop {
+        let channel = pc
+            .create_data_channel(
+                "beacon-ui-tree-v1",
+                Some(webrtc::data_channel::RTCDataChannelInit {
+                    ordered: true,
+                    ..Default::default()
+                }),
+            )
+            .await?;
+        Some(crate::ui_tree_transport::start(
+            channel,
+            input_authority(false),
+            extras.clone(),
+        ))
+    } else {
+        None
+    };
     pc.set_local_description(pc.create_offer(None).await?)
         .await?;
     let description = pc
@@ -1509,6 +1537,9 @@ async fn media_cycle(
             .as_ref()
             .is_some_and(|worker| !worker.is_finished()),
         clipboard_mode: crate::clipboard::mode(),
+        ui_tree_channel: ui_tree_worker
+            .as_ref()
+            .is_some_and(|worker| !worker.is_finished()),
         extras: extras.load(Ordering::Acquire),
     };
     // A monitor plugged in, moved or rescaled changes what the viewer sees. The check is every two seconds; a change
@@ -1589,7 +1620,7 @@ async fn media_cycle(
                     let drive_channel = drive_worker.as_ref().is_some_and(|worker| !worker.is_finished());
                     let print_channel = print_worker.as_ref().is_some_and(|worker| !worker.is_finished());
                     let state = live_state(input_worker.is_some(), files_channel, drive_channel, print_channel);
-                    let offered: Vec<&'static str> = [LiveScope::Control, LiveScope::Files, LiveScope::Recording, LiveScope::Drive, LiveScope::Print, LiveScope::Clipboard]
+                    let offered: Vec<&'static str> = [LiveScope::Control, LiveScope::Files, LiveScope::Recording, LiveScope::Drive, LiveScope::Print, LiveScope::Clipboard, LiveScope::UiTree]
                         .into_iter()
                         .filter(|scope| state.allows(*scope))
                         .map(LiveScope::wire)
@@ -1757,6 +1788,13 @@ async fn media_cycle(
                                             // Approval to set the clipboard, for this connection only.
                                             if Instant::now() < expires {
                                                 extras.fetch_or(crate::files_transport::CLIPBOARD_BIT, Ordering::AcqRel);
+                                                println!("Viewer {} permission added for this connection.", scope.wire());
+                                            }
+                                        }
+                                        LiveScope::UiTree => {
+                                            // Approval to read the screen's structure, for this connection only.
+                                            if Instant::now() < expires {
+                                                extras.fetch_or(crate::files_transport::UI_TREE_BIT, Ordering::AcqRel);
                                                 println!("Viewer {} permission added for this connection.", scope.wire());
                                             }
                                         }
@@ -1958,6 +1996,7 @@ a=fingerprint:sha-256 {}
             print_channel: true,
             clipboard_channel: true,
             clipboard_mode: crate::clipboard::Mode::Button,
+            ui_tree_channel: true,
             extras: 0,
         };
         assert!(open.allows(LiveScope::Control));
@@ -2017,6 +2056,39 @@ a=fingerprint:sha-256 {}
             ..controlled
         };
         assert!(!no_clipboard.allows(LiveScope::Clipboard));
+        // Reading the screen's structure (ADR 0064) is its own approval: it needs its channel, is asked for once, never
+        // while paused or detached, and no other approval stands in for it.
+        assert!(open.allows(LiveScope::UiTree));
+        assert!(!LiveState {
+            ui_tree_channel: false,
+            ..open
+        }
+        .allows(LiveScope::UiTree));
+        assert!(!LiveState {
+            extras: crate::files_transport::UI_TREE_BIT,
+            ..open
+        }
+        .allows(LiveScope::UiTree));
+        assert!(LiveState {
+            extras: !crate::files_transport::UI_TREE_BIT,
+            ..open
+        }
+        .allows(LiveScope::UiTree));
+        assert!(!LiveState {
+            paused: true,
+            ..open
+        }
+        .allows(LiveScope::UiTree));
+        assert!(!LiveState {
+            live: false,
+            ..open
+        }
+        .allows(LiveScope::UiTree));
+        assert_eq!(
+            LiveScope::parse(&serde_json::json!("ui_tree")),
+            Some(LiveScope::UiTree)
+        );
+        assert_eq!(LiveScope::UiTree.wire(), "ui_tree");
         assert_eq!(
             LiveScope::parse(&serde_json::json!("clipboard")),
             Some(LiveScope::Clipboard)
