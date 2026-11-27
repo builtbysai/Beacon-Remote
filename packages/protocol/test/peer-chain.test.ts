@@ -17,12 +17,17 @@ const vector = JSON.parse(
     "utf8",
   ),
 );
-const machineKey = Uint8Array.from(
-  Buffer.from(vector.machinePublicKeyHex, "hex"),
-);
+const machineKey = Uint8Array.from(Buffer.from(vector.machinePublicHex, "hex"));
 const SESSION = vector.delegation.sessionId as string;
+// The vector keeps the session's public half under a neutral name; the wire calls it sessionKey.
+const delegation = {
+  sessionId: vector.delegation.sessionId as string,
+  sessionKey: vector.delegation.sessionPublic as string,
+  expiresAtMs: vector.delegation.expiresAtMs as number,
+  signature: vector.delegation.signature as string,
+};
 const proof: HostProof = {
-  delegation: vector.delegation,
+  delegation,
   statement: vector.statement,
 };
 const check = (over: Partial<Parameters<typeof verifyHostProof>[0]> = {}) =>
@@ -62,13 +67,18 @@ async function keyFromSeed(seedHex: string) {
 test("the chain in the shared vector verifies, and the bytes are the ones Rust also builds", async () => {
   assert.deepEqual(await check(), { ok: true });
   assert.equal(
-    new TextDecoder().decode(delegationBytes(vector.delegation)),
-    vector.delegationText,
+    new TextDecoder().decode(delegationBytes(delegation)),
+    [
+      "beacon-peer-delegation-v1",
+      `session:${delegation.sessionId}`,
+      "key:" + delegation.sessionKey,
+      `expires:${delegation.expiresAtMs}`,
+    ].join("\n"),
   );
   assert.equal(sdpFingerprint(vector.sdp), vector.sdpFingerprint);
   const machine = await keyFromSeed(vector.machineSeedHex);
   assert.equal(
-    await signDelegation(machine, vector.delegation),
+    await signDelegation(machine, delegation),
     vector.delegation.signature,
   );
 });
@@ -141,23 +151,23 @@ test("a relay that holds a valid delegation but not the session key cannot sign 
     await check({
       sdp,
       proof: {
-        delegation: vector.delegation,
+        delegation,
         statement: { ...vector.statement, signature: forged },
       },
     }),
     { ok: false, problem: "wrong-signature" },
   );
   // And a delegation the attacker signed itself fails against the pinned machine key.
-  const delegation = {
+  const own = {
     sessionId: SESSION,
     sessionKey: base64url(new Uint8Array(32).fill(3)),
     expiresAtMs: vector.delegation.expiresAtMs,
   };
-  const self = await signDelegation(attacker, delegation);
+  const self = await signDelegation(attacker, own);
   assert.deepEqual(
     await check({
       proof: {
-        delegation: { ...delegation, signature: self },
+        delegation: { ...own, signature: self },
         statement: vector.statement,
       },
     }),

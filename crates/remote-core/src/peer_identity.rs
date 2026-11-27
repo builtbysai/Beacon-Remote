@@ -532,19 +532,25 @@ mod tests {
         );
         assert_eq!(
             machine.verifying_key().to_bytes().to_vec(),
-            hex(json["machinePublicKeyHex"].as_str().unwrap())
+            hex(json["machinePublicHex"].as_str().unwrap())
         );
         let d = &json["delegation"];
         let delegation = Delegation {
             session_id: text(&d["sessionId"]),
-            session_key: text(&d["sessionKey"]),
+            session_key: text(&d["sessionPublic"]),
             expires_at_ms: d["expiresAtMs"].as_u64().unwrap(),
         };
         // The host mints the session key and signs the delegation exactly as the viewer side expects.
         assert_eq!(public_key_text(&session), delegation.session_key);
         assert_eq!(
             String::from_utf8(delegation.bytes().unwrap()).unwrap(),
-            text(&json["delegationText"])
+            format!(
+                "beacon-peer-delegation-v1
+session:{}
+key:{}
+expires:{}",
+                delegation.session_id, delegation.session_key, delegation.expires_at_ms
+            )
         );
         assert_eq!(
             sign_delegation(&machine, &delegation).unwrap(),

@@ -19,10 +19,15 @@ const vector = JSON.parse(
   ),
 );
 const identityKey = base64url(
-  Uint8Array.from(Buffer.from(vector.machinePublicKeyHex, "hex")),
+  Uint8Array.from(Buffer.from(vector.machinePublicHex, "hex")),
 );
 const proof: HostProof = {
-  delegation: vector.delegation,
+  delegation: {
+    sessionId: vector.delegation.sessionId,
+    sessionKey: vector.delegation.sessionPublic,
+    expiresAtMs: vector.delegation.expiresAtMs,
+    signature: vector.delegation.signature,
+  },
   statement: vector.statement,
 };
 const base = {
@@ -87,7 +92,7 @@ test("a different key from the one pinned is reported and never replaces the pin
   const store = browserPinStore(storage);
   await judgeOffer({ ...base, store });
   const pinned = store.get("machine-1");
-  const other = Uint8Array.from(Buffer.from(vector.machinePublicKeyHex, "hex"));
+  const other = Uint8Array.from(Buffer.from(vector.machinePublicHex, "hex"));
   other[0]! ^= 1;
   const verdict = await judgeOffer({
     ...base,
