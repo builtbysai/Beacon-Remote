@@ -136,3 +136,22 @@ test("roles, states and boxes must be well formed", () => {
       JSON.stringify(bad),
     );
 });
+
+test("an answer may say which display the boxes are on, strictly", () => {
+  const tree = leaf({ role: "window" });
+  const display = { x: -1920, y: 0, width: 1920, height: 1080 };
+  assert.equal(uiTreeResponse.safeParse(ok(tree, { display })).success, true);
+  assert.equal(uiTreeResponse.safeParse(ok(tree)).success, true);
+  for (const bad of [
+    { ...display, width: 0 },
+    { ...display, height: -5 },
+    { ...display, x: 1.5 },
+    { ...display, name: "primary" },
+    { x: 0, y: 0, width: 10 },
+  ])
+    assert.equal(
+      uiTreeResponse.safeParse(ok(tree, { display: bad })).success,
+      false,
+      JSON.stringify(bad),
+    );
+});

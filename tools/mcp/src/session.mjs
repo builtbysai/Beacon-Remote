@@ -3,7 +3,7 @@ import {
   uiTreeAskScript,
   uiTreeReadScript,
 } from "./control-sender.mjs";
-import { createSnapshotStore } from "./ui-snapshot.mjs";
+import { createSnapshotStore, targetPoint } from "./ui-snapshot.mjs";
 import { createScope, revoke } from "./agent-scope.mjs";
 import { runControl } from "./control-tools.mjs";
 const delay = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -101,7 +101,11 @@ export class RemoteSession {
           typeof answer?.reason === "string" ? answer.reason : "unavailable",
         receipt: result.receipt,
       };
-    const shot = record.snapshots.add(answer.tree);
+    const shot = record.snapshots.add(
+      answer.tree,
+      Date.now(),
+      answer.display ?? null,
+    );
     return {
       ok: true,
       snapshot: shot.snapshot,
@@ -117,6 +121,25 @@ export class RemoteSession {
     const record = this.current;
     if (!record || !record.scope)
       return { ok: false, reason: "no-control-scope" };
+    // A pointer command may name a target from a snapshot instead of a point. The click lands at the centre of its box,
+    // mapped from the display the boxes are on to the picture; a stale, unknown, protected or off-screen target is refused.
+    if (args && args.target !== undefined) {
+      const { target } = args;
+      if (tool !== "pointer")
+        return { ok: false, reason: "target-only-for-pointer" };
+      if (!Number.isInteger(target?.snapshot) || !Number.isInteger(target?.ref))
+        return { ok: false, reason: "invalid-target" };
+      const resolved = record.snapshots?.resolve(target.snapshot, target.ref);
+      if (!resolved?.ok)
+        return { ok: false, reason: resolved?.reason ?? "unknown-snapshot" };
+      const info = await record.viewer.evaluate(readState);
+      const point = targetPoint(resolved.node, resolved.display, {
+        width: info?.width,
+        height: info?.height,
+      });
+      if (!point.ok) return point;
+      args = { x: point.x, y: point.y, button: args.button ?? "left" };
+    }
     return runControl({
       scope: record.scope,
       command: { computerId: record.scope.computerId, tool, args, key },

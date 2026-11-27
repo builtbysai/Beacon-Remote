@@ -210,6 +210,31 @@ mod reader {
 #[cfg(windows)]
 pub use reader::read_window;
 
+/// The monitor a window is mostly on, as `{ x, y, width, height }` in the same screen coordinates as the tree's boxes, so
+/// a viewer can turn a box into a point on the picture it is watching. `None` when Windows cannot say.
+#[cfg(windows)]
+pub fn display_of(hwnd: isize) -> Option<Value> {
+    use windows_sys::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+    // SAFETY: asks Windows which monitor a window is on and for that monitor's rectangle; nothing is changed.
+    unsafe {
+        let monitor = MonitorFromWindow(hwnd as _, MONITOR_DEFAULTTONEAREST);
+        if monitor.is_null() {
+            return None;
+        }
+        let mut info: MONITORINFO = std::mem::zeroed();
+        info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(monitor, &mut info) == 0 {
+            return None;
+        }
+        let rect = info.rcMonitor;
+        let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
+        (width > 0 && height > 0)
+            .then(|| json!({"x": rect.left, "y": rect.top, "width": width, "height": height}))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -307,6 +332,8 @@ mod tests {
         // SAFETY: looks a top-level window up by its class name.
         let hwnd = unsafe { FindWindowW(w!("Shell_TrayWnd"), None) }.expect("no taskbar window");
         let (tree, truncated) = read_window(hwnd.0 as isize).expect("tree");
+        let display = display_of(hwnd.0 as isize).expect("the taskbar is on a monitor");
+        assert!(display["width"].as_i64().unwrap() > 0 && display["height"].as_i64().unwrap() > 0);
         assert!(!truncated, "the taskbar is small");
         fn count(value: &Value) -> usize {
             1 + value["children"]

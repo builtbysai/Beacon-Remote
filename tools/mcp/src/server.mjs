@@ -163,11 +163,17 @@ if (controlEnabled)
         y: z.number().int().min(0).max(16384).optional(),
         button: z.enum(["left", "right", "none"]).optional(),
         key: z.string().max(32).optional(),
+        // Instead of x and y, a pointer command may name an element from a ui_tree snapshot.
+        snapshot: z.number().int().min(1).optional(),
+        ref: z.number().int().min(1).optional(),
         idempotency_key: z.string().min(8).max(64),
       },
     },
-    async ({ tool, idempotency_key, ...args }) =>
-      text(await session.control(tool, args, idempotency_key)),
+    async ({ tool, idempotency_key, snapshot, ref, ...args }) => {
+      if (snapshot !== undefined || ref !== undefined)
+        args.target = { snapshot, ref };
+      return text(await session.control(tool, args, idempotency_key));
+    },
   );
 if (controlEnabled)
   server.registerTool(

@@ -96,11 +96,25 @@ internal class UiTreeChannel(
                     send(
                         if (read == null) UiTreeRequests.refusal(decision.id, "unavailable")
                         else JSONObject().put("type", "ui-tree").put("id", decision.id).put("ok", true)
-                            .put("truncated", read.truncated).put("tree", read.tree).toString(),
+                            .put("truncated", read.truncated).put("tree", read.tree)
+                            .apply { displayJson()?.let { put("display", it) } }.toString(),
                     )
                 }
             }
         }
+    }
+
+    /** The phone's whole screen, in the same coordinates as the tree's boxes (they start at the top left of the screen). */
+    private fun displayJson(): JSONObject? {
+        val service = ControlService.instance ?: return null
+        val windows = service.getSystemService(android.view.WindowManager::class.java) ?: return null
+        val (width, height) =
+            if (android.os.Build.VERSION.SDK_INT >= 30) windows.currentWindowMetrics.bounds.let { it.width() to it.height() }
+            else android.util.DisplayMetrics().also {
+                @Suppress("DEPRECATION")
+                windows.defaultDisplay.getRealMetrics(it)
+            }.let { it.widthPixels to it.heightPixels }
+        return if (width > 0 && height > 0) JSONObject().put("x", 0).put("y", 0).put("width", width).put("height", height) else null
     }
 
     private fun send(text: String) {

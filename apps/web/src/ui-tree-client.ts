@@ -1,5 +1,6 @@
 import {
   uiTreeResponse,
+  type UiDisplay,
   type UiNode,
   type UiTreeResponse,
 } from "@beacon-remote/protocol";
@@ -15,7 +16,7 @@ export type UiTreeTransport = {
 };
 
 export type UiTreeResult =
-  | { ok: true; truncated: boolean; tree: UiNode }
+  | { ok: true; truncated: boolean; tree: UiNode; display?: UiDisplay }
   | {
       ok: false;
       reason:
@@ -94,6 +95,11 @@ export class UiTreeClient {
 
 function toResult(message: UiTreeResponse): UiTreeResult {
   return message.ok
-    ? { ok: true, truncated: message.truncated, tree: message.tree }
+    ? {
+        ok: true,
+        truncated: message.truncated,
+        tree: message.tree,
+        ...(message.display ? { display: message.display } : {}),
+      }
     : { ok: false, reason: message.reason };
 }

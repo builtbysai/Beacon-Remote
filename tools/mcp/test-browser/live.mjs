@@ -145,6 +145,7 @@ function producer() {
                 id,
                 ok: true,
                 truncated: false,
+                display: { x: 0, y: 0, width: 1280, height: 720 },
                 tree: {
                   role: "window",
                   name: "Synthetic settings",
