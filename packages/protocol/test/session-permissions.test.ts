@@ -28,6 +28,7 @@ test("the scope list and the options message agree, so a new scope cannot be lef
     "files",
     "print",
     "recording",
+    "ui_tree",
   ]);
   // Every scope fits in one options message, and one more than that does not.
   assert.equal(

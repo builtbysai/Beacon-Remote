@@ -33,6 +33,7 @@ mod print_transport;
 mod renewal;
 #[cfg(windows)]
 mod ui_bridge;
+mod ui_tree_transport;
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // The owner's one-time folder choice for drive mapping runs on its own and exits.

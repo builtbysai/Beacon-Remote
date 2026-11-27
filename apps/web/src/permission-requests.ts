@@ -12,6 +12,7 @@ export const permissionNames: Record<SessionPermission, string> = {
   drive: "Shared folder",
   print: "Printing",
   clipboard: "Clipboard",
+  ui_tree: "Screen structure (for assistants)",
 };
 
 export type PermissionRequestView = {

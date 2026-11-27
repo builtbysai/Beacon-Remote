@@ -446,6 +446,8 @@ pub const DRIVE_BIT: u8 = 4;
 pub const PRINT_BIT: u8 = 8;
 /// Writing the clipboard approved for this connection (ADR 0060), its own bit like print.
 pub const CLIPBOARD_BIT: u8 = 16;
+/// Reading the screen's interface tree approved for this connection (ADR 0064), its own bit like the others.
+pub const UI_TREE_BIT: u8 = 32;
 
 impl Permissions {
     pub fn from_bits(bits: u8) -> Self {

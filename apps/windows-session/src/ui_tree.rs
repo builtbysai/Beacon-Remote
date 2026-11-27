@@ -184,8 +184,9 @@ mod reader {
         ))
     }
 
-    /// Reads the tree under one top-level window. Call it from a thread that may initialise COM.
-    pub fn read_window(hwnd: isize) -> Result<Value, String> {
+    /// Reads the tree under one top-level window, and whether the node limit cut it short. Call it from a thread
+    /// that may initialise COM.
+    pub fn read_window(hwnd: isize) -> Result<(Value, bool), String> {
         // SAFETY: COM initialisation and creation of the automation object; an already-initialised thread is fine.
         unsafe {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
@@ -199,8 +200,9 @@ mod reader {
                 .ControlViewWalker()
                 .map_err(|e| format!("Tree walker unavailable: {e}"))?;
             let mut count = 0;
-            read_element(&root, &walker, 0, &mut count)
-                .map_err(|e| format!("Tree not readable: {e}"))
+            let tree = read_element(&root, &walker, 0, &mut count)
+                .map_err(|e| format!("Tree not readable: {e}"))?;
+            Ok((tree, count >= MAX_NODES))
         }
     }
 }
@@ -304,7 +306,8 @@ mod tests {
         use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
         // SAFETY: looks a top-level window up by its class name.
         let hwnd = unsafe { FindWindowW(w!("Shell_TrayWnd"), None) }.expect("no taskbar window");
-        let tree = read_window(hwnd.0 as isize).expect("tree");
+        let (tree, truncated) = read_window(hwnd.0 as isize).expect("tree");
+        assert!(!truncated, "the taskbar is small");
         fn count(value: &Value) -> usize {
             1 + value["children"]
                 .as_array()
