@@ -29,3 +29,6 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphic
 
 [target.'cfg(windows)'.build-dependencies]
 embed-resource = "3"
+
+[target.'cfg(windows)'.dev-dependencies]
+ed25519-dalek = "3"
