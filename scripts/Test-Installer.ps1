@@ -103,6 +103,22 @@ try {
     Check (-not $run -or -not $run.PSObject.Properties['BeaconRemoteHost']) 'uninstall removes start at sign-in'
     Check (-not (Test-Path "$install\beacon-remote-host.exe")) 'uninstall removes the programs'
     Check (Test-Path "$install\keep.txt") 'uninstall leaves files it did not create'
+    # Removal by the account owner (ADR 0039): the host that was told to remove itself starts the same uninstaller with
+    # --removed-by-owner, which asks nothing. Install again, keep a program running, and check the same things go.
+    New-Item -ItemType Directory -Force "$profileRoot\Local\BeaconRemote" | Out-Null
+    Set-Content "$profileRoot\Local\BeaconRemote\identity.bin" 'saved sign-in'
+    Start-Process $setupNext -ArgumentList '--silent' -WindowStyle Hidden -Wait
+    Check (Test-Path "$install\Uninstall Beacon Remote.exe") 'a second install puts the uninstaller back'
+    $running = Start-StandIn
+    Start-Process "$install\Uninstall Beacon Remote.exe" -ArgumentList '--uninstall', '--removed-by-owner', '--silent' -WindowStyle Hidden -Wait
+    $running.Refresh()
+    Check $running.HasExited 'removal by the owner stops the host that was running'
+    Start-Sleep 5
+    Check (-not (Test-Path "$profileRoot\Local\BeaconRemote")) 'removal by the owner removes the saved sign-in'
+    Check (-not (Test-Path $link)) 'removal by the owner removes the shortcut'
+    Check (-not (Test-Path "$key\Uninstall")) 'removal by the owner removes the Apps and features entry'
+    Check (-not (Test-Path "$install\beacon-remote-host.exe")) 'removal by the owner removes the programs'
+    Check (Test-Path "$install\keep.txt") 'removal by the owner leaves files it did not create'
     Write-Host 'Installer check passed.'
 } finally {
     if ($ownsRegistry -and (Test-Path -LiteralPath $key)) { Remove-Item -LiteralPath $key -Recurse -ErrorAction SilentlyContinue }
