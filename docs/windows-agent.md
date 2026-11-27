@@ -170,6 +170,23 @@ files the installer did not create left alone). It needs no administrator approv
 Not covered, because they need administrator approval and real hardware: trusting the signing certificate, installing
 and removing the boot service, the sign-in worker, cold boot and signed-out states, and crash or reboot recovery.
 
+## Fewer administrator approvals per test cycle (November 27, 2026)
+
+Read from the code, not yet tried on the laptop: installing or removing the boot service is one elevated action
+(`boot-install` or `boot-uninstall`, one Windows prompt through `ShellExecuteEx runas`); nothing else in the host
+elevates. So a cycle costs one approval per service install, and the way to spend fewer is to order the work:
+
+1. Build one signed candidate containing every pending change (`Build-DevelopmentHost.ps1 -SignInMedia -RequireSigning`),
+   so the service and its worker are replaced once, not once per fix.
+2. Do everything that needs no administrator first, with the new per-user install: the host window, clipboard modes,
+   peer identity and key codes, permission cards, files and the viewer. None of it prompts.
+3. Only then install the service (one approval) and run the sign-in-screen checks that need it: reboot presence, the
+   sign-in worker, the Open sign-in button and the wake-to-PIN click. Group the reboots: one cold boot covers presence,
+   the sign-in stream and the signed-out state together.
+4. Keep the installed copy under Program Files and signed; never point the service at a build folder to avoid a prompt.
+   A change to only the viewer or the backend needs no host reinstall at all, so test those against the installed host.
+5. Leave removal for last: `boot-uninstall` is its own approval.
+
 ## Boot availability service on Surfiena (November 26, 2026)
 
 Installed from the host window's Unattended tab with Windows administrator approval on the lab laptop, then checked:
