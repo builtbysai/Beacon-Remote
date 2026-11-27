@@ -37,6 +37,12 @@ import {
   type PermissionLogEntry,
 } from "./permission-log.js";
 import { PrintClient } from "./print-client.js";
+import {
+  ClipboardClient,
+  ClipboardRefused,
+  MAX_WRITE_CHARS,
+  type ClipboardMode,
+} from "./clipboard-client.js";
 import { approvedInput, approvedInputPrefix } from "./approved-input.js";
 import {
   permissionNames,
@@ -312,6 +318,12 @@ export function LiveView({
   const printer = useRef<PrintClient | null>(null);
   const [printReady, setPrintReady] = useState(false);
   const [printStatus, setPrintStatus] = useState("");
+  // Clipboard sharing (ADR 0060): the computer opens a channel and tells us its setting; null until it does.
+  const clipboardChannel = useRef<ClipboardClient | null>(null);
+  const [clipMode, setClipMode] = useState<ClipboardMode | null>(null);
+  const [clipStatus, setClipStatus] = useState("");
+  // The last text this viewer sent, so Automatic never sends the same thing twice.
+  const lastClipSent = useRef("");
   const [transfer, setTransfer] = useState<Transfer | null>(null);
   const [offer, setOffer] = useState<Offer | null>(null);
   const downloads = useRef(new DownloadResume());
@@ -368,6 +380,74 @@ export function LiveView({
   const [passwordDraft, setPasswordDraft] = useState("");
   // The layout of the phone's PIN screen, sent by the phone while the pad is open, drawn as a stand-in for the picture.
   const [lockScreen, setLockScreen] = useState<LockScreen | null>(null);
+  useEffect(() => {
+    if (clipMode !== "auto") return;
+    const sync = () => {
+      const client = clipboardChannel.current;
+      if (!client || document.visibilityState !== "visible") return;
+      navigator.clipboard
+        ?.readText()
+        .then((text) => {
+          if (!text || [...text].length > MAX_WRITE_CHARS) return;
+          if (text === lastClipSent.current) return;
+          lastClipSent.current = text;
+          return client.write(text);
+        })
+        .catch(() => {});
+    };
+    window.addEventListener("focus", sync);
+    document.addEventListener("visibilitychange", sync);
+    return () => {
+      window.removeEventListener("focus", sync);
+      document.removeEventListener("visibilitychange", sync);
+    };
+  }, [clipMode]);
+  const sendClipboard = async () => {
+    const client = clipboardChannel.current;
+    if (!client) return;
+    setClipStatus("");
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      setClipStatus(
+        "Allow clipboard access in your browser to send your clipboard.",
+      );
+      return;
+    }
+    if (!text) {
+      setClipStatus("Your clipboard has no text to send.");
+      return;
+    }
+    try {
+      await client.write(text);
+      lastClipSent.current = text;
+      setClipStatus("Sent your clipboard to the computer.");
+    } catch (error) {
+      if (
+        error instanceof ClipboardRefused &&
+        error.reason === "needs-approval"
+      ) {
+        // The person at the computer approves this for the connection; send again once they have.
+        if (permissionView.options.includes("clipboard")) {
+          setClipStatus(
+            "Asking the computer for clipboard access. Send again after it is approved.",
+          );
+          permissions.current?.request("clipboard");
+        } else {
+          setClipStatus(
+            "The computer is not offering clipboard access right now. Try again in a moment.",
+          );
+        }
+      } else {
+        setClipStatus(
+          error instanceof Error
+            ? error.message
+            : "Could not send the clipboard.",
+        );
+      }
+    }
+  };
   useEffect(() => {
     const target = video.current;
     if (!target) return;
@@ -823,6 +903,50 @@ export function LiveView({
         )
           event.channel.close();
         else upgradedInput.offer(event.channel);
+        return;
+      }
+      if (
+        event.channel.label === "beacon-clipboard-v1" &&
+        grant.source === "desktop" &&
+        !clipboardChannel.current &&
+        event.channel.ordered
+      ) {
+        const channel = event.channel;
+        const client = new ClipboardClient(
+          {
+            get open() {
+              return channel.readyState === "open";
+            },
+            send: (text) => channel.send(text),
+          },
+          {
+            mode: (mode) => {
+              setClipMode(mode);
+              if (mode !== "off") setClipStatus("");
+            },
+            pushed: (text) => {
+              // Copied at the computer while Automatic is on. Browsers allow this only while the page is focused.
+              lastClipSent.current = text;
+              navigator.clipboard
+                ?.writeText(text)
+                .then(() => setClipStatus("Copied from the computer."))
+                .catch(() =>
+                  setClipStatus(
+                    "Allow clipboard access in your browser to receive copies from the computer.",
+                  ),
+                );
+            },
+          },
+        );
+        clipboardChannel.current = client;
+        channel.onmessage = (message) => client.receive(String(message.data));
+        channel.onopen = () => client.hello();
+        channel.onclose = () => {
+          client.close();
+          clipboardChannel.current = null;
+          setClipMode(null);
+        };
+        if (channel.readyState === "open") client.hello();
         return;
       }
       if (
@@ -1847,6 +1971,25 @@ export function LiveView({
               Browse shared folder
             </button>
           )}
+          {clipMode !== null && !ended && frames > 0 && (
+            <button
+              data-g="control"
+              className="viewer-control"
+              disabled={clipMode === "off" || peerPaused}
+              title={
+                clipMode === "off"
+                  ? "Clipboard sharing is off on this computer"
+                  : "Set the computer's clipboard to the text you copied here"
+              }
+              onClick={() => void sendClipboard()}
+            >
+              Send clipboard to computer
+            </button>
+          )}
+          {clipMode === "off" && (
+            <p role="status">Clipboard sharing is off on this computer.</p>
+          )}
+          {clipStatus && <p role="status">{clipStatus}</p>}
           {printReady && (
             <button
               data-g="files"
