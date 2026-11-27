@@ -22,8 +22,22 @@ const database = localDatabaseUrl(
   "beacon_remote_test",
 );
 const admin = new Pool({ connectionString: database });
-const schema = `lab_dev_${randomUUID().replaceAll("-", "")}`;
-await admin.query(`CREATE SCHEMA ${schema}`);
+// LAB_SCHEMA reuses a schema left by an earlier run (stopped without its cleanup), so the paired laptop and its
+// sign-in service keep working across a fixture restart; such a schema is kept on exit too.
+const kept = process.env.LAB_SCHEMA;
+if (kept !== undefined && !/^lab_dev_[0-9a-f]{32}$/.test(kept))
+  throw new Error("LAB_SCHEMA must name an earlier lab_dev_ schema");
+const schema = kept ?? `lab_dev_${randomUUID().replaceAll("-", "")}`;
+if (kept === undefined) await admin.query(`CREATE SCHEMA ${schema}`);
+else if (
+  !(
+    await admin.query(
+      "SELECT 1 FROM information_schema.schemata WHERE schema_name=$1",
+      [schema],
+    )
+  ).rowCount
+)
+  throw new Error(`No schema ${schema}`);
 const pool = new Pool({
   connectionString: database,
   options: `-c search_path=${schema}`,
@@ -40,7 +54,7 @@ const loginPath = resolve(
     resolve(root, "../../Beacon-Secrets/remote/local/accounts"),
   "lab.json",
 );
-const account = randomUUID();
+let account = randomUUID();
 const email = `lab-${account}@example.test`;
 const password = randomBytes(32).toString("base64url");
 let web: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -54,17 +68,23 @@ async function stop() {
   await app?.close();
   await web?.close();
   await pool.end();
-  await admin.query(`DROP SCHEMA ${schema} CASCADE`);
+  if (kept === undefined) await admin.query(`DROP SCHEMA ${schema} CASCADE`);
   await admin.end();
 }
 process.once("SIGINT", () => void stop().then(() => process.exit(0)));
 process.once("SIGTERM", () => void stop().then(() => process.exit(0)));
 try {
   await applyMigrations(pool);
-  await pool.query(
-    "INSERT INTO accounts(id,email,password_hash) VALUES ($1,$2,$3)",
-    [account, email, await hash(password)],
-  );
+  // A kept schema keeps its account and the login file that names it.
+  if (kept !== undefined)
+    account = (
+      await pool.query<{ id: string }>("SELECT id FROM accounts LIMIT 1")
+    ).rows[0]!.id;
+  else
+    await pool.query(
+      "INSERT INTO accounts(id,email,password_hash) VALUES ($1,$2,$3)",
+      [account, email, await hash(password)],
+    );
   const token = randomBytes(32).toString("base64url");
   await pool.query(
     "INSERT INTO browser_sessions VALUES ($1,$2,now()+interval '8 hours')",
@@ -91,7 +111,8 @@ try {
   await web.listen();
   await mkdir(state, { recursive: true });
   await mkdir(dirname(loginPath), { recursive: true });
-  await writeFile(loginPath, JSON.stringify({ origin, email, password }));
+  if (kept === undefined)
+    await writeFile(loginPath, JSON.stringify({ origin, email, password }));
   const newCode = async () => {
     const machines = await pool.query(
       "SELECT count(*)::int AS n FROM machines",
