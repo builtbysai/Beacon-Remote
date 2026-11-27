@@ -12,8 +12,9 @@ shared plaintext files.
 
 Enrollment codes are sensitive bearer invitations, delivered only to an
 authenticated owner with an exact same-origin check. They expire after five
-minutes and are claimed atomically. New readable device codes use 12 independent
-base32 symbols (60 bits); rate limits and owner/device bounds remain enforced.
+minutes and are claimed atomically. New readable workspace codes use 8 independent
+base32 symbols (40 bits; [ADR 0068](decisions/0068-shorter-plain-pairing-codes.md) gives the reasoning and limits, and codes
+issued as 12 symbols stay valid until they expire); each works once, and rate limits and owner/device bounds remain enforced.
 Legacy bearer codes retain exact case. See [the pairing decision](decisions/0050-readable-device-pairing.md).
 Signed heartbeats bind version, machine ID,
 timestamp, and nonce; the server rejects forgery, stale timestamps and replay.

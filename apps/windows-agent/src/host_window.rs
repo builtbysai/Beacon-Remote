@@ -362,6 +362,39 @@ unsafe fn read(window: HWND) -> String {
     buffer.zeroize();
     result
 }
+/// A pairing link pasted into the code box (`beaconremote://pair?code=…&server=…`, as the workspace offers for phones):
+/// the server it names, if any, and the code. `None` for anything else, including a plain code.
+fn pairing_link(typed: &str) -> Option<(Option<String>, String)> {
+    let url = reqwest::Url::parse(typed.trim()).ok()?;
+    if url.scheme() != "beaconremote" || url.host_str() != Some("pair") {
+        return None;
+    }
+    let mut code = None;
+    let mut server = None;
+    for (key, value) in url.query_pairs() {
+        match key.as_ref() {
+            "code" if !value.is_empty() && value.len() <= 64 => code = Some(value.into_owned()),
+            "server" if !value.is_empty() && value.len() <= 2048 => {
+                server = Some(value.into_owned())
+            }
+            _ => {}
+        }
+    }
+    code.map(|code| (server, code))
+}
+
+/// What to tell the person when the pairing form is incomplete, naming the first box that needs filling in.
+fn missing_field(server: &str, name: &str, code: &str) -> Option<&'static str> {
+    if server.trim().is_empty() {
+        Some("Enter the server address.")
+    } else if name.trim().is_empty() {
+        Some("Give this computer a name.")
+    } else if code.trim().is_empty() {
+        Some("Enter the pairing code from your workspace, like AB3K-9PQ2.")
+    } else {
+        None
+    }
+}
 fn primary_label(paired: bool, busy: bool, stopping: bool) -> &'static str {
     match (paired, busy, stopping) {
         (_, true, true) => "Stopping…",
@@ -921,13 +954,24 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
             let server = read(self.server);
             let name = read(self.name);
             let mut code = read(self.code);
-            text(self.code, "");
-            if server.trim().is_empty() || name.trim().is_empty() || code.trim().is_empty() {
+            // A pasted pairing link fills in the server and code, then waits: the person sees which server it names
+            // before anything is sent there.
+            if let Some((linked_server, linked_code)) = pairing_link(&code) {
                 code.zeroize();
+                if let Some(linked_server) = linked_server {
+                    text(self.server, &linked_server);
+                }
+                text(self.code, &linked_code);
                 text(
                     self.status,
-                    "Enter the server, computer name, and pairing code from your workspace.",
+                    "Filled in from the link. Check the server, then select Pair computer.",
                 );
+                return;
+            }
+            // Say which box is missing, and keep what was typed: a code that fails can be fixed, not retyped from scratch.
+            if let Some(missing) = missing_field(&server, &name, &code) {
+                code.zeroize();
+                text(self.status, missing);
                 return;
             }
             text(self.status, "Pairing computer… Please wait.");
@@ -1260,6 +1304,8 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
             let worker = self.worker.take().unwrap();
             let success = matches!(worker.handle.join(), Ok(Ok(())));
             if worker.pairing && success {
+                // The one-use code has done its job; it is not kept on screen.
+                text(self.code, "");
                 self.paired = beacon_remote_agent::is_paired();
                 self.check_signin();
                 text(
@@ -1275,7 +1321,7 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
                     "Stopped · Select Start host when you are ready.",
                 );
             } else if worker.pairing {
-                text(self.status, "Pairing failed. Check the server and network, then request a fresh code in your workspace.");
+                text(self.status, "Pairing failed. Check the code for a typo, or the server and network; if it still fails, ask for a new code in your workspace (each works once for five minutes).");
             } else if self.last_status == Some(HostStatus::Rejected) {
                 text(self.status, "Host authorization rejected. Check this computer in your workspace before trying again.");
             } else {
@@ -2049,7 +2095,7 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             for (label, top) in [
                 ("Server", 100),
                 ("Computer name", 168),
-                ("Pairing code from your workspace", 236),
+                ("Pairing code, like AB3K-9PQ2", 236),
             ] {
                 state.enrollment.push(child(
                     "STATIC",
@@ -2065,6 +2111,7 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             let field = WS_TABSTOP | ES_AUTOHSCROLL as u32;
             state.server = child("EDIT", DEFAULT_SERVER, 40, 130, 440, 22, field, SERVER)?;
             state.name = child("EDIT", &computer, 40, 198, 440, 22, field, NAME)?;
+            // Shown in plain, capital letters: it is short, works once and expires, and a hidden code hides typos.
             state.code = child(
                 "EDIT",
                 "",
@@ -2072,7 +2119,7 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                 266,
                 440,
                 22,
-                field | ES_PASSWORD as u32,
+                field | ES_UPPERCASE as u32,
                 CODE,
             )?;
             SendMessageW(state.server, EM_SETLIMITTEXT, 2048, 0);
@@ -2585,7 +2632,63 @@ pub fn show_startup_error() {
 
 #[cfg(test)]
 mod fit_tests {
-    use super::{clip_ago, clip_mode_from, fit_factor};
+    use super::{clip_ago, clip_mode_from, fit_factor, missing_field, pairing_link};
+
+    #[test]
+    fn a_pairing_link_gives_its_server_and_code_and_nothing_else_does() {
+        assert_eq!(
+            pairing_link(
+                "beaconremote://pair?code=AB3K-9PQ2&server=https%3A%2F%2Fremote.example.com"
+            ),
+            Some((
+                Some("https://remote.example.com".to_string()),
+                "AB3K-9PQ2".to_string()
+            ))
+        );
+        assert_eq!(
+            pairing_link("  beaconremote://pair?code=AB3K-9PQ2  "),
+            Some((None, "AB3K-9PQ2".to_string()))
+        );
+        for not_a_link in [
+            "AB3K-9PQ2",
+            "",
+            "https://remote.example.com/pair?code=AB3K-9PQ2",
+            "beaconremote://other?code=AB3K-9PQ2",
+            "beaconremote://pair?server=https%3A%2F%2Fx",
+            "beaconremote://pair?code=",
+            "not a url",
+        ] {
+            assert_eq!(pairing_link(not_a_link), None, "{not_a_link:?}");
+        }
+        // An absurdly long value is ignored, not copied into a box.
+        assert_eq!(
+            pairing_link(&format!("beaconremote://pair?code={}", "A".repeat(100))),
+            None
+        );
+    }
+
+    #[test]
+    fn an_incomplete_pairing_form_names_the_first_box_to_fill_in() {
+        assert_eq!(
+            missing_field("", "PC", "AB3K-9PQ2"),
+            Some("Enter the server address.")
+        );
+        assert_eq!(
+            missing_field("  ", "PC", "AB3K-9PQ2"),
+            Some("Enter the server address.")
+        );
+        assert_eq!(
+            missing_field("https://x", " ", "AB3K-9PQ2"),
+            Some("Give this computer a name.")
+        );
+        assert!(missing_field("https://x", "PC", "")
+            .unwrap()
+            .contains("pairing code"));
+        assert!(missing_field("https://x", "PC", "   ").is_some());
+        assert_eq!(missing_field("https://x", "PC", "AB3K-9PQ2"), None);
+        // A code typed any way counts as present; the server decides whether it is valid.
+        assert_eq!(missing_field("https://x", "PC", "ab3k 9pq2"), None);
+    }
 
     #[test]
     fn the_clipboard_setting_defaults_to_button_only_and_words_are_plain() {

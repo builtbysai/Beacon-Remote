@@ -124,7 +124,7 @@ impl Snapshot {
                 } else if !status.media_supported {
                     "Service prepared. Sign-in control is unavailable in this development build."
                 } else if !status.media_ready {
-                    "Service running. Check your workspace for current sign-in connection availability."
+                    "Service running. Sign-in access is served only at the Windows sign-in screen, so it shows as ready there. Check your workspace for its current availability."
                 } else {
                     "Sign-in endpoint ready. Windows authentication is still required."
                 };
@@ -317,7 +317,7 @@ impl Ui {
                     .as_ref()
                     .is_some_and(|state| !state.owner_control)
                 {
-                    "Allow owner control in the host before enabling Windows sign-in access."
+                    "Turn on unattended access first (Unattended tab, then Set up unattended access) so your own account may control this computer. Then set up sign-in access here."
                 } else {
                     "Windows sign-in uses a separate service. Enabling access requires administrator approval; Windows still checks your credentials."
                 },

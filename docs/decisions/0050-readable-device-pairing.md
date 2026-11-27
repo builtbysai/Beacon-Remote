@@ -1,7 +1,7 @@
 # Readable device pairing codes
 
 The owner found the 32-character invitation impractical to enter on a phone.
-New device invitations use twelve independently selected symbols from a
+New device invitations (shortened to eight by [0068](0068-shorter-plain-pairing-codes.md)) used twelve independently selected symbols from a
 32-character alphabet, displayed in three groups of four. The alphabet omits
 `I`, `O`, `0` and `1`; the code carries 60 bits of random entropy. Selection uses
 Node's cryptographic `randomInt`, without modulo bias.

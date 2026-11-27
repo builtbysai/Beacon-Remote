@@ -68,7 +68,7 @@ test(
         const code = response.json().code as string;
         assert.match(
           code,
-          /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}(?:-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}){2}$/,
+          /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}$/,
         );
         return code;
       };
@@ -148,6 +148,15 @@ test(
       });
       assert.equal((await cancel(claimed)).json().state, "claimed");
       assert.equal((await native(claimed)).statusCode, 403);
+
+      // A code issued before codes became eight symbols (twelve, in three groups) is still claimable, typed any way.
+      const older = "AB3K-9PQ2-HXZ7";
+      await pool.query(
+        "INSERT INTO enrollments(code_hash,account_id,expires_at) VALUES ($1,$2,now()+interval '5 minutes')",
+        [createHash("sha256").update(older).digest("hex"), ids[0]],
+      );
+      assert.equal((await native("ab3k 9pq2 hxz7")).statusCode, 200);
+      assert.equal((await native(older)).statusCode, 403);
 
       // Previously issued case-sensitive invitations still work. Normalizing
       // readable codes must never change the bytes of legacy bearer tokens.
