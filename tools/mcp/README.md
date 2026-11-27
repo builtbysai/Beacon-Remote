@@ -44,4 +44,6 @@ upload; that evidence does not establish real-device/Motive acceptance.
 }
 ```
 
+With `BEACON_MCP_CONTROL=enabled` each control command leaves a receipt (number, tool, ran or the reason it was refused; never typed text, key names or clipboard contents), a retried idempotency key returns the first attempt's receipt without running again, and `control_receipts` lists them (kept for the last 200 commands of the session). Unit-tested only; no live consented session has used it.
+
 Screenshots are sent to the assistant's provider. Use it only on computers whose owner has agreed to that.

@@ -14,6 +14,7 @@ export const CONTROL_TOOLS = Object.freeze([
 ]);
 
 const MAX_COMMANDS_PER_MINUTE = 120;
+export const MAX_RECEIPTS = 200;
 const MAX_LIFETIME_MS = 60 * 60 * 1000;
 
 export function createScope({
@@ -41,6 +42,8 @@ export function createScope({
     revoked: false,
     seenKeys: new Map(),
     recent: [],
+    // What each command did, newest last, without its content (no typed text, keys or clipboard).
+    receipts: [],
   };
 }
 

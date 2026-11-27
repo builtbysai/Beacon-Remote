@@ -16,17 +16,13 @@ const cmd = (tool, args = {}) => ({
 
 test("nothing is sent without a connected computer", async () => {
   const s = make(["pointer"]);
-  assert.deepEqual(
-    await runControl({
-      scope: s,
-      command: cmd("pointer", { x: 1, y: 1 }),
-      now,
-    }),
-    {
-      ok: false,
-      reason: "not-connected",
-    },
-  );
+  const reply = await runControl({
+    scope: s,
+    command: cmd("pointer", { x: 1, y: 1 }),
+    now,
+  });
+  assert.equal(reply.ok, false);
+  assert.equal(reply.reason, "not-connected");
 });
 
 test("an ungranted or revoked tool never reaches the sender", async () => {
@@ -108,11 +104,42 @@ test("a valid pointer command is sent once and a retried key is not sent again",
   const s = make(["pointer"]);
   const command = cmd("pointer", { x: 10, y: 20, button: "left" });
   assert.equal((await runControl({ scope: s, command, send, now })).ok, true);
-  assert.deepEqual(await runControl({ scope: s, command, send, now }), {
-    ok: true,
-    duplicate: true,
-  });
+  const retry = await runControl({ scope: s, command, send, now });
+  assert.equal(retry.ok, true);
+  assert.equal(retry.duplicate, true);
+  assert.equal(retry.receipt.tool, "pointer");
+  assert.equal(retry.receipt.ok, true);
   assert.deepEqual(sent, [["pointer", { x: 10, y: 20, button: "left" }]]);
+});
+
+test("every accepted command leaves a receipt without its content, bounded in number", async () => {
+  const s = make(["text", "keyboard"]);
+  const send = async () => null;
+  const typed = cmd("text", { text: "hunter2 secret" });
+  await runControl({ scope: s, command: typed, send, now });
+  await runControl({
+    scope: s,
+    command: cmd("keyboard", { key: "" }),
+    send,
+    now,
+  });
+  assert.equal(s.receipts.length, 2);
+  assert.deepEqual(
+    s.receipts.map((r) => [r.n, r.tool, r.ok, r.reason]),
+    [
+      [1, "text", true, undefined],
+      [2, "keyboard", false, "invalid-key-name"],
+    ],
+  );
+  assert.equal(JSON.stringify(s.receipts).includes("hunter2"), false);
+  for (let i = 0; i < 250; i++)
+    await runControl({
+      scope: s,
+      command: cmd("text", { text: "a" }),
+      send,
+      now: now + i,
+    });
+  assert.ok(s.receipts.length <= 200);
 });
 
 test("clipboard reads are cut to the viewer's limit and marked", async () => {
@@ -138,5 +165,7 @@ test("a failing sender is reported without leaking details", async () => {
     },
     now,
   });
-  assert.deepEqual(reply, { ok: false, reason: "send-failed" });
+  assert.equal(reply.ok, false);
+  assert.equal(reply.reason, "send-failed");
+  assert.equal(JSON.stringify(reply).includes("secret"), false);
 });

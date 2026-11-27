@@ -3,7 +3,7 @@
 // connection: without an injected sender every accepted command returns "not-connected", so the boundary can be
 // tested without a computer.
 
-import { authorize, CONTROL_TOOLS } from "./agent-scope.mjs";
+import { authorize, CONTROL_TOOLS, MAX_RECEIPTS } from "./agent-scope.mjs";
 
 const MAX_TEXT = 512;
 const MAX_CLIPBOARD = 32768;
@@ -54,7 +54,28 @@ export async function runControl({ scope, command, send, now = Date.now() }) {
     return { ok: false, reason: "unknown-tool" };
   const verdict = authorize(scope, command, now);
   if (!verdict.ok) return verdict;
-  if (verdict.duplicate) return { ok: true, duplicate: true };
+  if (verdict.duplicate) {
+    // A retry gets the receipt of what the first attempt did, and nothing is sent again.
+    const earlier = scope.receipts.find((entry) => entry.key === command.key);
+    return earlier
+      ? { ok: true, duplicate: true, receipt: earlier }
+      : { ok: true, duplicate: true };
+  }
+  const outcome = await execute({ scope, command, send });
+  const receipt = {
+    n: (scope.receipts.at(-1)?.n ?? 0) + 1,
+    key: command.key,
+    tool: command.tool,
+    ok: outcome.ok,
+    ...(outcome.ok ? {} : { reason: outcome.reason }),
+    at: now,
+  };
+  scope.receipts.push(receipt);
+  if (scope.receipts.length > MAX_RECEIPTS) scope.receipts.shift();
+  return { ...outcome, receipt };
+}
+
+async function execute({ command, send }) {
   const problem = validators[command.tool](command.args ?? {});
   if (problem) return { ok: false, reason: problem };
   if (typeof send !== "function") return { ok: false, reason: "not-connected" };
