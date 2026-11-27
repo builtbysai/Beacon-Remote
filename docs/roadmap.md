@@ -50,6 +50,13 @@ Built November 26 from the merged stack head `1ecbab23`: the signed sign-in-medi
 its development package and trust folder, signed with Beacon Remote's own certificate. Local only: not installed,
 published or deployed, and no device has run it.
 
+Rebuilt a fourth time November 27 from main `62ee23c2` (adds the eight-symbol plain pairing code, the pasted-link fill-in and
+the clearer sign-in access wording to everything in `e9e67dc4`): the signed sign-in-media installer
+`dist/BeaconRemoteSetup-62ee23c2-signin-media.exe` (SHA-256 `518DCE0D302216E6FDF8C72F3AACB6DAAC6355C896578CC1CD950D81772A1A2C`),
+signed with Beacon Remote's own certificate. The laptop (SURFIENA) is paired to a throwaway lab fixture with the `e9e67dc4`
+build and its boot and sign-in services running; this newer build is staged there, not installed. Upgrading it needs a
+service repair (one UAC), and the sign-in-screen test, which needs a sign-out and the owner's PIN, is still to do.
+
 Rebuilt a third time November 27 from main `e9e67dc4` (adds acting on semantic targets and the display the tree reports, to
 everything in `60048f0f`): the signed sign-in-media installer
 `dist/BeaconRemoteSetup-e9e67dc4-signin-media.exe` (SHA-256 `52B187695D65FADEED47F719BDC5504A95A1373190AF48C09A4384E6EF81ED53`),
