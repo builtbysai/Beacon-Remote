@@ -83,7 +83,11 @@ class AccessibilityCapturer(
                                         val hardware = Bitmap.wrapHardwareBuffer(buffer, result.colorSpace) ?: error("No screen buffer")
                                         val bitmap = try { hardware.copy(Bitmap.Config.ARGB_8888, false) ?: error("No readable screen") } finally { hardware.recycle() }
                                         try { emit(bitmap) } finally { bitmap.recycle() }
-                                    }.onFailure { failed("Screen access failed"); return@execute }
+                                    }.onFailure {
+                                        // Only the kind of failure is logged, never screen content.
+                                        android.util.Log.w("BeaconHost", "Screenshot conversion failed: ${it.javaClass.simpleName}: ${it.message?.take(80)}")
+                                        failed("Screen access failed"); return@execute
+                                    }
                                 }
                             }
                             if (running && epoch == generation) handler.post { capture(epoch) }

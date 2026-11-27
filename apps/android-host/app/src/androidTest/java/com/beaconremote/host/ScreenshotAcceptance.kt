@@ -55,7 +55,7 @@ class ScreenshotAcceptance : Instrumentation() {
                 override fun onCapturerStopped() { nativeSource.capturerObserver.onCapturerStopped() }
                 override fun onFrameCaptured(frame: VideoFrame) {
                     check(frame.buffer.width > 0 && frame.buffer.height > 0)
-                    check(maxOf(frame.buffer.width, frame.buffer.height) <= 720)
+                    check(maxOf(frame.buffer.width, frame.buffer.height) <= 1920)
                     check(frame.buffer.width % 2 == 0 && frame.buffer.height % 2 == 0)
                     nativeSource.capturerObserver.onFrameCaptured(frame)
                     frames.incrementAndGet()

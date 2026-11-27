@@ -121,6 +121,13 @@ Android P0-3 now checks the dedicated **While sharing** notification channel as
 well as the app-wide notification setting. Android unit/lint/build checks passed.
 The guarded Android API 36 emulator test removed the channel while app-wide
 notifications remained enabled and verified that real screenshot frames stopped.
+November 27, 2026, emulator only (API 36, `BeaconRemote_UI_20261115`, started read-only on its own port, unpaired, no other
+accessibility service): `ScreenshotAcceptance` passed on the current main build: Android screenshot API, a real WebRTC
+source, bounded frame size, pause and resume, availability shutdown, local revocation, sharing-channel loss and lock-screen
+shutdown, with no network and no stored pixels. The runner had gone stale: it still required frames of at most 720
+pixels while capture now scales up to 1920, so it is now 1920. When a capture conversion fails the app now logs the kind
+of failure (never screen content). Not a phone: the physical matrix above is still open.
+
 The physical acceptance matrix should
 exercise both switches independently. With general notifications still enabled,
 turn off **While sharing** in Android Settings before an attended request, during
