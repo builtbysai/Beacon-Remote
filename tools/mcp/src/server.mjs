@@ -171,13 +171,31 @@ if (controlEnabled)
   );
 if (controlEnabled)
   server.registerTool(
+    "ui_tree",
+    {
+      description:
+        "Read the names, roles, states and boxes of the buttons and fields in the window being shared, as a numbered snapshot that is valid for ten seconds. The person at the computer must approve 'Screen structure' first: until they do this asks for it and answers awaiting-owner-approval, so call it again afterwards. It never includes typed text or password names. Every call needs a unique idempotency_key of 8-64 characters.",
+      inputSchema: {
+        computer_id: z.string().uuid(),
+        idempotency_key: z.string().min(8).max(64),
+      },
+    },
+    async ({ computer_id, idempotency_key }) =>
+      text(await session.uiTree(computer_id, idempotency_key)),
+  );
+if (controlEnabled)
+  server.registerTool(
     "control_receipts",
     {
       description:
         "What the control commands of this session did, newest last: number, tool, whether it ran or why it was refused. Never includes typed text, key names or clipboard contents.",
       inputSchema: {},
     },
-    async () => text({ receipts: session.current?.scope?.receipts ?? [] }),
+    async () =>
+      text({
+        receipts: session.current?.scope?.receipts ?? [],
+        uiTreeReceipts: session.current?.uiScope?.receipts ?? [],
+      }),
   );
 
 for (const signal of ["SIGINT", "SIGTERM"])

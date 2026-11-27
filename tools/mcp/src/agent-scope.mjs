@@ -10,6 +10,7 @@ export const CONTROL_TOOLS = Object.freeze([
   "keyboard",
   "text",
   "clipboard_read",
+  "ui_tree",
   "stop",
 ]);
 

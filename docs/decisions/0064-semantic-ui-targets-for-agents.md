@@ -11,8 +11,13 @@ an answer that is a strict, bounded tree or a refusal reason, with a protected f
 answered `denied` until the person at the computer approves a new `ui_tree` live permission for that connection, reads are
 limited to one a second, pause stops them, and the foreground window is read off the channel's own task; the scope is
 offered, approved and committed like the other live scopes and the shared protocol and the web viewer know it (all unit-tested,
-not run in a live session). Not built: the viewer relay
-to the MCP server, the MCP `ui_tree` tool, the Android channel and any device run. Nothing
+not run in a live session). The viewer relays it (`ui-tree-client.ts` checks every answer against the shared schema, and the page exposes it to the
+assistant's tool as events on the video), and the MCP `ui_tree` tool (behind `BEACON_MCP_CONTROL`) turns a returned tree
+into a numbered snapshot, asks for the permission while the computer says denied, and creates its own scope only once a
+tree really came back. That whole path ran in the synthetic live journey (real viewer page, Chromium and WebRTC data
+channel, a fixture standing in for the host): refused, then approved, then a tree whose password field has no name. Not
+built: acting on a snapshot target (it needs the screen-to-video coordinate mapping, which only a live run can check),
+the Android channel and any device run. Nothing
 calls the readers, no tool exposes it, and the closed tool list is unchanged, so it widens no authority
 until the owner approves wiring it up. Builds on [0046](0046-mcp-server-view-only.md) (view only) and [0052](0052-agent-control-consent.md)
 (control consent). Part of P3-3 "better agent experience".

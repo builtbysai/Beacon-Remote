@@ -129,6 +129,49 @@ function producer() {
       iceServers: [],
     }));
     peer.addTrack(canvas.captureStream(10).getVideoTracks()[0]);
+    // Stands in for the real host's semantic-target channel (ADR 0064): it answers "denied" until the fixture plays the
+    // person at the computer and approves, then returns a small tree that includes a password field with no name.
+    const treeChannel = peer.createDataChannel("beacon-ui-tree-v1", {
+      ordered: true,
+    });
+    treeChannel.onmessage = (event) => {
+      const { id } = JSON.parse(event.data);
+      const box = { x: 0, y: 0, width: 100, height: 40 };
+      treeChannel.send(
+        JSON.stringify(
+          window.fixtureApproved
+            ? {
+                type: "ui-tree",
+                id,
+                ok: true,
+                truncated: false,
+                tree: {
+                  role: "window",
+                  name: "Synthetic settings",
+                  states: ["enabled"],
+                  bounds: box,
+                  children: [
+                    {
+                      role: "button",
+                      name: "Save",
+                      states: ["enabled"],
+                      bounds: box,
+                      children: [],
+                    },
+                    {
+                      role: "password",
+                      protected: true,
+                      states: ["enabled"],
+                      bounds: box,
+                      children: [],
+                    },
+                  ],
+                },
+              }
+            : { type: "ui-tree", id, ok: false, reason: "denied" },
+        ),
+      );
+    };
     const codecs = RTCRtpSender.getCapabilities("video").codecs.filter(
       (c) => c.mimeType.toLowerCase() === "video/h264",
     );
@@ -199,6 +242,7 @@ try {
       BEACON_REMOTE_EMAIL: "",
       BEACON_REMOTE_PASSWORD: "",
       BEACON_REMOTE_MAX_SESSION_SECONDS: "60",
+      BEACON_MCP_CONTROL: "enabled",
     },
     stderr: "ignore",
   });
@@ -227,6 +271,31 @@ try {
   const png = Buffer.from(shot.content[0].data, "base64");
   assert.equal(png.subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
   await writeFile(join(output, "synthetic-picture.png"), png);
+  // Semantic targets: refused until the person at the computer approves, then a numbered tree with no password name.
+  const treeArgs = {
+    computer_id: machine,
+    idempotency_key: "ui-tree-key-0001",
+  };
+  const waiting = JSON.parse(
+    (await client.callTool({ name: "ui_tree", arguments: treeArgs })).content[0]
+      .text,
+  );
+  assert.deepEqual(waiting, { ok: false, reason: "awaiting-owner-approval" });
+  await host.evaluate("window.fixtureApproved = true");
+  const treeReply = JSON.parse(
+    (
+      await client.callTool({
+        name: "ui_tree",
+        arguments: { ...treeArgs, idempotency_key: "ui-tree-key-0002" },
+      })
+    ).content[0].text,
+  );
+  assert.equal(treeReply.ok, true, JSON.stringify(treeReply));
+  assert.equal(treeReply.nodes.length, 3);
+  assert.equal(treeReply.nodes[1].name, "Save");
+  assert.equal(treeReply.nodes[2].protected, true);
+  assert.equal("name" in treeReply.nodes[2], false);
+  assert.equal(treeReply.receipt.tool, "ui_tree");
   for (const peer of ws.clients) peer.send('{"type":"paused","paused":true}');
   await wait(
     async () =>
@@ -258,6 +327,7 @@ try {
         scope:
           "MCP stdio, real React/Chromium/local WebRTC; dummy API and canvas",
         viewOnly: true,
+        semanticTree: true,
         screenshot: true,
         pausedPictureRefused: true,
         duplicateRefused: true,
