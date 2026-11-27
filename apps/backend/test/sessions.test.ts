@@ -238,6 +238,28 @@ test(
         ),
         { type: "offer", sdp: "bounded-test-offer" },
       );
+      // A host's public proof of who made an offer is relayed byte for byte (ADR 0061); the relay adds nothing.
+      const proof = {
+        delegation: {
+          sessionId: id,
+          sessionKey: "A".repeat(43),
+          expiresAtMs: 1_800_000_000_000,
+          signature: "B".repeat(86),
+        },
+        statement: {
+          nonce: "C".repeat(22),
+          expiresAtMs: 1_795_736_000_000,
+          signature: "D".repeat(86),
+        },
+      };
+      assert.deepEqual(
+        await received(viewer, () =>
+          native.send(
+            JSON.stringify({ type: "offer", sdp: "signed-offer", peer: proof }),
+          ),
+        ),
+        { type: "offer", sdp: "signed-offer", peer: proof },
+      );
       // Revocation must reject the very next packet, without waiting for the timer.
       await pool.query("UPDATE machines SET revoked_at=now() WHERE id=$1", [
         machine,

@@ -115,21 +115,17 @@ test("any changed field, a swapped key or a damaged signature is refused", async
 test("an expired statement, or one that claims to last too long, is refused", async () => {
   const at = (now: number) =>
     verifyStatement(publicKey, vector.statement, vector.signature, now);
-  assert.deepEqual(await at(vector.statement.expiresAtMs), {
+  const end = vector.statement.expiresAtMs;
+  // Two minutes of clock difference are forgiven either way; beyond that a statement is expired or too long-lived.
+  assert.deepEqual(await at(end + 119_000), { ok: true });
+  assert.deepEqual(await at(end + 120_000), { ok: false, problem: "expired" });
+  assert.deepEqual(await at(end + 3_600_000), {
     ok: false,
     problem: "expired",
   });
-  assert.deepEqual(await at(vector.statement.expiresAtMs + 1), {
-    ok: false,
-    problem: "expired",
-  });
-  assert.deepEqual(await at(vector.statement.expiresAtMs - 61_000), {
-    ok: false,
-    problem: "expired",
-  });
-  assert.deepEqual(await at(vector.statement.expiresAtMs - 59_000), {
-    ok: true,
-  });
+  assert.deepEqual(await at(end - 181_000), { ok: false, problem: "expired" });
+  assert.deepEqual(await at(end - 179_000), { ok: true });
+  assert.deepEqual(await at(end - 59_000), { ok: true });
 });
 
 test("fields that could change where one line ends are never accepted", () => {

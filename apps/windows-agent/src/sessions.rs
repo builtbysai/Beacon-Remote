@@ -122,6 +122,7 @@ impl Helpers {
         body: Value,
         server: &str,
         local: crate::LocalAccess,
+        machine_key: &ed25519_dalek::SigningKey,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if self.cancel.load(Ordering::Acquire) {
             return Ok(());
@@ -200,6 +201,32 @@ impl Helpers {
                 "localRecording".into(),
                 Value::Bool(trusted_here && own_session),
             );
+            // Peer authentication (ADR 0061): a key minted for this session and delegated by the machine key, so the
+            // capture helper can prove who it is without ever holding the machine key. It lasts no longer than the
+            // session, and never more than twelve hours.
+            let session_key = ed25519_dalek::SigningKey::generate(&mut rand::rng());
+            let lifetime_end = now.saturating_add(12 * 3_600_000);
+            let delegation_end = if expiry == 0 {
+                lifetime_end
+            } else {
+                expiry.min(lifetime_end)
+            };
+            if let Ok((_, signature)) = beacon_remote_core::peer_identity::delegate(
+                machine_key,
+                &session_key,
+                id,
+                delegation_end,
+            ) {
+                object.insert(
+                    "peerSessionKey".into(),
+                    Value::String(beacon_remote_core::peer_identity::secret_text(&session_key)),
+                );
+                object.insert("peerDelegationSignature".into(), Value::String(signature));
+                object.insert(
+                    "peerDelegationExpiresAtMillis".into(),
+                    Value::from(delegation_end),
+                );
+            }
             let bytes = serde_json::to_vec(&payload)?;
             if bytes.len() > 8192 {
                 return Err("Session grant too large".into());

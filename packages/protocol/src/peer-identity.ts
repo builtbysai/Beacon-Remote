@@ -29,6 +29,11 @@ const FINGERPRINT = /^sha-256 ([0-9A-F]{2}:){31}[0-9A-F]{2}$/;
 const NONCE = /^[A-Za-z0-9_-]{16,64}$/;
 /** A statement is good for one minute at most, so a captured one is of no later use. */
 export const MAX_STATEMENT_MS = 60_000;
+/**
+ * How far apart two clocks may be before a good proof is called expired. Expiry is hygiene (a statement is also bound to
+ * one fingerprint), so a wrong clock must not make a real computer look like an impostor, least of all in strict mode.
+ */
+export const CLOCK_SKEW_MS = 120_000;
 
 /** Whether every field has the exact shape the other side will rebuild; nothing can smuggle in a line break. */
 export function statementWellFormed(statement: PeerStatement): boolean {
@@ -116,8 +121,8 @@ export async function verifyStatement(
   if (publicKey.length !== 32 || !statementWellFormed(statement))
     return { ok: false, problem: "malformed" };
   if (
-    statement.expiresAtMs <= nowMs ||
-    statement.expiresAtMs - nowMs > MAX_STATEMENT_MS
+    statement.expiresAtMs + CLOCK_SKEW_MS <= nowMs ||
+    statement.expiresAtMs - nowMs > MAX_STATEMENT_MS + CLOCK_SKEW_MS
   )
     return { ok: false, problem: "expired" };
   const raw = fromBase64url(signature);
@@ -202,4 +207,141 @@ export function confirmChange(
   fingerprint: string,
 ): void {
   store.set(machineId, fingerprint);
+}
+
+// ---- The delegation chain (ADR 0061, integration design) -------------------------------------------------------
+// The machine key stays in the host process. For each session the host signs a delegation naming a key it minted for
+// that session; the capture helper holds only that key and signs the connection statement with it. A viewer checks the
+// chain: the machine key it pinned, then the delegation, then the statement.
+
+export type Delegation = {
+  sessionId: string;
+  /** The session key's public half, URL-safe base64. */
+  sessionKey: string;
+  expiresAtMs: number;
+};
+
+/** A delegation lasts as long as a session can (twelve hours) and a little more. */
+export const MAX_DELEGATION_MS = 13 * 60 * 60 * 1000;
+
+const SESSION_KEY = /^[A-Za-z0-9_-]{43}$/;
+
+export function delegationWellFormed(delegation: Delegation): boolean {
+  return (
+    SESSION.test(delegation.sessionId) &&
+    SESSION_KEY.test(delegation.sessionKey) &&
+    Number.isSafeInteger(delegation.expiresAtMs) &&
+    delegation.expiresAtMs > 0
+  );
+}
+
+export function delegationBytes(delegation: Delegation): Uint8Array {
+  if (!delegationWellFormed(delegation)) throw new Error("malformed");
+  return new TextEncoder().encode(
+    [
+      "beacon-peer-delegation-v1",
+      `session:${delegation.sessionId}`,
+      `key:${delegation.sessionKey}`,
+      `expires:${delegation.expiresAtMs}`,
+    ].join("\n"),
+  );
+}
+
+export async function signDelegation(
+  machineKey: CryptoKey,
+  delegation: Delegation,
+): Promise<string> {
+  const signature = await crypto.subtle.sign(
+    "Ed25519",
+    machineKey,
+    bytes(delegationBytes(delegation)),
+  );
+  return base64url(new Uint8Array(signature));
+}
+
+/** What a host sends beside an offer: the delegation, and the statement signed with the session key. */
+export type HostProof = {
+  delegation: Delegation & { signature: string };
+  statement: { nonce: string; expiresAtMs: number; signature: string };
+};
+
+/** The DTLS fingerprint in an SDP, normalised; null if there is none or the media sections disagree. */
+export function sdpFingerprint(sdp: string): string | null {
+  const found = new Set<string>();
+  for (const line of sdp.split(/\r?\n/)) {
+    const match = /^a=fingerprint:(sha-256) ([0-9A-Fa-f:]+)\s*$/.exec(line);
+    if (match) found.add(`sha-256 ${match[2]!.toUpperCase()}`);
+    else if (line.startsWith("a=fingerprint:")) return null;
+  }
+  return found.size === 1 ? [...found][0]! : null;
+}
+
+export type ChainProblem =
+  PeerStatementProblem | "no-fingerprint" | "wrong-session";
+
+/**
+ * Checks that an offer really comes from the pinned computer: the delegation is signed by the machine key and names this
+ * session, the statement is signed by the delegated key, and the statement's fingerprint is the one in this SDP.
+ */
+export async function verifyHostProof(input: {
+  machineKey: Uint8Array;
+  sessionId: string;
+  generation: number;
+  sdp: string;
+  proof: HostProof;
+  nowMs: number;
+}): Promise<{ ok: true } | { ok: false; problem: ChainProblem }> {
+  const { delegation, statement } = input.proof;
+  if (!delegationWellFormed(delegation))
+    return { ok: false, problem: "malformed" };
+  if (delegation.sessionId !== input.sessionId)
+    return { ok: false, problem: "wrong-session" };
+  if (
+    delegation.expiresAtMs + CLOCK_SKEW_MS <= input.nowMs ||
+    delegation.expiresAtMs - input.nowMs > MAX_DELEGATION_MS + CLOCK_SKEW_MS
+  )
+    return { ok: false, problem: "expired" };
+  const signature = fromBase64url(delegation.signature);
+  const sessionKey = fromBase64url(delegation.sessionKey);
+  if (
+    !signature ||
+    signature.length !== 64 ||
+    !sessionKey ||
+    sessionKey.length !== 32
+  )
+    return { ok: false, problem: "malformed" };
+  let machine: CryptoKey;
+  try {
+    machine = await crypto.subtle.importKey(
+      "raw",
+      bytes(input.machineKey),
+      "Ed25519",
+      false,
+      ["verify"],
+    );
+  } catch {
+    return { ok: false, problem: "wrong-key" };
+  }
+  const delegated = await crypto.subtle.verify(
+    "Ed25519",
+    machine,
+    bytes(signature),
+    bytes(delegationBytes(delegation)),
+  );
+  if (!delegated) return { ok: false, problem: "wrong-key" };
+  const fingerprint = sdpFingerprint(input.sdp);
+  if (!fingerprint) return { ok: false, problem: "no-fingerprint" };
+  return verifyStatement(
+    sessionKey,
+    {
+      sessionId: input.sessionId,
+      generation: input.generation,
+      role: "host",
+      fingerprint,
+      nonce: statement.nonce,
+      expiresAtMs: statement.expiresAtMs,
+    },
+    statement.signature,
+    input.nowMs,
+  );
 }

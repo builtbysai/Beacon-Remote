@@ -1,6 +1,7 @@
 # Peer authentication above signaling
 
-Status: accepted 26 November 2026 (the owner approved the proposals); steps 1 and 2 are built, steps 3 to 5 are not. It is
+Status: accepted 26 November 2026 (the owner approved the proposals); steps 1 and 2, and the Windows and web halves of 3 and 4 in advisory mode, are built; Android signing,
+strict-by-default and the device checks are not. It is
 the first piece of roadmap item P3-1 ("trust above transport") and gives the end-to-end threat model that item asks for.
 
 ## The problem
@@ -89,3 +90,23 @@ Worked out November 26 from how the code is arranged today; not built.
 - **Rollout.** Advisory first: the viewer shows "Computer identity verified" or a clear warning and still connects. Strict
   mode, off by default, refuses an unsigned or mismatched offer. Strict becomes the default only once Windows and Android
   hosts sign and the key-change and re-enrollment flow has been exercised on devices.
+
+## As built (advisory mode, November 26, 2026)
+
+- **Windows agent** (`sessions.rs`): for each session it mints a key, signs a delegation of it with the machine key
+  (`peer_identity::delegate`) and gives the helper the key and the signature in the grant. Delegations last until the
+  session ends and never more than twelve hours.
+- **Capture helper** (`media.rs`): signs a statement over the fingerprint in each offer's SDP with the session key and
+  sends it beside the offer as `peer`. An older agent sends no key and the offer goes out unsigned, as before.
+- **Backend:** the strict signaling schema accepts the optional `peer` object on offers (`hostProofWire`) and relays it
+  unchanged; the machines list carries each computer's `identityKey`.
+- **Viewer** (`peer-trust.ts`, `LiveView.tsx`): checks the chain before answering an offer, pins the computer's key on
+  first use (only after its proof verifies), reports an unsigned host, a changed key or a failed proof in the status line,
+  and refuses anything but a verified computer when strict mode is on (`localStorage` `beacon-remote-strict-identity`
+  set to `1`; there is no settings screen for it yet).
+- **Clocks.** A statement lives 30 seconds and a delegation as long as the session, but the viewer forgives two minutes
+  of difference between the two clocks, because expiry is hygiene (a statement is bound to one fingerprint) and a wrong
+  clock must not make the real computer look like an impostor, least of all in strict mode.
+- **Not done:** Android hosts do not sign (the viewer calls them unsigned); the key code is not yet shown in the host
+  window or on the computer's page; a person cannot yet confirm a changed key from the viewer (it is reported, and the
+  pin is not replaced); strict mode is not the default; no device has run any of it.
