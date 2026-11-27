@@ -47,11 +47,14 @@ object Api {
             .build()
     private val json = "application/json".toMediaType()
 
-    /** An https origin, or the emulator's route to the development computer. Anything else is refused. */
+    /**
+     * An https origin, or the emulator's route to the development computer. A debug build also accepts loopback, which on a
+     * phone is only an `adb reverse` tunnel to a test server; a release build never does. Anything else is refused.
+     */
     fun validServer(input: String): String? {
         val trimmed = input.trim().trimEnd('/')
         val url = trimmed.toHttpUrlOrNull() ?: return null
-        val local = url.host == "10.0.2.2"
+        val local = url.host == "10.0.2.2" || (BuildConfig.DEBUG && (url.host == "127.0.0.1" || url.host == "localhost"))
         if (!(url.scheme == "https" || (url.scheme == "http" && local))) return null
         if (url.encodedPath != "" && url.encodedPath != "/") return null
         if (url.query != null || url.fragment != null || url.username.isNotEmpty() || url.password.isNotEmpty()) return null

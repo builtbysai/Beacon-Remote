@@ -40,6 +40,13 @@ a swipe lock, and exercises local screenshot-source lifecycle without network or
 stored pixels. It is not intended for the owner's phone. Stop only that emulator
 afterward. Real-phone and Windows service/reboot acceptance remain separate.
 
+A phone that already has the real app (signed with the release key) must not have a debug build installed over it, and
+uninstalling the real app would delete its pairing. For a physical-phone run against the lab fixture, build a side-by-side
+copy under another package name: `./gradlew -PlabSuffix=.lab :app:assembleDebug` gives `com.beaconremote.host.lab`, with its
+own pairing and identity. Reach the fixture with `adb reverse tcp:3012 tcp:3012` and enter `http://127.0.0.1:3012` as the
+server; debug builds (and only debug builds, checked by a test in both variants) accept loopback for this. Never pair that
+copy with the production server, and give it a name that says it is a test.
+
 Remote and View are independent repositories, databases and runtime owners.
 Keep the current Windows paths stable while both agents are working.
 
