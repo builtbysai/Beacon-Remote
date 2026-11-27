@@ -21,3 +21,4 @@ pub mod printers;
 #[cfg(windows)]
 pub mod sessions;
 pub mod ui_protocol;
+pub mod ui_tree;
