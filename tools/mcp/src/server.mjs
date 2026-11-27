@@ -169,6 +169,16 @@ if (controlEnabled)
     async ({ tool, idempotency_key, ...args }) =>
       text(await session.control(tool, args, idempotency_key)),
   );
+if (controlEnabled)
+  server.registerTool(
+    "control_receipts",
+    {
+      description:
+        "What the control commands of this session did, newest last: number, tool, whether it ran or why it was refused. Never includes typed text, key names or clipboard contents.",
+      inputSchema: {},
+    },
+    async () => text({ receipts: session.current?.scope?.receipts ?? [] }),
+  );
 
 for (const signal of ["SIGINT", "SIGTERM"])
   process.on(
