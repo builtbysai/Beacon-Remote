@@ -43,6 +43,7 @@ import {
   identityNotice,
   judgeOffer,
   strictIdentity,
+  trustChangedKey,
   type IdentityVerdict,
 } from "./peer-trust.js";
 import {
@@ -1546,6 +1547,22 @@ export function LiveView({
         {identity && identityNotice(identity) && (
           <span role="status" className="viewer-identity-notice">
             {identityNotice(identity)}
+            {identity.state === "changed" && machineId && (
+              <button
+                type="button"
+                className="viewer-identity-trust"
+                onClick={() => {
+                  trustChangedKey(browserPinStore(), machineId, identity);
+                  setIdentity({
+                    state: "verified",
+                    code: identity.code,
+                    firstUse: false,
+                  });
+                }}
+              >
+                Trust the new key
+              </button>
+            )}
           </span>
         )}
         {!permissionView.canCancel && (

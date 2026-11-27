@@ -108,5 +108,4 @@ Worked out November 26 from how the code is arranged today; not built.
   of difference between the two clocks, because expiry is hygiene (a statement is bound to one fingerprint) and a wrong
   clock must not make the real computer look like an impostor, least of all in strict mode.
 - **Not done:** the Android signing has not run on a phone; the key code is not yet shown in the host
-  window or on the computer's page; a person cannot yet confirm a changed key from the viewer (it is reported, and the
-  pin is not replaced); strict mode is not the default; no device has run any of it.
+  window or on the computer's page; a changed key is reported and the pin is replaced only when the person presses "Trust the new key" in the viewer (the new key's proof is checked on the next connection); strict mode is not the default; no device has run any of it.
