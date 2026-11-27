@@ -406,7 +406,7 @@ export function LiveView({
     const client = clipboardChannel.current;
     if (!client) return;
     setClipStatus("");
-    let text = "";
+    let text: string;
     try {
       text = await navigator.clipboard.readText();
     } catch {
