@@ -25,7 +25,7 @@ class PeerProofTest {
 
     private val machineSeed = hex(text(vector, "machineSeedHex"))
     private val sessionSeed = hex(text(vector, "sessionSeedHex"))
-    private val delegationBlock = vector.substringAfter("\"delegation\"").substringBefore("\"delegationText\"")
+    private val delegationBlock = vector.substringAfter("\"delegation\"").substringBefore("\"statement\"")
     private val statementBlock = vector.substringAfter("\"statement\"")
     private val sdp = text(vector, "sdp").replace("\\r\\n", "\r\n")
 
@@ -43,12 +43,15 @@ class PeerProofTest {
         val nonce = Base64.getUrlDecoder().decode(text(statementBlock, "nonce"))
         val now = number(statementBlock, "expiresAtMs") - PeerProof.STATEMENT_LIFETIME_MS
         val proof = session.proof(number(statementBlock, "generation"), sdp, nonce, now)!!
-        assertEquals(text(delegationBlock, "sessionKey"), proof.sessionKey)
+        assertEquals(text(delegationBlock, "sessionPublic"), proof.sessionKey)
         assertEquals(text(delegationBlock, "signature"), proof.delegationSignature)
         assertEquals(text(statementBlock, "nonce"), proof.nonce)
         assertEquals(number(statementBlock, "expiresAtMs"), proof.statementExpiresAtMs)
         assertEquals(text(statementBlock, "signature"), proof.statementSignature)
-        assertEquals(text(vector, "delegationText").replace("\\n", "\n"), PeerProof.delegationText(sessionId, proof.sessionKey, proof.delegationExpiresAtMs))
+        assertEquals(
+            "beacon-peer-delegation-v1\nsession:$sessionId\nkey:${text(delegationBlock, "sessionPublic")}\nexpires:${number(delegationBlock, "expiresAtMs")}",
+            PeerProof.delegationText(sessionId, proof.sessionKey, proof.delegationExpiresAtMs),
+        )
         assertEquals(text(vector, "sdpFingerprint"), PeerProof.sdpFingerprint(sdp))
     }
 

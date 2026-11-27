@@ -1,6 +1,6 @@
 # Peer authentication above signaling
 
-Status: accepted 26 November 2026 (the owner approved the proposals); steps 1 and 2, and the Windows and web halves of 3 and 4 in advisory mode, are built; Android signing,
+Status: accepted 26 November 2026 (the owner approved the proposals); steps 1 and 2, and the Windows and web halves of 3 and 4 in advisory mode, are built, and the Android host now signs (unit-tested against the shared vector, not run on a device);
 strict-by-default and the device checks are not. It is
 the first piece of roadmap item P3-1 ("trust above transport") and gives the end-to-end threat model that item asks for.
 
@@ -85,8 +85,8 @@ Worked out November 26 from how the code is arranged today; not built.
 - **Where the viewer gets the key.** The machines list gains the computer's public key from enrollment. The first one the
   browser sees is pinned (trust on first use) and shown as the key code beside the computer; the person can compare it with
   the code in the host window's Support tab (to be added) for more than first use.
-- **Android.** The same chain with the Android keystore key and a delegation signed there; until it does, the viewer treats
-  Android hosts as unsigned.
+- **Android.** The same chain: the phone's identity key delegates a per-session key (`PeerProof.kt`) and the offer carries
+  the proof. Checked against the shared test vector in JVM unit tests; no phone has run it. Older builds stay unsigned.
 - **Rollout.** Advisory first: the viewer shows "Computer identity verified" or a clear warning and still connects. Strict
   mode, off by default, refuses an unsigned or mismatched offer. Strict becomes the default only once Windows and Android
   hosts sign and the key-change and re-enrollment flow has been exercised on devices.
@@ -107,6 +107,6 @@ Worked out November 26 from how the code is arranged today; not built.
 - **Clocks.** A statement lives 30 seconds and a delegation as long as the session, but the viewer forgives two minutes
   of difference between the two clocks, because expiry is hygiene (a statement is bound to one fingerprint) and a wrong
   clock must not make the real computer look like an impostor, least of all in strict mode.
-- **Not done:** Android hosts do not sign (the viewer calls them unsigned); the key code is not yet shown in the host
+- **Not done:** the Android signing has not run on a phone; the key code is not yet shown in the host
   window or on the computer's page; a person cannot yet confirm a changed key from the viewer (it is reported, and the
   pin is not replaced); strict mode is not the default; no device has run any of it.
