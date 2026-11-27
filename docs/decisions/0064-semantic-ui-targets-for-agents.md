@@ -1,8 +1,11 @@
 # 0064: Semantic UI targets for agents
 
 Status: proposed November 27, 2026. The pure core is built and unit-tested (`tools/mcp/src/ui-snapshot.mjs`: bounded
-snapshots, protected fields without text, snapshot-scoped references, expiry, receipts without element text). Nothing
-else is: no host builds a tree, no tool exposes it, and the closed tool list is unchanged, so it widens no authority
+snapshots, protected fields without text, snapshot-scoped references, expiry, receipts without element text). The
+Windows reader is built too (`apps/windows-session/src/ui_tree.rs`, UI Automation: role, name, state and box only, a password
+field with no name, never invoking or changing anything) and was checked against the live taskbar on a development machine,
+whose real tree went through the snapshot code (18 nodes, 12 buttons, a button resolved). Nothing else is built: nothing
+calls the reader, no tool exposes it, and the closed tool list is unchanged, so it widens no authority
 until the owner approves wiring it up. Builds on [0046](0046-mcp-server-view-only.md) (view only) and [0052](0052-agent-control-consent.md)
 (control consent). Part of P3-3 "better agent experience".
 
