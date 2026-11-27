@@ -93,6 +93,11 @@ Permission recovery, unattended lifecycle, rotation and coordinate changes, lock
 screen-off, upgrade; then outbound files, multi-touch, audio, TV and tablet scope. Review each screen for size,
 overflow and large-text behaviour. (solo for code and layout, device for acceptance)
 
+November 27: the emulator lifecycle runner (`ScreenshotAcceptance`: screenshot API, real WebRTC source, bounded frames, pause
+and resume, availability shutdown, local revocation, channel loss, lock-screen shutdown) passes on an API 36 emulator.
+Still open: the other screens, which need a paired host. The local dev stack can pair an emulator, but it is blocked by a
+stale `owner.json` from November 7 that the owner must archive or approve archiving.
+
 Exit: the Android permission matrix and lifecycle units in testing-remaining pass on the Pixel.
 
 ### M5. Remote-work fidelity (P1)
@@ -128,7 +133,9 @@ Exit: browser matrix tests green; owner sign-off on Windows and Android layouts.
 
 In source, not exposed: a default-deny scope gate, control tool handlers, a viewer-side control sender, a scope tied to
 the owner's granted control, and tool registration behind an explicit operator setting. Not done: the live consented
-session, receipts, emergency Stop acceptance, semantic UI targets and Motive.
+session, emergency Stop acceptance, semantic UI targets and Motive. Receipts are built (November 27): every control
+command leaves a bounded receipt without its content, a retried key returns the first receipt, and `control_receipts`
+lists them; unit-tested only.
 
 Merge and exercise view-only MCP (#105) in a live consented session; then per-device, time and tool scopes,
 short-lived revocable credentials, idempotent bounded commands, receipts and emergency Stop; semantic UI targets and
@@ -138,7 +145,8 @@ Motive integration. A green protocol test is not a working integration. (solo, w
 
 In source: printing (printer discovery, checked RAW submission, job lifecycle, a print permission and channel; never
 run against a printer), a default-deny peripheral allow list and forwarding boundary (P2-3), the native-first decision
-for independent sessions and a read-only Windows session list (P2-5).
+for independent sessions and a read-only Windows session list (P2-5). The threat model and review brief for the
+SYSTEM session-attach service is [ADR 0063](decisions/0063-system-session-attach-threat-model.md) (proposal; builds nothing).
 
 Printing, cameras, USB and microphone redirection (each approved in principle, each needs hardware and its own
 consent and revocation rules); a privileged SYSTEM session-attach service (needs its own security review first);
@@ -147,6 +155,10 @@ Linux and Raspberry Pi hosting; macOS only with native permissions; direct, rela
 Wake-on-LAN, sleep and update recovery. (design first; hardware where listed)
 
 ### M9. Trust and operations (P3-1, P3-2)
+
+Key recovery is [ADR 0062](decisions/0062-computer-key-change-and-recovery.md) (a computer's key never moves; recovery is a
+new enrollment; removed and replacement computers say so in the viewer). The backend rate limits were reviewed from
+source ([security.md](security.md)) and a test guards against logging secret-like values.
 
 Peer authentication against signaling and the end-to-end threat model ([ADR 0061](decisions/0061-peer-authentication-above-signaling.md), accepted; Windows and Android sign, the viewer checks in advisory mode and a changed key needs an explicit "Trust the new key"; all built and unit-tested, not run on a device), strict-mode setting and recovery, public-trust
 signing, abuse protection, retired-device rejection and re-enrollment, provider and backup retention, and logs that
