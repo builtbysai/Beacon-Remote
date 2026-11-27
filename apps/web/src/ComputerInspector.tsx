@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { Machine } from "@beacon-remote/protocol";
+import {
+  fromBase64url,
+  keyFingerprint,
+  type Machine,
+} from "@beacon-remote/protocol";
 import { api } from "./api.js";
 import { activityLabel, type Activity } from "./AccountPanels.js";
 import { sessionState, type SessionRecord } from "./SessionHistory.js";
@@ -8,6 +12,35 @@ import { SupportAccess } from "./SupportAccess.js";
 import { DeviceActions } from "./DeviceActions.js";
 import { SignInAccess } from "./SignInAccess.js";
 import { Character, toneFor } from "./Characters.js";
+
+// The short code of the computer's identity key (ADR 0061), to compare with the one in its own window.
+function IdentityKeyRow({ identityKey }: { identityKey: string | undefined }) {
+  const [code, setCode] = useState("");
+  useEffect(() => {
+    const key = identityKey ? fromBase64url(identityKey) : null;
+    if (!key || key.length !== 32) {
+      setCode("");
+      return;
+    }
+    let live = true;
+    void keyFingerprint(key).then((value) => {
+      if (live) setCode(value);
+    });
+    return () => {
+      live = false;
+    };
+  }, [identityKey]);
+  if (!code) return null;
+  return (
+    <div
+      className="inspector-id"
+      title="Compare this with the identity code in the Beacon Remote window on the computer"
+    >
+      <span>Identity key</span>
+      <code>{code}</code>
+    </div>
+  );
+}
 
 export function ComputerInspector({
   machine,
@@ -548,6 +581,7 @@ export function ComputerInspector({
               {copied ? "Copied" : "Copy"}
             </button>
           </div>
+          <IdentityKeyRow identityKey={machine.identityKey} />
           <div className="inspector-manage">
             <DeviceActions
               machine={machine}

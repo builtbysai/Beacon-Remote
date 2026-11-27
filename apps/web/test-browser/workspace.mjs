@@ -26,6 +26,8 @@ const machines = [
     name: "Studio workstation with a deliberately long name",
     online: true,
     group: "Home office",
+    // A public key, as the server lists it for pinning (ADR 0061); the details panel shows its short code.
+    identityKey: "6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw",
     accessMode: "trusted",
     allowControl: true,
   },
@@ -261,6 +263,18 @@ try {
     await wait(
       "document.activeElement?.getAttribute('aria-label')==='Close computer details'",
     );
+    // The identity key's short code sits under the device id on the More tab.
+    await click("#inspector-tab-more");
+    await wait(
+      "document.querySelectorAll('.device-inspector .inspector-id').length===2",
+    );
+    assert.match(
+      await browser.evaluate(
+        "document.querySelectorAll('.device-inspector .inspector-id')[1].textContent",
+      ),
+      /^Identity key([A-Z2-7]{4}-){5}[A-Z2-7]{4}$/,
+    );
+    await click("#inspector-tab-overview");
     await click(".inspector-edit");
     await wait("document.activeElement?.id==='computer-name'");
     await browser.evaluate("document.querySelector('#computer-name').select()");

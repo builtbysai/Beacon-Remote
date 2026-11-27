@@ -2048,6 +2048,9 @@ code.hash {
   white-space: nowrap;
   font-size: 12.5px;
 }
+.inspector-id + .inspector-id {
+  margin-top: 8px;
+}
 .inspector-id button {
   min-height: 36px;
   padding: 0 16px;
