@@ -117,7 +117,8 @@ visual judgement)
 
 Checked November 26 on the redesigned stack: the sign-in, workspace, appearance and auth browser suites pass; the
 workspace screens pass Chromium's real 200% zoom; the native sharing and "More access requested" cards render cleanly
-offline; the Android pairing screen on an emulator at 200% font scale scrolls fully with no clipped control. Not yet
+offline; the Android pairing screen on an emulator at 200% font scale scrolls fully with no clipped control. November 27: the public and auth routes (sign-in, create account, forgot password, downloads, assist, invitation, recovery and
+verification links) have no horizontal overflow at a 320 px viewport in Chromium. Not yet
 checked: the other Android screens (they need a paired host), the Windows host window at other DPIs, and screen readers.
 
 Exit: browser matrix tests green; owner sign-off on Windows and Android layouts.
