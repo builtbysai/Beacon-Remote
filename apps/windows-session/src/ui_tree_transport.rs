@@ -57,11 +57,18 @@ pub fn decide(
     Ok(Decision::Read(id.to_string()))
 }
 
+/// What one read gave: the tree, whether the node limit cut it, and the display the window is on when known.
+pub type Read = (Value, bool, Option<Value>);
+
 /// The answer once the window has been read, or could not be.
-pub fn finish(id: &str, result: Result<(Value, bool), String>) -> Value {
+pub fn finish(id: &str, result: Result<Read, String>) -> Value {
     match result {
-        Ok((tree, truncated)) => {
-            json!({"type": "ui-tree", "id": id, "ok": true, "truncated": truncated, "tree": tree})
+        Ok((tree, truncated, display)) => {
+            let mut reply = json!({"type": "ui-tree", "id": id, "ok": true, "truncated": truncated, "tree": tree});
+            if let Some(display) = display {
+                reply["display"] = display;
+            }
+            reply
         }
         Err(_) => refusal(id, "unavailable"),
     }
@@ -69,17 +76,23 @@ pub fn finish(id: &str, result: Result<(Value, bool), String>) -> Value {
 
 /// The foreground window's tree. A failure carries no detail: it could name a window.
 #[cfg(windows)]
-fn read_foreground() -> Result<(Value, bool), String> {
+fn read_foreground() -> Result<Read, String> {
     // SAFETY: asks Windows which top-level window is in front; a null handle means there is none.
     let hwnd = unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow() };
     if hwnd.is_null() {
         return Err("no window".into());
     }
-    beacon_remote_session::ui_tree::read_window(hwnd as isize).map_err(|_| "unreadable".to_string())
+    let (tree, truncated) = beacon_remote_session::ui_tree::read_window(hwnd as isize)
+        .map_err(|_| "unreadable".to_string())?;
+    Ok((
+        tree,
+        truncated,
+        beacon_remote_session::ui_tree::display_of(hwnd as isize),
+    ))
 }
 
 #[cfg(not(windows))]
-fn read_foreground() -> Result<(Value, bool), String> {
+fn read_foreground() -> Result<Read, String> {
     Err("not supported".into())
 }
 
@@ -242,10 +255,22 @@ mod tests {
     #[test]
     fn the_answer_is_a_tree_or_unavailable_with_no_detail() {
         let tree = json!({"role": "window"});
-        let ok = finish(ID, Ok((tree.clone(), true)));
+        let ok = finish(
+            ID,
+            Ok((
+                tree.clone(),
+                true,
+                Some(json!({"x": -1920, "y": 0, "width": 1920, "height": 1080})),
+            )),
+        );
         assert_eq!(ok["ok"], true);
         assert_eq!(ok["truncated"], true);
         assert_eq!(ok["tree"], tree);
+        assert_eq!(ok["display"]["x"], -1920);
+        // With no display known the field is simply absent.
+        assert!(finish(ID, Ok((tree.clone(), false, None)))
+            .get("display")
+            .is_none());
         let bad = finish(ID, Err("C:\\Users\\someone\\secret window".into()));
         assert_eq!(bad, refusal(ID, "unavailable"));
         assert!(!bad.to_string().contains("secret"));

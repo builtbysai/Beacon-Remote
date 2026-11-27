@@ -80,10 +80,10 @@ export function createSnapshotStore(limits = LIMITS) {
   const held = new Map();
   let counter = 0;
   return {
-    add(raw, now = Date.now()) {
+    add(raw, now = Date.now(), display = null) {
       const { nodes, truncated } = buildNodes(raw, limits);
       const id = ++counter;
-      held.set(id, { nodes, expiresAt: now + limits.lifetimeMs });
+      held.set(id, { nodes, display, expiresAt: now + limits.lifetimeMs });
       // Only the newest few stay; an older one is gone, so a command naming it is refused as unknown.
       for (const key of [...held.keys()]) {
         if (key <= id - limits.maxSnapshots) held.delete(key);
@@ -107,8 +107,52 @@ export function createSnapshotStore(limits = LIMITS) {
       if (!node) return { ok: false, reason: "unknown-ref" };
       if (node.protected) return { ok: false, reason: "protected-field" };
       if (!node.bounds) return { ok: false, reason: "no-bounds" };
-      return { ok: true, node };
+      return { ok: true, node, display: entry.display };
     },
+  };
+}
+
+/**
+ * Where to click on the picture to reach a target: the centre of its box, taken from the display the boxes are on to the
+ * video the viewer is looking at. With no display reported the boxes are taken to be in video pixels already. It refuses a
+ * target that is off screen, disabled, has no box, or whose centre is not on that display, and never guesses.
+ */
+export function targetPoint(node, display, video) {
+  const box = node.bounds;
+  if (!box || box.width <= 0 || box.height <= 0)
+    return { ok: false, reason: "no-bounds" };
+  if (node.states.includes("offscreen"))
+    return { ok: false, reason: "offscreen" };
+  if (node.states.includes("disabled"))
+    return { ok: false, reason: "disabled" };
+  if (
+    !Number.isFinite(video?.width) ||
+    !Number.isFinite(video?.height) ||
+    video.width < 1 ||
+    video.height < 1
+  )
+    return { ok: false, reason: "no-picture" };
+  const area = display ?? {
+    x: 0,
+    y: 0,
+    width: video.width,
+    height: video.height,
+  };
+  const centreX = box.x + box.width / 2;
+  const centreY = box.y + box.height / 2;
+  if (
+    centreX < area.x ||
+    centreY < area.y ||
+    centreX >= area.x + area.width ||
+    centreY >= area.y + area.height
+  )
+    return { ok: false, reason: "outside-display" };
+  const x = Math.round(((centreX - area.x) * video.width) / area.width);
+  const y = Math.round(((centreY - area.y) * video.height) / area.height);
+  return {
+    ok: true,
+    x: Math.min(x, video.width - 1),
+    y: Math.min(y, video.height - 1),
   };
 }
 

@@ -15,9 +15,12 @@ not run in a live session). The viewer relays it (`ui-tree-client.ts` checks eve
 assistant's tool as events on the video), and the MCP `ui_tree` tool (behind `BEACON_MCP_CONTROL`) turns a returned tree
 into a numbered snapshot, asks for the permission while the computer says denied, and creates its own scope only once a
 tree really came back. That whole path ran in the synthetic live journey (real viewer page, Chromium and WebRTC data
-channel, a fixture standing in for the host): refused, then approved, then a tree whose password field has no name. Not
-built: acting on a snapshot target (it needs the screen-to-video coordinate mapping, which only a live run can check),
-and any device run. The Android channel is built too (`UiTreeChannel.kt`: the same request rules as the Windows host, denied
+channel, a fixture standing in for the host): refused, then approved, then a tree whose password field has no name. Acting
+on a target is built too: the computer says which display the boxes are on (the Windows monitor rectangle, or the
+phone's whole screen), a snapshot remembers it, and a pointer command that names `{snapshot, ref}` clicks the centre of that
+box, mapped to the picture (unit-tested with a second monitor to the left, a scaled picture and the edges; a stale, unknown,
+protected, off-screen, disabled or outside-the-display target is refused). The mapping rests on the shared picture being
+the whole of that display, which only a live run can confirm. Not built: any device run. The Android channel is built too (`UiTreeChannel.kt`: the same request rules as the Windows host, denied
 until the person on the phone approves "Allow reading" for the connection, one read a second, the phone's control service
 required; the decisions are JVM unit-tested, the wiring compiles and passes lint, and none of it has run on a phone). Nothing
 calls the readers, no tool exposes it, and the closed tool list is unchanged, so it widens no authority

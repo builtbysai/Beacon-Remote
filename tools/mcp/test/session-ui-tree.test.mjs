@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { createScope } from "../src/agent-scope.mjs";
 import { RemoteSession } from "../src/session.mjs";
 
 const COMPUTER = "0f8fad5b-d9cb-469f-a165-70867728950e";
@@ -132,4 +133,128 @@ test("ending the session revokes the scope, and no session means nothing is read
     ok: false,
     reason: "no-session",
   });
+});
+
+function clicking(shot) {
+  const { session, record } = rig([
+    { ok: true, truncated: false, display: shot.display, tree: shot.tree },
+  ]);
+  const scripts = [];
+  const original = record.viewer.evaluate;
+  record.viewer.evaluate = async (code) => {
+    if (code.includes("videoWidth") && code.includes("PointerEvent")) {
+      scripts.push(code);
+      return true;
+    }
+    if (
+      code.includes("document.querySelector('.live-view')") &&
+      code.includes("picture")
+    )
+      return { width: shot.video.width, height: shot.video.height };
+    return original(code);
+  };
+  record.scope = createScope({
+    computerId: COMPUTER,
+    tools: ["pointer", "stop"],
+    expiresAt: Date.now() + 60_000,
+  });
+  return { session, record, scripts };
+}
+
+test("a pointer command that names a target clicks the centre of its box, mapped to the picture", async () => {
+  const wide = { x: 0, y: 0, width: 1280, height: 720 };
+  const shot = {
+    display: wide,
+    video: { width: 640, height: 360 },
+    tree: {
+      role: "window",
+      states: ["enabled"],
+      bounds: wide,
+      children: [
+        {
+          role: "button",
+          name: "Save",
+          states: ["enabled"],
+          bounds: { x: 640, y: 360, width: 100, height: 40 },
+          children: [],
+        },
+        {
+          role: "password",
+          protected: true,
+          states: ["enabled"],
+          bounds: bounds,
+          children: [],
+        },
+        {
+          role: "button",
+          name: "Gone",
+          states: ["offscreen"],
+          bounds,
+          children: [],
+        },
+      ],
+    },
+  };
+  const { session, scripts } = clicking(shot);
+  const read = await session.uiTree(COMPUTER, "ui-00000001");
+  const reply = await session.control(
+    "pointer",
+    { target: { snapshot: read.snapshot, ref: 2 } },
+    "ctl-00000001",
+  );
+  assert.equal(reply.ok, true, JSON.stringify(reply));
+  assert.equal(scripts.length, 1);
+  // Centre (690, 380) on the 1280x720 screen is (345, 190) on the 640x360 picture, pressed with the left button.
+  assert.ok(
+    scripts[0].includes("345 * scale") && scripts[0].includes("190 * scale"),
+    scripts[0],
+  );
+  assert.ok(scripts[0].includes("pointerdown"));
+  // A protected field, an off-screen element, an unknown element and an unknown snapshot are refused and send nothing.
+  for (const [ref, reason, snapshot] of [
+    [3, "protected-field"],
+    [4, "offscreen"],
+    [99, "unknown-ref"],
+    [2, "unknown-snapshot", 999],
+  ]) {
+    const refused = await session.control(
+      "pointer",
+      { target: { snapshot: snapshot ?? read.snapshot, ref } },
+      `ctl-0000${ref}${snapshot ?? ""}`.slice(0, 20).padEnd(10, "0"),
+    );
+    assert.deepEqual([refused.ok, refused.reason], [false, reason]);
+  }
+  assert.equal(scripts.length, 1);
+});
+
+test("a target is for pointer commands only and must be well formed", async () => {
+  const shot = {
+    display: null,
+    video: { width: 100, height: 100 },
+    tree: { role: "window", states: [], bounds, children: [] },
+  };
+  const { session } = clicking(shot);
+  const read = await session.uiTree(COMPUTER, "ui-00000001");
+  assert.equal(
+    (
+      await session.control(
+        "keyboard",
+        { target: { snapshot: read.snapshot, ref: 1 } },
+        "ctl-00000010",
+      )
+    ).reason,
+    "target-only-for-pointer",
+  );
+  for (const target of [
+    null,
+    {},
+    { snapshot: "1", ref: 1 },
+    { snapshot: 1.5, ref: 1 },
+  ]) {
+    assert.equal(
+      (await session.control("pointer", { target }, "ctl-00000011")).reason,
+      "invalid-target",
+      JSON.stringify(target),
+    );
+  }
 });

@@ -98,3 +98,25 @@ test("a closed channel and a channel that closes mid-request are reported", asyn
   client.close();
   assert.deepEqual(await pending, { ok: false, reason: "closed" });
 });
+
+test("the display the boxes are on is passed through when the computer says it", async () => {
+  const { client } = rig();
+  const pending = client.request();
+  const display = { x: -1920, y: 0, width: 1920, height: 1080 };
+  client.receive(
+    JSON.stringify({
+      type: "ui-tree",
+      id: ID,
+      ok: true,
+      truncated: false,
+      display,
+      tree,
+    }),
+  );
+  assert.deepEqual(await pending, {
+    ok: true,
+    truncated: false,
+    tree,
+    display,
+  });
+});

@@ -5,6 +5,7 @@ import {
   buildNodes,
   createSnapshotStore,
   receiptFor,
+  targetPoint,
 } from "../src/ui-snapshot.mjs";
 
 const box = { x: 10, y: 20, width: 100, height: 30 };
@@ -162,4 +163,93 @@ test("a receipt names the role and the number and carries no element text", () =
     role: "button",
   });
   assert.equal(JSON.stringify(receipt).includes("Save"), false);
+});
+
+test("a target's centre is mapped from its display to the picture", () => {
+  const node = {
+    states: ["enabled"],
+    bounds: { x: 640, y: 360, width: 100, height: 40 },
+  };
+  const display = { x: 0, y: 0, width: 1280, height: 720 };
+  // Centre (690, 380) on a 1280x720 screen is (345, 190) on a 640x360 picture.
+  assert.deepEqual(targetPoint(node, display, { width: 640, height: 360 }), {
+    ok: true,
+    x: 345,
+    y: 190,
+  });
+  // A second monitor to the left of the first: the origin is subtracted before scaling.
+  const left = { x: -1920, y: 0, width: 1920, height: 1080 };
+  const there = {
+    states: [],
+    bounds: { x: -960, y: 540, width: 0.5 * 2, height: 2 },
+  };
+  assert.deepEqual(targetPoint(there, left, { width: 960, height: 540 }), {
+    ok: true,
+    x: 480,
+    y: 271,
+  });
+  // With no display reported the boxes are taken to be picture pixels already.
+  assert.deepEqual(targetPoint(node, null, { width: 1280, height: 720 }), {
+    ok: true,
+    x: 690,
+    y: 380,
+  });
+  // Never past the last pixel.
+  const edge = { states: [], bounds: { x: 1278, y: 718, width: 2, height: 2 } };
+  assert.deepEqual(targetPoint(edge, display, { width: 640, height: 360 }), {
+    ok: true,
+    x: 639,
+    y: 359,
+  });
+});
+
+test("a target that cannot be clicked is refused, never guessed", () => {
+  const box = { x: 10, y: 10, width: 20, height: 20 };
+  const video = { width: 640, height: 360 };
+  const display = { x: 0, y: 0, width: 640, height: 360 };
+  assert.equal(
+    targetPoint({ states: ["offscreen"], bounds: box }, display, video).reason,
+    "offscreen",
+  );
+  assert.equal(
+    targetPoint({ states: ["disabled"], bounds: box }, display, video).reason,
+    "disabled",
+  );
+  assert.equal(
+    targetPoint({ states: [], bounds: null }, display, video).reason,
+    "no-bounds",
+  );
+  assert.equal(
+    targetPoint({ states: [], bounds: { ...box, width: 0 } }, display, video)
+      .reason,
+    "no-bounds",
+  );
+  assert.equal(
+    targetPoint(
+      { states: [], bounds: { x: 700, y: 10, width: 20, height: 20 } },
+      display,
+      video,
+    ).reason,
+    "outside-display",
+  );
+  assert.equal(
+    targetPoint({ states: [], bounds: box }, display, { width: 0, height: 0 })
+      .reason,
+    "no-picture",
+  );
+  assert.equal(
+    targetPoint({ states: [], bounds: box }, display, undefined).reason,
+    "no-picture",
+  );
+});
+
+test("a snapshot remembers its display for the targets in it", () => {
+  const store = createSnapshotStore();
+  const display = { x: 0, y: 0, width: 1920, height: 1080 };
+  const shot = store.add(tree, 1_000, display);
+  assert.deepEqual(store.resolve(shot.snapshot, 2, 1_001).display, display);
+  assert.equal(
+    store.resolve(store.add(tree, 1_000).snapshot, 2, 1_001).display,
+    null,
+  );
 });

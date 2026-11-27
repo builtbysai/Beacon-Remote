@@ -71,6 +71,17 @@ function measure(
   return { count, depth: deepest };
 }
 
+/** The display the window is on, in the same screen coordinates as the tree's boxes. */
+export const uiDisplay = z
+  .object({
+    x: coordinate,
+    y: coordinate,
+    width: z.number().int().min(1).max(1_000_000),
+    height: z.number().int().min(1).max(1_000_000),
+  })
+  .strict();
+export type UiDisplay = z.infer<typeof uiDisplay>;
+
 export const uiTreeRequest = z
   .object({ type: z.literal("ui-tree-request"), id: z.uuid() })
   .strict();
@@ -82,6 +93,8 @@ export const uiTreeResponse = z.discriminatedUnion("ok", [
       id: z.uuid(),
       ok: z.literal(true),
       truncated: z.boolean(),
+      // Where the boxes are: lets a viewer turn a box into a point on the picture it is looking at.
+      display: uiDisplay.optional(),
       tree: uiNode,
     })
     .strict()
