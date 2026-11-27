@@ -6,6 +6,7 @@ import {
   browserPinStore,
   identityNotice,
   judgeOffer,
+  setStrictIdentity,
   strictIdentity,
   trustChangedKey,
 } from "../src/peer-trust.js";
@@ -169,4 +170,14 @@ test("pins survive in browser storage, damaged storage is ignored, and strict mo
     strictIdentity(memoryStorage({ "beacon-remote-strict-identity": "1" })),
     true,
   );
+});
+
+test("strict mode can be turned on and off and says when it could not be kept", () => {
+  const storage = memoryStorage();
+  assert.equal(strictIdentity(storage), false);
+  assert.equal(setStrictIdentity(true, storage), true);
+  assert.equal(strictIdentity(storage), true);
+  assert.equal(setStrictIdentity(false, storage), true);
+  assert.equal(strictIdentity(storage), false);
+  assert.equal(setStrictIdentity(true, undefined), false);
 });

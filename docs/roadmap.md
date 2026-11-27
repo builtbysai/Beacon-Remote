@@ -1,6 +1,6 @@
 # Beacon Remote roadmap
 
-Updated November 26, 2026. This is the one current plan. Dated checkpoints, handoffs and earlier plans are in
+Updated November 27, 2026. This is the one current plan. Dated checkpoints, handoffs and earlier plans are in
 [roadmap history](roadmap-history.md); do not copy status from there without checking it.
 
 Source and CI do not prove device, boot, privacy or network acceptance. Anything marked "needs a device" is only
@@ -9,22 +9,21 @@ done when a real run is recorded in [testing-remaining.md](testing-remaining.md)
 
 ## Where the product stands
 
-| Area                   | State                                                                                                                                                                 |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Hosted baseline        | Attended, trusted and support access, remembered helpers, accounts/MFA/export/deletion, teams, signed updates, installer, two-way files, recording, TURN, backups     |
-| Windows host UI        | One tabbed window owns all local UI; the helper is headless (ADR 0059). Stacked PRs #135–#140 hold it                                                                 |
-| Windows boot service   | Installed and verified on the lab laptop: presence while signed out after a reboot                                                                                    |
-| Windows sign-in screen | After reboot or sign-out the worker starts, the server offers "Open sign-in", the real sign-in screen streams at 25 fps and a viewer click wakes it to the PIN prompt |
-| Windows installer      | Sandbox install/upgrade/repair/uninstall test (26 checks) passes; a real installed lifecycle is not yet accepted                                                      |
-| Web                    | Redesign (#134) and responsive/theme/overflow work, with browser tests; waiting for the review that main requires                                                     |
-| Android host           | Physical Pixel evidence for pairing, video, touch, typing, unattended connect, files; sheets now scroll and cap their width                                           |
-| Agents                 | View-only MCP (#105) is unmerged and unexercised against a live session                                                                                               |
+| Area                   | State                                                                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Hosted baseline        | Attended, trusted and support access, remembered helpers, accounts/MFA/export/deletion, teams, signed updates, installer, two-way files, recording, TURN, backups        |
+| Windows host UI        | One tabbed window owns all local UI; the helper is headless (ADR 0059). Merged (#135–#140); the Support tab shows the identity key code (#149)                           |
+| Windows boot service   | Installed and verified on the lab laptop: presence while signed out after a reboot                                                                                       |
+| Windows sign-in screen | After reboot or sign-out the worker starts, the server offers "Open sign-in", the real sign-in screen streams at 25 fps and a viewer click wakes it to the PIN prompt    |
+| Windows installer      | Sandbox install/upgrade/repair/uninstall test (26 checks) passes; a real installed lifecycle is not yet accepted                                                         |
+| Web                    | Redesign (#134) merged with responsive/theme/overflow work and browser tests; the key code shows on the More tab and a changed key needs an explicit choice (#153, #154) |
+| Android host           | Physical Pixel evidence for pairing, video, touch, typing, unattended connect, files; sheets now scroll and cap their width                                              |
+| Agents                 | View-only MCP (#105) is unmerged and unexercised against a live session                                                                                                  |
 
 ## Blockers
 
 | Blocker                                                                       | Who unblocks it          | What it holds up                                 |
 | ----------------------------------------------------------------------------- | ------------------------ | ------------------------------------------------ |
-| #134 needs an approving review before it can merge into main                  | Owner (GitHub)           | Everything stacked on it; any hosted release     |
 | Each Windows service change needs a UAC approval on the laptop                | Owner at the machine     | Every worker/service test cycle                  |
 | Typing a password or PIN through the viewer                                   | Owner (credentials)      | Sign-in screen acceptance                        |
 | Unlocked Pixel, and a second real network                                     | Owner                    | Android and network acceptance                   |
@@ -38,10 +37,9 @@ without the owner; **owner** needs the owner present; **device** needs a physica
 
 ### M1. Land and release safely
 
-1. Merge the stack: #139 and #140 into the #134 branch, then #134 into main once approved. (owner approves)
-2. #126 (startup, pairing, Android consent) is already contained in the stack branch (no commits ahead of it, checked
-   November 26), so close it as superseded once #134 merges. The dependency updates in #127-#133 are applied together
-   in one tested branch (sha2 0.11 needed a small code change); close those PRs when it merges. `pnpm audit` reports no
+1. Done November 26-27: the stack and #134 are merged into main, #126 is merged, and the dependency PRs #127-#133 are closed
+   in favour of the combined #142.
+2. Dependencies: the combined update is merged. `pnpm audit` reports no
    known vulnerabilities on that branch (November 26); rerun it before any release and never waive it. (solo)
 3. Build matching signed artifacts and migrations 023–028; choose rollout and rollback images; update docs/deployment
    steps. (solo to prepare, owner go-ahead to deploy)
@@ -143,7 +141,7 @@ Wake-on-LAN, sleep and update recovery. (design first; hardware where listed)
 
 ### M9. Trust and operations (P3-1, P3-2)
 
-Peer authentication against signaling and the end-to-end threat model ([ADR 0061](decisions/0061-peer-authentication-above-signaling.md), accepted; Windows signs and the viewer checks in advisory mode, built and unit-tested, not run on a device), key change and recovery, public-trust
+Peer authentication against signaling and the end-to-end threat model ([ADR 0061](decisions/0061-peer-authentication-above-signaling.md), accepted; Windows and Android sign, the viewer checks in advisory mode and a changed key needs an explicit "Trust the new key"; all built and unit-tested, not run on a device), strict-mode setting and recovery, public-trust
 signing, abuse protection, retired-device rejection and re-enrollment, provider and backup retention, and logs that
 never hold credentials, pixels or input. Real account lifecycle, MFA and email delivery. (solo for design and code,
 owner for real accounts and signing)

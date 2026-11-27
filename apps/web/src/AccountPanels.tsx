@@ -6,6 +6,7 @@ import { TeamPanel } from "./TeamPanel.js";
 import { api } from "./api.js";
 import { AccountIdentity } from "./AccountIdentity.js";
 import { ThemeChoice, type Theme } from "./ThemePicker.js";
+import { setStrictIdentity, strictIdentity } from "./peer-trust.js";
 
 const settingsSections = [
   { id: "account", label: "Account" },
@@ -91,6 +92,37 @@ export function activityLabel(action: string) {
     default:
       return action;
   }
+}
+
+function StrictIdentityChoice() {
+  const [on, setOn] = useState(() => strictIdentity());
+  const [kept, setKept] = useState(true);
+  return (
+    <div className="settings-strict-identity">
+      <label>
+        <input
+          type="checkbox"
+          checked={on}
+          onChange={(event) => {
+            const next = event.currentTarget.checked;
+            setKept(setStrictIdentity(next));
+            setOn(next);
+          }}
+        />{" "}
+        Only connect to computers that prove who they are
+      </label>
+      <p className="muted">
+        Refuses a computer whose app does not sign its connection, or whose key
+        changed. Older apps do not sign yet, so leave this off until every
+        computer is updated. It applies to this browser only.
+      </p>
+      {!kept && (
+        <p role="status" className="notice">
+          This browser would not keep the choice.
+        </p>
+      )}
+    </div>
+  );
 }
 
 export function AccountPanels({
@@ -377,6 +409,7 @@ export function AccountPanels({
                 >
                   {busy ? "Ending sessions…" : "End other browser sessions"}
                 </button>
+                <StrictIdentityChoice />
               </div>
             </div>
           </section>
