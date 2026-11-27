@@ -15,6 +15,7 @@ const secretWord =
 const rustLog =
   /\b(?:tracing::|log::)?(?:info|warn|error|debug|trace)!\(|\be?println!\(/;
 const tsLog = /console\.(?:log|error|warn|info)\(|\b(?:request|app)\.log\./;
+const androidLog = /\bLog\.(?:i|w|e|d|v)\(|\bprintln\(/;
 
 function* files(dir: string, extension: string): Generator<string> {
   for (const name of readdirSync(dir)) {
@@ -42,6 +43,13 @@ function offenders(dirs: string[], extension: string, log: RegExp): string[] {
 
 test("no Rust log statement names a secret-like value", () => {
   assert.deepEqual(offenders(["apps", "crates"], ".rs", rustLog), []);
+});
+
+test("no Android log statement names a secret-like value", () => {
+  assert.deepEqual(
+    offenders(["apps/android-host/app/src/main"], ".kt", androidLog),
+    [],
+  );
 });
 
 test("no backend or MCP log statement names a secret-like value", () => {
