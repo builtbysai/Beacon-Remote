@@ -31,8 +31,33 @@ boot service installed first) found these, all fixed in source on `windows/signi
   worker at a fresh sign-in screen. Both now count; an unlocked user session still does not.
 - **Lock screen picture.** Right after a user locks, Windows shows the lock-screen picture on a desktop that is not the
   Winlogon desktop; Winlogon receives input only once the password prompt is up. The worker waits (its desktop check
-  fails and the supervisor retries). A reboot or sign-out goes straight to the prompt. A future wake-on-request
-  (bring up the password prompt when a viewer asks) would cover the locked case.
+  fails and the supervisor retries). A reboot or sign-out goes straight to the prompt. **Wake on request** (November 27) covers the locked case: see below.
+
+## Wake on request (locked computers)
+
+The lock-screen picture is LockApp on the session's Default desktop; the password prompt is on Winlogon. VNC services
+and the commercial tools (RustDesk, AnyDesk, TeamViewer, BeyondTrust, MeshCentral's agent) run a SYSTEM process in the
+console session that follows whichever desktop has the input, so the viewer sees the picture and a click raises the
+prompt. Beacon keeps the worker on Winlogon only and raises the prompt instead:
+
+1. While the console is locked and no worker can start, the supervisor reports `unavailable` and the backend marks the
+   endpoint `wakeable` for an owner whose trusted access includes control.
+2. The viewer's **Open sign-in** asks `POST /api/machines/:id/signin-wake` (owner, web origin, audited
+   `signin.wake.requested`). The backend keeps a 30-second in-memory request; one backend owns each database.
+3. Every 3 seconds while locked without a worker, the supervisor asks `POST /api/signin/wake` with a proof signed by
+   its endpoint key in its own domain (`beacon-remote:signin-wake:v1`, console bound, nonce checked). The answer is a
+   yes or no only; a yes is consumed once and grants nothing. An older backend answers 404 and the supervisor stops
+   asking for a minute.
+4. On a yes, the supervisor starts a short-lived helper (`signin-wake`, the same validated binary and restricted SYSTEM
+   token as the worker) on `winsta0\Default` in the console session. It presses and releases Ctrl only if the console is
+   still locked and the Default desktop (the picture) has the input, checked again just before the key; on Winlogon it
+   does nothing. It never types and never runs on an unlocked desktop.
+5. The prompt appears, the worker starts on Winlogon as before and the viewer opens the sign-in screen when the
+   endpoint reports ready (it looks every second for 25 seconds).
+
+Not covered: a screen saver or a display that is off and needs more than a key; the viewer then says to try again
+or press a key at the computer.
+
 - **Launch.** The worker is a console program; started with a hidden console inside a job that forbids child processes
   it died with `0xC0000142` before running. It is now launched detached.
 - **Known folders.** `SHGetKnownFolderPath` fails for the worker's restricted SYSTEM token in a user session. The

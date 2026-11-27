@@ -15,6 +15,8 @@ import {
   signinPendingProofMessage,
   signinDisableProof,
   signinDisableMessage,
+  signinWakeProof,
+  signinWakeProofMessage,
 } from "../../../packages/protocol/src/index.js";
 import type { Config } from "./config.js";
 import {
@@ -27,6 +29,11 @@ import { registerSigninSignaling } from "./signin-signaling.js";
 import { registerSigninHandoff } from "./signin-handoff.js";
 
 const pathSchema = z.object({ id: z.uuid() });
+// Locked and reporting, but without a worker on the password prompt (the lock-screen
+// picture is up), for an owner whose trusted access includes control.
+const wakeableEndpoint = `(e.enabled AND e.state='unavailable' AND e.worker_ready=false
+  AND e.console_session_id BETWEEN 1 AND 4294967294 AND e.last_seen_at>now()-interval '15 seconds'
+  AND EXISTS (SELECT 1 FROM machine_access p WHERE p.machine_id=m.id AND p.mode='trusted' AND p.allow_control))`;
 const digest = (text: string) =>
   createHash("sha256").update(text).digest("hex");
 async function endLeases(
@@ -87,6 +94,10 @@ export function registerSigninAuthority(
     mediaEnabled,
   );
   registerSigninHandoff(app, pool, owner, mediaEnabled, signaling.stopLease);
+  // A viewer's request to raise the password prompt on a locked console. One
+  // backend owns each database (deployment.md), so a short in-memory entry is
+  // enough; it is a yes/no for the endpoint and never a lease or grant.
+  const wakeRequests = new Map<string, { console: number; expires: number }>();
   // Local Disable must still lower backend authority when rollout is off or
   // the worker has already exited. Only the separately registered service key
   // can sign this purpose; no request here can enable access or launch a worker.
@@ -343,7 +354,8 @@ export function registerSigninAuthority(
       `SELECT e.enabled,e.state,
       COALESCE(e.enabled AND e.worker_ready AND e.worker_public_key IS NOT NULL AND e.instance_id IS NOT NULL
         AND e.console_session_id BETWEEN 1 AND 4294967294 AND e.state='sign-in' AND e.last_seen_at>now()-interval '15 seconds'
-        AND EXISTS (SELECT 1 FROM machine_access p WHERE p.machine_id=m.id AND p.mode='trusted' AND p.allow_control),false) AS "endpointReady"
+        AND EXISTS (SELECT 1 FROM machine_access p WHERE p.machine_id=m.id AND p.mode='trusted' AND p.allow_control),false) AS "endpointReady",
+      COALESCE(${wakeableEndpoint},false) AS wakeable
       FROM machines m LEFT JOIN signin_endpoints e ON e.machine_id=m.id
       WHERE m.id=$1 AND m.account_id=$2 AND m.revoked_at IS NULL AND m.support_link_id IS NULL`,
       [parsed.data.id, account],
@@ -355,7 +367,97 @@ export function registerSigninAuthority(
       state: result.rows[0].state ?? "unavailable",
       endpointReady: enabled && result.rows[0].endpointReady,
       connectable: mediaEnabled && result.rows[0].endpointReady,
+      wakeable: mediaEnabled && Boolean(result.rows[0].wakeable),
     };
+  });
+
+  app.post("/api/machines/:id/signin-wake", async (request, reply) => {
+    if (request.headers.origin !== config.WEB_ORIGIN)
+      return reply.code(403).send({ error: "Origin rejected" });
+    const account = await owner(request);
+    if (!account) return reply.code(401).send({ error: "Sign in required" });
+    if (!mediaEnabled)
+      return reply.code(503).send({ error: "Sign-in authority disabled" });
+    const parsed = pathSchema.safeParse(request.params);
+    if (
+      !parsed.success ||
+      !z
+        .object({})
+        .strict()
+        .safeParse(request.body ?? {}).success
+    )
+      return reply.code(400).send({ error: "Invalid wake request" });
+    const endpoint = (
+      await pool.query<{ console_session_id: string }>(
+        `SELECT e.console_session_id FROM machines m JOIN signin_endpoints e ON e.machine_id=m.id
+         WHERE m.id=$1 AND m.account_id=$2 AND m.revoked_at IS NULL AND m.support_link_id IS NULL AND ${wakeableEndpoint}`,
+        [parsed.data.id, account],
+      )
+    ).rows[0];
+    if (!endpoint) return reply.code(404).send({ error: "Nothing to wake" });
+    const expires = Date.now() + 30_000;
+    wakeRequests.set(parsed.data.id, {
+      console: Number(endpoint.console_session_id),
+      expires,
+    });
+    await pool.query(
+      "INSERT INTO audit_events(account_id,machine_id,action) VALUES ($1,$2,'signin.wake.requested')",
+      [account, parsed.data.id],
+    );
+    return { ok: true, expiresAtMillis: expires };
+  });
+
+  app.post("/api/signin/wake", async (request, reply) => {
+    if (!mediaEnabled)
+      return reply.code(503).send({ error: "Sign-in authority disabled" });
+    const parsed = signinWakeProof.safeParse(request.body);
+    if (!parsed.success)
+      return reply.code(400).send({ error: "Invalid wake proof" });
+    const proof = parsed.data;
+    if (Math.abs(Date.now() - proof.timestamp) > 30_000)
+      return reply.code(401).send({ error: "Wake rejected" });
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const endpoint = (
+        await client.query<{ public_key: Buffer }>(
+          `SELECT e.public_key FROM machines m JOIN signin_endpoints e ON e.machine_id=m.id
+           WHERE m.id=$1 AND m.revoked_at IS NULL AND e.enabled FOR UPDATE OF m,e`,
+          [proof.machineId],
+        )
+      ).rows[0];
+      if (
+        !endpoint ||
+        !validSignature(
+          endpoint.public_key,
+          signinWakeProofMessage(proof),
+          proof.signature,
+        )
+      ) {
+        await client.query("ROLLBACK");
+        return reply.code(401).send({ error: "Wake rejected" });
+      }
+      if (!(await nonce(client, proof.machineId, proof.nonce))) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: "Wake rejected" });
+      }
+      await client.query("COMMIT");
+      const pending = wakeRequests.get(proof.machineId);
+      if (pending && pending.expires <= Date.now())
+        wakeRequests.delete(proof.machineId);
+      const wake =
+        pending !== undefined &&
+        pending.expires > Date.now() &&
+        pending.console === proof.consoleSessionId;
+      if (wake) wakeRequests.delete(proof.machineId);
+      reply.header("Cache-Control", "no-store");
+      return { wake };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   });
 
   app.post(

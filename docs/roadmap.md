@@ -190,6 +190,36 @@ signing, abuse protection, retired-device rejection and re-enrollment, provider 
 never hold credentials, pixels or input. Real account lifecycle, MFA and email delivery. (solo for design and code,
 owner for real accounts and signing)
 
+## What other remote-access tools have (review, November 27)
+
+Compared with RDP, VNC servers (TightVNC/UltraVNC/RealVNC), RustDesk, AnyDesk, TeamViewer, BeyondTrust (Bomgar),
+MeshCentral and Apache Guacamole from their public documentation, not a measured comparison. Done this round: **wake on
+request**, so a viewer reaches a locked computer's password prompt without anyone at the keyboard
+([signin-authority.md](signin-authority.md)). Everything below is useful and missing or partial; existing items stay
+where they are in M2–M9 and the [parity backlog](rdp-vnc-parity-roadmap.md).
+
+| Order | Feature                                                                 | Who has it                                  | Beacon now                                                                  | Fits under               |
+| ----- | ----------------------------------------------------------------------- | ------------------------------------------- | --------------------------------------------------------------------------- | ------------------------ |
+| 1     | Follow the input desktop (lock picture, UAC, sign-in) in one view       | VNC services, RustDesk, AnyDesk, TeamViewer | Separate sign-in worker and ordinary helper with a handoff; wake on request | M2                       |
+| 2     | Send Ctrl+Alt+Del from the viewer                                       | All of them (needs the SAS policy)          | Built, blocked on the owner-set `SoftwareSASGeneration` policy              | M2                       |
+| 3     | Lock the computer when a session ends (setting)                         | AnyDesk, RustDesk, TeamViewer               | Missing                                                                     | M2 / M9                  |
+| 4     | Privacy mode: blank the local screen during unattended work             | AnyDesk, TeamViewer, RustDesk, BeyondTrust  | Missing (backlog note); must keep Stop reachable and never hide sharing     | M8 (design first)        |
+| 5     | Block local keyboard and mouse while a controller works                 | AnyDesk, TeamViewer, MeshCentral            | Missing; same rule: local Stop always works                                 | M8 (design first)        |
+| 6     | UAC prompts reachable from the viewer                                   | RustDesk/AnyDesk services, BeyondTrust      | Ordinary helper stops at the secure desktop by design (UIPI)                | M2 (sign-in worker path) |
+| 7     | Restart into Safe Mode with networking and reconnect                    | AnyDesk, TeamViewer, BeyondTrust            | Restart and reconnect exist; Safe Mode missing                              | M8 power                 |
+| 8     | Direct LAN connection and discovery                                     | RustDesk, AnyDesk, TeamViewer, MeshCentral  | ICE prefers direct; no discovery or offline-LAN mode                        | M8 network               |
+| 9     | Address book: favourites, tags, saved per-computer settings             | AnyDesk, TeamViewer, RustDesk               | Groups and remembered helpers; no saved connection profiles                 | M6                       |
+| 10    | Annotation and pointer on the remote screen                             | TeamViewer, BeyondTrust, AnyDesk            | Chat only                                                                   | M6                       |
+| 11    | Switch sides during a support session                                   | TeamViewer, AnyDesk                         | Missing                                                                     | M6                       |
+| 12    | Codec choice and 4:4:4 text clarity (H.264/H.265/AV1, VP9)              | RDP, AnyDesk, TeamViewer, RustDesk          | H.264 hardware/software; no 4:4:4 or AV1                                    | M5 performance           |
+| 13    | All monitors at once and monitor switching in the toolbar               | All of them                                 | One display at a time with selection                                        | M5 displays              |
+| 14    | Credential injection from a vault (no password shown to the technician) | BeyondTrust                                 | Missing; the owner types credentials themselves                             | M9 (design first)        |
+| 15    | Clientless gateway to existing RDP/VNC/SSH hosts                        | Apache Guacamole                            | Not planned; would be its own authenticated gateway                         | M8 (decide)              |
+| 16    | Self-hosted server and relay in one package                             | RustDesk, MeshCentral                       | Self-hosting docs exist; no one-step package                                | M9 operations            |
+
+Deliberately not copied: silent access without a visible indicator, hidden sessions, a general remote terminal or
+command surface, and anything that types or stores Windows passwords for the owner.
+
 ## Suggested goals
 
 Pick one as the next goal; each is self-contained and has an end state.

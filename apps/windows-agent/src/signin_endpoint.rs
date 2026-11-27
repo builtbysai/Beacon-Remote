@@ -950,6 +950,50 @@ pub fn status() -> Result<Status, HostError> {
     }
 }
 
+/// Whether a viewer asked for the password prompt on this locked console. `None` when the backend has no such route
+/// (older server) or cannot be reached, so the caller backs off; a refusal is a plain no.
+fn wake_requested(
+    http: &reqwest::blocking::Client,
+    server: &reqwest::Url,
+    machine: &str,
+    key: &SigningKey,
+    console: u32,
+) -> Option<bool> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()?
+        .as_millis() as u64;
+    let nonce = uuid::Uuid::new_v4().to_string();
+    let message = wake_message(machine, timestamp, &nonce, console);
+    let response = http
+        .post(server.join("/api/signin/wake").ok()?)
+        .json(&serde_json::json!({
+            "version":1,"machineId":machine,"timestamp":timestamp,"nonce":nonce,"consoleSessionId":console,
+            "signature": STANDARD.encode(key.sign(message.as_bytes()).to_bytes())
+        }))
+        .send()
+        .ok()?;
+    if response.status().as_u16() == 404 {
+        return None;
+    }
+    if !response.status().is_success() {
+        return Some(false);
+    }
+    let mut bytes = Vec::new();
+    response.take(4097).read_to_end(&mut bytes).ok()?;
+    Some(wake_answer(&bytes))
+}
+fn wake_message(machine: &str, timestamp: u64, nonce: &str, console: u32) -> String {
+    format!("beacon-remote:signin-wake:v1\n{machine}\n{timestamp}\n{nonce}\n{console}")
+}
+fn wake_answer(bytes: &[u8]) -> bool {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Answer {
+        wake: bool,
+    }
+    bytes.len() <= 4096 && serde_json::from_slice::<Answer>(bytes).is_ok_and(|answer| answer.wake)
+}
 fn send_local_disable(
     http: &reqwest::blocking::Client,
     server: &reqwest::Url,
@@ -1196,6 +1240,7 @@ fn run_service() -> Result<(), HostError> {
         let mut observed_epoch = session_epoch.load(Ordering::Acquire);
         let mut next_launch = Instant::now();
         let mut last_launch_error = String::new();
+        let mut next_wake_poll = Instant::now();
         let mut last_ack_note = String::new();
         let mut next_heartbeat = Instant::now();
         let mut disable_acknowledged = false;
@@ -1290,6 +1335,28 @@ fn run_service() -> Result<(), HostError> {
             // probe. Observe it before any launch or new heartbeat.
             if revoke.pending()? {
                 continue;
+            }
+            // While the lock-screen picture hides the password prompt no worker can start; ask whether a viewer is
+            // waiting, and if so raise the prompt so the next launch finds it.
+            if acknowledged && worker.is_none() && Instant::now() >= next_wake_poll {
+                if let Some(console) = crate::signin_worker::locked_console() {
+                    next_wake_poll = Instant::now() + Duration::from_secs(3);
+                    match wake_requested(&http, &server, machine, &key, console) {
+                        Some(true) => {
+                            match crate::signin_worker::wake_prompt(machine, console) {
+                                Ok(()) => diag(machine, "raised the password prompt for a viewer"),
+                                Err(error) => diag(
+                                    machine,
+                                    &format!("could not raise the password prompt: {error}"),
+                                ),
+                            }
+                            next_launch = Instant::now() + Duration::from_millis(800);
+                        }
+                        // A backend without this route: look again much later.
+                        None => next_wake_poll = Instant::now() + Duration::from_secs(60),
+                        Some(false) => {}
+                    }
+                }
             }
             if acknowledged
                 && worker.is_none()
@@ -1466,12 +1533,25 @@ pub fn command(arguments: &[String]) -> Option<Result<(), HostError>> {
             Ok(())
         })()),
         Some("signin-worker") => Some(crate::signin_worker::run_as_process(arguments)),
+        Some("signin-wake") => Some(crate::signin_worker::run_wake(arguments)),
         _ => None,
     }
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_wake_question_is_signed_in_its_own_domain_and_the_answer_is_strict() {
+        assert_eq!(
+            super::wake_message("m", 5, "n", 12),
+            "beacon-remote:signin-wake:v1\nm\n5\nn\n12"
+        );
+        assert!(super::wake_answer(br#"{"wake":true}"#));
+        assert!(!super::wake_answer(br#"{"wake":false}"#));
+        assert!(!super::wake_answer(br#"{"wake":true,"lease":"x"}"#));
+        assert!(!super::wake_answer(b"not json"));
+    }
+
     #[test]
     fn recovery_is_bounded_crash_only_and_cannot_run_commands_or_reboot() {
         let mut policy = super::recovery_policy();

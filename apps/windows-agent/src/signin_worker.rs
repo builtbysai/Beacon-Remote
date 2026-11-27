@@ -1377,9 +1377,203 @@ fn run_worker(arguments: &[String]) -> Result<(), HostError> {
     }
 }
 
+/// Right after a lock, Windows shows the lock-screen picture (LockApp) on the session's Default desktop; the
+/// password prompt, where the worker runs, appears on the Winlogon desktop only after a key press or click. VNC
+/// services and the commercial remote-support tools follow whichever desktop has the input; Beacon keeps the
+/// worker on Winlogon only and instead raises the prompt when a viewer asks: one short-lived SYSTEM helper in the
+/// console session presses and releases Ctrl on the lock-screen picture. It never types, never touches an
+/// unlocked desktop and never runs unless the console is locked and the picture is what has the input.
+pub(crate) fn wake_prompt(machine: &str, console: u32) -> Result<(), HostError> {
+    system()?;
+    if session_id()? != 0 {
+        return Err("Only the Session 0 sign-in supervisor may raise the prompt".into());
+    }
+    if locked_console() != Some(console) {
+        return Err("The console is not locked".into());
+    }
+    let executable = std::env::current_exe()?;
+    signin_endpoint::validate_binary(machine, &executable)?;
+    let token = worker_token(console)?;
+    let job = Job::new()?;
+    let mut attributes = Attributes::new(&job)?;
+    let executable_wide = wide(&executable.to_string_lossy());
+    let mut command = wide(&format!(
+        "\"{}\" signin-wake {machine} {console}",
+        executable.to_string_lossy()
+    ));
+    let mut desktop = wide("winsta0\\Default");
+    let windows = windows_directory()?;
+    let program_files =
+        availability::known_folder(&windows_sys::Win32::UI::Shell::FOLDERID_ProgramFiles)?;
+    let program_data =
+        availability::known_folder(&windows_sys::Win32::UI::Shell::FOLDERID_ProgramData)?;
+    let environment: Vec<u16> = format!(
+        "SystemRoot={windows}\0WINDIR={windows}\0ProgramFiles={}\0ProgramData={}\0\0",
+        program_files.display(),
+        program_data.display()
+    )
+    .encode_utf16()
+    .collect();
+    let directory = wide(
+        &executable
+            .parent()
+            .ok_or("Missing installed worker folder")?
+            .to_string_lossy(),
+    );
+    let mut startup = STARTUPINFOEXW::default();
+    startup.StartupInfo.cb = std::mem::size_of_val(&startup) as u32;
+    startup.StartupInfo.lpDesktop = desktop.as_mut_ptr();
+    startup.lpAttributeList = attributes.ptr();
+    let mut info = PROCESS_INFORMATION::default();
+    if unsafe {
+        CreateProcessAsUserW(
+            token.as_raw_handle(),
+            executable_wide.as_ptr(),
+            command.as_mut_ptr(),
+            null(),
+            null(),
+            0,
+            CREATE_SUSPENDED
+                | DETACHED_PROCESS
+                | CREATE_UNICODE_ENVIRONMENT
+                | EXTENDED_STARTUPINFO_PRESENT,
+            environment.as_ptr().cast(),
+            directory.as_ptr(),
+            &startup.StartupInfo,
+            &mut info,
+        )
+    } == 0
+    {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    let process = owned(info.hProcess)?;
+    let thread = owned(info.hThread)?;
+    if unsafe { ResumeThread(thread.as_raw_handle()) } == u32::MAX {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    // Dropping the job ends the helper if it has not finished in time.
+    if unsafe { WaitForSingleObject(process.as_raw_handle(), 5_000) } != WAIT_OBJECT_0 {
+        return Err("The prompt helper did not finish".into());
+    }
+    let mut code = 0u32;
+    if unsafe { GetExitCodeProcess(process.as_raw_handle(), &mut code) } == 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    drop(job);
+    match code {
+        0 => Ok(()),
+        code => Err(format!("The prompt helper ended with status {code:#010x}").into()),
+    }
+}
+
+/// What the prompt helper does on the desktop that has the input.
+#[derive(Debug, PartialEq, Eq)]
+enum WakeTarget {
+    /// The lock-screen picture: press Ctrl.
+    Picture,
+    /// The password prompt is already up: nothing to do.
+    Prompt,
+    /// Anything else (a screen saver, a desktop it cannot name): do nothing and say so.
+    Other,
+}
+fn wake_target(input_desktop: Option<&str>) -> WakeTarget {
+    match input_desktop {
+        Some(name) if name.eq_ignore_ascii_case("Default") => WakeTarget::Picture,
+        Some(name) if name.eq_ignore_ascii_case("Winlogon") => WakeTarget::Prompt,
+        _ => WakeTarget::Other,
+    }
+}
+
+/// `beacon-remote-agent signin-wake <machine> <console>`, started only by `wake_prompt`.
+pub(crate) fn run_wake(arguments: &[String]) -> Result<(), HostError> {
+    use windows_sys::Win32::System::StationsAndDesktops::{
+        CloseDesktop, OpenInputDesktop, SetThreadDesktop, DESKTOP_JOURNALPLAYBACK,
+        DESKTOP_READOBJECTS, DESKTOP_WRITEOBJECTS,
+    };
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_CONTROL,
+    };
+    if arguments.len() != 4 {
+        return Err("Invalid prompt helper invocation".into());
+    }
+    system()?;
+    let machine = &arguments[2];
+    let console = arguments[3].parse::<u32>()?;
+    signin_endpoint::validate_binary(machine, &std::env::current_exe()?)?;
+    if session_id()? != console || locked_console() != Some(console) {
+        return Err("The console is not locked".into());
+    }
+    let input = unsafe {
+        OpenInputDesktop(
+            0,
+            0,
+            DESKTOP_READOBJECTS | DESKTOP_WRITEOBJECTS | DESKTOP_JOURNALPLAYBACK,
+        )
+    };
+    if input.is_null() {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    struct Desktop(windows_sys::Win32::System::StationsAndDesktops::HDESK);
+    impl Drop for Desktop {
+        fn drop(&mut self) {
+            unsafe {
+                CloseDesktop(self.0);
+            }
+        }
+    }
+    let input = Desktop(input);
+    match wake_target(object_name(input.0).as_deref()) {
+        WakeTarget::Prompt => return Ok(()),
+        WakeTarget::Other => return Err("The lock-screen picture does not have the input".into()),
+        WakeTarget::Picture => {}
+    }
+    if unsafe { SetThreadDesktop(input.0) } == 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    // The last check before the key: an unlock in between must not send it to someone's desktop.
+    if locked_console() != Some(console) {
+        return Err("The console was unlocked".into());
+    }
+    let key = |flags| INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VK_CONTROL,
+                wScan: 0,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    };
+    let keys = [key(0), key(KEYEVENTF_KEYUP)];
+    let sent = unsafe {
+        SendInput(
+            keys.len() as u32,
+            keys.as_ptr(),
+            std::mem::size_of::<INPUT>() as i32,
+        )
+    };
+    if sent as usize != keys.len() {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_prompt_helper_presses_a_key_only_on_the_lock_screen_picture() {
+        assert_eq!(wake_target(Some("Default")), WakeTarget::Picture);
+        assert_eq!(wake_target(Some("default")), WakeTarget::Picture);
+        assert_eq!(wake_target(Some("Winlogon")), WakeTarget::Prompt);
+        assert_eq!(wake_target(Some("Screen-saver")), WakeTarget::Other);
+        assert_eq!(wake_target(None), WakeTarget::Other);
+        // Outside a locked console session the helper refuses before it looks at any desktop.
+        assert!(run_wake(&["agent".into(), "signin-wake".into()]).is_err());
+    }
 
     #[test]
     fn only_a_locked_session_or_a_console_with_nobody_signed_in_shows_the_sign_in_screen() {
