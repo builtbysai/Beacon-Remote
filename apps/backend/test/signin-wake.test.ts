@@ -200,6 +200,21 @@ test(
       assert.equal((await authority()).wakeable, false);
       assert.equal((await ask(owner)).statusCode, 404);
 
+      // Removed by its owner: a correctly signed heartbeat is told so (the endpoint may then remove itself); a
+      // mis-signed one learns nothing.
+      await pool.query("UPDATE machines SET revoked_at=now() WHERE id=$1", [
+        machine,
+      ]);
+      const removed = await post("/api/signin/heartbeat", beat("unavailable"));
+      assert.equal(removed.statusCode, 410);
+      assert.equal(removed.json().removed, true);
+      const forged = beat("unavailable");
+      forged.signature = signature(outsider, signinHeartbeatMessage(forged));
+      assert.equal(
+        (await post("/api/signin/heartbeat", forged)).statusCode,
+        401,
+      );
+
       // Media off: the routes are closed.
       await app.close();
       app = await createApp(pool, {

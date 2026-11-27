@@ -250,9 +250,10 @@ export function registerSigninAuthority(
           instance_id: string | null;
           console_session_id: string | null;
           worker_public_key: Buffer | null;
+          revoked_at: Date | null;
         }>(
-          `SELECT e.public_key,e.instance_id,e.console_session_id,e.worker_public_key FROM machines m JOIN signin_endpoints e ON e.machine_id=m.id
-         WHERE m.id=$1 AND m.revoked_at IS NULL AND m.support_link_id IS NULL AND e.enabled FOR UPDATE OF m,e`,
+          `SELECT e.public_key,e.instance_id,e.console_session_id,e.worker_public_key,m.revoked_at FROM machines m JOIN signin_endpoints e ON e.machine_id=m.id
+         WHERE m.id=$1 AND m.support_link_id IS NULL AND e.enabled FOR UPDATE OF m,e`,
           [b.machineId],
         )
       ).rows[0];
@@ -266,6 +267,14 @@ export function registerSigninAuthority(
       ) {
         await client.query("ROLLBACK");
         return reply.code(401).send({ error: "Presence rejected" });
+      }
+      // Only a correctly signed heartbeat learns this: the owner removed the computer, so the endpoint may remove
+      // itself. It is lower-only and never answered to an unsigned or mis-signed request.
+      if (endpoint.revoked_at) {
+        await client.query("ROLLBACK");
+        return reply
+          .code(410)
+          .send({ error: "This computer was removed", removed: true });
       }
       if (!(await nonce(client, b.machineId, b.nonce))) {
         await client.query("ROLLBACK");
