@@ -3,6 +3,7 @@ export * from "./signin.js";
 export * from "./session-permissions.js";
 export * from "./drive-mapping.js";
 export * from "./peer-identity.js";
+export * from "./peer-wire.js";
 
 export const PROTOCOL_VERSION = 1;
 // Separate signing domain and credential: a boot agent never receives a session grant.
@@ -223,6 +224,8 @@ export interface Machine {
   bootState?: "signed-out" | "locked" | "starting" | null;
   hostInstanceId?: string | null;
   hostConsoleSessionId?: number | null;
+  // The computer's identity key (URL-safe base64 of its 32-byte Ed25519 public key), for pinning (ADR 0061).
+  identityKey?: string;
   lastSeenAt: string | null;
   revokedAt: string | null;
   // The computer's own access policy (ADR 0021). Only the computer can raise it.

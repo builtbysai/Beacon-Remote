@@ -187,6 +187,14 @@ test(
         await app.inject({ method: "GET", url: "/api/machines", headers })
       ).json().machines;
       assert.equal(inventory[0].hostConsoleSessionId, 3);
+      // The computer's identity key reaches the owner's browser for pinning (ADR 0061): URL-safe base64, 32 bytes.
+      assert.equal(
+        inventory[0].identityKey,
+        keys.publicKey
+          .export({ format: "der", type: "spki" })
+          .subarray(-32)
+          .toString("base64url"),
+      );
       assert.equal(inventory[0].hostInstanceId, instance);
       assert.equal((await create({ requirePolicy: false })).statusCode, 400);
       assert.equal(

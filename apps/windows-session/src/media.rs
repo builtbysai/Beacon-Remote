@@ -75,8 +75,43 @@ pub struct Grant {
     // How long the server waits for the viewer to reconnect; capture stays off meanwhile.
     #[serde(default)]
     reconnect_seconds: Option<u64>,
+    // Peer authentication (ADR 0061), added by the local agent: a key minted for this session and the machine
+    // key's signed delegation of it. Absent from older agents; the offer is then sent unsigned.
+    #[serde(default)]
+    peer_session_key: Option<String>,
+    #[serde(default)]
+    peer_delegation_signature: Option<String>,
+    #[serde(default)]
+    peer_delegation_expires_at_millis: Option<u64>,
     ice_servers: Vec<IceServer>,
     ice_transport_policy: String,
+}
+
+impl Grant {
+    /// The proof that this offer is from this computer, or `None` when the agent gave no session key.
+    fn peer_proof(
+        &self,
+        generation: u64,
+        sdp: &str,
+    ) -> Option<beacon_remote_core::peer_identity::WireProof> {
+        use beacon_remote_core::peer_identity as peer;
+        let key = peer::secret_from_text(self.peer_session_key.as_deref()?)?;
+        let delegation = peer::Delegation {
+            session_id: self.id.clone(),
+            session_key: peer::public_key_text(&key),
+            expires_at_ms: self.peer_delegation_expires_at_millis?,
+        };
+        let nonce = uuid::Uuid::new_v4().into_bytes();
+        peer::host_proof(
+            &key,
+            &delegation,
+            self.peer_delegation_signature.as_deref()?,
+            generation,
+            sdp,
+            nonce,
+            now_millis().ok()?,
+        )
+    }
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1270,9 +1305,17 @@ async fn media_cycle(
     timeout(
         Duration::from_millis(500),
         socket.send(Message::Text(
-            json!({"type":"offer","sdp":description.sdp,"generation":generation})
-                .to_string()
-                .into(),
+            {
+                let mut offer =
+                    json!({"type":"offer","sdp":description.sdp,"generation":generation});
+                // Beside the offer, a public proof of who made it (ADR 0061); the viewer checks it.
+                if let Some(proof) = grant.peer_proof(generation, &description.sdp) {
+                    offer["peer"] = serde_json::to_value(proof)?;
+                }
+                offer
+            }
+            .to_string()
+            .into(),
         )),
     )
     .await??;
@@ -1812,6 +1855,95 @@ async fn media_cycle(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn grant_with(peer: serde_json::Value) -> Grant {
+        let mut value = serde_json::json!({
+            "id": "0f8fad5b-d9cb-469f-a165-70867728950e",
+            "token": "t",
+            "server": "http://127.0.0.1:3010",
+            "source": "desktop",
+            "controller": "someone@example.test",
+            "expiresAtMillis": 0,
+            "iceServers": [],
+            "iceTransportPolicy": "all"
+        });
+        value
+            .as_object_mut()
+            .unwrap()
+            .extend(peer.as_object().unwrap().clone());
+        serde_json::from_value(value).unwrap()
+    }
+
+    #[test]
+    fn an_offer_is_signed_when_the_agent_gave_a_session_key_and_not_otherwise() {
+        use beacon_remote_core::peer_identity as peer;
+        let sdp = format!(
+            "v=0
+a=fingerprint:sha-256 {}
+",
+            vec!["AB"; 32].join(":")
+        );
+        // An older agent sends no key: the offer goes out unsigned, as before.
+        assert!(grant_with(serde_json::json!({}))
+            .peer_proof(1, &sdp)
+            .is_none());
+        let machine = ed25519_dalek::SigningKey::from_bytes(&[7u8; 32]);
+        let session = ed25519_dalek::SigningKey::from_bytes(&[9u8; 32]);
+        let id = "0f8fad5b-d9cb-469f-a165-70867728950e";
+        let end = now_millis().unwrap() + 3_600_000;
+        let (_, signature) = peer::delegate(&machine, &session, id, end).unwrap();
+        let grant = grant_with(serde_json::json!({
+            "peerSessionKey": peer::secret_text(&session),
+            "peerDelegationSignature": signature,
+            "peerDelegationExpiresAtMillis": end
+        }));
+        let proof = grant.peer_proof(1, &sdp).unwrap();
+        let now = now_millis().unwrap();
+        let delegation = peer::Delegation {
+            session_id: id.into(),
+            session_key: proof.delegation.session_key.clone(),
+            expires_at_ms: proof.delegation.expires_at_ms,
+        };
+        assert_eq!(
+            peer::verify_delegation(
+                &machine.verifying_key().to_bytes(),
+                &delegation,
+                &proof.delegation.signature,
+                now
+            ),
+            Ok(())
+        );
+        let statement = peer::Statement {
+            session_id: id.into(),
+            generation: 1,
+            role: peer::Role::Host,
+            fingerprint: peer::sdp_fingerprint(&sdp).unwrap(),
+            nonce: proof.statement.nonce.clone(),
+            expires_at_ms: proof.statement.expires_at_ms,
+        };
+        assert_eq!(
+            peer::verify(
+                &session.verifying_key().to_bytes(),
+                &statement,
+                &proof.statement.signature,
+                now
+            ),
+            Ok(())
+        );
+        // An SDP with no fingerprint cannot be vouched for, and a damaged key gives no proof rather than a bad one.
+        assert!(grant
+            .peer_proof(
+                1, "v=0
+"
+            )
+            .is_none());
+        let bad = grant_with(serde_json::json!({
+            "peerSessionKey": "short",
+            "peerDelegationSignature": "x",
+            "peerDelegationExpiresAtMillis": end
+        }));
+        assert!(bad.peer_proof(1, &sdp).is_none());
+    }
 
     #[test]
     fn live_scopes_are_granted_independently_and_never_while_paused_or_detached() {

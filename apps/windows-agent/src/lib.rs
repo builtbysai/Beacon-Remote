@@ -472,6 +472,15 @@ pub fn is_paired() -> bool {
     state_path().is_ok_and(|path| path.is_file())
 }
 
+/// The short code of this computer's identity key, to compare with the code a browser shows for it (ADR 0061).
+pub fn identity_key_code() -> Option<String> {
+    let identity = load_identity().ok()?;
+    let key = SigningKey::from_bytes(&identity.secret_key);
+    Some(beacon_remote_core::peer_identity::key_fingerprint(
+        &key.verifying_key().to_bytes(),
+    ))
+}
+
 pub fn pair(server: &str, name: &str, code: String) -> Result<(), HostError> {
     let mut code = zeroize::Zeroizing::new(code);
     let path = state_path()?;
@@ -699,7 +708,12 @@ pub fn run(cancel: Arc<AtomicBool>, status: SyncSender<HostStatus>) -> Result<()
                         ..local_now
                     });
                 }
-                helpers.update(body, &identity.server, local_access())?;
+                helpers.update(
+                    body,
+                    &identity.server,
+                    local_access(),
+                    &SigningKey::from_bytes(&identity.secret_key),
+                )?;
                 if let Some(id) = request_id {
                     if helpers.handled(&id) {
                         handled_request = Some(id);

@@ -2252,7 +2252,7 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                 SS_NOPREFIX,
                 H_INFO as usize,
             )?;
-            add(
+            let clip_title = add(
                 "STATIC",
                 "Clipboard",
                 ACCESS,
@@ -2404,6 +2404,28 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                 owner_draw,
                 UPDATE,
             )?;
+            // The identity key: what a browser pins for this computer (ADR 0061), to compare by eye.
+            let identity_title = add(
+                "STATIC",
+                "This computer's identity",
+                SUPPORT,
+                (28, 492, 464, 22),
+                SS_NOPREFIX,
+                H_SECTION as usize,
+            )?;
+            let identity_text = add(
+                "STATIC",
+                &match beacon_remote_agent::identity_key_code() {
+                    Some(code) => format!(
+                        "Key {code}. Your browser remembers this the first time you connect; the codes should match."
+                    ),
+                    None => "Pair this computer to see its identity key.".to_owned(),
+                },
+                SUPPORT,
+                (28, 518, 464, 40),
+                SS_NOPREFIX,
+                H_INFO as usize,
+            )?;
             // Sign-in screen access is a page of its own; its entry sits with the setup it belongs to.
             let signin_entry = add(
                 "BUTTON",
@@ -2421,6 +2443,8 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                 unattended_title,
                 support_title,
                 updates_title,
+                clip_title,
+                identity_title,
             ]);
             titles.extend(state.summary);
             bodies.extend(summary_labels);
@@ -2434,6 +2458,8 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                 state.unattended_status,
                 support_text,
                 state.version_line,
+                state.clip_help,
+                identity_text,
             ]);
             state.members = members;
             // The main button is shared by pairing and the host toggle; it is not a tab member.
