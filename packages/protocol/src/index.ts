@@ -2,6 +2,7 @@ import { z } from "zod";
 export * from "./signin.js";
 export * from "./session-permissions.js";
 export * from "./drive-mapping.js";
+export * from "./peer-identity.js";
 
 export const PROTOCOL_VERSION = 1;
 // Separate signing domain and credential: a boot agent never receives a session grant.
