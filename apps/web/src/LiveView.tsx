@@ -37,6 +37,14 @@ import {
   type PermissionLogEntry,
 } from "./permission-log.js";
 import { PrintClient } from "./print-client.js";
+import type { HostProof } from "@beacon-remote/protocol";
+import {
+  browserPinStore,
+  identityNotice,
+  judgeOffer,
+  strictIdentity,
+  type IdentityVerdict,
+} from "./peer-trust.js";
 import {
   ClipboardClient,
   ClipboardRefused,
@@ -153,9 +161,12 @@ export function LiveView({
   onMinimize,
   minimized = false,
   machineId,
+  identityKey,
 }: {
   grant: ViewGrant;
   name: string;
+  // The computer's identity key from the server, to check the host's proof against (ADR 0061).
+  identityKey?: string;
   // Picks the computer's own colour so the viewer shows the same character as the list.
   machineId?: string;
   onClose: () => void;
@@ -322,6 +333,8 @@ export function LiveView({
   const clipboardChannel = useRef<ClipboardClient | null>(null);
   const [clipMode, setClipMode] = useState<ClipboardMode | null>(null);
   const [clipStatus, setClipStatus] = useState("");
+  // Whether the offer really came from the computer whose key this browser pinned (ADR 0061).
+  const [identity, setIdentity] = useState<IdentityVerdict | null>(null);
   // The last text this viewer sent, so Automatic never sends the same thing twice.
   const lastClipSent = useRef("");
   const [transfer, setTransfer] = useState<Transfer | null>(null);
@@ -1244,6 +1257,28 @@ export function LiveView({
                 message.sdp.length > 32768
               )
                 throw new Error("Invalid offer");
+              // Check who made the offer before anything is answered. Advisory unless the person turned strict
+              // mode on: older hosts send no proof, so by default the connection goes ahead and says so.
+              if (machineId) {
+                const verdict = await judgeOffer({
+                  store: browserPinStore(),
+                  machineId,
+                  identityKey,
+                  sessionId: grant.id,
+                  generation,
+                  sdp: message.sdp,
+                  proof: (message as { peer?: HostProof }).peer,
+                  nowMs: Date.now(),
+                });
+                if (closed) return;
+                setIdentity(verdict);
+                if (strictIdentity() && verdict.state !== "verified") {
+                  finish(
+                    "Strict mode: this computer could not prove who it is.",
+                  );
+                  return;
+                }
+              }
               await pc.setRemoteDescription({
                 type: "offer",
                 sdp: message.sdp,
@@ -1393,6 +1428,7 @@ export function LiveView({
     peerPaused ||
     frames === 0 ||
     Boolean(permissionView.status) ||
+    Boolean(identity && identityNotice(identity)) ||
     recordingSince !== null ||
     Boolean(offer) ||
     Boolean(transfer) ||
@@ -1507,6 +1543,11 @@ export function LiveView({
         <span role="status" data-decoded-frames={frames}>
           {status}
         </span>
+        {identity && identityNotice(identity) && (
+          <span role="status" className="viewer-identity-notice">
+            {identityNotice(identity)}
+          </span>
+        )}
         {!permissionView.canCancel && (
           <span role="status">{permissionView.status}</span>
         )}

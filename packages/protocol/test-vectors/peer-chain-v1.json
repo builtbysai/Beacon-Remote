@@ -1,0 +1,20 @@
+{
+  "machineSeedHex": "0707070707070707070707070707070707070707070707070707070707070707",
+  "machinePublicHex": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+  "sessionSeedHex": "0909090909090909090909090909090909090909090909090909090909090909",
+  "nowMs": 1795735970000,
+  "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 05:10:1B:26:31:3C:47:52:5D:68:73:7E:89:94:9F:AA:B5:C0:CB:D6:E1:EC:F7:02:0D:18:23:2E:39:44:4F:5A\r\nm=video 9 UDP/TLS/RTP/SAVPF 102\r\nc=IN IP4 0.0.0.0\r\na=fingerprint:sha-256 05:10:1b:26:31:3c:47:52:5d:68:73:7e:89:94:9f:aa:b5:c0:cb:d6:e1:ec:f7:02:0d:18:23:2e:39:44:4f:5a\r\n",
+  "sdpFingerprint": "sha-256 05:10:1B:26:31:3C:47:52:5D:68:73:7E:89:94:9F:AA:B5:C0:CB:D6:E1:EC:F7:02:0D:18:23:2E:39:44:4F:5A",
+  "delegation": {
+    "sessionId": "0f8fad5b-d9cb-469f-a165-70867728950e",
+    "expiresAtMs": 1795739600000,
+    "signature": "Q-XoeWM2Ownyuf15ka_-Tr4jjb6EK0K4Oyf31CbWmGYSAPLneCpyCK0hoWaFvDaPL_z6-tUck5Nq7EWNz_u-Dg",
+    "sessionPublic": "_RckOFqgx1tk-3jNYC-h2ZH96_drE8WO1wLqyDXp9hg"
+  },
+  "statement": {
+    "generation": 3,
+    "nonce": "q83vEjRWeJA3tbfQ-_kLmA",
+    "expiresAtMs": 1795736000000,
+    "signature": "bU8a8sF8oH2C0ax9p7pAOCf0pkEfGQJ8LU2xBrpMejsmpOyAaJmyl_nCEL6U2xbjydH9c-l3-6rJNr5x3FApCw"
+  }
+}

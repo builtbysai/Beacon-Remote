@@ -7,6 +7,7 @@ import { z } from "zod";
 import type { Config } from "./config.js";
 import {
   displayInfo,
+  hostProofWire,
   sessionPermissionSignal,
   supportCode,
 } from "../../../packages/protocol/src/index.js";
@@ -133,6 +134,8 @@ const signal = z.discriminatedUnion("type", [
       type: z.literal("offer"),
       sdp: z.string().min(1).max(32768),
       generation: z.number().int().min(0).max(MAX_GENERATIONS).optional(),
+      // Public proof of who made this offer, relayed unchanged (ADR 0061).
+      peer: hostProofWire.optional(),
     })
     .strict(),
   z

@@ -1341,6 +1341,10 @@ function App() {
               grant={view.grant}
               name={view.name}
               machineId={view.machineId}
+              identityKey={
+                machines?.find((entry) => entry.id === view.machineId)
+                  ?.identityKey
+              }
               minimized={minimized}
               onMinimize={() => setMinimized(true)}
               onClose={() => {
