@@ -165,12 +165,13 @@ impl Delegation {
         if !self.well_formed() {
             return Err(Problem::Malformed);
         }
+        let public = &self.session_key;
         Ok(format!(
             "beacon-peer-delegation-v1
 session:{}
 key:{}
 expires:{}",
-            self.session_id, self.session_key, self.expires_at_ms
+            self.session_id, public, self.expires_at_ms
         )
         .into_bytes())
     }
@@ -542,6 +543,7 @@ mod tests {
         };
         // The host mints the session key and signs the delegation exactly as the viewer side expects.
         assert_eq!(public_key_text(&session), delegation.session_key);
+        let public = &delegation.session_key;
         assert_eq!(
             String::from_utf8(delegation.bytes().unwrap()).unwrap(),
             format!(
@@ -549,7 +551,7 @@ mod tests {
 session:{}
 key:{}
 expires:{}",
-                delegation.session_id, delegation.session_key, delegation.expires_at_ms
+                delegation.session_id, public, delegation.expires_at_ms
             )
         );
         assert_eq!(
