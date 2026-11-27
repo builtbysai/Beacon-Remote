@@ -114,6 +114,21 @@ export function strictIdentity(
   }
 }
 
+/** Turns strict mode on or off for this browser. Returns whether the choice could be kept. */
+export function setStrictIdentity(
+  on: boolean,
+  storage: Storage | undefined = safeStorage(),
+): boolean {
+  try {
+    if (!storage) return false;
+    if (on) storage.setItem(STRICT, "1");
+    else storage.removeItem(STRICT);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function safeStorage(): Storage | undefined {
   try {
     return typeof localStorage === "undefined" ? undefined : localStorage;
