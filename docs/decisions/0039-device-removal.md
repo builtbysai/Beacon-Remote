@@ -35,3 +35,14 @@ changes (those need an administrator on that computer).
   and will not receive the instruction; use Uninstall rather than Revoke first when removal is the goal.
 - Temporary support computers (ADR 0038) are ended with End support and are not uninstallable this way.
 - A persistent computer is never uninstalled because a session ended.
+- **Services installed with administrator approval wait for a person at the computer.** The removal removes the boot-status
+  and Windows sign-in services first (`boot-remove-local`), and each is a Windows administrator prompt. If nobody approves
+  it, the uninstaller stops with a message and keeps the files, so the computer stays revoked and installed until someone
+  there approves. It walks every installation bound to the same Windows account, so a stale service left by an older
+  pairing is removed in the same pass. Read from the code and checked in the sandbox test (`scripts/Test-Installer.ps1`, which
+  covers the owner-removal switch, but never touches a real service); the prompts themselves have not yet been run on a
+  real computer.
+- **Android cannot remove itself.** Android does not let an app uninstall itself without the person's confirmation, so for a
+  phone the instruction only revokes it (the server shows `uninstallPending`) and the app stays installed. Checked on a
+  test copy on a physical phone on November 27, 2026. A phone app could show "removed by its owner" and offer the system
+  uninstall screen; that is not built.
