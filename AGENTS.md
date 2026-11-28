@@ -16,6 +16,8 @@ Do not bypass UAC, UIPI, secure desktop, or Session 0 isolation.
 Only one authorized controller may inject input. Release held input on revoke,
 expiry, disconnect, and shutdown. Protect realistic regressions with the smallest
 useful suite; prefer real database and machine boundaries. Report actual checks
-and limitations rather than test counts. AI/MCP, file transfer, recording and other
-operating systems are roadmap items (see docs/roadmap.md); build each only as its own authorized,
-consent-preserving feature.
+and limitations rather than test counts. Capabilities beyond viewing and control (file transfer,
+recording, sound, shared folders, printing, AI/MCP control, Windows sign-in access) each sit behind
+their own explicit, revocable permission; new ones (other operating systems, peripherals) follow
+docs/roadmap.md and are built only as their own authorized, consent-preserving feature.
+Start from docs/roadmap.md and the latest docs/handoff-*.md; docs/history holds dated evidence only.
