@@ -29,6 +29,13 @@ const MAX_MESSAGE: usize = 4096;
 const IDLE: u64 = 1500 * T;
 const CLEANUP: u64 = 3000 * T;
 const SILENCE: u64 = 30_000 * T;
+/// Shift, Ctrl, Alt and the Windows keys: the only keys a person holds down on the sign-in screen.
+fn modifier(scan_code: u16, extended: bool) -> bool {
+    matches!(
+        (scan_code, extended),
+        (0x2a | 0x36 | 0x1d | 0x38, _) | (0x5b | 0x5c, true)
+    )
+}
 fn rejected() -> HostError {
     "Sign-in input unavailable or rejected".into()
 }
@@ -347,7 +354,15 @@ impl<S: Sink> Tracked<S> {
                     extended,
                     down,
                 } => {
-                    if *down {
+                    if *down && !modifier(*scan_code, *extended) {
+                        // On the sign-in screen every other key is a complete tap, sent when it goes down; its
+                        // later key-up is ignored. Enter submits the password on key-down and Windows leaves this
+                        // desktop before the key-up arrives, which would leave Enter held with no way to release it.
+                        self.keys.insert((*scan_code, *extended));
+                        self.live_send(Event::Scan(*scan_code, *extended, true))?;
+                        self.live_send(Event::Scan(*scan_code, *extended, false))?;
+                        self.keys.remove(&(*scan_code, *extended));
+                    } else if *down {
                         self.keys.insert((*scan_code, *extended));
                         self.live_send(Event::Scan(*scan_code, *extended, true))?;
                     } else if self.keys.contains(&(*scan_code, *extended)) {
@@ -660,6 +675,31 @@ mod tests {
             down: true,
         }
     }
+    #[test]
+    fn enter_is_a_complete_tap_so_nothing_is_left_held_when_signing_in_leaves_the_desktop() {
+        let (mut state, _gate) = fixture();
+        let enter = |down| Input::Key {
+            scan_code: 0x1c,
+            extended: false,
+            down,
+        };
+        state.process(1, &enter(true), 1000).unwrap();
+        assert!(!state.held());
+        assert!(
+            state.sink.events.lock().unwrap().as_slice()
+                == [
+                    Event::Scan(0x1c, false, true),
+                    Event::Scan(0x1c, false, false)
+                ]
+        );
+        // The viewer's own key-up arrives later and changes nothing.
+        state.process(2, &enter(false), 1001).unwrap();
+        assert_eq!(state.sink.events.lock().unwrap().len(), 2);
+        // A modifier is still held until its own key-up.
+        state.process(3, &down(), 1002).unwrap();
+        assert!(state.held());
+    }
+
     #[test]
     fn expiry_during_a_down_event_owns_and_releases_the_partial_operation() {
         let (mut state, gate) = fixture();
