@@ -55,13 +55,8 @@ const loginPath = resolve(
   "lab.json",
 );
 let account = randomUUID();
-let email = `lab-${account}@example.test`;
-// LAB_PASSWORD (16+ characters) sets the lab account's test password, also on a kept schema, so a person or agent
-// running the fixture can sign in with a password they chose; the login file is rewritten to match.
-const chosen = process.env.LAB_PASSWORD;
-if (chosen !== undefined && chosen.length < 16)
-  throw new Error("LAB_PASSWORD must be at least 16 characters");
-const password = chosen ?? randomBytes(32).toString("base64url");
+const email = `lab-${account}@example.test`;
+const password = randomBytes(32).toString("base64url");
 let web: Awaited<ReturnType<typeof createServer>> | undefined;
 let app: Awaited<ReturnType<typeof createApp>> | undefined;
 let ending = false;
@@ -81,20 +76,13 @@ process.once("SIGTERM", () => void stop().then(() => process.exit(0)));
 try {
   await applyMigrations(pool);
   // A kept schema keeps its account and the login file that names it.
-  if (kept !== undefined) {
-    const existing = (
-      await pool.query<{ id: typeof account; email: string }>(
-        "SELECT id,email FROM accounts LIMIT 1",
+  if (kept !== undefined)
+    account = (
+      await pool.query<{ id: typeof account }>(
+        "SELECT id FROM accounts LIMIT 1",
       )
-    ).rows[0]!;
-    account = existing.id;
-    email = existing.email;
-    if (chosen !== undefined)
-      await pool.query("UPDATE accounts SET password_hash=$1 WHERE id=$2", [
-        await hash(chosen),
-        account,
-      ]);
-  } else
+    ).rows[0]!.id;
+  else
     await pool.query(
       "INSERT INTO accounts(id,email,password_hash) VALUES ($1,$2,$3)",
       [account, email, await hash(password)],
@@ -125,7 +113,7 @@ try {
   await web.listen();
   await mkdir(state, { recursive: true });
   await mkdir(dirname(loginPath), { recursive: true });
-  if (kept === undefined || chosen !== undefined)
+  if (kept === undefined)
     await writeFile(loginPath, JSON.stringify({ origin, email, password }));
   const newCode = async () => {
     const machines = await pool.query(
@@ -151,7 +139,7 @@ try {
     JSON.stringify({ origin, api: `http://127.0.0.1:${api}`, cookie: token }),
   );
   console.log(
-    `Lab fixture: web ${origin}, API http://127.0.0.1:${api}. Login ${email} (password in ${loginPath}); pairing code in ${state}.`,
+    `Lab fixture: web ${origin}, API http://127.0.0.1:${api}. Login in ${loginPath}; pairing code in ${state}.`,
   );
 } catch (error) {
   await stop();
