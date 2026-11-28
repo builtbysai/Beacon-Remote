@@ -14,6 +14,7 @@ use std::{
     },
     thread::{self, JoinHandle},
 };
+use windows_sys::Win32::System::DataExchange::COPYDATASTRUCT;
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::{
@@ -27,9 +28,13 @@ use windows_sys::Win32::{
         Threading::CreateMutexW,
     },
     UI::{
-        Controls::{DRAWITEMSTRUCT, EM_SETLIMITTEXT, ODS_DISABLED, ODS_FOCUS, ODS_SELECTED},
+        Controls::{
+            DRAWITEMSTRUCT, EM_SETLIMITTEXT, EM_SETREADONLY, EM_SETSEL, ODS_DISABLED, ODS_FOCUS,
+            ODS_SELECTED,
+        },
         HiDpi::{
-            GetDpiForSystem, SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_SYSTEM_AWARE,
+            GetDpiForSystem, SetProcessDpiAwarenessContext,
+            DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
         },
         Input::KeyboardAndMouse::{EnableWindow, SetFocus},
         Shell::*,
@@ -42,6 +47,8 @@ const ACTION: usize = 101;
 const SERVER: usize = 103;
 const NAME: usize = 104;
 const CODE: usize = 105;
+/// "Change" beside the server address, which is read-only until it is pressed (review R11).
+const SERVER_CHANGE: usize = 106;
 const AUTOSTART: usize = 120;
 const FILES: usize = 121;
 const BOOT_START: usize = 122;
@@ -74,6 +81,7 @@ const ACCESS_CONTROL: usize = 112;
 const TRAY_SHOW: usize = 201;
 const TRAY_STOP: usize = 202;
 const TRAY_QUIT: usize = 203;
+const TRAY_LOCK_ON_END: usize = 204;
 const TRAY_MESSAGE: u32 = WM_APP + 1;
 use beacon_remote_agent::support::DEFAULT_SERVER;
 // Static text controls, identified so each can take its colour from the design.
@@ -110,6 +118,8 @@ struct State {
     action: HWND,
     status: HWND,
     introduction: HWND,
+    /// "Set up this computer" until pairing, then "This computer" (updated in place, not on reopen).
+    heading: HWND,
     last_status: Option<HostStatus>,
     enrollment: Vec<HWND>,
     members: Vec<Member>,
@@ -134,6 +144,11 @@ struct State {
     update_check: Option<JoinHandle<Result<Option<UpdateOffer>, HostError>>>,
     update_install: Option<JoinHandle<Result<(), HostError>>>,
     signin_check: Option<JoinHandle<Result<Option<bool>, HostError>>>,
+    /// Whether this run already brought the "finish the update" step forward (review R13): once per run.
+    repair_offered: bool,
+    /// Whether the session page currently open saw an actual session (not only a request that was declined or
+    /// expired): only then may "lock when a remote session ends" lock Windows.
+    session_ran: bool,
     signin_health: Option<bool>,
     signin_recheck: bool,
     helpers_job: Option<(JoinHandle<Result<(), HostError>>, u8)>,
@@ -154,6 +169,8 @@ struct State {
     files: HWND,
     pill_key: u8,
     fonts: Vec<HFONT>,
+    /// The monitor DPI the controls are laid out for; WM_DPICHANGED rescales from it.
+    dpi: u32,
     // The Windows sign-in page, shown inside this window in place of the main view, and the controls it hides.
     signin_page: HWND,
     hidden_for_page: Vec<HWND>,
@@ -362,6 +379,10 @@ unsafe fn read(window: HWND) -> String {
     buffer.zeroize();
     result
 }
+/// `WM_COPYDATA` tag for a pairing link handed to the window that is already open, and the longest link accepted.
+const LINK_MESSAGE: usize = 0x4252_4C4B;
+const MAX_LINK: usize = 2300;
+
 /// A pairing link pasted into the code box (`beaconremote://pair?code=…&server=…`, as the workspace offers for phones):
 /// the server it names, if any, and the code. `None` for anything else, including a plain code.
 fn pairing_link(typed: &str) -> Option<(Option<String>, String)> {
@@ -586,6 +607,7 @@ impl State {
             allow_control: choice == 2,
             helpers: self.access.helpers,
             files: choice > 0 && self.access.files,
+            lock_on_end: self.access.lock_on_end,
         };
         text(self.status, "Updating trusted access…");
         let handle = thread::spawn(move || {
@@ -942,6 +964,26 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
         self.show_access();
         self.show_helpers();
     }
+    /// Fills the pairing form from a `beaconremote://pair` link and waits: the person sees the server it names and
+    /// selects Pair computer themselves. A paired computer, or anything that is not such a link, changes nothing.
+    unsafe fn fill_from_link(&mut self, link: &str) {
+        if self.paired {
+            text(self.status, "This computer is already paired. Remove it from your workspace first to pair it again.");
+            return;
+        }
+        let Some((server, code)) = pairing_link(link) else {
+            return;
+        };
+        if let Some(server) = server {
+            text(self.server, &server);
+        }
+        text(self.code, &code);
+        text(
+            self.status,
+            "Filled in from the link. Check the server, then select Pair computer.",
+        );
+        SetFocus(self.action);
+    }
     unsafe fn start(&mut self) {
         if self.worker.is_some() || self.closing {
             return;
@@ -1013,6 +1055,9 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
     unsafe fn follow_session(&mut self, window: HWND) {
         beacon_remote_agent::session_hub::alive();
         let view = beacon_remote_agent::session_hub::view();
+        if view.session.is_some() {
+            self.session_ran = true;
+        }
         if view.active() && self.session_page.is_null() {
             self.open_session(&view);
         } else if !view.active() && !self.session_page.is_null() {
@@ -1107,6 +1152,12 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
         if self.session_page.is_null() {
             return;
         }
+        // The owner asked for Windows to lock whenever a remote session ends: only after a session that actually ran,
+        // never after a request the person here declined or let expire.
+        let ran = std::mem::take(&mut self.session_ran);
+        if ran && beacon_remote_agent::local_access().lock_on_end {
+            beacon_remote_agent::lock_workstation();
+        }
         DestroyWindow(self.session_page);
         self.session_page = null_mut();
         SetWindowPos(
@@ -1150,6 +1201,39 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
                 self.check_signin();
             }
             self.show_access();
+            // After an update the services still run the previous build until one administrator approval brings them
+            // up to date. Say so right away, on the page where that approval is, instead of leaving it to be found.
+            if self.signin_health == Some(true)
+                && !self.repair_offered
+                && self.session_page.is_null()
+            {
+                self.repair_offered = true;
+                if let Some(index) = TABS.iter().position(|(tab, _)| *tab == TAB_UNATTENDED) {
+                    self.tab = index as u8;
+                    self.controls();
+                }
+                restore(window);
+                // The update's one remaining step starts by itself (review R13): Windows shows its administrator
+                // prompt now instead of waiting for someone to find Repair. Declining leaves the note and Repair.
+                if self.unattended_job.is_none() && self.access_job.is_none() {
+                    self.start_after_setup = false;
+                    self.unattended_job =
+                        Some(thread::spawn(beacon_remote_agent::signin_endpoint::repair));
+                }
+            }
+        }
+        // Kept on the Unattended page while the services still run the previous build, so a later status report
+        // does not wipe the reason the page opened (written only when it differs, so nothing flickers).
+        const UPDATED: &str = "Beacon Remote was updated. Approve once (Repair on this page) so unattended access uses the new version too.";
+        if self.signin_health == Some(true)
+            && self.repair_offered
+            && self.session_page.is_null()
+            && TABS
+                .get(self.tab as usize)
+                .is_some_and(|(tab, _)| *tab == TAB_UNATTENDED)
+            && read(self.status) != UPDATED
+        {
+            text(self.status, UPDATED);
         }
         if self
             .unattended_job
@@ -1308,10 +1392,11 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
                 text(self.code, "");
                 self.paired = beacon_remote_agent::is_paired();
                 self.check_signin();
-                text(
-                    self.status,
-                    "Computer paired · Select Start host to make it available.",
-                );
+                if self.paired {
+                    text(self.heading, "This computer");
+                }
+                // The host starts by itself right after pairing (below).
+                text(self.status, "Computer paired · Starting…");
                 if self.paired && !self.closing {
                     self.start();
                 }
@@ -1599,6 +1684,84 @@ unsafe extern "system" fn procedure(
         return 0;
     }
     match message {
+        WM_DPICHANGED if !state.is_null() => {
+            let state = &mut *state;
+            let dpi = ((wparam & 0xffff) as u32).max(48);
+            let ratio = dpi as f32 / state.dpi.max(1) as f32;
+            state.dpi = dpi;
+            state.scale *= ratio;
+            // Every control keeps its place relative to its parent, at the new scale.
+            unsafe extern "system" fn rescale_child(child: HWND, ratio: LPARAM) -> i32 {
+                let ratio = f32::from_bits(ratio as u32);
+                let mut rect = RECT::default();
+                GetWindowRect(child, &mut rect);
+                let parent = GetParent(child);
+                let mut corner = POINT {
+                    x: rect.left,
+                    y: rect.top,
+                };
+                ScreenToClient(parent, &mut corner);
+                MoveWindow(
+                    child,
+                    rescaled(corner.x, ratio),
+                    rescaled(corner.y, ratio),
+                    rescaled(rect.right - rect.left, ratio),
+                    rescaled(rect.bottom - rect.top, ratio),
+                    0,
+                );
+                1
+            }
+            EnumChildWindows(window, Some(rescale_child), ratio.to_bits() as LPARAM);
+            // The same five fonts, made again at the new scale; each control keeps its counterpart.
+            let sizes = [(23, 600), (14, 600), (13, 600), (13, 400), (15, 400)];
+            if state.fonts.len() == sizes.len() {
+                let fresh: Vec<HFONT> = sizes
+                    .iter()
+                    .map(|(height, weight)| {
+                        ui::gdi_font((*height as f32 * state.scale).round() as i32, *weight)
+                    })
+                    .collect();
+                unsafe extern "system" fn swap_font(child: HWND, pair: LPARAM) -> i32 {
+                    let (old, new) = &*(pair as *const (Vec<HFONT>, Vec<HFONT>));
+                    let current = SendMessageW(child, WM_GETFONT, 0, 0) as HFONT;
+                    if let Some(index) = old.iter().position(|font| *font == current) {
+                        SendMessageW(child, WM_SETFONT, new[index] as usize, 0);
+                    }
+                    1
+                }
+                let pair = (state.fonts.clone(), fresh.clone());
+                EnumChildWindows(window, Some(swap_font), std::ptr::addr_of!(pair) as LPARAM);
+                for font in std::mem::replace(&mut state.fonts, fresh) {
+                    DeleteObject(font as _);
+                }
+            }
+            let bounds = &*(lparam as *const RECT);
+            SetWindowPos(
+                window,
+                null_mut(),
+                bounds.left,
+                bounds.top,
+                bounds.right - bounds.left,
+                bounds.bottom - bounds.top,
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+            state.controls();
+            InvalidateRect(window, null(), 1);
+            return 0;
+        }
+        WM_COPYDATA if !state.is_null() => {
+            let data = &*(lparam as *const COPYDATASTRUCT);
+            let units = data.cbData as usize / 2;
+            if data.dwData == LINK_MESSAGE && units <= MAX_LINK && !data.lpData.is_null() {
+                let link = String::from_utf16_lossy(std::slice::from_raw_parts(
+                    data.lpData as *const u16,
+                    units,
+                ));
+                (*state).fill_from_link(&link);
+                return 1;
+            }
+            return 0;
+        }
         DM_GETDEFID => return ((DC_HASDEFID as usize) << 16 | ACTION) as isize,
         WM_ERASEBKGND if !state.is_null() => return 1,
         WM_PAINT if !state.is_null() => {
@@ -1628,6 +1791,12 @@ unsafe extern "system" fn procedure(
         }
         WM_COMMAND if !state.is_null() && (wparam >> 16) == BN_CLICKED as usize => {
             match wparam & 0xffff {
+                SERVER_CHANGE => {
+                    SendMessageW((*state).server, EM_SETREADONLY, 0, 0);
+                    SendMessageW((*state).server, EM_SETSEL, 0, -1);
+                    SetFocus((*state).server);
+                    ShowWindow(GetDlgItem(window, SERVER_CHANGE as i32), SW_HIDE);
+                }
                 ACTION => {
                     if (*state).paired && (*state).worker.is_some() {
                         (*state).stop();
@@ -1702,6 +1871,12 @@ unsafe extern "system" fn procedure(
                     }
                 }
                 TRAY_SHOW => restore(window),
+                TRAY_LOCK_ON_END => {
+                    let on = !beacon_remote_agent::local_access().lock_on_end;
+                    if beacon_remote_agent::set_lock_on_end(on).is_ok() {
+                        (*state).access = beacon_remote_agent::local_access();
+                    }
+                }
                 TRAY_STOP => (*state).stop(),
                 TRAY_QUIT => {
                     SendMessageW(window, WM_CLOSE, 0, 0);
@@ -1735,6 +1910,19 @@ unsafe extern "system" fn procedure(
                         TRAY_SHOW,
                         wide("Show Beacon Remote").as_ptr(),
                     );
+                    if (*state).paired {
+                        AppendMenuW(
+                            menu,
+                            MF_STRING
+                                | if (*state).access.lock_on_end {
+                                    MF_CHECKED
+                                } else {
+                                    0
+                                },
+                            TRAY_LOCK_ON_END,
+                            wide("Lock this computer when a remote session ends").as_ptr(),
+                        );
+                    }
                     if (*state).paired {
                         let available = (*state).unattended_job.is_none()
                             && (*state).access_job.is_none()
@@ -1866,6 +2054,11 @@ fn clip_ago(seconds: u128) -> String {
 
 /// How much to scale the fixed layout: the system scale, reduced so the tallest page plus the (system-scaled)
 /// frame fits the work area, but never below 70% of the system scale.
+/// A position or size at a new monitor scale.
+fn rescaled(value: i32, ratio: f32) -> i32 {
+    (value as f32 * ratio).round() as i32
+}
+
 fn fit_factor(system: f32, available: f32, frame: f32, content: f32) -> f32 {
     if available <= frame {
         return system;
@@ -1873,10 +2066,14 @@ fn fit_factor(system: f32, available: f32, frame: f32, content: f32) -> f32 {
     system.min((available - frame) / content).max(system * 0.7)
 }
 
-pub fn show(background: bool) -> Result<(), io::Error> {
+/// `link`: a `beaconremote://pair?…` link this program was opened with (the web's "Open link"). It fills in the
+/// pairing form, in this window or in the one already open; pairing still waits for the person to select Pair.
+pub fn show(background: bool, link: Option<String>) -> Result<(), io::Error> {
     unsafe {
         // Draw at the screen's real scale instead of letting Windows stretch a 96 dpi bitmap, which blurs the text.
-        SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_SYSTEM_AWARE);
+        // Per monitor (review R32): moving to a monitor with another scale redraws sharp at that scale (WM_DPICHANGED)
+        // instead of Windows stretching a bitmap.
+        SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let local = std::env::var_os("LOCALAPPDATA")
             .ok_or_else(|| io::Error::other("LOCALAPPDATA required"))?;
         let mut hasher = DefaultHasher::new();
@@ -1901,6 +2098,15 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             if existing.is_null() {
                 MessageBoxW(null_mut(), wide("Beacon Remote host is already open. Use its existing window to start or stop sharing.").as_ptr(), wide("Beacon Remote").as_ptr(), MB_OK | MB_ICONINFORMATION);
             } else {
+                if let Some(link) = link.as_deref().filter(|link| link.len() <= MAX_LINK) {
+                    let units: Vec<u16> = link.encode_utf16().collect();
+                    let data = COPYDATASTRUCT {
+                        dwData: LINK_MESSAGE,
+                        cbData: (units.len() * 2) as u32,
+                        lpData: units.as_ptr() as *mut _,
+                    };
+                    SendMessageW(existing, WM_COPYDATA, 0, std::ptr::addr_of!(data) as LPARAM);
+                }
                 restore(existing);
             }
             return Ok(());
@@ -1949,6 +2155,7 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             action: null_mut(),
             status: null_mut(),
             introduction: null_mut(),
+            heading: null_mut(),
             last_status: None,
             enrollment: Vec::new(),
             members: Vec::new(),
@@ -1973,6 +2180,8 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             update_check: None,
             update_install: None,
             signin_check: None,
+            repair_offered: false,
+            session_ran: false,
             signin_health: None,
             signin_recheck: false,
             helpers_job: None,
@@ -1992,6 +2201,7 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             files: null_mut(),
             pill_key: 255,
             fonts: Vec::new(),
+            dpi: GetDpiForSystem().max(96),
             signin_page: null_mut(),
             hidden_for_page: Vec::new(),
             session_page: null_mut(),
@@ -2075,12 +2285,13 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                 SS_NOPREFIX,
                 H_HEADING as usize,
             )?;
+            state.heading = heading;
             state.introduction =
                 child("STATIC", "", 28, 58, 464, 40, SS_NOPREFIX, H_INTRO as usize)?;
             state.status = child(
                 "STATIC",
                 if paired {
-                    "Computer paired. Select Start host to make it available."
+                    "Computer paired · Starting…"
                 } else {
                     "Not paired. Generate a code in your signed-in workspace."
                 },
@@ -2091,12 +2302,16 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                 SS_NOPREFIX,
                 H_STATUS as usize,
             )?;
-            // Enrollment: three fields, each on a card drawn behind it.
-            for (label, top) in [
-                ("Server", 100),
-                ("Computer name", 168),
-                ("Pairing code, like AB3K-9PQ2", 236),
-            ] {
+            // Enrollment: three fields, each on a card drawn behind it. Each label is created right before its edit
+            // box, so Windows (UI Automation, Narrator) names every box by its own label; created all at once, the
+            // server box took the last label's name and the other two had none.
+            let field = WS_TABSTOP | ES_AUTOHSCROLL as u32;
+            let mut labelled = |label: &str,
+                                top: i32,
+                                text: &str,
+                                style: u32,
+                                id: usize|
+             -> Result<HWND, io::Error> {
                 state.enrollment.push(child(
                     "STATIC",
                     label,
@@ -2107,27 +2322,49 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                     SS_NOPREFIX,
                     H_LABEL as usize,
                 )?);
-            }
-            let field = WS_TABSTOP | ES_AUTOHSCROLL as u32;
-            state.server = child("EDIT", DEFAULT_SERVER, 40, 130, 440, 22, field, SERVER)?;
-            state.name = child("EDIT", &computer, 40, 198, 440, 22, field, NAME)?;
+                child("EDIT", text, 40, top + 30, 440, 22, style, id)
+            };
+            let server = labelled("Server", 100, DEFAULT_SERVER, field, SERVER)?;
+            let name = labelled("Computer name", 168, &computer, field, NAME)?;
             // Shown in plain, capital letters: it is short, works once and expires, and a hidden code hides typos.
-            state.code = child(
-                "EDIT",
+            let code = labelled(
+                "Pairing code, like AB3K-9PQ2",
+                236,
                 "",
-                40,
-                266,
-                440,
-                22,
                 field | ES_UPPERCASE as u32,
                 CODE,
             )?;
+            state.server = server;
+            state.name = name;
+            state.code = code;
             SendMessageW(state.server, EM_SETLIMITTEXT, 2048, 0);
             SendMessageW(state.name, EM_SETLIMITTEXT, 80, 0);
             SendMessageW(state.code, EM_SETLIMITTEXT, 256, 0);
             state
                 .enrollment
                 .extend([state.server, state.name, state.code]);
+            // Most people use the default workspace: its address is shown but not in the way. "Change" makes it
+            // editable for a self-hosted workspace; a pairing link fills it in either way.
+            SendMessageW(state.server, EM_SETREADONLY, 1, 0);
+            MoveWindow(
+                state.server,
+                scale(40),
+                scale(130),
+                scale(330),
+                scale(22),
+                0,
+            );
+            let change = child(
+                "BUTTON",
+                "Change",
+                384,
+                125,
+                96,
+                32,
+                owner_draw,
+                SERVER_CHANGE,
+            )?;
+            state.enrollment.push(change);
 
             // Paired view: four tabs on one fixed-size page. Every control is created once, with the tabs it
             // belongs to and its place; `controls()` shows and moves them.
@@ -2189,7 +2426,7 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             let info_two = add(
                 "STATIC",
                 &format!(
-                    "Paired to {}",
+                    "Paired with {}",
                     beacon_remote_agent::paired_server().unwrap_or_else(|| "your workspace".into())
                 ),
                 HOME,
@@ -2587,6 +2824,9 @@ pub fn show(background: bool) -> Result<(), io::Error> {
         } else {
             state.code
         });
+        if let Some(link) = link.as_deref() {
+            state.fill_from_link(link);
+        }
         let mut message = MSG::default();
         loop {
             let result = GetMessageW(&mut message, null_mut(), 0, 0);
@@ -2714,5 +2954,19 @@ mod fit_tests {
         assert_eq!(fit_factor(2.0, 400.0, 100.0, 526.0), 1.4);
         // An unknown or tiny work area keeps the system scale.
         assert_eq!(fit_factor(1.25, 0.0, 60.0, 526.0), 1.25);
+    }
+}
+
+#[cfg(test)]
+mod dpi_tests {
+    use super::rescaled;
+
+    #[test]
+    fn moving_between_monitors_rescales_positions_and_sizes_and_back() {
+        // 100 % → 150 %: a 464-pixel field becomes 696; going back restores it.
+        assert_eq!(rescaled(464, 1.5), 696);
+        assert_eq!(rescaled(696, 1.0 / 1.5), 464);
+        // 150 % → 200 %.
+        assert_eq!(rescaled(42, 200.0 / 150.0), 56);
     }
 }

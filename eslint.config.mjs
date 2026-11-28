@@ -8,7 +8,8 @@ export default tseslint.config(
       "**/dist/**",
       "**/node_modules/**",
       "**/target/**",
-      "design/prototype/**",
+      // Gradle output (Android reports), never source.
+      "apps/android-host/**/build/**",
     ],
   },
   js.configs.recommended,

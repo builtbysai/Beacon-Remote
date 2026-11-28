@@ -1,5 +1,7 @@
 # Approved product interface integration
 
+> Superseded by the November 2026 rebuild in [design/DIRECTION.md](../../design/DIRECTION.md): the package and its `design/prototype/` mock-up are no longer the target (the mock-up was removed November 28 and remains in git history).
+
 The owner supplied Beacon-Remote-Final-Package.zip and explicitly requested that
 its prompt be read, the package reviewed, and development continued. The package
 is the approved visual and interaction direction. Its clickable prototype was

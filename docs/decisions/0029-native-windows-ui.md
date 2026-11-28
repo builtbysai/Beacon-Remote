@@ -1,5 +1,7 @@
 # 0029 — Native Windows windows follow the approved design
 
+> Superseded in part by [ADR 0059](0059-host-window-owns-all-ui.md) (one window) and the November 2026 direction in [design/DIRECTION.md](../../design/DIRECTION.md).
+
 Date: 2026-10-13
 
 ## Decision

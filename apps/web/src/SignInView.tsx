@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from "react";
+import { captureFrame, lastFrame, rememberFrame } from "./last-frame.js";
 import { SignInConnection } from "./signin-connection.js";
-import { handoffDesktop, cancelSignInHandoff } from "./signin-handoff.js";
+import {
+  handoffDesktop,
+  cancelSignInHandoff,
+  signedIn,
+} from "./signin-handoff.js";
 import type { ViewGrant } from "./LiveView.js";
 import { attachRemoteInput } from "./remote-input.js";
 import { ViewerIcon } from "./viewer-icons.js";
+import { wakeSignIn } from "./signin-wake.js";
 import "./signin-view.css";
 
 export function SignInView({
@@ -12,13 +18,19 @@ export function SignInView({
   signal,
   onClose,
   onDesktop,
+  onSignedIn,
 }: {
   machineId: string;
   name: string;
   signal: AbortSignal;
   onClose: () => void;
   onDesktop: (grant: ViewGrant, transfer: () => void) => boolean;
+  // Windows signed in but the sign-in service could not hand its connection over: open the desktop the ordinary
+  // way (this view stays on screen with its last picture until the desktop shows).
+  onSignedIn?: () => void;
 }) {
+  const signedInHandler = useRef(onSignedIn);
+  signedInHandler.current = onSignedIn;
   const video = useRef<HTMLVideoElement>(null),
     shell = useRef<HTMLElement>(null),
     stopButton = useRef<HTMLButtonElement>(null);
@@ -32,6 +44,28 @@ export function SignInView({
     [needsPlay, setNeedsPlay] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [attentionPending, setAttentionPending] = useState(false);
+  // Windows puts an idle password prompt away after a short while; the view raises it again and reconnects, as a
+  // person at the keyboard would by pressing a key, a few times per opening.
+  const [attempt, setAttempt] = useState(0);
+  // The last picture of this computer, shown while a stream is being replaced instead of a black screen.
+  const [still, setStill] = useState<string | undefined>(() =>
+    lastFrame(machineId),
+  );
+  const latest = useRef<string | undefined>(lastFrame(machineId));
+  // While the picture is live, keep a recent still of it for the moments between streams.
+  useEffect(() => {
+    if (!picture) return;
+    const keep = () => {
+      const frame = captureFrame(video.current);
+      if (!frame) return;
+      latest.current = frame;
+      rememberFrame(machineId, frame);
+    };
+    keep();
+    const timer = setInterval(keep, 1500);
+    return () => clearInterval(timer);
+  }, [picture, machineId]);
+  const reconnects = useRef(0);
   useEffect(() => {
     const abort = new AbortController();
     let disposed = false;
@@ -71,6 +105,27 @@ export function SignInView({
           if (!disposed) setNeedsPlay(true);
         });
     };
+    const endForGood = () => {
+      setEnded(true);
+      setStatus("Sign-in connection ended. Return to Computers to reconnect.");
+    };
+    const rewake = () => {
+      if (disposed) return;
+      if (reconnects.current >= 5) {
+        endForGood();
+        return;
+      }
+      reconnects.current += 1;
+      setEnded(false);
+      setStatus("Windows put the password prompt away. Bringing it back…");
+      void wakeSignIn(machineId, AbortSignal.any([signal, abort.signal])).then(
+        (ready) => {
+          if (disposed) return;
+          if (ready) setAttempt((value) => value + 1);
+          else endForGood();
+        },
+      );
+    };
     void SignInConnection.start(
       machineId,
       {
@@ -81,6 +136,9 @@ export function SignInView({
           const element = video.current;
           if (!element) return;
           if (!stream) {
+            // Keep the last picture on screen (as the video's poster) while the next stream starts. The track is
+            // already stopped here, so it is the still taken while the picture was live.
+            if (latest.current && !disposed) setStill(latest.current);
             clear();
             if (!disposed) {
               setPicture(false);
@@ -148,17 +206,31 @@ export function SignInView({
                   )
                     void cancelSignInHandoff(context.leaseId, grant.id);
                 })
-                .catch(() => {
-                  if (!disposed) {
-                    setEnded(true);
-                    setStatus(
-                      "Sign-in connection ended. Return to Computers to reconnect.",
-                    );
+                .catch(async () => {
+                  if (disposed) return;
+                  active.stop();
+                  // Signed in, but no handover: continue to the desktop the ordinary way, never a dead end.
+                  if (
+                    signedInHandler.current &&
+                    !signal.aborted &&
+                    !abort.signal.aborted &&
+                    (await signedIn(machineId))
+                  ) {
+                    if (disposed) return;
+                    setStatus("Signed in. Opening your desktop…");
+                    signedInHandler.current();
+                    return;
                   }
+                  // No desktop to hand over to: the prompt went back to the lock-screen picture.
+                  if (!disposed) rewake();
                 });
               return;
             }
             active?.stop();
+            if (reason === "unavailable") {
+              rewake();
+              return;
+            }
             setEnded(true);
             setStatus(
               reason === "expired"
@@ -218,7 +290,7 @@ export function SignInView({
       if (previous instanceof HTMLElement && previous.isConnected)
         previous.focus();
     };
-  }, [machineId, signal]);
+  }, [machineId, signal, attempt]);
   const close = () => {
     connection.current?.stop();
     onClose();
@@ -352,6 +424,7 @@ export function SignInView({
             autoPlay
             muted
             playsInline
+            poster={still}
             tabIndex={input && picture && !ended ? 0 : -1}
             aria-label="Windows sign-in screen. Shift+Escape stops control."
             onLoadedData={() => {

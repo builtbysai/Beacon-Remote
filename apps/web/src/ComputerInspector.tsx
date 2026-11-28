@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useMediaQuery, useModalSheet } from "./modal-sheet.js";
 import {
   fromBase64url,
   keyFingerprint,
@@ -12,6 +13,7 @@ import { SupportAccess } from "./SupportAccess.js";
 import { DeviceActions } from "./DeviceActions.js";
 import { SignInAccess } from "./SignInAccess.js";
 import { Character, toneFor } from "./Characters.js";
+import { hostReturning } from "./computer-status.js";
 
 // The short code of the computer's identity key (ADR 0061), to compare with the one in its own window.
 function IdentityKeyRow({
@@ -79,6 +81,8 @@ export function ComputerInspector({
   sessionActive = false,
   onRestart,
   onRequestSignIn,
+  favourite,
+  onToggleFavourite,
   replacesRemoved = false,
 }: {
   machine: Machine;
@@ -96,6 +100,9 @@ export function ComputerInspector({
   onRequestSignIn?: () => void;
   /** Whether a removed computer has this one's name (see computer-replacement.ts). */
   replacesRemoved?: boolean;
+  // Starred computers are listed first (this browser only; grants nothing).
+  favourite?: boolean;
+  onToggleFavourite?: () => void;
 }) {
   const [display, setDisplay] = useState("");
   const displays = machine.displays ?? [];
@@ -141,7 +148,9 @@ export function ComputerInspector({
           : machine.bootState === "locked"
             ? "Locked. The desktop is available after unlock."
             : machine.bootState === "starting"
-              ? "Waiting for the desktop host to start."
+              ? hostReturning(machine.lastSeenAt)
+                ? "Reconnecting. The desktop host lost its network a moment ago."
+                : "Waiting for the desktop host to start."
               : "Offline. Check its power, network and host app."
         : sessionActive
           ? "End the current session first."
@@ -229,7 +238,9 @@ export function ComputerInspector({
           : machine.bootState === "signed-out"
             ? "Windows sign-in needed"
             : machine.bootState === "starting"
-              ? "Starting desktop host"
+              ? hostReturning(machine.lastSeenAt)
+                ? "Reconnecting…"
+                : "Starting desktop host"
               : "Offline";
   const accessLabel = trusted
     ? machine.allowControl
@@ -238,6 +249,9 @@ export function ComputerInspector({
     : controlEnabled
       ? "Attended · view or control"
       : "Attended · view only";
+  const panel = useRef<HTMLElement>(null);
+  const sheet = useMediaQuery("(max-width: 1100px)");
+  useModalSheet(panel, sheet);
   async function copyId() {
     try {
       await navigator.clipboard.writeText(machine.id);
@@ -249,8 +263,13 @@ export function ComputerInspector({
   }
   return (
     <aside
+      ref={panel}
       className="device-inspector"
       aria-label="Computer details"
+      // Shown as a bottom sheet over a dimmed page on narrow screens: a modal dialog there, a side panel otherwise.
+      role={sheet ? "dialog" : undefined}
+      aria-modal={sheet ? true : undefined}
+      tabIndex={sheet ? -1 : undefined}
       onKeyDown={(event) => {
         if (event.key === "Escape" && !busy) {
           event.stopPropagation();
@@ -266,7 +285,24 @@ export function ComputerInspector({
           mood={machine.revokedAt ? "locked" : online ? "awake" : "asleep"}
         />
         <div className="inspector-title">
-          <h2 className="inspector-name">{machine.name}</h2>
+          <h2 className="inspector-name" title={machine.name}>
+            {machine.name}
+          </h2>
+          {onToggleFavourite && (
+            <button
+              type="button"
+              className="inspector-favourite secondary"
+              aria-pressed={Boolean(favourite)}
+              title={
+                favourite
+                  ? "Remove from favourites"
+                  : "Add to favourites (listed first)"
+              }
+              onClick={onToggleFavourite}
+            >
+              {favourite ? "★ Favourite" : "☆ Favourite"}
+            </button>
+          )}
           <p className={`inspector-state${online ? " is-online" : ""}`}>
             <span className="inspector-status-dot" aria-hidden="true" />
             {stateLabel}
@@ -381,7 +417,7 @@ export function ComputerInspector({
                 : "Request control; approve on the computer"
           }
         >
-          <WorkspaceIcon name="computers" /> Remote
+          <WorkspaceIcon name="computers" /> Connect
         </button>
         <button
           className="secondary"

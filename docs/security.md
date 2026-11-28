@@ -1,6 +1,6 @@
 # Security boundaries
 
-See the [October 12 public-source security review](security-review-2026-10-12.md)
+See the [October 12 public-source security review](history/security-review-2026-10-12.md)
 for inspected history, CI hardening, publication settings and remaining gates.
 Public source visibility does not authorize a general-consumer or media release.
 
@@ -103,3 +103,9 @@ and nothing here was changed.
 - **Not covered here.** Distributed floods (the per-address floor does not stop many addresses), WebSocket message
   rates after a connection is accepted (bounded by the session and lease rules, not by a separate limit), and the TURN
   relay's own limits, which belong to the relay.
+
+## Dependency advisories under review
+
+- **GHSA-fc5q-39xc-vjpf (picomatch, high).** Present only in the development tool chain, with no published patch;
+  production dependencies audit clean (`pnpm audit --prod --audit-level high` in CI). Re-review by 2026-12-31 rather
+  than waive it silently; the history is in [history/development-status.md](history/development-status.md).

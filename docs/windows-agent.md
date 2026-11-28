@@ -170,6 +170,25 @@ files the installer did not create left alone). It needs no administrator approv
 Not covered, because they need administrator approval and real hardware: trusting the signing certificate, installing
 and removing the boot service, the sign-in worker, cold boot and signed-out states, and crash or reboot recovery.
 
+## One-step setup and removal (November 27, 2026)
+
+- **Setup:** after pairing and turning on unattended access (no prompt), **Enable sign-in access…** installs the boot
+  status service and the sign-in service under one administrator approval (`unattended-install`); **Repair service…**
+  brings both up to the installed build under one approval (`unattended-repair`).
+- **Uninstall at the computer:** one question, then one approval: the uninstaller runs `cleanup-local`, which elevates
+  once to `cleanup-all <owner SID> <uninstaller>`. That removes every sign-in and boot install owned by this Windows
+  user (old pairings too; other users' installs are untouched), then withdraws the certificate trust by running the
+  uninstaller's `--remove-trust` as a child. The app, its saved sign-in and finally the uninstaller itself go (the
+  last after the uninstaller has exited; folders only when empty). Its message boxes open in front.
+- **Removed from the website:** nothing is asked at the computer. The host removes the per-user app as before, and
+  each SYSTEM service removes itself when a correctly signed heartbeat gets the server's explicit `410 removed`
+  answer: it marks itself for deletion, deletes its private files, and a detached command deletes the running program
+  and its now-empty folders after it exits. A plain 401 (clock, network or key problems) never triggers removal. The
+  boot service is stopped while someone is signed in, so it removes itself at the next start. The certificate trust
+  stays until a local uninstall.
+- **Fixed:** uninstall used to stop at "Unexpected sign-in private state" on any computer whose sign-in service had
+  written its diagnostic log; the log is now the service's own to delete.
+
 ## Fewer administrator approvals per test cycle (November 27, 2026)
 
 Read from the code, not yet tried on the laptop: installing or removing the boot service is one elevated action

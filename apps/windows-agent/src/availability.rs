@@ -350,6 +350,12 @@ pub fn setup() -> Result<(), HostError> {
         &identity.server,
         &current_sid()?,
     )?;
+    finish_setup()
+}
+
+/// After an elevated install (alone or with sign-in access): check the public binding it wrote and tell the server.
+pub(crate) fn finish_setup() -> Result<(), HostError> {
+    let identity = load_identity()?;
     let (programs, _) = roots()?;
     let path = programs.join(&identity.machine_id).join("public.json");
     reject_reparse(&path)?;
@@ -414,6 +420,37 @@ pub fn remove() -> Result<(), HostError> {
 
 /// The uninstaller calls this before deleting the user's identity or installed binaries.
 /// Public manifests are administrator-controlled, so cleanup also works after local unpairing.
+/// Elevated part of one-step cleanup: removes every boot availability install that belongs to `owner` (old pairings
+/// included). Returns what could not be removed; other owners' installs are left alone.
+pub(crate) fn uninstall_owned(owner: &str) -> Vec<String> {
+    let mut problems = Vec::new();
+    let Ok((programs, _)) = roots() else {
+        return problems;
+    };
+    let Ok(entries) = fs::read_dir(&programs) else {
+        return problems;
+    };
+    for entry in entries.take(64).flatten() {
+        let machine = entry.file_name().to_string_lossy().into_owned();
+        if valid_machine(&machine).is_err() {
+            continue;
+        }
+        let binding = fs::read(entry.path().join("public.json"))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<PublicBinding>(&bytes).ok());
+        // A folder without a readable binding is left for an interactive check rather than guessed at.
+        if binding
+            .as_ref()
+            .is_some_and(|binding| binding.owner_sid == owner)
+        {
+            if let Err(error) = uninstall(&machine) {
+                problems.push(format!("boot {machine}: {error}"));
+            }
+        }
+    }
+    problems
+}
+
 fn remove_for_user(interactive: bool) -> Result<(), HostError> {
     let (programs, _) = roots()?;
     if !programs.exists() {
@@ -474,6 +511,11 @@ pub fn command(arguments: &[String]) -> Option<Result<(), HostError>> {
         })()),
         _ => None,
     }
+}
+
+/// The elevated half of one-step unattended setup (`unattended-install`), run beside the sign-in service install.
+pub(crate) fn install_elevated(machine: &str, server: &str, owner: &str) -> Result<(), HostError> {
+    install(machine, server, owner)
 }
 
 fn install(machine: &str, server: &str, owner: &str) -> Result<(), HostError> {
@@ -738,6 +780,18 @@ fn run_service() -> Result<(), HostError> {
             // A rejected binding may be waiting for first setup to finish. No commands are processed.
             let response=http.post(server.join("/api/boot/heartbeat")?).json(&serde_json::json!({"version":1,"machineId":machine,"timestamp":timestamp,"nonce":nonce,"state":state,"signature":STANDARD.encode(key.sign(message.as_bytes()).to_bytes())})).send();
             if response.is_ok_and(|reply| reply.status() == reqwest::StatusCode::GONE) {
+                // The owner removed this computer: take this service and its files away too, so nothing is left
+                // that starts at every boot.
+                if let Ok((programs, data)) = roots() {
+                    let _ = crate::self_removal::remove_after_exit(
+                        &name(machine),
+                        &[
+                            programs.join(machine).join("public.json"),
+                            data.join(machine).join("identity.dpapi"),
+                        ],
+                        &[programs.join(machine), data.join(machine)],
+                    );
+                }
                 break;
             }
             crate::pause(&cancel, Duration::from_secs(15));

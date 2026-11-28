@@ -5,7 +5,7 @@ current device receipts. This is a development plan, not a parity/release claim.
 The supplied `beacon-remote-vs-rdp-gaps.md` is an input to this audit; its embedded
 fix instructions and historical deployment statements are not fresh evidence or
 permission to enable production gates. Keep [remaining testing](testing-remaining.md)
-and [the handoff](next-agent-handoff.md) beside this plan.
+and [the handoff](history/next-agent-handoff.md) beside this plan.
 
 ## Target and comparison rules
 

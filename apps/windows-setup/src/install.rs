@@ -23,7 +23,7 @@ use windows::{
             Shell::{IShellLinkW, ShellLink},
             WindowsAndMessaging::{
                 MessageBoxW, IDYES, MB_ICONERROR, MB_ICONINFORMATION, MB_ICONQUESTION, MB_OK,
-                MB_YESNO,
+                MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO,
             },
         },
     },
@@ -74,6 +74,14 @@ impl Context {
             "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\BeaconRemote"
         }
     }
+    /// The per-user `beaconremote:` link protocol: the workspace's "Open link" fills in this computer's pairing form.
+    fn protocol_key(&self) -> &'static str {
+        if self.sandbox {
+            "Software\\BeaconRemoteSetupTest\\Classes\\beaconremote"
+        } else {
+            "Software\\Classes\\beaconremote"
+        }
+    }
     fn run_key(&self) -> &'static str {
         if self.sandbox {
             "Software\\BeaconRemoteSetupTest\\Run"
@@ -84,7 +92,13 @@ impl Context {
     fn say(&self, text: &str, flags: windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE) {
         if !self.silent {
             unsafe {
-                MessageBoxW(None, &HSTRING::from(text), &HSTRING::from(TITLE), flags);
+                // Started from the host or Settings, the box must not open behind another window.
+                MessageBoxW(
+                    None,
+                    &HSTRING::from(text),
+                    &HSTRING::from(TITLE),
+                    flags | MB_SETFOREGROUND | MB_TOPMOST,
+                );
             }
         }
     }
@@ -95,7 +109,7 @@ impl Context {
                     None,
                     &HSTRING::from(text),
                     &HSTRING::from(TITLE),
-                    MB_YESNO | MB_ICONQUESTION,
+                    MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_TOPMOST,
                 ) == IDYES
             }
     }
@@ -233,6 +247,7 @@ fn lay_down(context: &Context, autostart: bool) -> Result<(), Error> {
     let host = context.install.join("beacon-remote-host.exe");
     make_shortcut(&context.shortcut, &host, &context.install)?;
     register(context, &host, &uninstaller)?;
+    register_links(context, &host)?;
     if autostart {
         set_string(
             context.run_key(),
@@ -252,18 +267,27 @@ fn remove(context: &Context, by_owner: bool) -> Result<(), Error> {
     ) {
         return Ok(());
     }
-    // Remove the separately installed boot service before losing the identity or cleanup program.
-    // Sandbox acceptance must never touch a real system service.
-    if !context.sandbox {
+    // Remove the separately installed services before losing the identity or cleanup program. Sandbox acceptance must
+    // never touch a real system service. Removal from the owner's account needs no approval here: each service removes
+    // itself when the server tells it the computer was removed.
+    if !context.sandbox && !by_owner {
         let agent = context.install.join("beacon-remote-agent.exe");
         if agent.exists() {
             let mut command = Command::new(agent);
-            command.arg("boot-remove-local").creation_flags(NO_WINDOW);
+            command.creation_flags(NO_WINDOW);
             if context.silent {
-                command.arg("--silent");
+                // Automation cannot answer an administrator prompt; it stops if services are installed.
+                command.args(["boot-remove-local", "--silent"]);
+            } else {
+                // One administrator approval removes every Beacon Remote service of this Windows user (old pairings
+                // too) and the certificate trust, so nothing else is asked.
+                command.arg("cleanup-local");
+                if trust::trusted() {
+                    command.arg(env::current_exe()?);
+                }
             }
             if !command.status()?.success() {
-                return Err("Boot availability could not be removed. Run uninstall interactively and approve Windows setup; your files were preserved.".into());
+                return Err("Beacon Remote's services could not be removed. Run uninstall again and approve the Windows administrator prompt; your files were preserved.".into());
             }
         }
     }
@@ -278,7 +302,6 @@ Nothing else on this computer was changed.",
         );
         return Ok(());
     }
-    offer_untrust(context);
     context.say("Beacon Remote was removed.", MB_OK | MB_ICONINFORMATION);
     Ok(())
 }
@@ -313,26 +336,13 @@ fn offer_trust(context: &Context) {
     }
 }
 
-/// On uninstall, offers to stop trusting the certificate (administrator approval again).
-fn offer_untrust(context: &Context) {
-    if context.silent || context.sandbox || !trust::trusted() {
-        return;
-    }
-    if context.ask(
-        "Also stop trusting the Beacon Remote certificate on this computer?
-
-         This needs administrator approval. Choose No if you may reinstall Beacon Remote or run other          programs signed with it.",
-    ) {
-        let _ = trust::elevated(trust::REMOVE_FLAG);
-    }
-}
-
 /// Removes what this program added. `credentials` also deletes the saved sign-in (uninstall only).
 fn clean(context: &Context, credentials: bool) {
     let _ = delete_value(context.run_key(), RUN_VALUE);
     let _ = fs::remove_file(&context.shortcut);
     unsafe {
         let _ = RegDeleteTreeW(HKEY_CURRENT_USER, &HSTRING::from(context.uninstall_key()));
+        let _ = RegDeleteTreeW(HKEY_CURRENT_USER, &HSTRING::from(context.protocol_key()));
     }
     if credentials {
         // A fixed child of the profile's local data folder; never a computed or user-supplied path.
@@ -358,13 +368,15 @@ fn clean(context: &Context, credentials: bool) {
     }
     match own {
         Some(exe) if exe.starts_with(&context.install) => {
-            // The running uninstaller cannot delete itself; a short detached command does it once we exit.
-            let _ = Command::new("cmd")
-                .raw_arg(format!(
-                    "/c ping 127.0.0.1 -n 3 >nul & del /f /q \"{}\" & rmdir \"{}\"",
-                    exe.display(),
-                    context.install.display()
-                ))
+            // The running uninstaller cannot delete itself. A detached command waits until this process has really
+            // exited (its last questions can stay open for a while), then deletes it and the folder if it is empty.
+            let _ = Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    &self_delete_script(std::process::id(), &exe, &context.install),
+                ])
                 .creation_flags(NO_WINDOW)
                 .spawn();
         }
@@ -373,6 +385,21 @@ fn clean(context: &Context, credentials: bool) {
             let _ = fs::remove_dir(&context.install);
         }
     }
+}
+
+/// Waits up to ten minutes for the uninstaller (`pid`) to exit, then removes it and its folder; the folder goes only
+/// when empty, so anything else left there stays.
+fn self_delete_script(pid: u32, exe: &Path, folder: &Path) -> String {
+    let quote = |path: &Path| path.display().to_string().replace('\'', "''");
+    format!(
+        "Wait-Process -Id {pid} -Timeout 600 -ErrorAction SilentlyContinue; \
+         for ($i = 0; $i -lt 20 -and (Test-Path -LiteralPath '{exe}'); $i++) {{ \
+         Remove-Item -LiteralPath '{exe}' -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500 }}; \
+         if (-not (Get-ChildItem -LiteralPath '{folder}' -Force -ErrorAction SilentlyContinue)) {{ \
+         Remove-Item -LiteralPath '{folder}' -Force -ErrorAction SilentlyContinue }}",
+        exe = quote(exe),
+        folder = quote(folder)
+    )
 }
 
 fn stop_running(install: &Path) {
@@ -435,6 +462,25 @@ fn register(context: &Context, host: &Path, uninstaller: &Path) -> Result<(), Er
         .map(|length| *length as u64)
         .sum();
     set_dword(key, "EstimatedSize", (size / 1024) as u32)?;
+    Ok(())
+}
+
+/// `beaconremote:` links open the host with the link, which only fills in the pairing form: the person still sees the
+/// server it names and selects Pair. Per user (HKCU), removed on uninstall.
+fn register_links(context: &Context, host: &Path) -> Result<(), Error> {
+    let key = context.protocol_key();
+    set_string(key, "", "URL:Beacon Remote pairing link")?;
+    set_string(key, "URL Protocol", "")?;
+    set_string(
+        &format!("{key}\\DefaultIcon"),
+        "",
+        &format!("\"{}\",0", host.display()),
+    )?;
+    set_string(
+        &format!("{key}\\shell\\open\\command"),
+        "",
+        &format!("\"{}\" \"%1\"", host.display()),
+    )?;
     Ok(())
 }
 
@@ -519,5 +565,29 @@ fn autostart_value(context: &Context) -> Option<()> {
             RegQueryValueExW(key, &HSTRING::from(RUN_VALUE), None, None, None, None).is_ok();
         let _ = RegCloseKey(key);
         found.then_some(())
+    }
+}
+
+#[cfg(test)]
+mod self_delete_tests {
+    use super::self_delete_script;
+    use std::path::Path;
+
+    #[test]
+    fn the_leftover_uninstaller_is_deleted_only_after_it_exits_and_never_recursively() {
+        let script = self_delete_script(
+            4242,
+            Path::new(
+                r"C:\Users\o'neil\AppData\Local\Programs\Beacon Remote\Uninstall Beacon Remote.exe",
+            ),
+            Path::new(r"C:\Users\o'neil\AppData\Local\Programs\Beacon Remote"),
+        );
+        assert!(script.starts_with("Wait-Process -Id 4242 "));
+        assert!(script.contains(
+            r"'C:\Users\o''neil\AppData\Local\Programs\Beacon Remote\Uninstall Beacon Remote.exe'"
+        ));
+        assert!(!script.to_lowercase().contains("-recurse"));
+        // The folder goes only when nothing is left in it.
+        assert!(script.contains("if (-not (Get-ChildItem -LiteralPath"));
     }
 }

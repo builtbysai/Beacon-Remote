@@ -2,6 +2,7 @@
 import { createPublicKey, verify } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
+import { machinePolling } from "./machine-polling.js";
 import {
   bootBinding,
   bootBindingMessage,
@@ -91,7 +92,7 @@ export function registerBootAvailability(
     }
   });
 
-  app.post("/api/boot/heartbeat", async (request, reply) => {
+  app.post("/api/boot/heartbeat", machinePolling, async (request, reply) => {
     const parsed = bootHeartbeat.safeParse(request.body);
     if (!parsed.success)
       return reply.code(400).send({ error: "Invalid boot heartbeat" });

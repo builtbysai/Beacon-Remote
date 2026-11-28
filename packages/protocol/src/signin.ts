@@ -78,6 +78,19 @@ export function signinPendingProofMessage(
 ): string {
   return `beacon-remote:signin-pending:v1\n${b.machineId}\n${b.timestamp}\n${b.nonce}\n${b.instanceId}\n${b.consoleSessionId}`;
 }
+// A locked console showing the lock-screen picture asks whether a viewer wants the
+// password prompt raised. The answer is a yes/no only; it carries no lease or grant.
+export const signinWakeProof = z
+  .object({
+    ...signed,
+    consoleSessionId: z.number().int().min(1).max(0xfffffffe),
+  })
+  .strict();
+export function signinWakeProofMessage(
+  b: z.infer<typeof signinWakeProof>,
+): string {
+  return `beacon-remote:signin-wake:v1\n${b.machineId}\n${b.timestamp}\n${b.nonce}\n${b.consoleSessionId}`;
+}
 export function signinLeaseProofMessage(
   b: z.infer<typeof signinLeaseProof>,
 ): string {
@@ -273,5 +286,7 @@ export const signinAuthorityState = z
     state: z.enum(["unavailable", "sign-in", "signed-in"]),
     endpointReady: z.boolean(),
     connectable: z.boolean(),
+    // Locked, showing the lock-screen picture: a viewer may ask for the password prompt.
+    wakeable: z.boolean().optional(),
   })
   .strict();

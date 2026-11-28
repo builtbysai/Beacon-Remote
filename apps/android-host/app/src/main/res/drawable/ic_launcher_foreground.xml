@@ -1,15 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The brand mark's monitor and arcs, centred in the adaptive icon's safe zone on the brand-blue background. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M54,45.5a8.5,8.5 0,1 0,0.01 0z" />
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="4.5"
-        android:pathData="M54,33a21,21 0,1 0,0.01 0z" />
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <group android:translateX="26" android:translateY="30" android:scaleX="1.15" android:scaleY="1.15">
+        <path android:fillColor="#FFFFFF" android:pathData="M11.5,15h16a5.5,5.5 0,0 1,5.5 5.5v8a5.5,5.5 0,0 1,-5.5 5.5h-16a5.5,5.5 0,0 1,-5.5 -5.5v-8a5.5,5.5 0,0 1,5.5 -5.5z" />
+        <path android:fillColor="#2D6CF6" android:pathData="M12,18h15a3,3 0,0 1,3 3v7a3,3 0,0 1,-3 3h-15a3,3 0,0 1,-3 -3v-7a3,3 0,0 1,3 -3z" />
+        <path android:fillColor="#FFFFFF" android:pathData="M15.5,21.4a1.8,1.8 0,1 0,0.01 0zM23.5,21.4a1.8,1.8 0,1 0,0.01 0z" />
+        <path android:strokeColor="#FFFFFF" android:strokeWidth="1.8" android:strokeLineCap="round" android:pathData="M16,27q4,3.2 8,0" />
+        <path android:fillColor="#FFFFFF" android:pathData="M17,34h6v3.5h-6zM13.75,37h12.5a1.75,1.75 0,0 1,0 3.5h-12.5a1.75,1.75 0,0 1,0 -3.5z" />
+        <path android:fillColor="#73E4CD" android:pathData="M36.5,10a2.5,2.5 0,1 0,0.01 0z" />
+        <path android:strokeColor="#73E4CD" android:strokeWidth="2.8" android:strokeLineCap="round" android:pathData="M36.5,6.5a6,6 0,0 1,6 6M36.5,1.5a11,11 0,0 1,11 11" />
+    </group>
 </vector>

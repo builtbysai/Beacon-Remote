@@ -29,6 +29,13 @@ const MAX_MESSAGE: usize = 4096;
 const IDLE: u64 = 1500 * T;
 const CLEANUP: u64 = 3000 * T;
 const SILENCE: u64 = 30_000 * T;
+/// Shift, Ctrl, Alt and the Windows keys: the only keys a person holds down on the sign-in screen.
+fn modifier(scan_code: u16, extended: bool) -> bool {
+    matches!(
+        (scan_code, extended),
+        (0x2a | 0x36 | 0x1d | 0x38, _) | (0x5b | 0x5c, true)
+    )
+}
 fn rejected() -> HostError {
     "Sign-in input unavailable or rejected".into()
 }
@@ -261,6 +268,8 @@ struct Tracked<S: Sink> {
     gate: Arc<dyn Gate>,
     layout: Layout,
     keys: BTreeSet<(u16, bool)>,
+    /// Modifiers the viewer holds. They are pressed only around each key tap, never left down on the sign-in desktop.
+    modifiers: BTreeSet<(u16, bool)>,
     buttons: BTreeSet<MouseButton>,
     unicode: BTreeSet<u16>,
     sequence: u64,
@@ -275,6 +284,7 @@ impl<S: Sink> Tracked<S> {
             gate,
             layout,
             keys: BTreeSet::new(),
+            modifiers: BTreeSet::new(),
             buttons: BTreeSet::new(),
             unicode: BTreeSet::new(),
             sequence: 0,
@@ -286,6 +296,8 @@ impl<S: Sink> Tracked<S> {
         !self.keys.is_empty() || !self.buttons.is_empty() || !self.unicode.is_empty()
     }
     fn release(&mut self) {
+        // Remembered modifiers are only a note for the next key; a release forgets them even when nothing can be sent.
+        self.modifiers.clear();
         if !self.gate.cleanup() {
             return;
         }
@@ -347,9 +359,32 @@ impl<S: Sink> Tracked<S> {
                     extended,
                     down,
                 } => {
-                    if *down {
-                        self.keys.insert((*scan_code, *extended));
-                        self.live_send(Event::Scan(*scan_code, *extended, true))?;
+                    let key = (*scan_code, *extended);
+                    if modifier(*scan_code, *extended) {
+                        // Shift, Ctrl, Alt and Windows are remembered, not pressed: a password screen never needs one
+                        // held on its own, and nothing may be left down when Windows leaves this desktop on sign-in.
+                        if *down {
+                            self.modifiers.insert(key);
+                        } else {
+                            self.modifiers.remove(&key);
+                        }
+                    } else if *down {
+                        // Every other key is one complete step, sent when it goes down, with the remembered modifiers
+                        // around it; its later key-up is ignored. Enter submits the password on key-down and Windows
+                        // leaves this desktop before the key-up arrives.
+                        let around: Vec<_> = self.modifiers.iter().copied().collect();
+                        for &(scan, ext) in &around {
+                            self.keys.insert((scan, ext));
+                            self.live_send(Event::Scan(scan, ext, true))?;
+                        }
+                        self.keys.insert(key);
+                        self.live_send(Event::Scan(key.0, key.1, true))?;
+                        self.live_send(Event::Scan(key.0, key.1, false))?;
+                        self.keys.remove(&key);
+                        for &(scan, ext) in around.iter().rev() {
+                            self.live_send(Event::Scan(scan, ext, false))?;
+                            self.keys.remove(&(scan, ext));
+                        }
                     } else if self.keys.contains(&(*scan_code, *extended)) {
                         self.live_send(Event::Scan(*scan_code, *extended, false))?;
                         self.keys.remove(&(*scan_code, *extended));
@@ -551,6 +586,21 @@ impl SignInInput {
         }
         result
     }
+    /// Counts only, never which keys: for the supervisor's log when cleanup is not confirmed.
+    pub fn cleanup_summary(&self) -> String {
+        self.state.lock().map_or_else(
+            |_| "state unavailable".into(),
+            |state| {
+                format!(
+                    "ended {}, keys {}, buttons {}, text {}",
+                    state.ended.is_some(),
+                    state.keys.len(),
+                    state.buttons.len(),
+                    state.unicode.len()
+                )
+            },
+        )
+    }
     pub fn cleanup_confirmed(&self) -> bool {
         self.state
             .lock()
@@ -653,13 +703,73 @@ mod tests {
         };
         (Tracked::new(sink, gate.clone(), 1000).unwrap(), gate)
     }
+    /// Something physically held on the sign-in desktop: a pressed mouse button (keys are always complete taps).
     fn down() -> Input {
-        Input::Key {
-            scan_code: 0x1d,
-            extended: false,
+        Input::Button {
+            button: MouseButton::Left,
             down: true,
         }
     }
+    #[test]
+    fn enter_is_a_complete_tap_so_nothing_is_left_held_when_signing_in_leaves_the_desktop() {
+        let (mut state, _gate) = fixture();
+        let enter = |down| Input::Key {
+            scan_code: 0x1c,
+            extended: false,
+            down,
+        };
+        state.process(1, &enter(true), 1000).unwrap();
+        assert!(!state.held());
+        assert!(
+            state.sink.events.lock().unwrap().as_slice()
+                == [
+                    Event::Scan(0x1c, false, true),
+                    Event::Scan(0x1c, false, false)
+                ]
+        );
+        // The viewer's own key-up arrives later and changes nothing.
+        state.process(2, &enter(false), 1001).unwrap();
+        assert_eq!(state.sink.events.lock().unwrap().len(), 2);
+        // Shift is remembered, not pressed; a key under it is one step with Shift around it, and nothing stays down.
+        let shift = |down| Input::Key {
+            scan_code: 0x2a,
+            extended: false,
+            down,
+        };
+        let g = |down| Input::Key {
+            scan_code: 0x22,
+            extended: false,
+            down,
+        };
+        state.process(3, &shift(true), 1002).unwrap();
+        assert_eq!(state.sink.events.lock().unwrap().len(), 2);
+        state.process(4, &g(true), 1003).unwrap();
+        assert!(!state.held());
+        assert!(
+            state.sink.events.lock().unwrap()[2..]
+                == [
+                    Event::Scan(0x2a, false, true),
+                    Event::Scan(0x22, false, true),
+                    Event::Scan(0x22, false, false),
+                    Event::Scan(0x2a, false, false)
+                ]
+        );
+        state.process(5, &g(false), 1004).unwrap();
+        state.process(6, &shift(false), 1005).unwrap();
+        assert_eq!(state.sink.events.lock().unwrap().len(), 6);
+        // The viewer's release (blur, Shift+Escape) sends release_all and no key-ups: Shift is forgotten.
+        state.process(7, &shift(true), 1006).unwrap();
+        state.process(8, &Input::ReleaseAll, 1007).unwrap();
+        state.process(9, &g(true), 1008).unwrap();
+        assert!(
+            state.sink.events.lock().unwrap()[6..]
+                == [
+                    Event::Scan(0x22, false, true),
+                    Event::Scan(0x22, false, false)
+                ]
+        );
+    }
+
     #[test]
     fn expiry_during_a_down_event_owns_and_releases_the_partial_operation() {
         let (mut state, gate) = fixture();
@@ -669,8 +779,8 @@ mod tests {
         assert!(
             state.sink.events.lock().unwrap().as_slice()
                 == [
-                    Event::Scan(0x1d, false, true),
-                    Event::Scan(0x1d, false, false)
+                    Event::Button(MouseButton::Left, true),
+                    Event::Button(MouseButton::Left, false)
                 ]
         );
     }
@@ -709,7 +819,7 @@ mod tests {
             .process(
                 2,
                 &Input::Button {
-                    button: MouseButton::Left,
+                    button: MouseButton::Right,
                     down: true,
                 },
                 1001,
@@ -722,10 +832,10 @@ mod tests {
         assert!(
             events.as_slice()
                 == [
-                    Event::Scan(0x1d, false, true),
                     Event::Button(MouseButton::Left, true),
-                    Event::Scan(0x1d, false, false),
-                    Event::Button(MouseButton::Left, false)
+                    Event::Button(MouseButton::Right, true),
+                    Event::Button(MouseButton::Left, false),
+                    Event::Button(MouseButton::Right, false)
                 ]
         );
         drop(events);
@@ -745,7 +855,10 @@ mod tests {
         assert!(!state.poll(2000));
         assert!(state.poll(2000 + CLEANUP));
         assert!(state.held());
-        assert!(state.sink.events.lock().unwrap().as_slice() == [Event::Scan(0x1d, false, true)]);
+        assert!(
+            state.sink.events.lock().unwrap().as_slice()
+                == [Event::Button(MouseButton::Left, true)]
+        );
         gate.cleanup.store(true, Ordering::Release);
         state.sink.fail_up.store(true, Ordering::Release);
         assert!(state.poll(2001 + CLEANUP));
@@ -755,7 +868,7 @@ mod tests {
         assert!(!state.held());
         assert!(state.sink.events.lock().unwrap()[1..]
             .iter()
-            .all(|event| *event == Event::Scan(0x1d, false, false)));
+            .all(|event| *event == Event::Button(MouseButton::Left, false)));
     }
     #[test]
     fn unicode_failure_and_replayed_sequence_end_the_scope_and_release_only_held_state() {

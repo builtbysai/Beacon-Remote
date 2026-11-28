@@ -330,7 +330,8 @@ export async function registerSessions(
     { urls: [config.STUN_URL ?? "stun:129.213.128.206:3478"] },
   ];
   const iceTransportPolicy = config.ICE_TRANSPORT_POLICY ?? "all";
-  function sessionIce(session: Session, variant?: string) {
+  // `browser`: only replies that go to a browser viewer may carry the TCP/TLS relay list; computers get UDP only.
+  function sessionIce(session: Session, variant?: string, browser = false) {
     if (!config.TURN_URLS || !config.TURN_SECRET) return iceServers;
     const relay = relayCredentials(
       config,
@@ -338,13 +339,16 @@ export async function registerSessions(
       relayExpiry(session.expires_at ?? new Date(0)),
       variant,
     );
+    const credentials = {
+      username: relay.username,
+      credential: relay.credential,
+    };
     return [
       ...iceServers,
-      {
-        urls: relay.urls,
-        username: relay.username,
-        credential: relay.credential,
-      },
+      { urls: relay.urls, ...credentials },
+      ...(browser && config.TURN_BROWSER_URLS
+        ? [{ urls: config.TURN_BROWSER_URLS, ...credentials }]
+        : []),
     ];
   }
   function token(session: Session) {
@@ -701,7 +705,7 @@ export async function registerSessions(
           expiresAtMillis: expiryMillis(),
           approval: session.approval,
           reconnectSeconds: reconnectSeconds(session),
-          iceServers: sessionIce(session),
+          iceServers: sessionIce(session, undefined, true),
           iceTransportPolicy,
         };
       } catch (error) {
@@ -801,7 +805,7 @@ export async function registerSessions(
           expiresAtMillis: expiryMillis(),
           approval: opened.approval,
           reconnectSeconds: reconnectSeconds(opened),
-          iceServers: sessionIce(opened),
+          iceServers: sessionIce(opened, undefined, true),
           iceTransportPolicy,
           machineName: machine.rows[0]!.name,
         };
@@ -1045,7 +1049,7 @@ export async function registerSessions(
           expiresAtMillis: expiryMillis(),
           approval: opened.approval,
           reconnectSeconds: reconnectSeconds(opened),
-          iceServers: sessionIce(opened),
+          iceServers: sessionIce(opened, undefined, true),
           iceTransportPolicy,
           machineName: relationship.machine_name,
         };
@@ -1128,7 +1132,7 @@ export async function registerSessions(
       capability: session.capability,
       expiresAtMillis: expiryMillis(),
       reconnectSeconds: reconnectSeconds(session),
-      iceServers: sessionIce(session, randomBytes(4).toString("hex")),
+      iceServers: sessionIce(session, randomBytes(4).toString("hex"), true),
       iceTransportPolicy,
     };
   });

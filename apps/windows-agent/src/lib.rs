@@ -12,6 +12,10 @@ pub mod incoming;
 pub mod native_ui;
 pub mod network;
 #[cfg(windows)]
+mod sas_policy;
+#[cfg(windows)]
+mod self_removal;
+#[cfg(windows)]
 pub mod session_hub;
 #[cfg(windows)]
 pub mod session_view;
@@ -101,6 +105,9 @@ pub struct LocalAccess {
     /// asking (ADR 0031). Purely local: the computer decides, and the server is never asked.
     #[serde(default)]
     pub files: bool,
+    /// Lock Windows when a remote session ends, so unattended work never leaves the desktop open. Purely local.
+    #[serde(default)]
+    pub lock_on_end: bool,
 }
 
 fn access_path() -> io::Result<PathBuf> {
@@ -119,6 +126,7 @@ pub fn local_access() -> LocalAccess {
             allow_control: access.trusted && access.allow_control,
             helpers: access.helpers.min(2),
             files: access.trusted && access.files,
+            lock_on_end: access.lock_on_end,
         })
     };
     read().unwrap_or_default()
@@ -174,13 +182,68 @@ fn post_access(
     }
 }
 
-/// The host name of the server this computer is paired with, for the host window.
+/// How the host window names the server this computer is paired with: its host name, or, for a bare address, what
+/// kind of server it is with the address after it (a raw "127.0.0.1" reads as a fault).
 pub fn paired_server() -> Option<String> {
     let identity = load_identity().ok()?;
-    reqwest::Url::parse(&identity.server)
-        .ok()?
-        .host_str()
-        .map(str::to_owned)
+    server_label(&identity.server)
+}
+
+fn server_label(server: &str) -> Option<String> {
+    use std::net::IpAddr;
+    let url = reqwest::Url::parse(server).ok()?;
+    let host = url.host_str()?;
+    if host.eq_ignore_ascii_case("localhost") {
+        return Some("a server on this computer (localhost)".into());
+    }
+    let Ok(address) = host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .parse::<IpAddr>()
+    else {
+        return Some(host.to_owned());
+    };
+    let local = match address {
+        IpAddr::V4(v4) => v4.is_private() || v4.is_link_local(),
+        IpAddr::V6(_) => false,
+    };
+    Some(if address.is_loopback() {
+        format!("a server on this computer ({address})")
+    } else if local {
+        format!("a server on your local network ({address})")
+    } else {
+        format!("the server at {address}")
+    })
+}
+
+#[cfg(test)]
+mod server_label_tests {
+    use super::server_label;
+
+    #[test]
+    fn names_the_server_rather_than_showing_a_bare_address() {
+        assert_eq!(
+            server_label("https://remote.example.com").as_deref(),
+            Some("remote.example.com")
+        );
+        assert_eq!(
+            server_label("http://127.0.0.1:3012").as_deref(),
+            Some("a server on this computer (127.0.0.1)")
+        );
+        assert_eq!(
+            server_label("http://localhost:3012").as_deref(),
+            Some("a server on this computer (localhost)")
+        );
+        assert_eq!(
+            server_label("https://192.168.1.20").as_deref(),
+            Some("a server on your local network (192.168.1.20)")
+        );
+        assert_eq!(
+            server_label("https://203.0.113.9").as_deref(),
+            Some("the server at 203.0.113.9")
+        );
+        assert_eq!(server_label("not a url"), None);
+    }
 }
 
 /// A newer signed build of this host (ADR 0028). Nothing is downloaded until the person asks.
@@ -275,6 +338,22 @@ pub fn set_files(on: bool) -> Result<(), HostError> {
     Ok(())
 }
 
+/// Locks Windows whenever a remote session ends (or stops doing so). Local only, like file transfer.
+pub fn set_lock_on_end(on: bool) -> Result<(), HostError> {
+    save_local_access(LocalAccess {
+        lock_on_end: on,
+        ..local_access()
+    })
+}
+
+/// Locks this Windows session now. Used when a remote session ends and the owner asked for it.
+#[cfg(windows)]
+pub fn lock_workstation() {
+    unsafe {
+        windows_sys::Win32::System::Shutdown::LockWorkStation();
+    }
+}
+
 /// Raises or lowers this computer's access. Lowering takes effect locally at once, whether or not
 /// the server can be reached (the next presence report repeats it); raising needs the server.
 pub fn set_access(trusted: bool, allow_control: bool) -> Result<(), HostError> {
@@ -283,6 +362,7 @@ pub fn set_access(trusted: bool, allow_control: bool) -> Result<(), HostError> {
         allow_control: trusted && allow_control,
         helpers: local_access().helpers,
         files: trusted && local_access().files,
+        lock_on_end: local_access().lock_on_end,
     };
     let current = local_access();
     let raising =
@@ -373,6 +453,7 @@ fn reconcile_access(
         allow_control: local.allow_control && server_trusted && server_control,
         helpers: local.helpers,
         files: local.files && server_trusted,
+        lock_on_end: local.lock_on_end,
     };
     if target != local {
         let _ = save_local_access(target);
@@ -893,6 +974,18 @@ pub fn cli() -> Result<(), HostError> {
                     set_access(false, false)?;
                     println!("Attended access: every connection needs your Allow.");
                 }
+                "lock-on-end" => {
+                    let on = std::env::args().nth(3).as_deref() != Some("off");
+                    set_lock_on_end(on)?;
+                    println!(
+                        "{}",
+                        if on {
+                            "Windows locks when a remote session ends."
+                        } else {
+                            "Windows no longer locks when a remote session ends."
+                        }
+                    );
+                }
                 _ => {
                     let access = local_access();
                     println!(
@@ -1148,5 +1241,24 @@ mod presence_tests {
             presence_message("machine", 123, "nonce", "instance", None),
             "beacon-remote:heartbeat:v3\nmachine\n123\nnonce\ninstance\noff"
         );
+    }
+}
+
+#[cfg(test)]
+mod local_access_tests {
+    use super::LocalAccess;
+
+    #[test]
+    fn settings_saved_by_an_older_build_load_with_locking_off() {
+        let old: LocalAccess = serde_json::from_str(
+            r#"{"trusted":true,"allow_control":true,"helpers":1,"files":true}"#,
+        )
+        .unwrap();
+        assert!(!old.lock_on_end);
+        assert!(old.trusted && old.allow_control && old.files);
+        let new: LocalAccess =
+            serde_json::from_str(r#"{"trusted":false,"allow_control":false,"lock_on_end":true}"#)
+                .unwrap();
+        assert!(new.lock_on_end);
     }
 }

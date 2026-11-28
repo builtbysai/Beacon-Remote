@@ -89,9 +89,52 @@ export function activityLabel(action: string) {
       return "Team member changed";
     case "team.member.removed":
       return "Team member removed";
+    case "account.exported":
+      return "Account data downloaded";
+    case "machine.disconnected":
+      return "Computer disconnected";
+    case "machine.restart.requested":
+      return "Restart requested";
+    case "machine.wake.requested":
+      return "Wake requested";
+    case "machine.uninstall.requested":
+      return "Removal from the computer requested";
+    case "machine.uninstalled":
+      return "Beacon Remote removed from the computer";
+    case "signin.authority.enabled":
+      return "Access to the Windows sign-in screen turned on";
+    case "signin.authority.disabled":
+      return "Access to the Windows sign-in screen turned off";
+    case "signin.authority.locally_disabled":
+      return "Sign-in screen access turned off at the computer";
+    case "signin.lease.requested":
+      return "Sign-in screen opened";
+    case "signin.lease.stopped":
+      return "Sign-in screen closed";
+    case "signin.transport.ended":
+      return "Sign-in screen connection ended";
+    case "signin.wake.requested":
+      return "Password prompt brought up";
+    case "signin.handoff.ready":
+    case "signin.handoff.connected":
+      return "Continued to the desktop after sign-in";
+    case "support.handoff":
+      return "Support session handed over";
+    case "support.link.claimed":
+      return "Support link used";
     default:
-      return action;
+      return readableAction(action);
   }
+}
+
+/** An event this page does not know yet reads as words, never as an internal identifier. */
+export function readableAction(action: string) {
+  const words = action
+    .split(/[.:_-]+/)
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  return words ? words[0]!.toUpperCase() + words.slice(1) : "Activity";
 }
 
 function StrictIdentityChoice() {

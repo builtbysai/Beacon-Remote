@@ -476,6 +476,8 @@ pub(crate) struct Worker {
     retired: bool,
     retirement_confirmed: bool,
     last_ready: Option<Instant>,
+    /// Why the last retirement was or was not confirmed, for the supervisor's log (states only).
+    pub(crate) retire_detail: String,
 }
 pub(crate) struct RetiredLease {
     pub lease: String,
@@ -504,17 +506,29 @@ impl Worker {
     }
     pub(crate) fn retire_for_handoff(&mut self) -> Option<RetiredLease> {
         if self.retired || self.disable_requested() || self.revoke.requested() {
+            self.retire_detail = format!(
+                "already retired {}, disable {}, revoke {}",
+                self.retired,
+                self.disable_requested(),
+                self.revoke.requested()
+            );
             return None;
         }
-        let lease = self.lease.clone()?;
+        let Some(lease) = self.lease.clone() else {
+            self.retire_detail = "no lease".into();
+            return None;
+        };
         let candidate = RetiredLease {
             lease,
             instance: self.instance.clone(),
             console: self.console,
             deadline: self.lease_deadline,
         };
-        if crate::signin_scope::tick() >= candidate.deadline
-            || !self.retire()
+        if crate::signin_scope::tick() >= candidate.deadline {
+            self.retire_detail = "the lease had already ended".into();
+            return None;
+        }
+        if !self.retire()
             || self.disable_requested()
             || self.revoke.requested()
             || crate::signin_scope::tick() >= candidate.deadline
@@ -522,6 +536,9 @@ impl Worker {
             return None;
         }
         Some(candidate)
+    }
+    pub(crate) fn has_lease(&self) -> bool {
+        self.lease.is_some()
     }
     pub(crate) fn attention_pending(&self) -> bool {
         self.attention.is_some()
@@ -631,6 +648,7 @@ impl Worker {
             retired: false,
             retirement_confirmed: false,
             last_ready: None,
+            retire_detail: String::new(),
         };
         if unsafe { ResumeThread(thread.as_raw_handle()) } == u32::MAX {
             return Err(std::io::Error::last_os_error().into());
@@ -881,6 +899,7 @@ impl Worker {
         let until = Instant::now() + Duration::from_millis(4250);
         let challenge = uuid::Uuid::new_v4().to_string();
         let mut acknowledged = false;
+        let mut answer = "no answer".to_owned();
         if let Some(channel) = &mut self.channel {
             if channel
                 .send(
@@ -915,6 +934,9 @@ impl Worker {
                                     .observe(cleanup_confirmed, Instant::now());
                             }
                             acknowledged = cleanup_confirmed && indicator_closed;
+                            answer = format!(
+                                "input released {cleanup_confirmed}, Disable window closed {indicator_closed}"
+                            );
                         }
                     }
                 }
@@ -936,10 +958,16 @@ impl Worker {
             WaitForSingleObject(self.process.as_raw_handle(), 1000);
         }
         let mut exit = 1;
-        self.retirement_confirmed = acknowledged
-            && natural
-            && unsafe { GetExitCodeProcess(self.process.as_raw_handle(), &mut exit) } != 0
-            && exit == 0;
+        let read = unsafe { GetExitCodeProcess(self.process.as_raw_handle(), &mut exit) } != 0;
+        self.retirement_confirmed = acknowledged && natural && read && exit == 0;
+        self.retire_detail = format!(
+            "acknowledged {acknowledged} ({answer}), exited on its own {natural}, exit status {}",
+            if read {
+                format!("{exit:#x}")
+            } else {
+                "unknown".into()
+            }
+        );
         self.retirement_confirmed
     }
 }
@@ -1354,8 +1382,8 @@ fn run_worker(arguments: &[String]) -> Result<(), HostError> {
                             signaling,
                             scope.0.as_ref().ok_or("Missing sign-in scope")?.clone(),
                         )?);
+                        note(machine, "media runner started");
                     }
-                    note(machine, "media runner started");
                     // The media runner negotiates here; its capture/input adapters
                     // still require the actual authenticated peer-connected gate.
                 }
@@ -1377,9 +1405,288 @@ fn run_worker(arguments: &[String]) -> Result<(), HostError> {
     }
 }
 
+/// Right after a lock, Windows shows the lock-screen picture (LockApp) on the session's Default desktop; the
+/// password prompt, where the worker runs, appears on the Winlogon desktop only after a key press or click. VNC
+/// services and the commercial remote-support tools follow whichever desktop has the input; Beacon keeps the
+/// worker on Winlogon only and instead raises the prompt when a viewer asks: one short-lived SYSTEM helper in the
+/// console session presses and releases Ctrl on the lock-screen picture. It never types, never touches an
+/// unlocked desktop and never runs unless the console is locked and the picture is what has the input.
+pub(crate) fn wake_prompt(machine: &str, console: u32) -> Result<(), HostError> {
+    system()?;
+    if session_id()? != 0 {
+        return Err("Only the Session 0 sign-in supervisor may raise the prompt".into());
+    }
+    if locked_console() != Some(console) {
+        return Err("The console is not locked".into());
+    }
+    let executable = std::env::current_exe()?;
+    signin_endpoint::validate_binary(machine, &executable)?;
+    // Windows ignores injected key presses on the lock-screen picture; Ctrl+Alt+Del (allowed for services by the
+    // owner's setup) is what takes it to the password prompt. Sent only on a locked console, checked just above; the
+    // helper below then looks whether the prompt came up and, if it did not, presses as before and says so.
+    // The same fixed-purpose path as the viewer's Ctrl+Alt+Del: SendSAS aimed at the console session through this
+    // service's own restricted worker token.
+    let token = worker_token(console)?;
+    let deadline = crate::signin_scope::tick() + 2000 * crate::signin_scope::TICKS_PER_MILLISECOND;
+    match crate::signin_attention::request(token.as_handle(), console, deadline, || true) {
+        crate::signin_attention::Outcome::Requested => {
+            std::thread::sleep(std::time::Duration::from_millis(600));
+        }
+        crate::signin_attention::Outcome::PolicyUnavailable => signin_endpoint::diag(
+            machine,
+            "Ctrl+Alt+Del is not allowed for services (run Repair); pressing a key instead",
+        ),
+        crate::signin_attention::Outcome::Unavailable => signin_endpoint::diag(
+            machine,
+            "Ctrl+Alt+Del could not be sent; pressing a key instead",
+        ),
+    }
+    let job = Job::new()?;
+    let mut attributes = Attributes::new(&job)?;
+    let executable_wide = wide(&executable.to_string_lossy());
+    let mut command = wide(&format!(
+        "\"{}\" signin-wake {machine} {console}",
+        executable.to_string_lossy()
+    ));
+    let mut desktop = wide("winsta0\\Default");
+    let windows = windows_directory()?;
+    let program_files =
+        availability::known_folder(&windows_sys::Win32::UI::Shell::FOLDERID_ProgramFiles)?;
+    let program_data =
+        availability::known_folder(&windows_sys::Win32::UI::Shell::FOLDERID_ProgramData)?;
+    let environment: Vec<u16> = format!(
+        "SystemRoot={windows}\0WINDIR={windows}\0ProgramFiles={}\0ProgramData={}\0\0",
+        program_files.display(),
+        program_data.display()
+    )
+    .encode_utf16()
+    .collect();
+    let directory = wide(
+        &executable
+            .parent()
+            .ok_or("Missing installed worker folder")?
+            .to_string_lossy(),
+    );
+    let mut startup = STARTUPINFOEXW::default();
+    startup.StartupInfo.cb = std::mem::size_of_val(&startup) as u32;
+    startup.StartupInfo.lpDesktop = desktop.as_mut_ptr();
+    startup.lpAttributeList = attributes.ptr();
+    let mut info = PROCESS_INFORMATION::default();
+    if unsafe {
+        CreateProcessAsUserW(
+            token.as_raw_handle(),
+            executable_wide.as_ptr(),
+            command.as_mut_ptr(),
+            null(),
+            null(),
+            0,
+            CREATE_SUSPENDED
+                | DETACHED_PROCESS
+                | CREATE_UNICODE_ENVIRONMENT
+                | EXTENDED_STARTUPINFO_PRESENT,
+            environment.as_ptr().cast(),
+            directory.as_ptr(),
+            &startup.StartupInfo,
+            &mut info,
+        )
+    } == 0
+    {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    let process = owned(info.hProcess)?;
+    let thread = owned(info.hThread)?;
+    if unsafe { ResumeThread(thread.as_raw_handle()) } == u32::MAX {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    // Dropping the job ends the helper if it has not finished in time.
+    if unsafe { WaitForSingleObject(process.as_raw_handle(), 5_000) } != WAIT_OBJECT_0 {
+        return Err("The prompt helper did not finish".into());
+    }
+    let mut code = 0u32;
+    if unsafe { GetExitCodeProcess(process.as_raw_handle(), &mut code) } == 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    drop(job);
+    match code {
+        0 => Ok(()),
+        code => Err(format!("The prompt helper ended with status {code:#010x}").into()),
+    }
+}
+
+/// What the prompt helper does on the desktop that has the input.
+#[derive(Debug, PartialEq, Eq)]
+enum WakeTarget {
+    /// The lock-screen picture: press Ctrl.
+    Picture,
+    /// The password prompt is already up: nothing to do.
+    Prompt,
+    /// Anything else (a screen saver, a desktop it cannot name): do nothing and say so.
+    Other,
+}
+fn wake_target(input_desktop: Option<&str>) -> WakeTarget {
+    match input_desktop {
+        Some(name) if name.eq_ignore_ascii_case("Default") => WakeTarget::Picture,
+        Some(name) if name.eq_ignore_ascii_case("Winlogon") => WakeTarget::Prompt,
+        _ => WakeTarget::Other,
+    }
+}
+
+/// `beacon-remote-agent signin-wake <machine> <console>`, started only by `wake_prompt`.
+pub(crate) fn run_wake(arguments: &[String]) -> Result<(), HostError> {
+    use windows_sys::Win32::System::Power::{
+        SetThreadExecutionState, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED,
+    };
+    use windows_sys::Win32::System::StationsAndDesktops::{
+        CloseDesktop, OpenInputDesktop, SetThreadDesktop, DESKTOP_JOURNALPLAYBACK,
+        DESKTOP_READOBJECTS, DESKTOP_WRITEOBJECTS,
+    };
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP,
+        MOUSEEVENTF_MOVE, MOUSEINPUT, VK_CONTROL,
+    };
+    if arguments.len() != 4 {
+        return Err("Invalid prompt helper invocation".into());
+    }
+    system()?;
+    let machine = &arguments[2];
+    let console = arguments[3].parse::<u32>()?;
+    signin_endpoint::validate_binary(machine, &std::env::current_exe()?)?;
+    if session_id()? != console || locked_console() != Some(console) {
+        return Err("The console is not locked".into());
+    }
+    struct Desktop(windows_sys::Win32::System::StationsAndDesktops::HDESK);
+    impl Drop for Desktop {
+        fn drop(&mut self) {
+            unsafe {
+                CloseDesktop(self.0);
+            }
+        }
+    }
+    let key = |flags| INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VK_CONTROL,
+                wScan: 0,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    };
+    let nudge = |dx| INPUT {
+        r#type: INPUT_MOUSE,
+        Anonymous: INPUT_0 {
+            mi: MOUSEINPUT {
+                dx,
+                dy: 0,
+                mouseData: 0,
+                dwFlags: MOUSEEVENTF_MOVE,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    };
+    // A one-pixel move there and back (the pointer ends where it was), then Ctrl down and up.
+    let keys = [nudge(1), nudge(-1), key(0), key(KEYEVENTF_KEYUP)];
+    // About a minute after a lock Windows turns the display off, and injected input alone does not turn it back on,
+    // so the first press would be lost. Like other remote-control tools, the helper first tells Windows the display
+    // is needed (only for this short-lived thread; it ends with the helper). Then it looks again after each press and
+    // presses once more, at most WAKE_PRESSES times, and only while the console is still locked and the picture still
+    // has the input.
+    unsafe {
+        SetThreadExecutionState(ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED);
+    }
+    std::thread::sleep(std::time::Duration::from_millis(WAKE_SETTLE_MS));
+    // One pass more than presses: the last pass only looks whether the last press brought the prompt up.
+    for press in 0..=WAKE_PRESSES {
+        let input = unsafe {
+            OpenInputDesktop(
+                0,
+                0,
+                DESKTOP_READOBJECTS | DESKTOP_WRITEOBJECTS | DESKTOP_JOURNALPLAYBACK,
+            )
+        };
+        if input.is_null() {
+            wake_exit(WakeStep::OpenInput, last_error());
+        }
+        let input = Desktop(input);
+        match wake_target(object_name(input.0).as_deref()) {
+            WakeTarget::Prompt => return Ok(()),
+            WakeTarget::Other if press == 0 => wake_exit(WakeStep::NotPicture, 0),
+            // Between desktops right after a press: wait and look again.
+            WakeTarget::Other => {
+                std::thread::sleep(std::time::Duration::from_millis(WAKE_SETTLE_MS));
+                continue;
+            }
+            WakeTarget::Picture if press == WAKE_PRESSES => break,
+            WakeTarget::Picture => {}
+        }
+        if unsafe { SetThreadDesktop(input.0) } == 0 {
+            wake_exit(WakeStep::SetDesktop, last_error());
+        }
+        // The last check before each key: an unlock in between must not send it to someone's desktop.
+        if locked_console() != Some(console) {
+            wake_exit(WakeStep::Unlocked, 0);
+        }
+        let sent = unsafe {
+            SendInput(
+                keys.len() as u32,
+                keys.as_ptr(),
+                std::mem::size_of::<INPUT>() as i32,
+            )
+        };
+        if sent as usize != keys.len() {
+            wake_exit(WakeStep::Send, last_error());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(WAKE_SETTLE_MS));
+    }
+    wake_exit(WakeStep::StillPicture, WAKE_PRESSES)
+}
+
+/// Where the prompt helper stopped. The helper has no console and no log of its own, so it answers through its exit
+/// code, which the supervisor writes to its log: 0x57SSEEEE, S the step and E the Windows error (or a count).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WakeStep {
+    OpenInput = 1,
+    NotPicture = 2,
+    SetDesktop = 3,
+    Unlocked = 4,
+    Send = 5,
+    /// Every press went out and the lock-screen picture still has the input; E is the number of presses.
+    StillPicture = 6,
+}
+fn wake_code(step: WakeStep, detail: u32) -> u32 {
+    0x5700_0000 | ((step as u32) << 16) | (detail & 0xffff)
+}
+fn wake_exit(step: WakeStep, detail: u32) -> ! {
+    std::process::exit(wake_code(step, detail) as i32)
+}
+fn last_error() -> u32 {
+    unsafe { GetLastError() }
+}
+
+/// Presses the prompt helper may send in one run, and the pause after each; with the first pause, well inside the
+/// supervisor's five-second wait for the helper.
+const WAKE_PRESSES: u32 = 4;
+const WAKE_SETTLE_MS: u64 = 700;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_prompt_helper_presses_a_key_only_on_the_lock_screen_picture() {
+        assert_eq!(wake_target(Some("Default")), WakeTarget::Picture);
+        assert_eq!(wake_target(Some("default")), WakeTarget::Picture);
+        assert_eq!(wake_target(Some("Winlogon")), WakeTarget::Prompt);
+        assert_eq!(wake_target(Some("Screen-saver")), WakeTarget::Other);
+        assert_eq!(wake_target(None), WakeTarget::Other);
+        assert_eq!(wake_code(WakeStep::StillPicture, 4), 0x5706_0004);
+        assert_eq!(wake_code(WakeStep::OpenInput, 5), 0x5701_0005);
+        // Outside a locked console session the helper refuses before it looks at any desktop.
+        assert!(run_wake(&["agent".into(), "signin-wake".into()]).is_err());
+    }
 
     #[test]
     fn only_a_locked_session_or_a_console_with_nobody_signed_in_shows_the_sign_in_screen() {
@@ -1577,6 +1884,7 @@ mod tests {
             retired: false,
             retirement_confirmed: false,
             last_ready: None,
+            retire_detail: String::new(),
         }
     }
     #[test]

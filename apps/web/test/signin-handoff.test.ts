@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
-import { handoffDesktop, type HandoffIO } from "../src/signin-handoff.js";
+import {
+  desktopAfterSignIn,
+  handoffDesktop,
+  signedIn,
+  type HandoffIO,
+} from "../src/signin-handoff.js";
+import { ApiError } from "../src/api.js";
 function fixture() {
   const machine = randomUUID(),
     scope = {
@@ -163,4 +169,72 @@ test("Stop while ordinary admission is delayed disposes the late grant with inde
   assert.ok(
     f.requests.some((entry) => entry.path === `sessions/${f.grant.id}/stop`),
   );
+});
+
+test("after a refused handoff the desktop opens the ordinary way once its host is online", async () => {
+  let now = 0;
+  let asked = 0;
+  const io: HandoffIO = {
+    now: () => now,
+    wait: async () => {
+      now += 500;
+    },
+    request: async (path) => {
+      assert.match(path, /\/sessions$/);
+      asked++;
+      if (asked < 3) throw new ApiError(409);
+      return { id: randomUUID() };
+    },
+  };
+  const grant = await desktopAfterSignIn(
+    randomUUID(),
+    new AbortController().signal,
+    io,
+  );
+  assert.equal(typeof grant.id, "string");
+  assert.equal(asked, 3);
+});
+
+test("the desktop fallback stops at once when access is refused and gives up after its window", async () => {
+  let now = 0;
+  const io = (status: number): HandoffIO => ({
+    now: () => now,
+    wait: async () => {
+      now += 500;
+    },
+    request: async () => {
+      throw new ApiError(status);
+    },
+  });
+  await assert.rejects(
+    desktopAfterSignIn(randomUUID(), new AbortController().signal, io(403)),
+  );
+  now = 0;
+  await assert.rejects(
+    desktopAfterSignIn(
+      randomUUID(),
+      new AbortController().signal,
+      io(409),
+      3000,
+    ),
+  );
+  assert.ok(now >= 3000);
+});
+
+test("signed in only when the computer says so", async () => {
+  const answer = (body: unknown): HandoffIO => ({
+    now: () => 0,
+    wait: async () => {},
+    request: async () => body,
+  });
+  const base = { enabled: true, endpointReady: true, connectable: false };
+  assert.equal(
+    await signedIn("m", answer({ ...base, state: "signed-in" })),
+    true,
+  );
+  assert.equal(
+    await signedIn("m", answer({ ...base, state: "sign-in" })),
+    false,
+  );
+  assert.equal(await signedIn("m", answer(null)), false);
 });

@@ -563,6 +563,9 @@ fn install(machine: &str, server: &str, owner: &str, enable: bool) -> Result<(),
         signin_revoke::enable(&programs.join("disabled.latch"))?;
     }
     service.change_config(&info)?;
+    // The one setting outside Beacon's own folders: services may send Ctrl+Alt+Del, so the service can bring the
+    // password prompt up from the lock-screen picture. Put back when the last installation goes.
+    crate::sas_policy::allow_services(&data_root)?;
     service.start::<&str>(&[])?;
     Ok(())
 }
@@ -611,15 +614,20 @@ fn uninstall(machine: &str, owner: &str) -> Result<(), HostError> {
         validate_binary(machine, &path.join("beacon-remote-agent.exe"))?;
         versions.push(path);
     }
-    for entry in fs::read_dir(&data)?.take(4) {
+    // The service's own diagnostic log (and its one rotated copy) is ours to delete too; anything else stops cleanup.
+    let mut logs = Vec::new();
+    for entry in fs::read_dir(&data)?.take(5) {
         let path = entry?.path();
-        if !matches!(
-            path.file_name().and_then(|name| name.to_str()),
-            Some("identity.dpapi" | "maintenance.lock")
-        ) {
-            return Err("Unexpected sign-in private state; files were preserved".into());
+        match path.file_name().and_then(|name| name.to_str()) {
+            Some(name) if private_state_name(name) == PrivateState::Log => {
+                reject_reparse(&path)?;
+                logs.push(path);
+            }
+            Some(name) if private_state_name(name) == PrivateState::Secret => {
+                signin_files::verify(&path, signin_files::PRIVATE_FILE)?;
+            }
+            _ => return Err("Unexpected sign-in private state; files were preserved".into()),
         }
-        signin_files::verify(&path, signin_files::PRIVATE_FILE)?;
     }
     let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)?;
     match manager.open_service(
@@ -650,16 +658,55 @@ fn uninstall(machine: &str, owner: &str) -> Result<(), HostError> {
     if state.exists() {
         fs::remove_file(state)?;
     }
+    for log in logs {
+        fs::remove_file(log)?;
+    }
     drop(maintenance);
     fs::remove_file(data.join("maintenance.lock"))?;
     fs::remove_dir(data)?;
+    // The last installation on this computer: put the Ctrl+Alt+Del policy back as it was before Beacon.
+    let (program_root, data_root) = roots()?;
+    let others = fs::read_dir(&program_root)
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .any(|entry| entry.path().is_dir())
+        })
+        .unwrap_or(false);
+    if !others {
+        // Everything of this installation is already gone; a policy that cannot be put back is reported, not a
+        // failed removal.
+        // (Its own log folder is gone, so this goes to the elevated command's output.)
+        if let Err(error) = crate::sas_policy::restore(&data_root) {
+            eprintln!("Could not restore the Ctrl+Alt+Del policy: {error}");
+        }
+    }
     Ok(())
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum PrivateState {
+    Secret,
+    Log,
+    Unknown,
+}
+/// What uninstall may find in a sign-in endpoint's private ProgramData folder.
+fn private_state_name(name: &str) -> PrivateState {
+    match name {
+        "identity.dpapi" | "maintenance.lock" => PrivateState::Secret,
+        "supervisor.log" | "supervisor.old.log" => PrivateState::Log,
+        _ => PrivateState::Unknown,
+    }
 }
 
 fn elevate(action: &str, machine: &str, server: &str, owner: &str) -> Result<(), HostError> {
     if !matches!(
         action,
-        "signin-install" | "signin-install-enable" | "signin-uninstall"
+        "signin-install"
+            | "signin-install-enable"
+            | "signin-uninstall"
+            | "unattended-install"
+            | "unattended-repair"
     ) {
         return Err("Unsupported sign-in setup action".into());
     }
@@ -730,17 +777,124 @@ pub fn setup() -> Result<(), HostError> {
         );
     }
     let owner = availability::current_sid()?;
-    elevate(
-        "signin-install-enable",
-        &user.machine_id,
-        &user.server,
-        &owner,
-    )?;
+    // One administrator approval sets up both services unattended access needs: boot status before sign-in, and
+    // sign-in access itself.
+    elevate("unattended-install", &user.machine_id, &user.server, &owner)?;
+    finish_unattended()
+}
+
+/// The signed-in user's half of unattended setup, after the elevated half installed both services for this pairing
+/// and this Windows user: tells the server the sign-in endpoint's key and finishes boot status. Also run on its own
+/// (`unattended-finish`) when an administrator installed the services separately, for example by a deployment tool
+/// for a standard account that cannot approve the administrator prompt itself. Grants nothing new: it only binds
+/// services that already belong to this user and pairing.
+pub fn finish_unattended() -> Result<(), HostError> {
+    let user = load_identity()?;
+    let owner = availability::current_sid()?;
     let binding = read_binding(&user.machine_id)?;
     if binding.owner_sid != owner || binding.server != validate_server(&user.server)?.to_string() {
         return Err("The new sign-in binding does not match this pairing".into());
     }
-    bind(Some(&binding.public_key))
+    bind(Some(&binding.public_key))?;
+    availability::finish_setup()
+}
+
+/// Not elevated: asks Windows once for administrator approval and runs `cleanup-all` for this Windows user. `tool`
+/// is the uninstaller, run elevated afterwards with `--remove-trust` to withdraw the certificate it trusted.
+pub fn cleanup_local(tool: Option<&str>) -> Result<(), HostError> {
+    let owner = availability::current_sid()?;
+    valid_owner(&owner)?;
+    if let Some(tool) = tool {
+        cleanup_tool(tool)?;
+    }
+    let executable = wide(
+        &std::env::current_exe()?
+            .with_file_name("beacon-remote-agent.exe")
+            .to_string_lossy(),
+    );
+    let parameters = wide(&match tool {
+        Some(tool) => format!("cleanup-all {owner} \"{tool}\""),
+        None => format!("cleanup-all {owner}"),
+    });
+    let verb = wide("runas");
+    let mut info = SHELLEXECUTEINFOW {
+        cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+        fMask: SEE_MASK_NOCLOSEPROCESS,
+        lpVerb: verb.as_ptr(),
+        lpFile: executable.as_ptr(),
+        lpParameters: parameters.as_ptr(),
+        nShow: 0,
+        ..unsafe { std::mem::zeroed() }
+    };
+    if unsafe { ShellExecuteExW(&mut info) } == 0 {
+        return Err("Windows administrator approval was cancelled".into());
+    }
+    let result = unsafe { WaitForSingleObject(info.hProcess, u32::MAX) };
+    let mut code = 1;
+    let ok = unsafe { GetExitCodeProcess(info.hProcess, &mut code) };
+    unsafe {
+        CloseHandle(info.hProcess);
+    }
+    if result != 0 || ok == 0 || code != 0 {
+        return Err(
+            "Some Beacon Remote services could not be removed; files were preserved".into(),
+        );
+    }
+    Ok(())
+}
+
+/// The uninstaller that `cleanup-all` may run: Beacon Remote's own, by name, an existing file, no link.
+fn cleanup_tool(tool: &str) -> Result<PathBuf, HostError> {
+    let path = PathBuf::from(tool);
+    if path.file_name().and_then(|name| name.to_str()) != Some("Uninstall Beacon Remote.exe")
+        || !path.is_absolute()
+        || !path.is_file()
+    {
+        return Err("Unexpected uninstaller".into());
+    }
+    reject_reparse(&path)?;
+    Ok(path)
+}
+
+/// Elevated: removes every sign-in and boot install that belongs to `owner`, old pairings included, then withdraws
+/// the certificate trust through the uninstaller. Other Windows users' installs are never touched.
+fn cleanup_all(owner: &str, tool: Option<&str>) -> Result<(), HostError> {
+    require_admin()?;
+    valid_owner(owner)?;
+    let mut problems = Vec::new();
+    if let Ok((programs, _)) = roots() {
+        if let Ok(entries) = fs::read_dir(&programs) {
+            for entry in entries.take(64).flatten() {
+                let machine = entry.file_name().to_string_lossy().into_owned();
+                if valid_machine(&machine).is_err() {
+                    continue;
+                }
+                match read_binding(&machine) {
+                    Ok(binding) if binding.owner_sid == owner => {
+                        if let Err(error) = uninstall(&machine, owner) {
+                            problems.push(format!("sign-in {machine}: {error}"));
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(error) => problems.push(format!("sign-in {machine}: {error}")),
+                }
+            }
+        }
+    }
+    problems.extend(availability::uninstall_owned(owner));
+    if let Some(tool) = tool {
+        let status = std::process::Command::new(cleanup_tool(tool)?)
+            .arg("--remove-trust")
+            .status()?;
+        if !status.success() {
+            problems.push("certificate trust could not be withdrawn".into());
+        }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems.join("; ").into())
+    }
 }
 
 /// Repair preserves the durable Disable marker and existing backend binding.
@@ -755,7 +909,9 @@ pub fn repair() -> Result<(), HostError> {
     if binding.owner_sid != owner || binding.server != validate_server(&user.server)?.to_string() {
         return Err("The sign-in binding does not match this pairing".into());
     }
-    elevate("signin-install", &user.machine_id, &user.server, &owner)
+    // The same single approval also brings the boot status service up to this build (or installs it if missing).
+    elevate("unattended-repair", &user.machine_id, &user.server, &owner)?;
+    availability::finish_setup()
 }
 
 /// One-way local disable, independent of backend reachability and UAC. SCM
@@ -950,6 +1106,109 @@ pub fn status() -> Result<Status, HostError> {
     }
 }
 
+/// Whether a viewer asked for the password prompt on this locked console. `None` when the backend has no such route
+/// (older server) or cannot be reached, so the caller backs off; a refusal is a plain no.
+fn wake_requested(
+    http: &reqwest::blocking::Client,
+    server: &reqwest::Url,
+    machine: &str,
+    key: &SigningKey,
+    console: u32,
+) -> Option<bool> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()?
+        .as_millis() as u64;
+    let nonce = uuid::Uuid::new_v4().to_string();
+    let message = wake_message(machine, timestamp, &nonce, console);
+    let response = http
+        .post(server.join("/api/signin/wake").ok()?)
+        .json(&serde_json::json!({
+            "version":1,"machineId":machine,"timestamp":timestamp,"nonce":nonce,"consoleSessionId":console,
+            "signature": STANDARD.encode(key.sign(message.as_bytes()).to_bytes())
+        }))
+        .send()
+        .ok()?;
+    if response.status().as_u16() == 404 {
+        return None;
+    }
+    if !response.status().is_success() {
+        return Some(false);
+    }
+    let mut bytes = Vec::new();
+    response.take(4097).read_to_end(&mut bytes).ok()?;
+    Some(wake_answer(&bytes))
+}
+fn wake_message(machine: &str, timestamp: u64, nonce: &str, console: u32) -> String {
+    format!("beacon-remote:signin-wake:v1\n{machine}\n{timestamp}\n{nonce}\n{console}")
+}
+fn wake_answer(bytes: &[u8]) -> bool {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Answer {
+        wake: bool,
+    }
+    bytes.len() <= 4096 && serde_json::from_slice::<Answer>(bytes).is_ok_and(|answer| answer.wake)
+}
+fn removed_answer(bytes: &[u8]) -> bool {
+    #[derive(Deserialize)]
+    struct Answer {
+        removed: bool,
+    }
+    bytes.len() <= 4096
+        && serde_json::from_slice::<Answer>(bytes).is_ok_and(|answer| answer.removed)
+}
+
+/// After the owner removed the computer: other versions and private files go now; the service is marked for deletion
+/// and the running program with its folders goes once this process has exited.
+fn remove_after_owner_removal(machine: &str) -> Result<(), HostError> {
+    let (programs, data) = paths(machine)?;
+    reject_reparse(&programs)?;
+    reject_reparse(&data)?;
+    let current = std::env::current_exe()?;
+    let mut files = vec![
+        programs.join("public.json"),
+        programs.join("disabled.latch"),
+        programs.join("enabled.marker"),
+        data.join("identity.dpapi"),
+        data.join("maintenance.lock"),
+        data.join("supervisor.old.log"),
+        data.join("supervisor.log"),
+    ];
+    let mut folders = Vec::new();
+    for entry in fs::read_dir(&programs)?.take(132).flatten() {
+        let path = entry.path();
+        if !path.is_dir() || reject_reparse(&path).is_err() {
+            continue;
+        }
+        // Each version folder holds one program; the running one is deleted after exit, the others now.
+        if !current.starts_with(&path) {
+            files.push(path.join("beacon-remote-agent.exe"));
+        }
+        folders.push(path);
+    }
+    // The last installation on this computer also puts the Ctrl+Alt+Del policy back (the program folder still holds
+    // this installation until the detached cleanup runs, so it is the only one left when it is alone).
+    let (program_root, data_root) = roots()?;
+    let others = fs::read_dir(&program_root)
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .any(|entry| entry.path().is_dir() && entry.path() != programs)
+        })
+        .unwrap_or(true);
+    if !others {
+        if let Err(error) = crate::sas_policy::restore(&data_root) {
+            diag(
+                machine,
+                &format!("could not restore the Ctrl+Alt+Del policy: {error}"),
+            );
+        }
+    }
+    folders.extend([programs, data]);
+    crate::self_removal::remove_after_exit(&name(machine), &files, &folders)
+}
+
 fn send_local_disable(
     http: &reqwest::blocking::Client,
     server: &reqwest::Url,
@@ -1043,8 +1302,53 @@ fn console() -> Option<(u32, &'static str)> {
     }
     Some((session, state))
 }
+/// Retires the worker's lease for a desktop handoff and keeps it in `pending`; [`offer_handoff`] offers it on this and
+/// every later supervisor pass once the same console is signed in. Signing in takes longer than a moment (the welcome
+/// screen, a profile load), and a handoff that gave up early left the viewer with an ended sign-in view although the
+/// person was signed in.
 fn attempt_handoff(
     active: &mut crate::signin_worker::Worker,
+    pending: &mut Option<(crate::signin_worker::RetiredLease, Instant)>,
+    machine: &str,
+) {
+    match active.retire_for_handoff() {
+        Some(retired) => *pending = Some((retired, Instant::now())),
+        None => diag(
+            machine,
+            &format!("no desktop handoff: {}", active.retire_detail),
+        ),
+    }
+}
+
+/// What a pending handoff does on this pass.
+#[derive(Debug, PartialEq, Eq)]
+enum HandoffStep {
+    /// The same console is signed in: offer the desktop now.
+    Offer,
+    /// Still signing in: look again on the next pass.
+    Wait,
+    /// Another session took the console, or the lease ran out: drop it.
+    Abandon,
+}
+fn handoff_step(
+    console_now: Option<(u32, &str)>,
+    retired_console: u32,
+    expired: bool,
+) -> HandoffStep {
+    if expired {
+        return HandoffStep::Abandon;
+    }
+    match console_now {
+        Some((session, "signed-in")) if session == retired_console => HandoffStep::Offer,
+        Some((session, _)) if session != retired_console => HandoffStep::Abandon,
+        _ => HandoffStep::Wait,
+    }
+}
+
+/// Offers a pending handoff once its console is signed in, keeps it while signing in is still under way, and drops
+/// it if the console changed hands, the lease ran out, or Disable/revoke is pending. Never waits.
+fn offer_handoff(
+    pending: &mut Option<(crate::signin_worker::RetiredLease, Instant)>,
     http: &reqwest::blocking::Client,
     server: &reqwest::Url,
     machine: &str,
@@ -1052,46 +1356,67 @@ fn attempt_handoff(
     cancel: &AtomicBool,
     revoke: &signin_revoke::LocalRevoke,
 ) -> Result<(), HostError> {
-    let Some(retired) = active.retire_for_handoff() else {
+    let Some((retired, since)) = pending.as_ref() else {
         return Ok(());
     };
-    // WTS notifications and desktop loss can precede the unlocked flag. End
-    // SYSTEM authority first, then allow a short bounded observation window.
-    let until = Instant::now() + Duration::from_millis(1500);
-    while !cancel.load(Ordering::Acquire)
-        && !revoke.pending()?
-        && crate::signin_scope::tick() < retired.deadline
-    {
-        match console() {
-            Some((session, "signed-in")) if session == retired.console => {
-                if cancel.load(Ordering::Acquire)
-                    || revoke.pending()?
-                    || crate::signin_scope::tick() >= retired.deadline
-                {
-                    return Ok(());
-                }
-                let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
-                let nonce = uuid::Uuid::new_v4().to_string();
-                let message = format!(
-                    "beacon-remote:signin-handoff:v1\n{machine}\n{timestamp}\n{nonce}\n{}\n{}\n{}",
-                    retired.lease, retired.instance, retired.console
-                );
-                let _=http.post(server.join("/api/signin/handoff")?).json(&serde_json::json!({
+    if cancel.load(Ordering::Acquire) || revoke.pending()? {
+        *pending = None;
+        return Ok(());
+    }
+    // Signing in normally finishes in a few seconds; a wrong password leaves the console locked. Heartbeats wait
+    // while a handoff is pending (they would report the console as signed in before the offer and the server would
+    // refuse it), so a handoff that is not ready within 10 seconds is dropped.
+    let expired = crate::signin_scope::tick() >= retired.deadline
+        // Inside the server's 15-second freshness window for the endpoint (heartbeats wait while this is pending).
+        || since.elapsed() >= Duration::from_secs(10);
+    match handoff_step(console(), retired.console, expired) {
+        HandoffStep::Wait => {
+            std::thread::sleep(Duration::from_millis(50));
+            Ok(())
+        }
+        HandoffStep::Abandon => {
+            diag(
+                machine,
+                "desktop handoff dropped: the lease ended or another session took the console",
+            );
+            *pending = None;
+            Ok(())
+        }
+        HandoffStep::Offer => {
+            let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
+            let nonce = uuid::Uuid::new_v4().to_string();
+            let message = format!(
+                "beacon-remote:signin-handoff:v1
+{machine}
+{timestamp}
+{nonce}
+{}
+{}
+{}",
+                retired.lease, retired.instance, retired.console
+            );
+            let sent = http
+                .post(server.join("/api/signin/handoff")?)
+                .json(&serde_json::json!({
                     "version":1,"machineId":machine,"timestamp":timestamp,"nonce":nonce,
                     "leaseId":retired.lease,"instanceId":retired.instance,"consoleSessionId":retired.console,
                     "signature":STANDARD.encode(key.sign(message.as_bytes()).to_bytes()),
-                })).send();
-                return Ok(());
+                }))
+                .send();
+            match sent {
+                Ok(response) => diag(
+                    machine,
+                    &format!(
+                        "offered the desktop handoff ({})",
+                        response.status().as_u16()
+                    ),
+                ),
+                Err(_) => diag(machine, "could not offer the desktop handoff (network)"),
             }
-            Some((session, _)) if session != retired.console => return Ok(()),
-            _ => {}
+            *pending = None;
+            Ok(())
         }
-        if Instant::now() >= until {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(25));
     }
-    Ok(())
 }
 define_windows_service!(ffi_signin, service_main);
 fn service_main(_: Vec<OsString>) {
@@ -1196,6 +1521,8 @@ fn run_service() -> Result<(), HostError> {
         let mut observed_epoch = session_epoch.load(Ordering::Acquire);
         let mut next_launch = Instant::now();
         let mut last_launch_error = String::new();
+        let mut next_wake_poll = Instant::now();
+        let mut pending_handoff: Option<(crate::signin_worker::RetiredLease, Instant)> = None;
         let mut last_ack_note = String::new();
         let mut next_heartbeat = Instant::now();
         let mut disable_acknowledged = false;
@@ -1233,12 +1560,22 @@ fn run_service() -> Result<(), HostError> {
                 crate::pause(&cancel, Duration::from_millis(500));
                 continue;
             }
+            // A desktop handoff waiting for signing in to finish.
+            offer_handoff(
+                &mut pending_handoff,
+                &http,
+                &server,
+                machine,
+                &key,
+                &cancel,
+                &revoke,
+            )?;
             let epoch = session_epoch.load(Ordering::Acquire);
             if worker.as_ref().is_some_and(|active| {
                 epoch != observed_epoch || console() == Some((active.console, "signed-in"))
             }) {
                 if let Some(active) = worker.as_mut() {
-                    attempt_handoff(active, &http, &server, machine, &key, &cancel, &revoke)?;
+                    attempt_handoff(active, &mut pending_handoff, machine);
                 }
                 worker.take();
                 next_heartbeat = Instant::now();
@@ -1274,7 +1611,7 @@ fn run_service() -> Result<(), HostError> {
                     );
                 }
                 if let Some(active) = worker.as_mut() {
-                    attempt_handoff(active, &http, &server, machine, &key, &cancel, &revoke)?;
+                    attempt_handoff(active, &mut pending_handoff, machine);
                 }
                 worker.take();
                 next_launch = Instant::now() + Duration::from_secs(5);
@@ -1290,6 +1627,28 @@ fn run_service() -> Result<(), HostError> {
             // probe. Observe it before any launch or new heartbeat.
             if revoke.pending()? {
                 continue;
+            }
+            // While the lock-screen picture hides the password prompt no worker can start; ask whether a viewer is
+            // waiting, and if so raise the prompt so the next launch finds it.
+            if acknowledged && worker.is_none() && Instant::now() >= next_wake_poll {
+                if let Some(console) = crate::signin_worker::locked_console() {
+                    next_wake_poll = Instant::now() + Duration::from_secs(1);
+                    match wake_requested(&http, &server, machine, &key, console) {
+                        Some(true) => {
+                            match crate::signin_worker::wake_prompt(machine, console) {
+                                Ok(()) => diag(machine, "raised the password prompt for a viewer"),
+                                Err(error) => diag(
+                                    machine,
+                                    &format!("could not raise the password prompt: {error}"),
+                                ),
+                            }
+                            next_launch = Instant::now() + Duration::from_millis(800);
+                        }
+                        // A backend without this route: look again much later.
+                        None => next_wake_poll = Instant::now() + Duration::from_secs(60),
+                        Some(false) => {}
+                    }
+                }
             }
             if acknowledged
                 && worker.is_none()
@@ -1312,7 +1671,9 @@ fn run_service() -> Result<(), HostError> {
                     }
                 }
             }
-            if Instant::now() >= next_heartbeat {
+            // A pending desktop handoff goes to the server first; a heartbeat now would report the console as
+            // signed in and the server would refuse the handoff.
+            if Instant::now() >= next_heartbeat && pending_handoff.is_none() {
                 if let Some((console, mut state)) = console() {
                     // A console switch/unlock can happen during the previous
                     // probe. Never publish that worker under another console.
@@ -1321,7 +1682,16 @@ fn run_service() -> Result<(), HostError> {
                             || crate::signin_worker::locked_console() != Some(console)
                             || session_epoch.load(Ordering::Acquire) != observed_epoch
                     }) {
+                        // Signing in unlocks the console between probes: hand the viewer over to the desktop here
+                        // too, or it is left with an ended sign-in view (only a signed-in, same console qualifies).
+                        if let Some(active) = worker.as_mut() {
+                            attempt_handoff(active, &mut pending_handoff, machine);
+                        }
                         worker.take();
+                        if pending_handoff.is_some() {
+                            // Offer it (on the next pass, at the top) before telling the server anything else.
+                            continue;
+                        }
                     }
                     if revoke.pending()? {
                         continue;
@@ -1346,9 +1716,26 @@ fn run_service() -> Result<(), HostError> {
                     acknowledged = false;
                     let mut media_allowed = false;
                     if let Ok(response) = response {
-                        if ever_acknowledged
-                            && matches!(response.status().as_u16(), 401 | 403 | 410)
-                        {
+                        if response.status().as_u16() == 410 {
+                            let mut body = Vec::new();
+                            let _ = response.take(4097).read_to_end(&mut body);
+                            if removed_answer(&body) {
+                                // Signed heartbeat, explicit answer: the owner removed this computer.
+                                worker.take();
+                                diag(
+                                    machine,
+                                    "the owner removed this computer; removing the sign-in service",
+                                );
+                                if let Err(error) = remove_after_owner_removal(machine) {
+                                    diag(
+                                        machine,
+                                        &format!("could not remove the sign-in service: {error}"),
+                                    );
+                                }
+                            }
+                            break;
+                        }
+                        if ever_acknowledged && matches!(response.status().as_u16(), 401 | 403) {
                             break;
                         }
                         if response.status().is_success() {
@@ -1394,7 +1781,13 @@ fn run_service() -> Result<(), HostError> {
                     worker.take();
                     acknowledged = false;
                 }
-                next_heartbeat = Instant::now() + Duration::from_secs(5);
+                // A ready worker waiting for its viewer's lease looks every second, so the picture starts promptly.
+                next_heartbeat = Instant::now()
+                    + if worker.as_ref().is_some_and(|active| !active.has_lease()) {
+                        Duration::from_secs(1)
+                    } else {
+                        Duration::from_secs(5)
+                    };
             }
             crate::pause(&cancel, Duration::from_millis(500));
         }
@@ -1454,6 +1847,14 @@ pub fn command(arguments: &[String]) -> Option<Result<(), HostError>> {
         Some("signin-install-enable") if arguments.len() == 5 => {
             Some(install(&arguments[2], &arguments[3], &arguments[4], true))
         }
+        Some("unattended-install") if arguments.len() == 5 => Some((|| {
+            availability::install_elevated(&arguments[2], &arguments[3], &arguments[4])?;
+            install(&arguments[2], &arguments[3], &arguments[4], true)
+        })()),
+        Some("unattended-repair") if arguments.len() == 5 => Some((|| {
+            availability::install_elevated(&arguments[2], &arguments[3], &arguments[4])?;
+            install(&arguments[2], &arguments[3], &arguments[4], false)
+        })()),
         Some("signin-uninstall") if arguments.len() == 5 => {
             Some(uninstall(&arguments[2], &arguments[4]))
         }
@@ -1466,12 +1867,80 @@ pub fn command(arguments: &[String]) -> Option<Result<(), HostError>> {
             Ok(())
         })()),
         Some("signin-worker") => Some(crate::signin_worker::run_as_process(arguments)),
+        // One-step cleanup: the uninstaller asks for one administrator approval and everything goes.
+        Some("cleanup-local") if arguments.len() <= 3 => {
+            Some(cleanup_local(arguments.get(2).map(String::as_str)))
+        }
+        Some("cleanup-all") if (3..=4).contains(&arguments.len()) => Some(cleanup_all(
+            &arguments[2],
+            arguments.get(3).map(String::as_str),
+        )),
+        Some("signin-wake") => Some(crate::signin_worker::run_wake(arguments)),
+        Some("unattended-finish") if arguments.len() == 2 => Some(finish_unattended()),
         _ => None,
     }
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_handoff_waits_for_signing_in_and_only_for_its_own_console() {
+        // Still on the lock or sign-in screen, or between states: keep waiting.
+        assert_eq!(
+            handoff_step(Some((2, "locked")), 2, false),
+            HandoffStep::Wait
+        );
+        assert_eq!(handoff_step(None, 2, false), HandoffStep::Wait);
+        // Signed in on the same console: offer the desktop.
+        assert_eq!(
+            handoff_step(Some((2, "signed-in")), 2, false),
+            HandoffStep::Offer
+        );
+        // Someone else's session took the console, or the lease ran out: never offer.
+        assert_eq!(
+            handoff_step(Some((3, "signed-in")), 2, false),
+            HandoffStep::Abandon
+        );
+        assert_eq!(
+            handoff_step(Some((2, "signed-in")), 2, true),
+            HandoffStep::Abandon
+        );
+    }
+
+    #[test]
+    fn only_an_explicit_removed_answer_makes_the_service_remove_itself() {
+        assert!(super::removed_answer(
+            br#"{"error":"This computer was removed","removed":true}"#
+        ));
+        assert!(!super::removed_answer(br#"{"error":"Presence rejected"}"#));
+        assert!(!super::removed_answer(br#"{"removed":false}"#));
+        assert!(!super::removed_answer(b""));
+    }
+
+    #[test]
+    fn uninstall_deletes_its_own_diagnostic_logs_and_still_refuses_anything_else() {
+        use super::{private_state_name, PrivateState};
+        assert_eq!(private_state_name("identity.dpapi"), PrivateState::Secret);
+        assert_eq!(private_state_name("maintenance.lock"), PrivateState::Secret);
+        assert_eq!(private_state_name("supervisor.log"), PrivateState::Log);
+        assert_eq!(private_state_name("supervisor.old.log"), PrivateState::Log);
+        for other in ["notes.txt", "supervisor.log.bak", "Identity.dpapi", ""] {
+            assert_eq!(private_state_name(other), PrivateState::Unknown, "{other}");
+        }
+    }
+
+    #[test]
+    fn the_wake_question_is_signed_in_its_own_domain_and_the_answer_is_strict() {
+        assert_eq!(
+            super::wake_message("m", 5, "n", 12),
+            "beacon-remote:signin-wake:v1\nm\n5\nn\n12"
+        );
+        assert!(super::wake_answer(br#"{"wake":true}"#));
+        assert!(!super::wake_answer(br#"{"wake":false}"#));
+        assert!(!super::wake_answer(br#"{"wake":true,"lease":"x"}"#));
+        assert!(!super::wake_answer(b"not json"));
+    }
+
     #[test]
     fn recovery_is_bounded_crash_only_and_cannot_run_commands_or_reboot() {
         let mut policy = super::recovery_policy();

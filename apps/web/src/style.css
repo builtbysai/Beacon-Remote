@@ -1334,6 +1334,17 @@ input[type="radio"] {
   font-weight: 700;
   color: var(--muted);
 }
+summary.verify-title {
+  cursor: pointer;
+  min-height: 44px;
+  display: list-item;
+}
+.verify-details[open] summary.verify-title {
+  color: var(--text);
+}
+.download-hash {
+  overflow-wrap: anywhere;
+}
 .verify {
   display: grid;
   gap: 6px;
@@ -1724,6 +1735,10 @@ code.hash {
   justify-self: end;
   min-height: 44px;
   padding: 0 22px;
+  white-space: nowrap;
+}
+.device-seen {
+  overflow-wrap: anywhere;
 }
 .inventory-empty {
   display: flex;
@@ -2661,6 +2676,13 @@ code.hash {
       5 5,
     crosshair;
   touch-action: none;
+}
+.viewer-stage .switching-still {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0.72;
 }
 .viewer-stage video.input-enabled:focus-visible {
   outline: 2px solid var(--accent);
@@ -3751,4 +3773,65 @@ code.hash {
 .account-popover a,
 .account-popover button {
   justify-content: flex-start;
+}
+
+/* Work screens stay calm (review R17): the cast keeps its personality on public pages, but in the computer list and
+   details nothing moves on its own. The online signal plays once when it appears, so movement means a change. */
+.inventory-layout .char .eyes,
+.inventory-layout .char .zzz,
+.inventory-layout .char.mood-wave .arm,
+.inventory-layout .inspector-char,
+.device-inspector .char .eyes,
+.device-inspector .char .zzz,
+.device-inspector .char.mood-wave .arm,
+.inspector-char {
+  animation: none;
+}
+.inventory-layout .char .arcs > *,
+.device-inspector .char .arcs > * {
+  animation-iteration-count: 1;
+}
+
+/* Pairing: the code is the one main path; other methods sit behind one disclosure (review R07). */
+.pairing-more {
+  margin-top: 16px;
+}
+.pairing-more > summary {
+  cursor: pointer;
+  min-height: 44px;
+  display: list-item;
+  font-weight: 600;
+  color: var(--muted);
+}
+.pairing-more[open] > summary {
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+/* Long names (review R16): two lines at most in the list and three in the details; the full name stays in the
+   button's text for assistive technology and in its tooltip. */
+.device-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.inspector-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
+/* Favourite computers (this browser only). */
+.device-favourite {
+  color: var(--accent, currentColor);
+}
+.inspector-favourite {
+  margin-top: 6px;
+  min-height: 36px;
+  font-size: 13px;
 }

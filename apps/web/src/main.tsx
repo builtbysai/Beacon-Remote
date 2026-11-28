@@ -1,9 +1,19 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import type { Machine } from "@beacon-remote/protocol";
+import { signinAuthorityState } from "@beacon-remote/protocol";
+import { wakeSignIn } from "./signin-wake.js";
+import { startingLabel } from "./computer-status.js";
+import { desktopAfterSignIn } from "./signin-handoff.js";
+import {
+  favouritesFirst,
+  readFavourites,
+  toggleFavourite,
+} from "./favourites.js";
 import "./style.css";
 import "./viewer.css";
-import { LiveView, type ViewGrant } from "./LiveView.js";
+import { LiveView, displayName, type ViewGrant } from "./LiveView.js";
+import { lastFrame } from "./last-frame.js";
 import { SignInView } from "./SignInView.js";
 import { Brand, ProductPage, pageFromHash } from "./Product.js";
 import { Character, toneFor } from "./Characters.js";
@@ -81,6 +91,17 @@ function App() {
     signInContext.current?.abort.abort();
     signInContext.current = null;
     setSignInView(null);
+    if (bridgeTimer.current) clearTimeout(bridgeTimer.current);
+    bridgeTimer.current = null;
+  }
+  // Sign-in to desktop as one view: the desktop view opens underneath while the sign-in view stays on top with its
+  // last picture, and the sign-in view goes once the desktop shows its first frame (or after 15 s at the latest).
+  const bridgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bridging = useRef(false);
+  function desktopShown() {
+    if (!bridging.current) return;
+    bridging.current = false;
+    closeSignIn();
   }
   const viewContext = useRef({ active: false });
   const recoveryAttempted = useRef(false);
@@ -98,6 +119,7 @@ function App() {
   const [theme, setTheme] = useState(readTheme);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
+  const [favourites, setFavourites] = useState<Set<string>>(readFavourites);
   const [groupFilter, setGroupFilter] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
@@ -173,6 +195,12 @@ function App() {
     setError("");
   }, [page]);
   const signedIn = machines !== null;
+  // A signed-in visitor who opens the bare site goes straight to their computers; the product page stays one click
+  // away (the brand link, #home).
+  useEffect(() => {
+    if (signedIn && window.location.hash === "")
+      window.location.replace("#computers");
+  }, [signedIn]);
   knownSignedIn.current = signedIn;
   const assistGeneration = assistEpoch.current;
   useEffect(
@@ -385,13 +413,98 @@ function App() {
     const machine = machines?.find((entry) => entry.id === view.machineId);
     if (!machine) return;
     const capability = view.grant.capability ?? "desktop:view";
+    // Between the two streams the viewer keeps the last picture on screen, never the computer list or black.
+    const target = machine.displays?.find((entry) => entry.id === displayId);
+    setSwitching({
+      machineId: machine.id,
+      name: machine.name,
+      label: target ? displayName(target) : "the other display",
+    });
     try {
-      await api(`sessions/${view.grant.id}/stop`, {});
-    } catch {
-      // Already ended; a new one can still be requested.
+      try {
+        await api(`sessions/${view.grant.id}/stop`, {});
+      } catch {
+        // Already ended; a new one can still be requested.
+      }
+      setView(null);
+      await testVideo(machine, capability, displayId);
+    } finally {
+      setSwitching(null);
     }
-    setView(null);
-    await testVideo(machine, capability, displayId);
+  }
+  const [switching, setSwitching] = useState<{
+    machineId: string;
+    name: string;
+    label: string;
+  } | null>(null);
+
+  const connecting = useRef<AbortController | null>(null);
+  function openSignIn(machine: Machine) {
+    if (machine.revokedAt || stale || busy || view || signInContext.current)
+      return;
+    cancelRestart();
+    // A delayed ordinary-view resume cannot coexist with this
+    // separate privileged request context.
+    viewContext.current.active = false;
+    viewContext.current = { active: true };
+    forgetView();
+    const context = {
+      machineId: machine.id,
+      name: machine.name,
+      abort: new AbortController(),
+    };
+    signInContext.current = context;
+    setSignInView(context);
+  }
+
+  /**
+   * The one Connect action (review R02): the person picks a computer, Beacon picks the way in. At the Windows lock or
+   * sign-in screen it brings the password prompt up if needed and opens the sign-in view, which continues to the
+   * desktop after signing in; otherwise it opens the desktop.
+   */
+  async function connect(machine: Machine) {
+    // One way in at a time: a second Connect while a password prompt is being brought up replaces the first, and a
+    // wake that finishes after the person moved on opens nothing.
+    connecting.current?.abort();
+    const attempt = new AbortController();
+    connecting.current = attempt;
+    if (controlEnabled && machine.accessMode === "trusted") {
+      const state = await api<unknown>(
+        `machines/${machine.id}/signin-authority`,
+        undefined,
+        AbortSignal.timeout(3000),
+      )
+        .then((raw) => signinAuthorityState.safeParse(raw))
+        .catch(() => null);
+      const signIn =
+        state?.success &&
+        state.data.enabled &&
+        state.data.state !== "signed-in" &&
+        (state.data.connectable || state.data.wakeable);
+      if (signIn) {
+        if (!state?.data?.connectable) {
+          setError("");
+          setBusy(true);
+          const ready = await wakeSignIn(
+            machine.id,
+            AbortSignal.any([attempt.signal, AbortSignal.timeout(25_000)]),
+          ).finally(() => setBusy(false));
+          if (attempt.signal.aborted || connecting.current !== attempt) return;
+          if (!ready) {
+            setError(
+              `${machine.name} is at the Windows lock screen, but its password prompt did not come up. Try Connect again.`,
+            );
+            return;
+          }
+        }
+        openSignIn(machine);
+        return;
+      }
+    }
+    await testVideo(
+      machine,
+      controlEnabled ? "desktop:control" : "desktop:view",
+    );
   }
 
   async function testVideo(
@@ -644,22 +757,25 @@ function App() {
     }
   }
 
-  const visibleMachines = (machines ?? []).filter(
-    (machine) =>
-      // Temporary support computers live in Assist, not in the everyday list.
-      !machine.temporary &&
-      (machine.name + " " + (machine.group ?? ""))
-        .toLowerCase()
-        .includes(search.trim().toLowerCase()) &&
-      (groupFilter === "" || machine.group === groupFilter) &&
-      // Revoked computers stay out of the everyday list; they have their own filter.
-      (filter === "all"
-        ? !machine.revokedAt
-        : (machine.revokedAt
-            ? "revoked"
-            : !stale && machine.online
-              ? "online"
-              : "offline") === filter),
+  const visibleMachines = favouritesFirst(
+    (machines ?? []).filter(
+      (machine) =>
+        // Temporary support computers live in Assist, not in the everyday list.
+        !machine.temporary &&
+        (machine.name + " " + (machine.group ?? ""))
+          .toLowerCase()
+          .includes(search.trim().toLowerCase()) &&
+        (groupFilter === "" || machine.group === groupFilter) &&
+        // Revoked computers stay out of the everyday list; they have their own filter.
+        (filter === "all"
+          ? !machine.revokedAt
+          : (machine.revokedAt
+              ? "revoked"
+              : !stale && machine.online
+                ? "online"
+                : "offline") === filter),
+    ),
+    favourites,
   );
   const groups = [
     ...new Set(
@@ -952,25 +1068,35 @@ function App() {
                   </button>
                 </p>
               )}
-              <p className="note">
-                {entryConfig.open ? (
-                  <>
-                    <a href="#signup" onClick={() => setEntry("signup")}>
-                      Create account
+              {entryConfig.state === "unavailable" ? (
+                <p className="note" role="alert">
+                  Couldn’t check whether this server offers sign-up and email
+                  recovery.{" "}
+                  <button className="secondary" onClick={entryConfig.retry}>
+                    Try again
+                  </button>
+                </p>
+              ) : (
+                <p className="note">
+                  {entryConfig.open ? (
+                    <>
+                      <a href="#signup" onClick={() => setEntry("signup")}>
+                        Create account
+                      </a>
+                      {" · "}
+                    </>
+                  ) : (
+                    "Accounts are by invitation. "
+                  )}
+                  {entryConfig.emailRecovery ? (
+                    <a href="#forgot" onClick={() => setEntry("forgot")}>
+                      Forgot password?
                     </a>
-                    {" · "}
-                  </>
-                ) : (
-                  "Accounts are by invitation. "
-                )}
-                {entryConfig.emailRecovery ? (
-                  <a href="#forgot" onClick={() => setEntry("forgot")}>
-                    Forgot password?
-                  </a>
-                ) : (
-                  "Forgot your password? Ask the operator for a recovery link."
-                )}
-              </p>
+                  ) : (
+                    "Forgot your password? Ask the operator for a recovery link."
+                  )}
+                </p>
+              )}
             </>
           )}
         </section>
@@ -1052,7 +1178,8 @@ function App() {
                   >
                     {(
                       [
-                        ["all", "All"],
+                        // Active = online + offline; revoked computers are counted on their own (lab note).
+                        ["all", "Active"],
                         ["online", "Online"],
                         ["offline", "Offline"],
                         ["revoked", "Revoked"],
@@ -1161,6 +1288,7 @@ function App() {
                       <button
                         id={`device-${machine.id}`}
                         className="device-name secondary"
+                        title={machine.name}
                         onClick={() =>
                           setSelected(
                             selected === machine.id ? null : machine.id,
@@ -1168,6 +1296,11 @@ function App() {
                         }
                         aria-expanded={selected === machine.id}
                       >
+                        {favourites.has(machine.id) && (
+                          <span className="device-favourite" title="Favourite">
+                            ★{" "}
+                          </span>
+                        )}
                         {machine.name}
                         {machine.group && (
                           <small className="device-group">
@@ -1201,25 +1334,24 @@ function App() {
                               : machine.bootState === "signed-out"
                                 ? "Sign-in needed"
                                 : machine.bootState === "starting"
-                                  ? "Starting host"
+                                  ? startingLabel(machine.lastSeenAt)
                                   : machine.lastSeenAt
                                     ? lastSeen(machine.lastSeenAt)
                                     : "Never"}
                       </span>
-                      {live ? (
+                      {live ||
+                      (!machine.revokedAt &&
+                        controlEnabled &&
+                        machine.accessMode === "trusted" &&
+                        (machine.bootState === "locked" ||
+                          machine.bootState === "signed-out")) ? (
                         <button
                           className="device-open"
-                          disabled={!canView}
+                          disabled={live ? !canView : busy || stale}
                           onClick={() => {
-                            // One click: ask for viewing and control together. The person at the
-                            // computer sees both and can choose View only; nothing is granted until
-                            // they approve. Open the details for a view-only request.
-                            void testVideo(
-                              machine,
-                              controlEnabled
-                                ? "desktop:control"
-                                : "desktop:view",
-                            );
+                            // One click: the way in is chosen here (desktop, or the Windows sign-in screen when the
+                            // computer is locked or signed out). Attended computers still ask the person there.
+                            void connect(machine);
                           }}
                           title={
                             !mediaEnabled
@@ -1254,28 +1386,7 @@ function App() {
                       const machine = machines.find(
                         (entry) => entry.id === selected,
                       );
-                      if (
-                        !machine ||
-                        machine.revokedAt ||
-                        stale ||
-                        busy ||
-                        view ||
-                        signInContext.current
-                      )
-                        return;
-                      cancelRestart();
-                      // A delayed ordinary-view resume cannot coexist with this
-                      // separate privileged request context.
-                      viewContext.current.active = false;
-                      viewContext.current = { active: true };
-                      forgetView();
-                      const context = {
-                        machineId: machine.id,
-                        name: machine.name,
-                        abort: new AbortController(),
-                      };
-                      signInContext.current = context;
-                      setSignInView(context);
+                      if (machine) openSignIn(machine);
                     }}
                     onRequestView={(displayId) => {
                       void testVideo(
@@ -1285,15 +1396,21 @@ function App() {
                       );
                     }}
                     onRequestControl={(displayId) => {
-                      void testVideo(
-                        machines.find((machine) => machine.id === selected)!,
-                        "desktop:control",
-                        displayId,
-                      );
+                      const machine = machines.find(
+                        (entry) => entry.id === selected,
+                      )!;
+                      // Without a chosen display, Remote is the same one Connect (desktop or sign-in screen).
+                      if (displayId)
+                        void testVideo(machine, "desktop:control", displayId);
+                      else void connect(machine);
                     }}
                     machine={machines.find(
                       (machine) => machine.id === selected,
                     )!}
+                    favourite={favourites.has(selected)}
+                    onToggleFavourite={() =>
+                      setFavourites(toggleFavourite(selected))
+                    }
                     replacesRemoved={replacesRemoved(
                       machines.find((machine) => machine.id === selected)!,
                       machines,
@@ -1340,12 +1457,38 @@ function App() {
               </button>
             </div>
           )}
+          {!view && switching && (
+            <section
+              className="live-view switching-view"
+              aria-label={`${switching.name} remote viewer`}
+              aria-busy="true"
+            >
+              <header className="viewer-toolbar">
+                <div className="viewer-identity">
+                  <div className="viewer-identity-text">
+                    <strong>{switching.name}</strong>
+                    <span role="status">Switching to {switching.label}…</span>
+                  </div>
+                </div>
+              </header>
+              <div className="viewer-stage fit">
+                {lastFrame(switching.machineId) && (
+                  <img
+                    className="switching-still"
+                    src={lastFrame(switching.machineId)}
+                    alt=""
+                  />
+                )}
+              </div>
+            </section>
+          )}
           {view && (
             <LiveView
               key={view.grant.id}
               grant={view.grant}
               name={view.name}
               machineId={view.machineId}
+              onFirstFrame={desktopShown}
               identityKey={
                 machines?.find((entry) => entry.id === view.machineId)
                   ?.identityKey
@@ -1353,6 +1496,8 @@ function App() {
               minimized={minimized}
               onMinimize={() => setMinimized(true)}
               onClose={() => {
+                // Closing the desktop during a sign-in bridge ends the bridge too, so Connect works again at once.
+                desktopShown();
                 setView(null);
                 setMinimized(false);
               }}
@@ -1380,13 +1525,41 @@ function App() {
                 )
                   return false;
                 transfer();
-                closeSignIn();
                 setView({
                   grant,
                   name: signInView.name,
                   machineId: signInView.machineId,
                 });
+                bridging.current = true;
+                bridgeTimer.current = setTimeout(desktopShown, 15_000);
                 return true;
+              }}
+              onSignedIn={() => {
+                const context = signInView;
+                void desktopAfterSignIn(context.machineId, context.abort.signal)
+                  .then((grant) => {
+                    if (
+                      signInContext.current !== context ||
+                      context.abort.signal.aborted
+                    ) {
+                      void api(`sessions/${grant.id}/stop`, {}).catch(() => {});
+                      return;
+                    }
+                    setView({
+                      grant,
+                      name: context.name,
+                      machineId: context.machineId,
+                    });
+                    bridging.current = true;
+                    bridgeTimer.current = setTimeout(desktopShown, 15_000);
+                  })
+                  .catch(() => {
+                    if (signInContext.current !== context) return;
+                    closeSignIn();
+                    setError(
+                      `${context.name} signed in, but its desktop did not come online. Try Connect again.`,
+                    );
+                  });
               }}
             />
           )}

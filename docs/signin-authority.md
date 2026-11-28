@@ -31,8 +31,43 @@ boot service installed first) found these, all fixed in source on `windows/signi
   worker at a fresh sign-in screen. Both now count; an unlocked user session still does not.
 - **Lock screen picture.** Right after a user locks, Windows shows the lock-screen picture on a desktop that is not the
   Winlogon desktop; Winlogon receives input only once the password prompt is up. The worker waits (its desktop check
-  fails and the supervisor retries). A reboot or sign-out goes straight to the prompt. A future wake-on-request
-  (bring up the password prompt when a viewer asks) would cover the locked case.
+  fails and the supervisor retries). A reboot or sign-out goes straight to the prompt. **Wake on request** (November 27) covers the locked case: see below.
+
+## Wake on request (locked computers)
+
+The lock-screen picture is LockApp on the session's Default desktop; the password prompt is on Winlogon. VNC services
+and the commercial tools (RustDesk, AnyDesk, TeamViewer, BeyondTrust, MeshCentral's agent) run a SYSTEM process in the
+console session that follows whichever desktop has the input, so the viewer sees the picture and a click raises the
+prompt. Beacon keeps the worker on Winlogon only and raises the prompt instead:
+
+1. While the console is locked and no worker can start, the supervisor reports `unavailable` and the backend marks the
+   endpoint `wakeable` for an owner whose trusted access includes control.
+2. The viewer's **Open sign-in** asks `POST /api/machines/:id/signin-wake` (owner, web origin, audited
+   `signin.wake.requested`). The backend keeps a 30-second in-memory request; one backend owns each database.
+3. Every second while locked without a worker, the supervisor asks `POST /api/signin/wake` with a proof signed by
+   its endpoint key in its own domain (`beacon-remote:signin-wake:v1`, console bound, nonce checked). The answer is a
+   yes or no only; a yes is consumed once and grants nothing. An older backend answers 404 and the supervisor stops
+   asking for a minute.
+4. On a yes, and only while the console is locked, the supervisor sends Ctrl+Alt+Del with `SendSAS` through the same
+   fixed-purpose path as the viewer's Ctrl+Alt+Del (below). Windows ignores injected key presses on the lock-screen
+   picture (seen on the lab laptop on November 27: four presses went out without error and the picture kept the
+   input), so the secure attention sequence is the only program-driven way to the prompt.
+5. It then starts a short-lived helper (`signin-wake`, the same validated binary and restricted SYSTEM token as the
+   worker) on `winsta0\Default` in the console session. The helper only looks: on Winlogon it is done; if the picture
+   still has the input it presses Ctrl (pointer nudge first, display requested), at most four times, only while still
+   locked. It never types and never runs on an unlocked desktop. It answers through its exit code `0x57SSEEEE` (step,
+   Windows error or count), which the supervisor logs, so `0x57060004` means four presses and the picture stayed.
+6. The prompt appears, the worker starts on Winlogon as before and the viewer opens the sign-in screen when the
+   endpoint reports ready (it looks every second for 25 seconds and asks again every 6 seconds).
+
+**The Ctrl+Alt+Del policy (owner decision, November 27).** The owner's one-time elevated setup, and Repair, set the
+machine policy `SoftwareSASGeneration` so services may send the sequence (adds the services bit: missing or 0 becomes 1,
+2 becomes 3, 1 and 3 are left as they are). The value found the first time is kept in
+`%ProgramData%\BeaconRemoteSignIn\sas-policy.previous`. Removing the last sign-in installation, locally or after the
+owner removed the computer, puts that value back (deleting it if it was missing), but only while the policy still
+holds what Beacon wrote; a value someone changed since is left alone. Without the policy the wake falls back to the
+key press and the log says to run Repair.
+
 - **Launch.** The worker is a console program; started with a hidden console inside a job that forbids child processes
   it died with `0xC0000142` before running. It is now launched detached.
 - **Known folders.** `SHGetKnownFolderPath` fails for the worker's restricted SYSTEM token in a user session. The
@@ -250,9 +285,10 @@ identity terminates the process rather than continuing network service under an
 unexpected identity.
 
 The 64-bit machine `SoftwareSASGeneration` DWORD must explicitly allow services
-(1 or 3). Missing/unreadable/wrong-type/other values fail closed. This path and
-the installer do not write or relax that Windows policy, enable UIAccess, change
-UAC, emulate a key chord or change the Windows authentication requirement.
+(1 or 3). Missing/unreadable/wrong-type/other values fail closed. This path does
+not write that policy; the owner's elevated sign-in setup does, as described under
+wake on request, and uninstall restores it. Nothing enables UIAccess, changes
+UAC, emulates a key chord or changes the Windows authentication requirement.
 The Windows API returns void: `requested` means it was invoked, not that Windows
 displayed or accepted anything. `policy-unavailable` and `unavailable` are also
 returned against the exact lease and request sequence, with browser feedback,

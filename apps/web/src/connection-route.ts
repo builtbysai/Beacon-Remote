@@ -16,3 +16,21 @@ export function classifyConnectionRoute(
   if (direct.includes(local) && direct.includes(remote)) return "Direct";
   return "Unavailable";
 }
+
+/**
+ * One plain answer for the Connection panel (review R27), before the counters: whether to wait, retry or check the
+ * network. Counters stay below for people who want them.
+ */
+export function connectionAdvice(
+  route: string,
+  ice: RTCIceConnectionState,
+  fps: number | null,
+): string {
+  if (ice === "failed") return "Lost · try reconnecting or check the network";
+  if (ice === "disconnected") return "Interrupted · reconnecting";
+  if (ice === "new" || ice === "checking") return "Connecting…";
+  if (fps !== null && fps < 8) return "Picture is slow · the network is busy";
+  if (route === "Relayed") return "Good · through the relay";
+  if (route === "Direct") return "Good · direct";
+  return "Connected";
+}

@@ -1,7 +1,14 @@
 import { talkMids } from "./talk-line";
+import { captureFrame, lastFrame, rememberFrame } from "./last-frame.js";
+import {
+  readViewPreferences,
+  saveViewPreferences,
+  type ViewScale,
+  zoomStep,
+} from "./view-preferences.js";
 import { ViewerIcon } from "./viewer-icons";
 import { Character, toneFor } from "./Characters.js";
-import { classifyConnectionRoute } from "./connection-route";
+import { classifyConnectionRoute, connectionAdvice } from "./connection-route";
 import {
   videoPerformance,
   type VideoCounters,
@@ -19,7 +26,7 @@ import { viewDeadline } from "./deadline.js";
 import { rememberView, forgetView } from "./resume-view.js";
 import { peerLifetime } from "./peer-lifetime.js";
 import { recoverTransport } from "./recover-transport.js";
-import { reconnectUntil } from "./reconnect.js";
+import { networkNudge, reconnectUntil } from "./reconnect.js";
 import { attachRemoteInput } from "./remote-input.js";
 import type { TouchMode } from "./touch-input.js";
 import type { DisplayInfo, SessionPermission } from "@beacon-remote/protocol";
@@ -46,6 +53,7 @@ import {
   strictIdentity,
   trustChangedKey,
   type IdentityVerdict,
+  admission,
 } from "./peer-trust.js";
 import {
   ClipboardClient,
@@ -153,6 +161,12 @@ function RailButton({
   );
 }
 
+/** Distance between the first two touches, for pinch zoom. */
+function touchSpan(touches: React.TouchList) {
+  const [a, b] = [touches[0]!, touches[1]!];
+  return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+}
+
 export function LiveView({
   grant,
   name,
@@ -164,6 +178,7 @@ export function LiveView({
   minimized = false,
   machineId,
   identityKey,
+  onFirstFrame,
 }: {
   grant: ViewGrant;
   name: string;
@@ -172,6 +187,8 @@ export function LiveView({
   // Picks the computer's own colour so the viewer shows the same character as the list.
   machineId?: string;
   onClose: () => void;
+  // Called once, when the first frame is on screen (the sign-in view waits for it before it goes).
+  onFirstFrame?: () => void;
   // Hide the viewer and show the device list while the session stays connected.
   onMinimize?: () => void;
   minimized?: boolean;
@@ -200,7 +217,41 @@ export function LiveView({
   const selectedScope = permissionView.options.find(
     (scope) => scope === requestedScope,
   );
-  const [scale, setScale] = useState<"fit" | "actual">("fit");
+  const stage = useRef<HTMLDivElement>(null);
+  const pinch = useRef<number | null>(null);
+  const changeScale = (value: ViewScale) => {
+    setScale(value);
+    saveViewPreferences(machineId, { scale: value });
+  };
+  // A touchpad pinch arrives as Ctrl+wheel: while viewing only, it steps the zoom instead of zooming the page.
+  const inputLive = useRef(false);
+  const scaleNow = useRef<ViewScale>("fit");
+  useEffect(() => {
+    const element = stage.current;
+    if (!element) return;
+    let last = 0;
+    const wheel = (event: WheelEvent) => {
+      if (inputLive.current || !event.ctrlKey) return;
+      event.preventDefault();
+      const now = performance.now();
+      if (now - last < 250 || Math.abs(event.deltaY) < 1) return;
+      last = now;
+      const next = zoomStep(scaleNow.current, event.deltaY < 0 ? 1 : -1);
+      setScale(next);
+      saveViewPreferences(machineId, { scale: next });
+    };
+    element.addEventListener("wheel", wheel, { passive: false });
+    return () => element.removeEventListener("wheel", wheel);
+  }, [machineId]);
+  // The picture's own size, for the 150 % and 200 % scales.
+  const [natural, setNatural] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+  // Remembered per computer in this browser (harmless view choices only).
+  const [scale, setScale] = useState<ViewScale>(
+    () => readViewPreferences(machineId).scale ?? "fit",
+  );
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [needsPlay, setNeedsPlay] = useState(false);
   // The person at the computer paused sharing; screen and input are off until they resume.
@@ -231,11 +282,20 @@ export function LiveView({
       : "Waiting for the sharing app…",
   );
   const [frames, setFrames] = useState(0);
+  const firstFrame = useRef(onFirstFrame);
+  firstFrame.current = onFirstFrame;
+  useEffect(() => {
+    if (frames > 0) firstFrame.current?.();
+  }, [frames]);
   const [ended, setEnded] = useState(false);
   const [controlReady, setControlReady] = useState(false);
+  inputLive.current = controlReady;
   // The computer said it is an Android phone: Back, Home and Recents replace the clipboard button.
   const [phoneHost, setPhoneHost] = useState(false);
-  const [touchMode, setTouchMode] = useState<TouchMode>("trackpad");
+  scaleNow.current = scale;
+  const [touchMode, setTouchMode] = useState<TouchMode>(
+    () => readViewPreferences(machineId).touch ?? "trackpad",
+  );
   const touchModeRef = useRef(touchMode);
   touchModeRef.current = touchMode;
   const controlling = grant.capability === "desktop:control";
@@ -290,11 +350,13 @@ export function LiveView({
     if (!current || sending.current) return;
     sending.current = true;
     try {
-      for (const file of Array.from(list)) {
+      const files = Array.from(list);
+      for (const [index, file] of files.entries()) {
         const status = await current.send(file);
-        // Lost with the connection: send it again, from where it stopped, once the channel is back.
+        // Lost with the connection: send it again, from where it stopped, and the rest of the batch after it, once
+        // the channel is back.
         interrupted.current =
-          status === "failed" && !current.ready ? file : null;
+          status === "failed" && !current.ready ? files.slice(index) : null;
         if (status !== "done") break;
       }
     } finally {
@@ -319,7 +381,7 @@ export function LiveView({
   const [pictureHeight, setPictureHeight] = useState<number | null>(null);
   // File transfer exists only when the person at the computer allowed it for this session.
   const sender = useRef<FileSender | null>(null);
-  const interrupted = useRef<File | null>(null);
+  const interrupted = useRef<File[] | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [fileReady, setFileReady] = useState(false);
   // The shared-folder channel (P1-4): exists once the computer opened it; answers only when drive access is granted.
@@ -339,6 +401,9 @@ export function LiveView({
   const [clipStatus, setClipStatus] = useState("");
   // Whether the offer really came from the computer whose key this browser pinned (ADR 0061).
   const [identity, setIdentity] = useState<IdentityVerdict | null>(null);
+  // A changed key holds the connection until the person chooses (Trust the new key, or Cancel).
+  const [keyPending, setKeyPending] = useState(false);
+  const keyChoice = useRef<((trusted: boolean) => void) | null>(null);
   // The last text this viewer sent, so Automatic never sends the same thing twice.
   const lastClipSent = useRef("");
   const [transfer, setTransfer] = useState<Transfer | null>(null);
@@ -397,6 +462,16 @@ export function LiveView({
   const [passwordDraft, setPasswordDraft] = useState("");
   // The layout of the phone's PIN screen, sent by the phone while the pad is open, drawn as a stand-in for the picture.
   const [lockScreen, setLockScreen] = useState<LockScreen | null>(null);
+  // Remember a recent picture of this computer, so the next view of it (a reconnect, the sign-in screen, the switch
+  // back to the desktop) starts from what was last seen instead of a black stage. In memory, this page only.
+  useEffect(() => {
+    if (!machineId) return;
+    const timer = setInterval(() => {
+      const frame = captureFrame(video.current);
+      if (frame) rememberFrame(machineId, frame);
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [machineId]);
   useEffect(() => {
     if (clipMode !== "auto") return;
     const sync = () => {
@@ -774,6 +849,8 @@ export function LiveView({
       return api(`sessions/${grant.id}/stop`, {}).catch(() => {});
     }
     function finish(reason: string, reloading = false) {
+      // A connection waiting on the person's key choice ends with it (as a Cancel).
+      keyChoice.current?.(false);
       downloads.current.dispose();
       if (finished) return;
       finished = true;
@@ -833,6 +910,7 @@ export function LiveView({
             ),
           isCurrent: () => !finished && !expired(),
           windowMs: (grant.reconnectSeconds ?? 120) * 1000,
+          nudge: networkNudge,
         });
         if (!resumed) return;
         ice.current = { id: grant.id, servers: resumed.iceServers };
@@ -853,7 +931,7 @@ export function LiveView({
             setStatus(
               grant.source === "desktop"
                 ? controlling && controlGranted
-                  ? "Connected — click the screen to control it. Escape releases input."
+                  ? "Connected — click the screen to control it. Shift+Esc gives your keyboard back."
                   : controlling
                     ? "Connected — view only. Control was not allowed on the computer."
                     : "Connected — view only."
@@ -898,7 +976,7 @@ export function LiveView({
           if (!ready) setInputRoundTripMillis(null);
           if (upgraded && ready)
             setStatus(
-              "Connected — click the screen to control it. Escape releases input.",
+              "Connected — click the screen to control it. Shift+Esc gives your keyboard back.",
             );
         },
         () => {
@@ -917,7 +995,9 @@ export function LiveView({
         setDisplayError,
         (platform) => {
           setPhoneHost(platform === "android");
-          if (platform === "android") setTouchMode("direct");
+          // A phone defaults to direct touch unless this browser remembers another choice for it.
+          if (platform === "android" && !readViewPreferences(machineId).touch)
+            setTouchMode("direct");
         },
         undefined,
         setInputRoundTripMillis,
@@ -1064,10 +1144,10 @@ export function LiveView({
           setTransfer,
           (ready) => {
             setFileReady(ready);
-            const file = interrupted.current;
-            if (ready && file) {
+            const files = interrupted.current;
+            if (ready && files?.length) {
               interrupted.current = null;
-              void sendFiles([file]);
+              void sendFiles(files);
             }
           },
           setOffer,
@@ -1128,7 +1208,7 @@ export function LiveView({
         setStatus(
           grant.source === "desktop"
             ? controlling && controlGranted
-              ? "Connected — click the screen to control it. Escape releases input."
+              ? "Connected — click the screen to control it. Shift+Esc gives your keyboard back."
               : controlling
                 ? "Connected — view only. Control was not allowed on the computer."
                 : "Connected — view only."
@@ -1299,8 +1379,9 @@ export function LiveView({
                 message.sdp.length > 32768
               )
                 throw new Error("Invalid offer");
-              // Check who made the offer before anything is answered. Advisory unless the person turned strict
-              // mode on: older hosts send no proof, so by default the connection goes ahead and says so.
+              // Check who made the offer before anything is answered (review R06): a proof that does not verify is
+              // refused, a changed key waits for the person's choice, and older hosts without a proof go ahead with
+              // a notice unless strict mode is on.
               if (machineId) {
                 const verdict = await judgeOffer({
                   store: browserPinStore(),
@@ -1314,11 +1395,36 @@ export function LiveView({
                 });
                 if (closed) return;
                 setIdentity(verdict);
-                if (strictIdentity() && verdict.state !== "verified") {
+                const decision = admission(verdict, strictIdentity());
+                if (decision === "refuse") {
                   finish(
-                    "Strict mode: this computer could not prove who it is.",
+                    verdict.state === "failed"
+                      ? "This computer's identity proof did not check out, so nothing was shown or sent. Try again; if it keeps happening, check the computer."
+                      : "Strict mode: this computer could not prove who it is.",
                   );
                   return;
+                }
+                if (decision === "hold" && verdict.state === "changed") {
+                  // Nothing is answered (no picture, no input) until the person compares the code and chooses.
+                  const trusted = await new Promise<boolean>((resolve) => {
+                    keyChoice.current = resolve;
+                    setKeyPending(true);
+                  });
+                  keyChoice.current = null;
+                  setKeyPending(false);
+                  if (closed) return;
+                  if (!trusted) {
+                    finish(
+                      "Cancelled: this computer presented a different key than before.",
+                    );
+                    return;
+                  }
+                  trustChangedKey(browserPinStore(), machineId, verdict);
+                  setIdentity({
+                    state: "verified",
+                    code: verdict.code,
+                    firstUse: false,
+                  });
                 }
               }
               await pc.setRemoteDescription({
@@ -1510,14 +1616,14 @@ export function LiveView({
         {onMinimize && (
           <button
             className="viewer-back"
-            title="Back to your devices. The session stays connected."
+            title="Back to your computers. The session stays connected."
             onClick={() => {
               setMenuOpen(false);
               onMinimize();
             }}
           >
             <ViewerIcon name="back" />
-            <span>Devices</span>
+            <span>Computers</span>
           </button>
         )}
         <div className="viewer-identity">
@@ -1588,21 +1694,23 @@ export function LiveView({
         {identity && identityNotice(identity) && (
           <span role="status" className="viewer-identity-notice">
             {identityNotice(identity)}
-            {identity.state === "changed" && machineId && (
-              <button
-                type="button"
-                className="viewer-identity-trust"
-                onClick={() => {
-                  trustChangedKey(browserPinStore(), machineId, identity);
-                  setIdentity({
-                    state: "verified",
-                    code: identity.code,
-                    firstUse: false,
-                  });
-                }}
-              >
-                Trust the new key
-              </button>
+            {identity.state === "changed" && keyPending && (
+              <>
+                <button
+                  type="button"
+                  className="viewer-identity-trust"
+                  onClick={() => keyChoice.current?.(true)}
+                >
+                  Trust the new key
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => keyChoice.current?.(false)}
+                >
+                  Cancel
+                </button>
+              </>
             )}
           </span>
         )}
@@ -1803,7 +1911,25 @@ export function LiveView({
           </div>
         )}
         <div
-          className={`viewer-stage ${scale}`}
+          ref={stage}
+          className={`viewer-stage ${scale === "fit" ? "fit" : "actual"}`}
+          // Pinch to zoom while viewing only (review R26); while controlling, touch belongs to the remote device.
+          onTouchStart={(event) => {
+            if (!controlReady && event.touches.length === 2)
+              pinch.current = touchSpan(event.touches);
+          }}
+          onTouchMove={(event) => {
+            if (pinch.current === null || event.touches.length !== 2) return;
+            const span = touchSpan(event.touches);
+            const ratio = span / Math.max(1, pinch.current);
+            if (ratio > 1.25 || ratio < 0.8) {
+              changeScale(zoomStep(scale, ratio > 1 ? 1 : -1));
+              pinch.current = span;
+            }
+          }}
+          onTouchEnd={(event) => {
+            if (event.touches.length < 2) pinch.current = null;
+          }}
           onPointerDown={(event) => {
             if (!controlReady || ended || event.button > 0) return;
             const box = event.currentTarget.getBoundingClientRect();
@@ -1832,6 +1958,32 @@ export function LiveView({
             autoPlay
             muted
             playsInline
+            // Continuing from the sign-in screen: show its last picture until the desktop's first frame.
+            poster={machineId ? lastFrame(machineId) : undefined}
+            // 150 % and 200 % draw the picture larger inside the scrollable stage (review R26): scroll to pan, and
+            // pointer input still maps through the element's real on-screen size.
+            onLoadedMetadata={(event) =>
+              setNatural({
+                width: event.currentTarget.videoWidth,
+                height: event.currentTarget.videoHeight,
+              })
+            }
+            onResize={(event) =>
+              setNatural({
+                width: event.currentTarget.videoWidth,
+                height: event.currentTarget.videoHeight,
+              })
+            }
+            style={
+              natural && (scale === "150" || scale === "200")
+                ? {
+                    width: (natural.width * Number(scale)) / 100,
+                    height: (natural.height * Number(scale)) / 100,
+                    maxWidth: "none",
+                    maxHeight: "none",
+                  }
+                : undefined
+            }
             tabIndex={controlReady && !ended ? 0 : -1}
             className={controlReady && !ended ? "input-enabled" : undefined}
             aria-label={
@@ -1935,12 +2087,12 @@ export function LiveView({
             <select
               aria-label="Video scale"
               value={scale}
-              onChange={(event) =>
-                setScale(event.target.value as "fit" | "actual")
-              }
+              onChange={(event) => changeScale(event.target.value as ViewScale)}
             >
               <option value="fit">Fit</option>
               <option value="actual">100%</option>
+              <option value="150">150%</option>
+              <option value="200">200%</option>
             </select>
           </label>
           {displays.length > 1 && onSwitchDisplay && (
@@ -2586,11 +2738,11 @@ export function LiveView({
               className="viewer-control"
               aria-pressed={touchMode === "direct"}
               title="Trackpad moves the cursor like a laptop touchpad. Touch acts where you tap."
-              onClick={() =>
-                setTouchMode((mode) =>
-                  mode === "trackpad" ? "direct" : "trackpad",
-                )
-              }
+              onClick={() => {
+                const next = touchMode === "trackpad" ? "direct" : "trackpad";
+                setTouchMode(next);
+                saveViewPreferences(machineId, { touch: next });
+              }}
             >
               Touch: {touchMode === "trackpad" ? "Trackpad" : "Direct"}
             </button>
@@ -2624,6 +2776,67 @@ export function LiveView({
               {recordingSince === null ? "Record" : "Stop recording"}
             </button>
           )}
+          {/* The other tasks ask for what they need the same way (review R22): each requests only its own access. */}
+          {!ended &&
+            frames > 0 &&
+            (
+              [
+                [
+                  "audio",
+                  !hasSound,
+                  "Sound…",
+                  "Ask to hear what is playing on the device",
+                ],
+                [
+                  "recording",
+                  !recordingAllowed,
+                  "Record…",
+                  "Ask to record this session (the person there is told while it records)",
+                ],
+                [
+                  "drive",
+                  !driveReady,
+                  "Shared folder…",
+                  "Ask to open the folder the owner shares",
+                ],
+                [
+                  "print",
+                  !printReady,
+                  "Print…",
+                  "Ask to print on the device's printers",
+                ],
+              ] as const
+            )
+              .filter(
+                ([scope, missing]) =>
+                  missing && permissionView.options.includes(scope),
+              )
+              .map(([scope, , label, title]) => (
+                <button
+                  key={scope}
+                  className="viewer-control"
+                  title={title}
+                  disabled={permissionView.busy || peerPaused}
+                  onClick={() => permissions.current?.request(scope)}
+                >
+                  {label}
+                </button>
+              ))}
+          {/* The task asks for what it needs (review R22): Send file requests file transfer alone, then is ready. */}
+          {!fileReady &&
+            !ended &&
+            frames > 0 &&
+            permissionView.options.includes("files") && (
+              <button
+                data-g="files"
+                className="viewer-control"
+                title="Ask the computer to allow file transfer for this session"
+                disabled={permissionView.busy || peerPaused}
+                onClick={() => permissions.current?.request("files")}
+              >
+                Send file…
+              </button>
+            )}
           {fileReady && (
             <>
               <button
@@ -2639,6 +2852,7 @@ export function LiveView({
               <input
                 ref={fileInput}
                 type="file"
+                multiple
                 hidden
                 onChange={(event) => {
                   const picked = event.currentTarget.files;
@@ -2649,7 +2863,9 @@ export function LiveView({
             </>
           )}
           <details className="viewer-diagnostics">
-            <summary>Connection</summary>
+            <summary>
+              Connection · {connectionAdvice(route, iceState, presentedFps)}
+            </summary>
             <div className="viewer-diagnostics-panel">
               <p>Decoded frames: {frames}</p>
               <p>

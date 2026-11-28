@@ -242,7 +242,7 @@ test("Keyboard mode emits the local composition once before the next Enter", (t)
   );
 });
 
-test("Keyboard mode uses local AltGraph text and Escape discards a late composition", (t) => {
+test("Keyboard mode uses local AltGraph text and Shift+Escape discards a late composition", (t) => {
   t.mock.timers.enable({ apis: ["setInterval"] });
   const f = channelFixture(t);
   f.video.dispatchEvent(new Event("beacon-keyboard"));
@@ -268,6 +268,7 @@ test("Keyboard mode uses local AltGraph text and Escape discards a late composit
     Object.assign(new Event("keydown", { cancelable: true }), {
       code: "Escape",
       key: "Escape",
+      shiftKey: true,
     }),
   );
   assert.equal(f.document.activeElement, f.video);
@@ -353,7 +354,8 @@ for (const reason of ["blur", "hidden", "escape", "stop"] as const) {
     else if (reason === "hidden") {
       f.document.hidden = true;
       f.document.dispatchEvent(new Event("visibilitychange"));
-    } else if (reason === "escape") f.key("keydown", "Escape");
+    } else if (reason === "escape")
+      f.key("keydown", "Escape", { shiftKey: true });
     else f.detach();
     const start = f.sent.length;
     resolve("late clipboard text");
@@ -686,5 +688,30 @@ test("a pattern and a password are sent to the phone only in their exact shapes"
       .filter((input) => input.type === "unlock_password")
       .map((input) => input.text),
     ["hunter2"],
+  );
+});
+
+test("plain Escape reaches the remote computer; Shift+Escape gives the keyboard back here", (t) => {
+  const f = channelFixture(t);
+  f.key("keydown", "Escape");
+  f.key("keyup", "Escape");
+  assert.deepEqual(
+    f.sent
+      .map((body) => body.input)
+      .filter((input) => input.type === "key" && input.scanCode === 0x01),
+    [
+      { type: "key", scanCode: 0x01, extended: false, down: true },
+      { type: "key", scanCode: 0x01, extended: false, down: false },
+    ],
+  );
+  const before = f.sent.length;
+  f.key("keydown", "Escape", { shiftKey: true });
+  assert.equal(
+    f.sent
+      .slice(before)
+      .some(
+        (body) => body.input.type === "key" && body.input.scanCode === 0x01,
+      ),
+    false,
   );
 });

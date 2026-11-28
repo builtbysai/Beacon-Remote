@@ -35,6 +35,8 @@ export function SupportAccess({
   const [days, setDays] = useState(7);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // A failed load is not an empty list: who has access stays as last known (or unknown), with a way to retry.
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -42,8 +44,9 @@ export function SupportAccess({
         `machines/${machineId}/relationships`,
       );
       setList(result.relationships);
+      setLoadFailed(false);
     } catch {
-      setList([]);
+      setLoadFailed(true);
     }
   }, [machineId]);
   useEffect(() => {
@@ -122,8 +125,22 @@ export function SupportAccess({
             </li>
           ))}
         </ul>
-      ) : (
+      ) : list ? (
         <p className="note">No one has support access.</p>
+      ) : null}
+      {loadFailed && (
+        <p className="note" role="alert">
+          {list
+            ? "Couldn’t refresh who has access; showing the last list. "
+            : "Couldn’t load who has support access. "}
+          <button
+            className="secondary"
+            disabled={busy}
+            onClick={() => void load()}
+          >
+            Try again
+          </button>
+        </p>
       )}
       {!disabled && (
         <form className="support-form" onSubmit={add}>

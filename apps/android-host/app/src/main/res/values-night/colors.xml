@@ -1,17 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- The same design in the dark: near-black paper, off-white ink, a lighter blue. -->
-    <color name="beacon_background">#121614</color>
-    <color name="beacon_surface">#1B211F</color>
-    <color name="beacon_text">#F2F4F0</color>
-    <color name="beacon_muted">#9AA29C</color>
-    <color name="beacon_soft">#262D2A</color>
-    <color name="beacon_line">#2F3633</color>
-    <color name="beacon_accent">#6F86FF</color>
-    <color name="beacon_on_accent">#121614</color>
-    <color name="beacon_danger">#FF7B75</color>
-    <color name="beacon_dark">#262D2A</color>
-    <color name="beacon_paused">#4A505C</color>
-    <color name="beacon_offline">#333736</color>
-    <color name="beacon_switch_off">#3A423E</color>
+    <!-- The web workspace's dark theme: the same cast on charcoal. -->
+    <color name="beacon_background">#121214</color>
+    <color name="beacon_tile">#1B1C20</color>
+    <color name="beacon_surface">#2A2C33</color>
+    <color name="beacon_text">#F4F2ED</color>
+    <color name="beacon_muted">#A6A39B</color>
+    <color name="beacon_line">#2A2B30</color>
+    <color name="beacon_line_strong">#3B3D44</color>
+    <color name="beacon_ink">#F4F2ED</color>
+    <color name="beacon_on_ink">#121214</color>
+    <color name="beacon_accent">#6F9BFF</color>
+    <color name="beacon_accent_text">#8FB1FF</color>
+    <color name="beacon_on_accent">#121214</color>
+    <color name="beacon_green">#52D08F</color>
+    <color name="beacon_danger">#FF7D72</color>
+    <color name="beacon_danger_wash">#3A1F1C</color>
+    <color name="beacon_tint_mint">#12332B</color>
+    <color name="beacon_tint_sun">#392F14</color>
+    <color name="beacon_tint_blue">#172544</color>
+    <color name="beacon_tint_coral">#3A1E19</color>
+    <color name="beacon_arc">#3EE0B0</color>
+    <color name="beacon_sleep_shell">#70758A</color>
+    <color name="beacon_sleep_screen">#A7ABBB</color>
+    <color name="beacon_sleep_deep">#50556A</color>
 </resources>

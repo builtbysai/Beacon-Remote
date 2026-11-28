@@ -229,10 +229,6 @@ pub fn expired() -> bool {
     })
 }
 
-pub fn remove_wanted() -> bool {
-    read_record().is_none_or(|r| r.remove_programs)
-}
-
 pub fn set_remove_wanted(on: bool) {
     if let Some(mut record) = read_record() {
         record.remove_programs = on;

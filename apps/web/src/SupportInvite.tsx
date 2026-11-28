@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "./api.js";
+import { api, ApiError } from "./api.js";
 import { useRelease } from "./Product.js";
 
 type Platform = "windows" | "android" | "linux" | "mac" | "ios";
@@ -35,24 +35,50 @@ type Invite = {
 
 // What someone sees after clicking a technician's link: who is asking, and the one thing to download and run.
 export function SupportInvite({ token }: { token: string }) {
-  const [invite, setInvite] = useState<Invite | null | undefined>(undefined);
+  // undefined: checking; null: the server said the link cannot be used; "offline": the check itself failed.
+  const [invite, setInvite] = useState<Invite | null | "offline" | undefined>(
+    undefined,
+  );
+  const [attempt, setAttempt] = useState(0);
   const [platform, setPlatform] = useState<Platform>(detectPlatform);
   const release = useRelease();
   useEffect(() => {
     let live = true;
+    setInvite(undefined);
     api<Invite>("support-invite/preview", { token })
       .then((body) => live && setInvite(body))
-      .catch(() => live && setInvite(null));
+      .catch((error: unknown) => {
+        if (!live) return;
+        // Only a definite answer about the link means it cannot be used; a network or server error is retried.
+        const status = error instanceof ApiError ? error.status : 0;
+        // Timeouts and rate limits (408, 429) are temporary, like a network failure.
+        setInvite(
+          status >= 400 && status < 500 && status !== 408 && status !== 429
+            ? null
+            : "offline",
+        );
+      });
     return () => {
       live = false;
     };
-  }, [token]);
+  }, [token, attempt]);
   const installer = release?.installer;
   return (
     <section className="public-section support-invite">
       <p className="eyebrow">REMOTE SUPPORT</p>
       {invite === undefined ? (
         <h1>Checking your link…</h1>
+      ) : invite === "offline" ? (
+        <>
+          <h1>Couldn't check your link</h1>
+          <p>
+            Beacon Remote could not be reached just now. Your link may still be
+            fine. Nothing was installed or changed.
+          </p>
+          <button onClick={() => setAttempt((value) => value + 1)}>
+            Try again
+          </button>
+        </>
       ) : invite === null ? (
         <>
           <h1>This support link can't be used</h1>

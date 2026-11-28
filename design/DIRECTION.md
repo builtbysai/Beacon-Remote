@@ -1,8 +1,8 @@
 # Beacon Remote design direction
 
 Status: November 2026 rebuild of the web app. It replaces the October audit and three earlier November attempts (a soft-card
-template, a dark "lamp and serif" look, and a plain text-only look). `design/prototype/` is the older reference and is no
-longer the target.
+template, a dark "lamp and serif" look, and a plain text-only look). The older `design/prototype/` mock-up is no
+longer the target and was removed (November 28; it remains in git history).
 
 ## How we got here
 

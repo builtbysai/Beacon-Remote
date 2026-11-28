@@ -1,5 +1,7 @@
 # 0022 — The Windows host runs in the signed-in user's session; no service yet
 
+> Superseded in part by [ADR 0047](0047-unattended-owner-access.md) and [ADR 0048](0048-boot-login-and-restart.md): the host itself still runs per user, but optional SYSTEM services now provide boot presence and Windows sign-in access, set up with one administrator approval.
+
 Date: 2026-10-12
 
 ## Decision
