@@ -1564,14 +1564,12 @@ pub(crate) fn run_wake(arguments: &[String]) -> Result<(), HostError> {
             )
         };
         if input.is_null() {
-            return Err(std::io::Error::last_os_error().into());
+            wake_exit(WakeStep::OpenInput, last_error());
         }
         let input = Desktop(input);
         match wake_target(object_name(input.0).as_deref()) {
             WakeTarget::Prompt => return Ok(()),
-            WakeTarget::Other if press == 0 => {
-                return Err("The lock-screen picture does not have the input".into())
-            }
+            WakeTarget::Other if press == 0 => wake_exit(WakeStep::NotPicture, 0),
             // Between desktops right after a press: wait and look again.
             WakeTarget::Other => {
                 std::thread::sleep(std::time::Duration::from_millis(WAKE_SETTLE_MS));
@@ -1581,11 +1579,11 @@ pub(crate) fn run_wake(arguments: &[String]) -> Result<(), HostError> {
             WakeTarget::Picture => {}
         }
         if unsafe { SetThreadDesktop(input.0) } == 0 {
-            return Err(std::io::Error::last_os_error().into());
+            wake_exit(WakeStep::SetDesktop, last_error());
         }
         // The last check before each key: an unlock in between must not send it to someone's desktop.
         if locked_console() != Some(console) {
-            return Err("The console was unlocked".into());
+            wake_exit(WakeStep::Unlocked, 0);
         }
         let sent = unsafe {
             SendInput(
@@ -1595,15 +1593,34 @@ pub(crate) fn run_wake(arguments: &[String]) -> Result<(), HostError> {
             )
         };
         if sent as usize != keys.len() {
-            return Err(std::io::Error::last_os_error().into());
+            wake_exit(WakeStep::Send, last_error());
         }
         std::thread::sleep(std::time::Duration::from_millis(WAKE_SETTLE_MS));
     }
-    Err(WAKE_STILL_PICTURE.into())
+    wake_exit(WakeStep::StillPicture, WAKE_PRESSES)
 }
 
-/// The helper's answer when every press went out and the picture still has the input; the supervisor logs it.
-const WAKE_STILL_PICTURE: &str = "The lock-screen picture kept the input after every press";
+/// Where the prompt helper stopped. The helper has no console and no log of its own, so it answers through its exit
+/// code, which the supervisor writes to its log: 0x57SSEEEE, S the step and E the Windows error (or a count).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WakeStep {
+    OpenInput = 1,
+    NotPicture = 2,
+    SetDesktop = 3,
+    Unlocked = 4,
+    Send = 5,
+    /// Every press went out and the lock-screen picture still has the input; E is the number of presses.
+    StillPicture = 6,
+}
+fn wake_code(step: WakeStep, detail: u32) -> u32 {
+    0x5700_0000 | ((step as u32) << 16) | (detail & 0xffff)
+}
+fn wake_exit(step: WakeStep, detail: u32) -> ! {
+    std::process::exit(wake_code(step, detail) as i32)
+}
+fn last_error() -> u32 {
+    unsafe { GetLastError() }
+}
 
 /// Presses the prompt helper may send in one run, and the pause after each; with the first pause, well inside the
 /// supervisor's five-second wait for the helper.
@@ -1621,6 +1638,8 @@ mod tests {
         assert_eq!(wake_target(Some("Winlogon")), WakeTarget::Prompt);
         assert_eq!(wake_target(Some("Screen-saver")), WakeTarget::Other);
         assert_eq!(wake_target(None), WakeTarget::Other);
+        assert_eq!(wake_code(WakeStep::StillPicture, 4), 0x5706_0004);
+        assert_eq!(wake_code(WakeStep::OpenInput, 5), 0x5701_0005);
         // Outside a locked console session the helper refuses before it looks at any desktop.
         assert!(run_wake(&["agent".into(), "signin-wake".into()]).is_err());
     }
