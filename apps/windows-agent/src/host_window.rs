@@ -2091,12 +2091,16 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                 SS_NOPREFIX,
                 H_STATUS as usize,
             )?;
-            // Enrollment: three fields, each on a card drawn behind it.
-            for (label, top) in [
-                ("Server", 100),
-                ("Computer name", 168),
-                ("Pairing code, like AB3K-9PQ2", 236),
-            ] {
+            // Enrollment: three fields, each on a card drawn behind it. Each label is created right before its edit
+            // box, so Windows (UI Automation, Narrator) names every box by its own label; created all at once, the
+            // server box took the last label's name and the other two had none.
+            let field = WS_TABSTOP | ES_AUTOHSCROLL as u32;
+            let mut labelled = |label: &str,
+                                top: i32,
+                                text: &str,
+                                style: u32,
+                                id: usize|
+             -> Result<HWND, io::Error> {
                 state.enrollment.push(child(
                     "STATIC",
                     label,
@@ -2107,21 +2111,21 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                     SS_NOPREFIX,
                     H_LABEL as usize,
                 )?);
-            }
-            let field = WS_TABSTOP | ES_AUTOHSCROLL as u32;
-            state.server = child("EDIT", DEFAULT_SERVER, 40, 130, 440, 22, field, SERVER)?;
-            state.name = child("EDIT", &computer, 40, 198, 440, 22, field, NAME)?;
+                child("EDIT", text, 40, top + 30, 440, 22, style, id)
+            };
+            let server = labelled("Server", 100, DEFAULT_SERVER, field, SERVER)?;
+            let name = labelled("Computer name", 168, &computer, field, NAME)?;
             // Shown in plain, capital letters: it is short, works once and expires, and a hidden code hides typos.
-            state.code = child(
-                "EDIT",
+            let code = labelled(
+                "Pairing code, like AB3K-9PQ2",
+                236,
                 "",
-                40,
-                266,
-                440,
-                22,
                 field | ES_UPPERCASE as u32,
                 CODE,
             )?;
+            state.server = server;
+            state.name = name;
+            state.code = code;
             SendMessageW(state.server, EM_SETLIMITTEXT, 2048, 0);
             SendMessageW(state.name, EM_SETLIMITTEXT, 80, 0);
             SendMessageW(state.code, EM_SETLIMITTEXT, 256, 0);
