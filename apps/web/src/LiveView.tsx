@@ -169,6 +169,7 @@ export function LiveView({
   minimized = false,
   machineId,
   identityKey,
+  onFirstFrame,
 }: {
   grant: ViewGrant;
   name: string;
@@ -177,6 +178,8 @@ export function LiveView({
   // Picks the computer's own colour so the viewer shows the same character as the list.
   machineId?: string;
   onClose: () => void;
+  // Called once, when the first frame is on screen (the sign-in view waits for it before it goes).
+  onFirstFrame?: () => void;
   // Hide the viewer and show the device list while the session stays connected.
   onMinimize?: () => void;
   minimized?: boolean;
@@ -239,6 +242,11 @@ export function LiveView({
       : "Waiting for the sharing app…",
   );
   const [frames, setFrames] = useState(0);
+  const firstFrame = useRef(onFirstFrame);
+  firstFrame.current = onFirstFrame;
+  useEffect(() => {
+    if (frames > 0) firstFrame.current?.();
+  }, [frames]);
   const [ended, setEnded] = useState(false);
   const [controlReady, setControlReady] = useState(false);
   // The computer said it is an Android phone: Back, Home and Recents replace the clipboard button.

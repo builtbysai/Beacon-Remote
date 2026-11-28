@@ -83,6 +83,17 @@ function App() {
     signInContext.current?.abort.abort();
     signInContext.current = null;
     setSignInView(null);
+    if (bridgeTimer.current) clearTimeout(bridgeTimer.current);
+    bridgeTimer.current = null;
+  }
+  // Sign-in to desktop as one view: the desktop view opens underneath while the sign-in view stays on top with its
+  // last picture, and the sign-in view goes once the desktop shows its first frame (or after 15 s at the latest).
+  const bridgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bridging = useRef(false);
+  function desktopShown() {
+    if (!bridging.current) return;
+    bridging.current = false;
+    closeSignIn();
   }
   const viewContext = useRef({ active: false });
   const recoveryAttempted = useRef(false);
@@ -1407,6 +1418,7 @@ function App() {
               grant={view.grant}
               name={view.name}
               machineId={view.machineId}
+              onFirstFrame={desktopShown}
               identityKey={
                 machines?.find((entry) => entry.id === view.machineId)
                   ?.identityKey
@@ -1441,12 +1453,13 @@ function App() {
                 )
                   return false;
                 transfer();
-                closeSignIn();
                 setView({
                   grant,
                   name: signInView.name,
                   machineId: signInView.machineId,
                 });
+                bridging.current = true;
+                bridgeTimer.current = setTimeout(desktopShown, 15_000);
                 return true;
               }}
             />
