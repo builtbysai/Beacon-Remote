@@ -234,3 +234,57 @@ test(
     }
   },
 );
+
+test(
+  "a computer polling every second does not run into the shared request limit",
+  { skip: !process.env.TEST_DATABASE_URL },
+  async () => {
+    const url = process.env.TEST_DATABASE_URL!;
+    assert.match(new URL(url).pathname, /_test$/);
+    assert.equal(new URL(url).hostname, "127.0.0.1");
+    const admin = new Pool({ connectionString: url });
+    const schema = `signin_poll_${randomUUID().replaceAll("-", "")}`;
+    await admin.query(`CREATE SCHEMA ${schema}`);
+    const pool = new Pool({
+      connectionString: url,
+      options: `-c search_path=${schema}`,
+    });
+    let app: Awaited<ReturnType<typeof createApp>> | undefined;
+    try {
+      await applyMigrations(pool);
+      app = await createApp(pool, {
+        DATABASE_URL: url,
+        WEB_ORIGIN: "https://remote.example.test",
+        NODE_ENV: "test",
+        HOST: "127.0.0.1",
+        PORT: 3010,
+        SESSION_SECRET: randomBytes(32).toString("hex"),
+        CONTROL_ENABLED: "true",
+        SIGNIN_AUTHORITY_ENABLED: "true",
+        SIGNIN_MEDIA_ENABLED: "true",
+      });
+      // A locked computer asks heartbeat, pending and wake once a second: well past the app-wide 120 a minute.
+      for (let second = 0; second < 70; second++) {
+        for (const route of ["heartbeat", "pending", "wake"]) {
+          const reply = await app.inject({
+            method: "POST",
+            url: `/api/signin/${route}`,
+            payload: {},
+          });
+          assert.notEqual(reply.statusCode, 429, `${route} at ${second}s`);
+        }
+      }
+      // The browser behind the same address keeps its own budget.
+      const page = await app.inject({
+        method: "GET",
+        url: "/api/signup/config",
+      });
+      assert.notEqual(page.statusCode, 429);
+    } finally {
+      await app?.close();
+      await pool.end();
+      await admin.query(`DROP SCHEMA ${schema} CASCADE`);
+      await admin.end();
+    }
+  },
+);

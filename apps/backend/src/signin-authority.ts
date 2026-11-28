@@ -27,6 +27,7 @@ import {
 } from "./signin-shared.js";
 import { registerSigninSignaling } from "./signin-signaling.js";
 import { registerSigninHandoff } from "./signin-handoff.js";
+import { machinePolling } from "./machine-polling.js";
 
 const pathSchema = z.object({ id: z.uuid() });
 // Locked and reporting, but without a worker on the password prompt (the lock-screen
@@ -231,7 +232,7 @@ export function registerSigninAuthority(
     }
   });
 
-  app.post("/api/signin/heartbeat", async (request, reply) => {
+  app.post("/api/signin/heartbeat", machinePolling, async (request, reply) => {
     if (!enabled)
       return reply.code(503).send({ error: "Sign-in authority disabled" });
     const parsed = signinHeartbeat.safeParse(request.body);
@@ -416,7 +417,7 @@ export function registerSigninAuthority(
     return { ok: true, expiresAtMillis: expires };
   });
 
-  app.post("/api/signin/wake", async (request, reply) => {
+  app.post("/api/signin/wake", machinePolling, async (request, reply) => {
     if (!mediaEnabled)
       return reply.code(503).send({ error: "Sign-in authority disabled" });
     const parsed = signinWakeProof.safeParse(request.body);
@@ -710,7 +711,7 @@ export function registerSigninAuthority(
 
   // Discovery conveys no media grant. The endpoint must separately authorize
   // the returned ID, with a fresh proof and nonce, before worker delivery.
-  app.post("/api/signin/pending", async (request, reply) => {
+  app.post("/api/signin/pending", machinePolling, async (request, reply) => {
     if (!mediaEnabled)
       return reply.code(503).send({ error: "Sign-in authority disabled" });
     const parsed = signinPendingProof.safeParse(request.body);

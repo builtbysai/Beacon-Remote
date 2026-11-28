@@ -78,7 +78,9 @@ try {
   // A kept schema keeps its account and the login file that names it.
   if (kept !== undefined)
     account = (
-      await pool.query<{ id: string }>("SELECT id FROM accounts LIMIT 1")
+      await pool.query<{ id: typeof account }>(
+        "SELECT id FROM accounts LIMIT 1",
+      )
     ).rows[0]!.id;
   else
     await pool.query(
