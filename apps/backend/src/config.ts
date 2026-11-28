@@ -56,6 +56,31 @@ const schema = z.object({
         .max(3),
     )
     .optional(),
+  // Extra relay addresses for browsers only (review R35): TURN over TCP or TLS (for example turns:relay:443) so a
+  // viewer on a network that blocks UDP can still connect. Computers keep the UDP list, which their WebRTC stack uses.
+  TURN_BROWSER_URLS: z
+    .string()
+    .transform((value) => value.split(",").map((url) => url.trim()))
+    .pipe(
+      z
+        .array(
+          z
+            .string()
+            .max(256)
+            .refine((value) => {
+              const match =
+                /^(turn|turns):([A-Za-z0-9.-]+|\[[A-Fa-f0-9:]+\]):([0-9]{1,5})\?transport=tcp$/.exec(
+                  value,
+                );
+              return Boolean(
+                match && Number(match[3]) > 0 && Number(match[3]) <= 65535,
+              );
+            }, "Use turn: or turns: with an explicit host, port and ?transport=tcp"),
+        )
+        .min(1)
+        .max(3),
+    )
+    .optional(),
   TURN_SECRET: z.string().min(32).max(256).optional(),
   ICE_TRANSPORT_POLICY: z.enum(["all", "relay"]).optional(),
   NODE_ENV: z
@@ -82,6 +107,9 @@ export function parseConfig(env: NodeJS.ProcessEnv): Config {
     throw new Error(
       "Sign-in authority requires enabled owner control and sessions",
     );
+  }
+  if (config.TURN_BROWSER_URLS && !config.TURN_URLS) {
+    throw new Error("TURN_BROWSER_URLS needs TURN_URLS and TURN_SECRET");
   }
   if (Boolean(config.TURN_URLS) !== Boolean(config.TURN_SECRET)) {
     throw new Error("TURN_URLS and TURN_SECRET must be configured together");
