@@ -16,6 +16,7 @@ export function SignInAccess({
 }) {
   const [state, setState] = useState<{
     enabled: boolean;
+    state: "unavailable" | "sign-in" | "signed-in";
     endpointReady: boolean;
     connectable: boolean;
     wakeable?: boolean;
@@ -82,6 +83,9 @@ export function SignInAccess({
     return () => clearTimeout(timer);
   }, [waking, available, disabled, onOpen]);
   if (!state?.enabled) return null;
+  // Someone is signed in: the desktop is the way in (Remote), so a sign-in row would only read as a fault.
+  if (state.state === "signed-in" && waking === null && !wakeFailed)
+    return null;
   const wakeable = !available && Boolean(state.wakeable);
   const wake = async () => {
     setWakeFailed(false);
@@ -98,7 +102,7 @@ export function SignInAccess({
       ? "Bringing up the password prompt…"
       : wakeable
         ? "Locked"
-        : "Unavailable";
+        : "Not reachable right now";
   return (
     <div className="signin-access">
       <p>Windows sign-in · {status}</p>
