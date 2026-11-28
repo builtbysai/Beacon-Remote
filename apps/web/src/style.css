@@ -1735,6 +1735,10 @@ code.hash {
   justify-self: end;
   min-height: 44px;
   padding: 0 22px;
+  white-space: nowrap;
+}
+.device-seen {
+  overflow-wrap: anywhere;
 }
 .inventory-empty {
   display: flex;

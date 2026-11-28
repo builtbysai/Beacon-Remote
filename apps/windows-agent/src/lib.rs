@@ -182,13 +182,68 @@ fn post_access(
     }
 }
 
-/// The host name of the server this computer is paired with, for the host window.
+/// How the host window names the server this computer is paired with: its host name, or, for a bare address, what
+/// kind of server it is with the address after it (a raw "127.0.0.1" reads as a fault).
 pub fn paired_server() -> Option<String> {
     let identity = load_identity().ok()?;
-    reqwest::Url::parse(&identity.server)
-        .ok()?
-        .host_str()
-        .map(str::to_owned)
+    server_label(&identity.server)
+}
+
+fn server_label(server: &str) -> Option<String> {
+    use std::net::IpAddr;
+    let url = reqwest::Url::parse(server).ok()?;
+    let host = url.host_str()?;
+    if host.eq_ignore_ascii_case("localhost") {
+        return Some("a server on this computer (localhost)".into());
+    }
+    let Ok(address) = host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .parse::<IpAddr>()
+    else {
+        return Some(host.to_owned());
+    };
+    let local = match address {
+        IpAddr::V4(v4) => v4.is_private() || v4.is_link_local(),
+        IpAddr::V6(_) => false,
+    };
+    Some(if address.is_loopback() {
+        format!("a server on this computer ({address})")
+    } else if local {
+        format!("a server on your local network ({address})")
+    } else {
+        format!("the server at {address}")
+    })
+}
+
+#[cfg(test)]
+mod server_label_tests {
+    use super::server_label;
+
+    #[test]
+    fn names_the_server_rather_than_showing_a_bare_address() {
+        assert_eq!(
+            server_label("https://remote.example.com").as_deref(),
+            Some("remote.example.com")
+        );
+        assert_eq!(
+            server_label("http://127.0.0.1:3012").as_deref(),
+            Some("a server on this computer (127.0.0.1)")
+        );
+        assert_eq!(
+            server_label("http://localhost:3012").as_deref(),
+            Some("a server on this computer (localhost)")
+        );
+        assert_eq!(
+            server_label("https://192.168.1.20").as_deref(),
+            Some("a server on your local network (192.168.1.20)")
+        );
+        assert_eq!(
+            server_label("https://203.0.113.9").as_deref(),
+            Some("the server at 203.0.113.9")
+        );
+        assert_eq!(server_label("not a url"), None);
+    }
 }
 
 /// A newer signed build of this host (ADR 0028). Nothing is downloaded until the person asks.

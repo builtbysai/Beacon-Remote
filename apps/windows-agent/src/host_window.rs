@@ -2426,7 +2426,7 @@ pub fn show(background: bool, link: Option<String>) -> Result<(), io::Error> {
             let info_two = add(
                 "STATIC",
                 &format!(
-                    "Paired to {}",
+                    "Paired with {}",
                     beacon_remote_agent::paired_server().unwrap_or_else(|| "your workspace".into())
                 ),
                 HOME,

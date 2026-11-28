@@ -13,6 +13,7 @@ import { SupportAccess } from "./SupportAccess.js";
 import { DeviceActions } from "./DeviceActions.js";
 import { SignInAccess } from "./SignInAccess.js";
 import { Character, toneFor } from "./Characters.js";
+import { hostReturning } from "./computer-status.js";
 
 // The short code of the computer's identity key (ADR 0061), to compare with the one in its own window.
 function IdentityKeyRow({
@@ -147,7 +148,9 @@ export function ComputerInspector({
           : machine.bootState === "locked"
             ? "Locked. The desktop is available after unlock."
             : machine.bootState === "starting"
-              ? "Waiting for the desktop host to start."
+              ? hostReturning(machine.lastSeenAt)
+                ? "Reconnecting. The desktop host lost its network a moment ago."
+                : "Waiting for the desktop host to start."
               : "Offline. Check its power, network and host app."
         : sessionActive
           ? "End the current session first."
@@ -235,7 +238,9 @@ export function ComputerInspector({
           : machine.bootState === "signed-out"
             ? "Windows sign-in needed"
             : machine.bootState === "starting"
-              ? "Starting desktop host"
+              ? hostReturning(machine.lastSeenAt)
+                ? "Reconnecting…"
+                : "Starting desktop host"
               : "Offline";
   const accessLabel = trusted
     ? machine.allowControl

@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import type { Machine } from "@beacon-remote/protocol";
 import { signinAuthorityState } from "@beacon-remote/protocol";
 import { wakeSignIn } from "./signin-wake.js";
+import { startingLabel } from "./computer-status.js";
 import {
   favouritesFirst,
   readFavourites,
@@ -1315,7 +1316,7 @@ function App() {
                               : machine.bootState === "signed-out"
                                 ? "Sign-in needed"
                                 : machine.bootState === "starting"
-                                  ? "Starting host"
+                                  ? startingLabel(machine.lastSeenAt)
                                   : machine.lastSeenAt
                                     ? lastSeen(machine.lastSeenAt)
                                     : "Never"}
