@@ -14,6 +14,7 @@ use std::{
     },
     thread::{self, JoinHandle},
 };
+use windows_sys::Win32::System::DataExchange::COPYDATASTRUCT;
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::{
@@ -110,6 +111,8 @@ struct State {
     action: HWND,
     status: HWND,
     introduction: HWND,
+    /// "Set up this computer" until pairing, then "This computer" (updated in place, not on reopen).
+    heading: HWND,
     last_status: Option<HostStatus>,
     enrollment: Vec<HWND>,
     members: Vec<Member>,
@@ -362,6 +365,10 @@ unsafe fn read(window: HWND) -> String {
     buffer.zeroize();
     result
 }
+/// `WM_COPYDATA` tag for a pairing link handed to the window that is already open, and the longest link accepted.
+const LINK_MESSAGE: usize = 0x4252_4C4B;
+const MAX_LINK: usize = 2300;
+
 /// A pairing link pasted into the code box (`beaconremote://pair?code=…&server=…`, as the workspace offers for phones):
 /// the server it names, if any, and the code. `None` for anything else, including a plain code.
 fn pairing_link(typed: &str) -> Option<(Option<String>, String)> {
@@ -942,6 +949,26 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
         self.show_access();
         self.show_helpers();
     }
+    /// Fills the pairing form from a `beaconremote://pair` link and waits: the person sees the server it names and
+    /// selects Pair computer themselves. A paired computer, or anything that is not such a link, changes nothing.
+    unsafe fn fill_from_link(&mut self, link: &str) {
+        if self.paired {
+            text(self.status, "This computer is already paired. Remove it from your workspace first to pair it again.");
+            return;
+        }
+        let Some((server, code)) = pairing_link(link) else {
+            return;
+        };
+        if let Some(server) = server {
+            text(self.server, &server);
+        }
+        text(self.code, &code);
+        text(
+            self.status,
+            "Filled in from the link. Check the server, then select Pair computer.",
+        );
+        SetFocus(self.action);
+    }
     unsafe fn start(&mut self) {
         if self.worker.is_some() || self.closing {
             return;
@@ -1308,10 +1335,11 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
                 text(self.code, "");
                 self.paired = beacon_remote_agent::is_paired();
                 self.check_signin();
-                text(
-                    self.status,
-                    "Computer paired · Select Start host to make it available.",
-                );
+                if self.paired {
+                    text(self.heading, "This computer");
+                }
+                // The host starts by itself right after pairing (below).
+                text(self.status, "Computer paired · Starting…");
                 if self.paired && !self.closing {
                     self.start();
                 }
@@ -1599,6 +1627,19 @@ unsafe extern "system" fn procedure(
         return 0;
     }
     match message {
+        WM_COPYDATA if !state.is_null() => {
+            let data = &*(lparam as *const COPYDATASTRUCT);
+            let units = data.cbData as usize / 2;
+            if data.dwData == LINK_MESSAGE && units <= MAX_LINK && !data.lpData.is_null() {
+                let link = String::from_utf16_lossy(std::slice::from_raw_parts(
+                    data.lpData as *const u16,
+                    units,
+                ));
+                (*state).fill_from_link(&link);
+                return 1;
+            }
+            return 0;
+        }
         DM_GETDEFID => return ((DC_HASDEFID as usize) << 16 | ACTION) as isize,
         WM_ERASEBKGND if !state.is_null() => return 1,
         WM_PAINT if !state.is_null() => {
@@ -1873,7 +1914,9 @@ fn fit_factor(system: f32, available: f32, frame: f32, content: f32) -> f32 {
     system.min((available - frame) / content).max(system * 0.7)
 }
 
-pub fn show(background: bool) -> Result<(), io::Error> {
+/// `link`: a `beaconremote://pair?…` link this program was opened with (the web's "Open link"). It fills in the
+/// pairing form, in this window or in the one already open; pairing still waits for the person to select Pair.
+pub fn show(background: bool, link: Option<String>) -> Result<(), io::Error> {
     unsafe {
         // Draw at the screen's real scale instead of letting Windows stretch a 96 dpi bitmap, which blurs the text.
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_SYSTEM_AWARE);
@@ -1901,6 +1944,15 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             if existing.is_null() {
                 MessageBoxW(null_mut(), wide("Beacon Remote host is already open. Use its existing window to start or stop sharing.").as_ptr(), wide("Beacon Remote").as_ptr(), MB_OK | MB_ICONINFORMATION);
             } else {
+                if let Some(link) = link.as_deref().filter(|link| link.len() <= MAX_LINK) {
+                    let units: Vec<u16> = link.encode_utf16().collect();
+                    let data = COPYDATASTRUCT {
+                        dwData: LINK_MESSAGE,
+                        cbData: (units.len() * 2) as u32,
+                        lpData: units.as_ptr() as *mut _,
+                    };
+                    SendMessageW(existing, WM_COPYDATA, 0, std::ptr::addr_of!(data) as LPARAM);
+                }
                 restore(existing);
             }
             return Ok(());
@@ -1949,6 +2001,7 @@ pub fn show(background: bool) -> Result<(), io::Error> {
             action: null_mut(),
             status: null_mut(),
             introduction: null_mut(),
+            heading: null_mut(),
             last_status: None,
             enrollment: Vec::new(),
             members: Vec::new(),
@@ -2075,12 +2128,13 @@ pub fn show(background: bool) -> Result<(), io::Error> {
                 SS_NOPREFIX,
                 H_HEADING as usize,
             )?;
+            state.heading = heading;
             state.introduction =
                 child("STATIC", "", 28, 58, 464, 40, SS_NOPREFIX, H_INTRO as usize)?;
             state.status = child(
                 "STATIC",
                 if paired {
-                    "Computer paired. Select Start host to make it available."
+                    "Computer paired · Starting…"
                 } else {
                     "Not paired. Generate a code in your signed-in workspace."
                 },
@@ -2591,6 +2645,9 @@ pub fn show(background: bool) -> Result<(), io::Error> {
         } else {
             state.code
         });
+        if let Some(link) = link.as_deref() {
+            state.fill_from_link(link);
+        }
         let mut message = MSG::default();
         loop {
             let result = GetMessageW(&mut message, null_mut(), 0, 0);

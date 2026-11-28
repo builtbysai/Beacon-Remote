@@ -74,6 +74,14 @@ impl Context {
             "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\BeaconRemote"
         }
     }
+    /// The per-user `beaconremote:` link protocol: the workspace's "Open link" fills in this computer's pairing form.
+    fn protocol_key(&self) -> &'static str {
+        if self.sandbox {
+            "Software\\BeaconRemoteSetupTest\\Classes\\beaconremote"
+        } else {
+            "Software\\Classes\\beaconremote"
+        }
+    }
     fn run_key(&self) -> &'static str {
         if self.sandbox {
             "Software\\BeaconRemoteSetupTest\\Run"
@@ -239,6 +247,7 @@ fn lay_down(context: &Context, autostart: bool) -> Result<(), Error> {
     let host = context.install.join("beacon-remote-host.exe");
     make_shortcut(&context.shortcut, &host, &context.install)?;
     register(context, &host, &uninstaller)?;
+    register_links(context, &host)?;
     if autostart {
         set_string(
             context.run_key(),
@@ -333,6 +342,7 @@ fn clean(context: &Context, credentials: bool) {
     let _ = fs::remove_file(&context.shortcut);
     unsafe {
         let _ = RegDeleteTreeW(HKEY_CURRENT_USER, &HSTRING::from(context.uninstall_key()));
+        let _ = RegDeleteTreeW(HKEY_CURRENT_USER, &HSTRING::from(context.protocol_key()));
     }
     if credentials {
         // A fixed child of the profile's local data folder; never a computed or user-supplied path.
@@ -452,6 +462,25 @@ fn register(context: &Context, host: &Path, uninstaller: &Path) -> Result<(), Er
         .map(|length| *length as u64)
         .sum();
     set_dword(key, "EstimatedSize", (size / 1024) as u32)?;
+    Ok(())
+}
+
+/// `beaconremote:` links open the host with the link, which only fills in the pairing form: the person still sees the
+/// server it names and selects Pair. Per user (HKCU), removed on uninstall.
+fn register_links(context: &Context, host: &Path) -> Result<(), Error> {
+    let key = context.protocol_key();
+    set_string(key, "", "URL:Beacon Remote pairing link")?;
+    set_string(key, "URL Protocol", "")?;
+    set_string(
+        &format!("{key}\\DefaultIcon"),
+        "",
+        &format!("\"{}\",0", host.display()),
+    )?;
+    set_string(
+        &format!("{key}\\shell\\open\\command"),
+        "",
+        &format!("\"{}\" \"%1\"", host.display()),
+    )?;
     Ok(())
 }
 

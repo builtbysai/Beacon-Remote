@@ -82,7 +82,14 @@ fn main() {
         return;
     }
     #[cfg(windows)]
-    if host_window::show(std::env::args().any(|argument| argument == "--background")).is_err() {
+    // Opened from a `beaconremote://pair?…` link (the per-user protocol the installer registers).
+    let link = std::env::args().find(|argument| argument.starts_with("beaconremote:"));
+    if host_window::show(
+        std::env::args().any(|argument| argument == "--background"),
+        link,
+    )
+    .is_err()
+    {
         host_window::show_startup_error();
     }
     #[cfg(not(windows))]
