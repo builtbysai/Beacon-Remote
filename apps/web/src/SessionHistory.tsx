@@ -116,6 +116,21 @@ export function SessionHistory() {
     data?.sessions.filter((session) =>
       ["requested", "connecting", "active"].includes(session.status),
     ) ?? [];
+  // A session can end elsewhere. While one is still open here, look again every 10 seconds the page is visible, and
+  // whenever the page comes back into view; settled history needs no polling.
+  const open = active.length > 0;
+  useEffect(() => {
+    const again = () => {
+      if (document.visibilityState === "visible")
+        setRefresh((value) => value + 1);
+    };
+    document.addEventListener("visibilitychange", again);
+    const timer = open ? setInterval(again, 10_000) : undefined;
+    return () => {
+      document.removeEventListener("visibilitychange", again);
+      if (timer) clearInterval(timer);
+    };
+  }, [open]);
   const recent =
     data?.sessions.filter(
       (session) =>

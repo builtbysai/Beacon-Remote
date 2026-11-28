@@ -152,6 +152,8 @@ export function PairComputer({
     null,
   );
   const [seconds, setSeconds] = useState(300);
+  // The code's full lifetime as the server issued it, so the bar starts full whatever that lifetime is.
+  const [lifetime, setLifetime] = useState(300);
   const [attempt, setAttempt] = useState(0);
   const owned = useRef<string | null>(null);
   const settled = useRef(false);
@@ -193,6 +195,7 @@ export function PairComputer({
           deadline: performance.now() + result.expiresInSeconds * 1000,
         });
         setSeconds(result.expiresInSeconds);
+        setLifetime(Math.max(1, result.expiresInSeconds));
       })
       .catch(() => {
         if (live) setError("Couldn’t create a pairing code. Try again.");
@@ -388,7 +391,7 @@ export function PairComputer({
                 <div
                   className="pairing-timer"
                   style={{
-                    ["--left" as string]: `${Math.max(0, Math.min(1, seconds / 900)) * 100}%`,
+                    ["--left" as string]: `${Math.max(0, Math.min(1, seconds / lifetime)) * 100}%`,
                   }}
                 >
                   <i />

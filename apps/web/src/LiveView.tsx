@@ -290,11 +290,13 @@ export function LiveView({
     if (!current || sending.current) return;
     sending.current = true;
     try {
-      for (const file of Array.from(list)) {
+      const files = Array.from(list);
+      for (const [index, file] of files.entries()) {
         const status = await current.send(file);
-        // Lost with the connection: send it again, from where it stopped, once the channel is back.
+        // Lost with the connection: send it again, from where it stopped, and the rest of the batch after it, once
+        // the channel is back.
         interrupted.current =
-          status === "failed" && !current.ready ? file : null;
+          status === "failed" && !current.ready ? files.slice(index) : null;
         if (status !== "done") break;
       }
     } finally {
@@ -319,7 +321,7 @@ export function LiveView({
   const [pictureHeight, setPictureHeight] = useState<number | null>(null);
   // File transfer exists only when the person at the computer allowed it for this session.
   const sender = useRef<FileSender | null>(null);
-  const interrupted = useRef<File | null>(null);
+  const interrupted = useRef<File[] | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [fileReady, setFileReady] = useState(false);
   // The shared-folder channel (P1-4): exists once the computer opened it; answers only when drive access is granted.
@@ -1064,10 +1066,10 @@ export function LiveView({
           setTransfer,
           (ready) => {
             setFileReady(ready);
-            const file = interrupted.current;
-            if (ready && file) {
+            const files = interrupted.current;
+            if (ready && files?.length) {
               interrupted.current = null;
-              void sendFiles([file]);
+              void sendFiles(files);
             }
           },
           setOffer,
@@ -2639,6 +2641,7 @@ export function LiveView({
               <input
                 ref={fileInput}
                 type="file"
+                multiple
                 hidden
                 onChange={(event) => {
                   const picked = event.currentTarget.files;

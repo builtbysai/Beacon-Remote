@@ -2,19 +2,38 @@ import { useEffect, useState, type FormEvent } from "react";
 import { api, ApiError } from "./api.js";
 
 type Config = { open: boolean; emailRecovery: boolean };
+export type EntryConfig = Config & {
+  /** Loading, known, or unknown because the server could not be asked (not the same as "closed"). */
+  state: "loading" | "ready" | "unavailable";
+  retry: () => void;
+};
 
-// Whether this server can send mail: sign-up and email recovery are offered only when it can.
-export function useEntryConfig(): Config {
+// Whether this server can send mail: sign-up and email recovery are offered only when it can. A failed check is
+// reported as unknown with a retry, never as "sign-up is closed".
+export function useEntryConfig(): EntryConfig {
   const [config, setConfig] = useState<Config>({
     open: false,
     emailRecovery: false,
   });
+  const [state, setState] = useState<EntryConfig["state"]>("loading");
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
+    let live = true;
+    setState("loading");
     api<Config>("signup/config")
-      .then(setConfig)
-      .catch(() => undefined);
-  }, []);
-  return config;
+      .then((result) => {
+        if (!live) return;
+        setConfig(result);
+        setState("ready");
+      })
+      .catch(() => {
+        if (live) setState("unavailable");
+      });
+    return () => {
+      live = false;
+    };
+  }, [attempt]);
+  return { ...config, state, retry: () => setAttempt((value) => value + 1) };
 }
 
 export function SignupForm({ onSignIn }: { onSignIn: () => void }) {

@@ -952,25 +952,35 @@ function App() {
                   </button>
                 </p>
               )}
-              <p className="note">
-                {entryConfig.open ? (
-                  <>
-                    <a href="#signup" onClick={() => setEntry("signup")}>
-                      Create account
+              {entryConfig.state === "unavailable" ? (
+                <p className="note" role="alert">
+                  Couldn’t check whether this server offers sign-up and email
+                  recovery.{" "}
+                  <button className="secondary" onClick={entryConfig.retry}>
+                    Try again
+                  </button>
+                </p>
+              ) : (
+                <p className="note">
+                  {entryConfig.open ? (
+                    <>
+                      <a href="#signup" onClick={() => setEntry("signup")}>
+                        Create account
+                      </a>
+                      {" · "}
+                    </>
+                  ) : (
+                    "Accounts are by invitation. "
+                  )}
+                  {entryConfig.emailRecovery ? (
+                    <a href="#forgot" onClick={() => setEntry("forgot")}>
+                      Forgot password?
                     </a>
-                    {" · "}
-                  </>
-                ) : (
-                  "Accounts are by invitation. "
-                )}
-                {entryConfig.emailRecovery ? (
-                  <a href="#forgot" onClick={() => setEntry("forgot")}>
-                    Forgot password?
-                  </a>
-                ) : (
-                  "Forgot your password? Ask the operator for a recovery link."
-                )}
-              </p>
+                  ) : (
+                    "Forgot your password? Ask the operator for a recovery link."
+                  )}
+                </p>
+              )}
             </>
           )}
         </section>
