@@ -1,5 +1,9 @@
 # Development status
 
+> **Start here (November 28, 2026):** the current state is [handoff-2026-11-27.md](handoff-2026-11-27.md) and the
+> [roadmap](roadmap.md) (including "Experience review findings"). The checkpoints below are dated history,
+> kept as evidence; where they disagree with the handoff or roadmap, those win.
+
 ## CI audit gate — November 17, 2026
 
 The owner approved narrowing the control-plane dependency gate to production

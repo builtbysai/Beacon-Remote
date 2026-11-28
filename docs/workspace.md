@@ -1,5 +1,9 @@
 # Beacon Remote development workspace
 
+> **Start here (November 28, 2026):** the current state is [handoff-2026-11-27.md](handoff-2026-11-27.md) and the
+> [roadmap](roadmap.md) (including "Experience review findings"). The checkpoints below are dated history,
+> kept as evidence; where they disagree with the handoff or roadmap, those win.
+
 Beacon Remote is the remote access product. This checkout is D:/Dev/Beacon-Remote. Continue the unattended-access work on its current feature branch; source publication does not establish release acceptance.
 
 ## Current checkpoint - November 17, 2026

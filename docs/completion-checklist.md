@@ -1,5 +1,9 @@
 # Beacon Remote completion checklist
 
+> **Start here (November 28, 2026):** the current state is [handoff-2026-11-27.md](handoff-2026-11-27.md) and the
+> [roadmap](roadmap.md) (including "Experience review findings"). The checkpoints below are dated history,
+> kept as evidence; where they disagree with the handoff or roadmap, those win.
+
 Current checkpoint: November 17, 2026. This is the single current completion
 tracker for the owner's full-roadmap goal. The [roadmap](roadmap.md) defines
 scope; [development status](development-status.md) retains dated validation

@@ -1,5 +1,9 @@
 # Beacon Remote: next-chat development and acceptance handoff
 
+> **Start here (November 28, 2026):** the current state is [handoff-2026-11-27.md](handoff-2026-11-27.md) and the
+> [roadmap](roadmap.md) (including "Experience review findings"). The checkpoints below are dated history,
+> kept as evidence; where they disagree with the handoff or roadmap, those win.
+
 Latest state: see [the 21 November handoff](handoff-2026-11-21.md). The notes below are older evidence.
 
 November 17, 2026. Read the workspace instructions, then this file, the
