@@ -899,6 +899,7 @@ impl Worker {
         let until = Instant::now() + Duration::from_millis(4250);
         let challenge = uuid::Uuid::new_v4().to_string();
         let mut acknowledged = false;
+        let mut answer = "no answer".to_owned();
         if let Some(channel) = &mut self.channel {
             if channel
                 .send(
@@ -933,6 +934,9 @@ impl Worker {
                                     .observe(cleanup_confirmed, Instant::now());
                             }
                             acknowledged = cleanup_confirmed && indicator_closed;
+                            answer = format!(
+                                "input released {cleanup_confirmed}, Disable window closed {indicator_closed}"
+                            );
                         }
                     }
                 }
@@ -957,7 +961,7 @@ impl Worker {
         let read = unsafe { GetExitCodeProcess(self.process.as_raw_handle(), &mut exit) } != 0;
         self.retirement_confirmed = acknowledged && natural && read && exit == 0;
         self.retire_detail = format!(
-            "acknowledged {acknowledged}, exited on its own {natural}, exit status {}",
+            "acknowledged {acknowledged} ({answer}), exited on its own {natural}, exit status {}",
             if read {
                 format!("{exit:#x}")
             } else {
