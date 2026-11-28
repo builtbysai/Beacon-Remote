@@ -33,7 +33,8 @@ use windows_sys::Win32::{
             ODS_SELECTED,
         },
         HiDpi::{
-            GetDpiForSystem, SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_SYSTEM_AWARE,
+            GetDpiForSystem, SetProcessDpiAwarenessContext,
+            DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
         },
         Input::KeyboardAndMouse::{EnableWindow, SetFocus},
         Shell::*,
@@ -168,6 +169,8 @@ struct State {
     files: HWND,
     pill_key: u8,
     fonts: Vec<HFONT>,
+    /// The monitor DPI the controls are laid out for; WM_DPICHANGED rescales from it.
+    dpi: u32,
     // The Windows sign-in page, shown inside this window in place of the main view, and the controls it hides.
     signin_page: HWND,
     hidden_for_page: Vec<HWND>,
@@ -1210,6 +1213,13 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
                     self.controls();
                 }
                 restore(window);
+                // The update's one remaining step starts by itself (review R13): Windows shows its administrator
+                // prompt now instead of waiting for someone to find Repair. Declining leaves the note and Repair.
+                if self.unattended_job.is_none() && self.access_job.is_none() {
+                    self.start_after_setup = false;
+                    self.unattended_job =
+                        Some(thread::spawn(beacon_remote_agent::signin_endpoint::repair));
+                }
             }
         }
         // Kept on the Unattended page while the services still run the previous build, so a later status report
@@ -1674,6 +1684,71 @@ unsafe extern "system" fn procedure(
         return 0;
     }
     match message {
+        WM_DPICHANGED if !state.is_null() => {
+            let state = &mut *state;
+            let dpi = ((wparam & 0xffff) as u32).max(48);
+            let ratio = dpi as f32 / state.dpi.max(1) as f32;
+            state.dpi = dpi;
+            state.scale *= ratio;
+            // Every control keeps its place relative to its parent, at the new scale.
+            unsafe extern "system" fn rescale_child(child: HWND, ratio: LPARAM) -> i32 {
+                let ratio = f32::from_bits(ratio as u32);
+                let mut rect = RECT::default();
+                GetWindowRect(child, &mut rect);
+                let parent = GetParent(child);
+                let mut corner = POINT {
+                    x: rect.left,
+                    y: rect.top,
+                };
+                ScreenToClient(parent, &mut corner);
+                MoveWindow(
+                    child,
+                    rescaled(corner.x, ratio),
+                    rescaled(corner.y, ratio),
+                    rescaled(rect.right - rect.left, ratio),
+                    rescaled(rect.bottom - rect.top, ratio),
+                    0,
+                );
+                1
+            }
+            EnumChildWindows(window, Some(rescale_child), ratio.to_bits() as LPARAM);
+            // The same five fonts, made again at the new scale; each control keeps its counterpart.
+            let sizes = [(23, 600), (14, 600), (13, 600), (13, 400), (15, 400)];
+            if state.fonts.len() == sizes.len() {
+                let fresh: Vec<HFONT> = sizes
+                    .iter()
+                    .map(|(height, weight)| {
+                        ui::gdi_font((*height as f32 * state.scale).round() as i32, *weight)
+                    })
+                    .collect();
+                unsafe extern "system" fn swap_font(child: HWND, pair: LPARAM) -> i32 {
+                    let (old, new) = &*(pair as *const (Vec<HFONT>, Vec<HFONT>));
+                    let current = SendMessageW(child, WM_GETFONT, 0, 0) as HFONT;
+                    if let Some(index) = old.iter().position(|font| *font == current) {
+                        SendMessageW(child, WM_SETFONT, new[index] as usize, 0);
+                    }
+                    1
+                }
+                let pair = (state.fonts.clone(), fresh.clone());
+                EnumChildWindows(window, Some(swap_font), std::ptr::addr_of!(pair) as LPARAM);
+                for font in std::mem::replace(&mut state.fonts, fresh) {
+                    DeleteObject(font as _);
+                }
+            }
+            let bounds = &*(lparam as *const RECT);
+            SetWindowPos(
+                window,
+                null_mut(),
+                bounds.left,
+                bounds.top,
+                bounds.right - bounds.left,
+                bounds.bottom - bounds.top,
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+            state.controls();
+            InvalidateRect(window, null(), 1);
+            return 0;
+        }
         WM_COPYDATA if !state.is_null() => {
             let data = &*(lparam as *const COPYDATASTRUCT);
             let units = data.cbData as usize / 2;
@@ -1979,6 +2054,11 @@ fn clip_ago(seconds: u128) -> String {
 
 /// How much to scale the fixed layout: the system scale, reduced so the tallest page plus the (system-scaled)
 /// frame fits the work area, but never below 70% of the system scale.
+/// A position or size at a new monitor scale.
+fn rescaled(value: i32, ratio: f32) -> i32 {
+    (value as f32 * ratio).round() as i32
+}
+
 fn fit_factor(system: f32, available: f32, frame: f32, content: f32) -> f32 {
     if available <= frame {
         return system;
@@ -1991,7 +2071,9 @@ fn fit_factor(system: f32, available: f32, frame: f32, content: f32) -> f32 {
 pub fn show(background: bool, link: Option<String>) -> Result<(), io::Error> {
     unsafe {
         // Draw at the screen's real scale instead of letting Windows stretch a 96 dpi bitmap, which blurs the text.
-        SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_SYSTEM_AWARE);
+        // Per monitor (review R32): moving to a monitor with another scale redraws sharp at that scale (WM_DPICHANGED)
+        // instead of Windows stretching a bitmap.
+        SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let local = std::env::var_os("LOCALAPPDATA")
             .ok_or_else(|| io::Error::other("LOCALAPPDATA required"))?;
         let mut hasher = DefaultHasher::new();
@@ -2119,6 +2201,7 @@ pub fn show(background: bool, link: Option<String>) -> Result<(), io::Error> {
             files: null_mut(),
             pill_key: 255,
             fonts: Vec::new(),
+            dpi: GetDpiForSystem().max(96),
             signin_page: null_mut(),
             hidden_for_page: Vec::new(),
             session_page: null_mut(),
@@ -2871,5 +2954,19 @@ mod fit_tests {
         assert_eq!(fit_factor(2.0, 400.0, 100.0, 526.0), 1.4);
         // An unknown or tiny work area keeps the system scale.
         assert_eq!(fit_factor(1.25, 0.0, 60.0, 526.0), 1.25);
+    }
+}
+
+#[cfg(test)]
+mod dpi_tests {
+    use super::rescaled;
+
+    #[test]
+    fn moving_between_monitors_rescales_positions_and_sizes_and_back() {
+        // 100 % → 150 %: a 464-pixel field becomes 696; going back restores it.
+        assert_eq!(rescaled(464, 1.5), 696);
+        assert_eq!(rescaled(696, 1.0 / 1.5), 464);
+        // 150 % → 200 %.
+        assert_eq!(rescaled(42, 200.0 / 150.0), 56);
     }
 }
