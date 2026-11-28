@@ -19,16 +19,12 @@ export function readViewPreferences(
     );
     if (!raw || typeof raw !== "object") return {};
     const value = raw as Record<string, unknown>;
-    return {
-      scale:
-        value.scale === "fit" || value.scale === "actual"
-          ? value.scale
-          : undefined,
-      touch:
-        value.touch === "trackpad" || value.touch === "direct"
-          ? value.touch
-          : undefined,
-    };
+    const choices: ViewPreferences = {};
+    if (value.scale === "fit" || value.scale === "actual")
+      choices.scale = value.scale;
+    if (value.touch === "trackpad" || value.touch === "direct")
+      choices.touch = value.touch;
+    return choices;
   } catch {
     return {};
   }
