@@ -402,18 +402,6 @@ export function PairComputer({
                     : "Checking whether the code was used…"}
                 </p>
               </div>
-              <div className="pairing-field">
-                <span>Workspace address</span>
-                <div className="pairing-code-row">
-                  <code>{window.location.origin}</code>
-                  <button
-                    className="secondary"
-                    onClick={() => void copy(window.location.origin, "address")}
-                  >
-                    {copied === "address" ? "Copied" : "Copy address"}
-                  </button>
-                </div>
-              </div>
             </div>
             <div className="pairing-field pairing-phone">
               <span>On an Android phone</span>
@@ -423,7 +411,8 @@ export function PairComputer({
                 />
               )}
               <p className="note">
-                Scan with the phone’s camera, then tap Pair.
+                Scan with the phone’s camera. On a Windows PC with Beacon Remote
+                installed, Open link fills in the code for you.
               </p>
               <div className="pairing-code-row">
                 <a
@@ -447,20 +436,36 @@ export function PairComputer({
               </div>
             </div>
           </div>
-          <DeviceCodeApproval
-            onApproved={(id, name) => {
-              // The device was approved directly, so the one-use code above is no longer needed.
-              void api(
-                "enrollments/cancel",
-                { code: invitation.code },
-                AbortSignal.timeout(5000),
-              ).catch(() => undefined);
-              owned.current = null;
-              settled.current = true;
-              setProgress({ state: "claimed", machine: { id, name } });
-              paired.current(id);
-            }}
-          />
+          {/* Everything else is for less common setups (review R07): one disclosure instead of equal weight. */}
+          <details className="pairing-more">
+            <summary>Other ways to pair</summary>
+            <div className="pairing-field">
+              <span>Workspace address</span>
+              <div className="pairing-code-row">
+                <code>{window.location.origin}</code>
+                <button
+                  className="secondary"
+                  onClick={() => void copy(window.location.origin, "address")}
+                >
+                  {copied === "address" ? "Copied" : "Copy address"}
+                </button>
+              </div>
+            </div>
+            <DeviceCodeApproval
+              onApproved={(id, name) => {
+                // The device was approved directly, so the one-use code above is no longer needed.
+                void api(
+                  "enrollments/cancel",
+                  { code: invitation.code },
+                  AbortSignal.timeout(5000),
+                ).catch(() => undefined);
+                owned.current = null;
+                settled.current = true;
+                setProgress({ state: "claimed", machine: { id, name } });
+                paired.current(id);
+              }}
+            />
+          </details>
           <a className="pairing-get" href="#downloads">
             Get the Windows or Android app →
           </a>

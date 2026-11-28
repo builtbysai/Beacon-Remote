@@ -3780,3 +3780,19 @@ code.hash {
 .device-inspector .char .arcs > * {
   animation-iteration-count: 1;
 }
+
+/* Pairing: the code is the one main path; other methods sit behind one disclosure (review R07). */
+.pairing-more {
+  margin-top: 16px;
+}
+.pairing-more > summary {
+  cursor: pointer;
+  min-height: 44px;
+  display: list-item;
+  font-weight: 600;
+  color: var(--muted);
+}
+.pairing-more[open] > summary {
+  color: var(--text);
+  margin-bottom: 8px;
+}
