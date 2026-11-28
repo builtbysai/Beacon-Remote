@@ -1303,11 +1303,11 @@ fn console() -> Option<(u32, &'static str)> {
 /// person was signed in.
 fn attempt_handoff(
     active: &mut crate::signin_worker::Worker,
-    pending: &mut Option<crate::signin_worker::RetiredLease>,
+    pending: &mut Option<(crate::signin_worker::RetiredLease, Instant)>,
     machine: &str,
 ) {
     match active.retire_for_handoff() {
-        Some(retired) => *pending = Some(retired),
+        Some(retired) => *pending = Some((retired, Instant::now())),
         None => diag(
             machine,
             &format!("no desktop handoff: {}", active.retire_detail),
@@ -1343,7 +1343,7 @@ fn handoff_step(
 /// Offers a pending handoff once its console is signed in, keeps it while signing in is still under way, and drops
 /// it if the console changed hands, the lease ran out, or Disable/revoke is pending. Never waits.
 fn offer_handoff(
-    pending: &mut Option<crate::signin_worker::RetiredLease>,
+    pending: &mut Option<(crate::signin_worker::RetiredLease, Instant)>,
     http: &reqwest::blocking::Client,
     server: &reqwest::Url,
     machine: &str,
@@ -1351,16 +1351,23 @@ fn offer_handoff(
     cancel: &AtomicBool,
     revoke: &signin_revoke::LocalRevoke,
 ) -> Result<(), HostError> {
-    let Some(retired) = pending.as_ref() else {
+    let Some((retired, since)) = pending.as_ref() else {
         return Ok(());
     };
     if cancel.load(Ordering::Acquire) || revoke.pending()? {
         *pending = None;
         return Ok(());
     }
-    let expired = crate::signin_scope::tick() >= retired.deadline;
+    // Signing in normally finishes in a few seconds; a wrong password leaves the console locked. Heartbeats wait
+    // while a handoff is pending (they would report the console as signed in before the offer and the server would
+    // refuse it), so a handoff that is not ready in time is dropped.
+    let expired = crate::signin_scope::tick() >= retired.deadline
+        || since.elapsed() >= Duration::from_secs(15);
     match handoff_step(console(), retired.console, expired) {
-        HandoffStep::Wait => Ok(()),
+        HandoffStep::Wait => {
+            std::thread::sleep(Duration::from_millis(50));
+            Ok(())
+        }
         HandoffStep::Abandon => {
             diag(
                 machine,
@@ -1509,7 +1516,7 @@ fn run_service() -> Result<(), HostError> {
         let mut next_launch = Instant::now();
         let mut last_launch_error = String::new();
         let mut next_wake_poll = Instant::now();
-        let mut pending_handoff: Option<crate::signin_worker::RetiredLease> = None;
+        let mut pending_handoff: Option<(crate::signin_worker::RetiredLease, Instant)> = None;
         let mut last_ack_note = String::new();
         let mut next_heartbeat = Instant::now();
         let mut disable_acknowledged = false;
@@ -1658,7 +1665,9 @@ fn run_service() -> Result<(), HostError> {
                     }
                 }
             }
-            if Instant::now() >= next_heartbeat {
+            // A pending desktop handoff goes to the server first; a heartbeat now would report the console as
+            // signed in and the server would refuse the handoff.
+            if Instant::now() >= next_heartbeat && pending_handoff.is_none() {
                 if let Some((console, mut state)) = console() {
                     // A console switch/unlock can happen during the previous
                     // probe. Never publish that worker under another console.
@@ -1673,6 +1682,10 @@ fn run_service() -> Result<(), HostError> {
                             attempt_handoff(active, &mut pending_handoff, machine);
                         }
                         worker.take();
+                        if pending_handoff.is_some() {
+                            // Offer it (on the next pass, at the top) before telling the server anything else.
+                            continue;
+                        }
                     }
                     if revoke.pending()? {
                         continue;
