@@ -30,8 +30,7 @@ status.
 
 ## Sign-in to desktop
 
-- **In progress:** after signing in through the viewer, the handoff to the desktop is refused because the sign-in
-  worker cannot confirm that its input was released. Fixed so far: Enter is a complete tap, modifiers are pressed only
-  around a key, the handoff waits for the console to be signed in, heartbeats wait for a pending handoff. The latest
-  build logs content-free counts (`input cleanup not confirmed: ended …, keys …, buttons …, text …`) to show what is
-  still held; verify on the lab laptop.
+- **Fixed (verified on the lab laptop, November 28):** the handoff to the desktop was refused because the sign-in worker
+  reported video as finished only after its hardware encoder shut down (over a second). Video now counts as stopped
+  once capture is released; the log showed `input released true, video stopped true` and the desktop opened with
+  mouse and keyboard. If a handoff still fails after sign-in, the viewer opens the ordinary desktop session.
