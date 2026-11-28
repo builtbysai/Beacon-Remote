@@ -71,7 +71,11 @@ export function DownloadsPage({ workspace }: { workspace: string }) {
       <div className="downloads-heading">
         <div>
           <h1>Downloads</h1>
-          <p>Install on the device you want to reach.</p>
+          <p>
+            Install on the device you want to reach: a Windows PC or an Android
+            phone. To connect from anywhere, just sign in to your workspace in a
+            browser; nothing needs installing on the device you connect from.
+          </p>
         </div>
         <a className="button secondary" href={workspace}>
           Open workspace
