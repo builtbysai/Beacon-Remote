@@ -18,6 +18,18 @@ was seen and what would be better. Add to it as testing continues.
 6. **Signed-in visitors land on the marketing page.** The site root shows the product page even with a signed-in
    session; go straight to Computers (keep the product page one click away).
 
+10. **Sign-in viewer drops a working stream after about 10 seconds (open bug, Nov 27).** ICE connects in about 1 s
+    and the worker sends frames, but the video is cleared (`play()` interrupted by `pause()`, readyState 0). The
+    10-second first-frame timer then fails the connection; the viewer reconnects and the same thing happens, showing
+    a black screen with "Show screen". Suspects: the lease renewal at about 4–5 s re-authorizes the worker and the
+    connection resets the stream, or `stream(null)` from `SignInConnection` during that. Next: log where
+    `stream(null)` comes from and whether renewal renegotiates.
+    Narrowed later the same day: the clearing is `end()` from the 10-second first-frame timer, and `play()` never
+    resolves before it. ICE and the peer connection are up by 2.5 s and the worker sends about 20 samples a second,
+    so the browser is receiving but not decoding. Next: read `inbound-rtp` stats while live (framesReceived vs
+    framesDecoded, keyFramesDecoded, pliCount) and check that the worker's H.264 stream starts with a keyframe and
+    answers PLI.
+
 ## Windows app (host window)
 
 7. **Header stays on "Set up this computer" after pairing** until the window is reopened.
