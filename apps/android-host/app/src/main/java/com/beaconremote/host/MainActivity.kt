@@ -98,22 +98,31 @@ class MainActivity : Activity() {
         prefillFromLink(intent)
     }
 
-    /** A pairing link (beaconremote://pair?code=...) fills in the code. The person still taps Pair, so a link alone never pairs. */
+    /** A pairing link (beaconremote://pair?code=...) fills in the form. The person still taps Pair, so a link alone never pairs. */
     private fun prefillFromLink(link: Intent?) {
         val uri = link?.data ?: return
         if (uri.scheme != "beaconremote" || uri.host != "pair" || identity.paired) return
-        applyPairing(uri.getQueryParameter("code")?.take(32), uri.getQueryParameter("server"))
+        PairingText.parse(uri.toString())?.let { applyPairing(it, PairingText.Source.LINK) }
     }
 
-    /** Puts a code (and the workspace address, when known) into the pairing form. The person still taps Pair. */
-    private fun applyPairing(code: String?, server: String?) {
-        code?.let { root.findViewById<EditText>(R.id.pair_code)?.setText(it) }
-        server?.let { address ->
-            Api.validServer(address)?.let { origin -> root.findViewById<EditText>(R.id.pair_server)?.apply { setText(origin) } }
+    /**
+     * The one pairing contract (review R09), the same for a scanned QR code, a pairing link and a pasted code: fill the
+     * form, show where it will pair when that is not the usual server, and wait for the person's single Pair tap.
+     */
+    private fun applyPairing(parsed: PairingText.Parsed, source: PairingText.Source) {
+        val serverField = root.findViewById<EditText>(R.id.pair_server)
+        val prefill = PairingText.prefill(parsed, source, serverField?.text?.toString() ?: PairingText.DEFAULT_SERVER) { Api.validServer(it) }
+        root.findViewById<EditText>(R.id.pair_code)?.setText(prefill.code)
+        serverField?.setText(prefill.server)
+        pairingNotice = prefill.notice
+        root.findViewWithTag<TextView>("pair-notice")?.text = prefill.notice
+        // Bring Pair device into view, so the one remaining step is in front of the person.
+        root.findViewWithTag<View>("pair-submit")?.let { pair ->
+            (root.parent as? android.widget.ScrollView)?.post { (root.parent as? android.widget.ScrollView)?.smoothScrollTo(0, maxOf(0, pair.bottom - dp(240))) }
         }
     }
 
-    /** Google's QR scanner: it needs no camera permission here. A scanned pairing link fills the form and pairs at once. */
+    /** Google's QR scanner: it needs no camera permission here. A scanned code fills the form; the person then taps Pair. */
     private fun scanPairingQr() {
         val options = com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions.Builder()
             .setBarcodeFormats(com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE)
@@ -124,8 +133,7 @@ class MainActivity : Activity() {
                 if (parsed == null) {
                     Toast.makeText(this, "That is not a Beacon pairing code.", Toast.LENGTH_LONG).show()
                 } else {
-                    applyPairing(parsed.code, parsed.server)
-                    root.findViewWithTag<Button>("pair-submit")?.performClick()
+                    applyPairing(parsed, PairingText.Source.SCAN)
                 }
             }
             .addOnFailureListener { Toast.makeText(this, "Could not scan. Use Paste code instead.", Toast.LENGTH_LONG).show() }
@@ -221,8 +229,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Nothing to paste. In your workspace choose Add a computer, then Copy code or Copy link.", Toast.LENGTH_LONG).show()
             return
         }
-        applyPairing(parsed.code, parsed.server)
-        root.findViewWithTag<TextView>("pair-notice")?.text = "Code pasted. Tap Pair device."
+        applyPairing(parsed, PairingText.Source.CLIPBOARD)
     }
 
     // Smooth video comes with connecting without asking. Android needs one tap on its own prompt after each restart of
@@ -396,9 +403,29 @@ class MainActivity : Activity() {
         }
         field("Device name", name)
         field("Pairing code", code)
-        val server = fieldBox(R.id.pair_server, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI, 512).apply { setText("https://remote.builtbysai.com") }
+        val server = fieldBox(R.id.pair_server, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI, 512).apply { setText(PairingText.DEFAULT_SERVER) }
         val serverLabel = HostUi.text(this, "Server address", 15f, true).apply { labelFor = server.id; visibility = View.GONE; setPadding(0, dp(16), 0, dp(8)) }
         server.visibility = View.GONE
+        // Where this phone will pair, in plain words, whenever it is not the usual service (review R09). The usual service
+        // needs no URL on screen; a link, a scanned code or a typed address that names another one always shows it here.
+        val serverNote = HostUi.text(this, "", 15f, true).apply {
+            tag = "pair-server-note"
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+            setPadding(dp(18), dp(14), dp(18), dp(14))
+            background = HostUi.tile(this@MainActivity, color(R.color.beacon_tint_sun), 20)
+        }
+        fun showServerNote() {
+            val note = PairingText.serverNote(server.text.toString())
+            serverNote.text = note.orEmpty()
+            serverNote.visibility = if (note == null) View.GONE else View.VISIBLE
+        }
+        showServerNote()
+        server.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) { showServerNote() }
+        })
+        root.addView(serverNote, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14) })
         root.addView(HostUi.link(this, "Server address").apply {
             gravity = Gravity.START or Gravity.CENTER_VERTICAL
             setOnClickListener {
@@ -423,7 +450,7 @@ class MainActivity : Activity() {
             val deviceName = name.text.toString().trim()
             // Enrollment codes are case-sensitive base64url bearer tokens.
             val pairingCode = code.text.toString().trim()
-            if (origin == null) { server.visibility = View.VISIBLE; serverLabel.visibility = View.VISIBLE; server.error = "Enter a server origin, such as https://remote.builtbysai.com"; server.requestFocus(); return@setOnClickListener }
+            if (origin == null) { server.visibility = View.VISIBLE; serverLabel.visibility = View.VISIBLE; server.error = "Enter a server origin, such as ${PairingText.DEFAULT_SERVER}"; server.requestFocus(); return@setOnClickListener }
             if (deviceName.isEmpty()) { name.error = "Enter a device name"; name.requestFocus(); return@setOnClickListener }
             if (pairingCode.isEmpty()) { code.error = "Enter the code from your workspace"; code.requestFocus(); return@setOnClickListener }
             if (!pairing.compareAndSet(false, true)) return@setOnClickListener
@@ -466,7 +493,7 @@ class MainActivity : Activity() {
             setPadding(0, dp(18), 0, 0)
             setOnClickListener {
                 val origin = Api.validServer(server.text.toString())
-                if (origin == null) { server.visibility = View.VISIBLE; serverLabel.visibility = View.VISIBLE; server.error = "Enter a server origin, such as https://remote.builtbysai.com"; server.requestFocus(); return@setOnClickListener }
+                if (origin == null) { server.visibility = View.VISIBLE; serverLabel.visibility = View.VISIBLE; server.error = "Enter a server origin, such as ${PairingText.DEFAULT_SERVER}"; server.requestFocus(); return@setOnClickListener }
                 identity.unattendedAfterSetup = autoSwitch.isChecked
                 startDeviceCode(origin, name.text.toString().trim().ifEmpty { Build.MODEL })
             }

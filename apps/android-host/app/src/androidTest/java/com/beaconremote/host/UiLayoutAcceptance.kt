@@ -69,6 +69,20 @@ class UiLayoutAcceptance : Instrumentation() {
             appearance(automation, current, "yes", "1.0")
             screenshot(automation, "pairing-dark")
             appearance(automation, current, "no", "1.0")
+            // Review R09: a pairing link fills the form, names its unusual server in plain words, and pairs nothing until Pair.
+            val link = android.net.Uri.parse("beaconremote://pair").buildUpon()
+                .appendQueryParameter("code", "aB3_dE6-gH9_jK2-mN5_pQ8-rS1_tU4v").appendQueryParameter("server", server).build()
+            onMain { targetContext.startActivity(Intent(Intent.ACTION_VIEW, link).setPackage(targetContext.packageName).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)) }
+            waitFor("link filled the form") { (current.get() as? MainActivity)?.findViewById<EditText>(R.id.pair_code)?.text?.toString() == "aB3_dE6-gH9_jK2-mN5_pQ8-rS1_tU4v" }
+            onMain {
+                val active = current.get() as MainActivity
+                check(active.findViewById<EditText>(R.id.pair_server).text.toString() == server) { "The link's server was not put in the form" }
+                val note = tagged(active, "pair-server-note") as android.widget.TextView
+                check(note.visibility == View.VISIBLE && note.text.contains(android.net.Uri.parse(server).host!!)) { "An unusual server was not shown before Pair" }
+            }
+            SystemClock.sleep(1500)
+            check(!identity.paired && fixture(server).optInt("enrollments") == 0) { "A pairing link paired without a tap" }
+            screenshot(automation, "pairing-link-light")
             val screen = current.get() as MainActivity
             onMain {
                 screen.findViewById<EditText>(R.id.pair_server).setText(server)
