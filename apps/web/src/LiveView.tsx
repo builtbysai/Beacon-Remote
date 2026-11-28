@@ -856,7 +856,7 @@ export function LiveView({
             setStatus(
               grant.source === "desktop"
                 ? controlling && controlGranted
-                  ? "Connected — click the screen to control it. Escape releases input."
+                  ? "Connected — click the screen to control it. Shift+Esc gives your keyboard back."
                   : controlling
                     ? "Connected — view only. Control was not allowed on the computer."
                     : "Connected — view only."
@@ -901,7 +901,7 @@ export function LiveView({
           if (!ready) setInputRoundTripMillis(null);
           if (upgraded && ready)
             setStatus(
-              "Connected — click the screen to control it. Escape releases input.",
+              "Connected — click the screen to control it. Shift+Esc gives your keyboard back.",
             );
         },
         () => {
@@ -1131,7 +1131,7 @@ export function LiveView({
         setStatus(
           grant.source === "desktop"
             ? controlling && controlGranted
-              ? "Connected — click the screen to control it. Escape releases input."
+              ? "Connected — click the screen to control it. Shift+Esc gives your keyboard back."
               : controlling
                 ? "Connected — view only. Control was not allowed on the computer."
                 : "Connected — view only."

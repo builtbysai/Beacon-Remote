@@ -330,9 +330,14 @@ async fn input(
         while !adapter.cleanup_confirmed() && Instant::now() < until {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        cleanup
-            .input
-            .store(adapter.cleanup_confirmed(), Ordering::Release);
+        let confirmed = adapter.cleanup_confirmed();
+        if !confirmed {
+            crate::signin_worker::trace(&format!(
+                "input cleanup not confirmed: {}",
+                adapter.cleanup_summary()
+            ));
+        }
+        cleanup.input.store(confirmed, Ordering::Release);
         drop(adapter);
     } else {
         cleanup.input.store(true, Ordering::Release);

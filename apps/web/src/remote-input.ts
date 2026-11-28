@@ -429,7 +429,8 @@ export function attachRemoteInput(
     });
   };
   const key = (event: KeyboardEvent, textMode = false) => {
-    if (event.code === "Escape") {
+    // Shift+Escape gives the keyboard and mouse back to this computer; plain Escape goes to the remote one like any key.
+    if (event.code === "Escape" && event.shiftKey) {
       event.preventDefault();
       event.stopPropagation();
       release();

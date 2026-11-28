@@ -584,6 +584,21 @@ impl SignInInput {
         }
         result
     }
+    /// Counts only, never which keys: for the supervisor's log when cleanup is not confirmed.
+    pub fn cleanup_summary(&self) -> String {
+        self.state.lock().map_or_else(
+            |_| "state unavailable".into(),
+            |state| {
+                format!(
+                    "ended {}, keys {}, buttons {}, text {}",
+                    state.ended.is_some(),
+                    state.keys.len(),
+                    state.buttons.len(),
+                    state.unicode.len()
+                )
+            },
+        )
+    }
     pub fn cleanup_confirmed(&self) -> bool {
         self.state
             .lock()

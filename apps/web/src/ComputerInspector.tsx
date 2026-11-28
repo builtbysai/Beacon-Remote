@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useMediaQuery, useModalSheet } from "./modal-sheet.js";
 import {
   fromBase64url,
   keyFingerprint,
@@ -238,6 +239,9 @@ export function ComputerInspector({
     : controlEnabled
       ? "Attended · view or control"
       : "Attended · view only";
+  const panel = useRef<HTMLElement>(null);
+  const sheet = useMediaQuery("(max-width: 1100px)");
+  useModalSheet(panel, sheet);
   async function copyId() {
     try {
       await navigator.clipboard.writeText(machine.id);
@@ -249,8 +253,13 @@ export function ComputerInspector({
   }
   return (
     <aside
+      ref={panel}
       className="device-inspector"
       aria-label="Computer details"
+      // Shown as a bottom sheet over a dimmed page on narrow screens: a modal dialog there, a side panel otherwise.
+      role={sheet ? "dialog" : undefined}
+      aria-modal={sheet ? true : undefined}
+      tabIndex={sheet ? -1 : undefined}
       onKeyDown={(event) => {
         if (event.key === "Escape" && !busy) {
           event.stopPropagation();
