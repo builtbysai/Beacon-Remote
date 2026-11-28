@@ -7,7 +7,6 @@ import {
   uninstallMessage,
 } from "../../../packages/protocol/src/index.js";
 
-export const UNINSTALL_DAYS = 30;
 const idParams = z.object({ id: z.uuid() });
 
 export function registerDeviceRemoval(

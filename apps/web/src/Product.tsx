@@ -330,11 +330,3 @@ export function ProductPage({
   return null;
 }
 
-export function Monitor() {
-  return (
-    <svg className="monitor" viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="3" y="3" width="18" height="13" rx="2" />
-      <path d="M8 21h8m-4-5v5" />
-    </svg>
-  );
-}

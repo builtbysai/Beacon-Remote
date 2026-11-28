@@ -29,8 +29,3 @@ export function rememberFrame(machineId: string, frame: string | null) {
 export function lastFrame(machineId: string): string | undefined {
   return frames.get(machineId);
 }
-
-/** Forget a computer's picture when its view is closed on purpose, so a later visit does not show an old screen. */
-export function forgetFrame(machineId: string) {
-  frames.delete(machineId);
-}
