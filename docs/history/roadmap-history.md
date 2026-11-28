@@ -248,7 +248,7 @@ remain unfinished. No real-device/readiness gate was raised.
 The original approved idea is one coherent product: browser workspace,
 Windows/Android host setup and pairing, owner unattended access, attended/guest
 support with visible control, reliable reconnect and a consistent interface.
-The approved [design specification](../../design/prototype/DESIGN_SPEC.md) and
+The approved design specification (`design/prototype/DESIGN_SPEC.md`, removed Nov 28, in git history) and
 [ADRs 0047](../decisions/0047-unattended-owner-access.md)/
 [0048](../decisions/0048-boot-login-and-restart.md) define that scope. Automation/Motive
 is a later requested milestone; the unmerged view-only MCP work does not deliver
@@ -445,7 +445,7 @@ matching `BeaconRemoteDevelopment-5f019c49` folder/ZIP/trust folder and
 `BeaconRemoteHost-4e7a39fc.apk`. These do not represent today's uncommitted source.
 Historical native CI, hashes and signatures are not current install/media
 acceptance. Rebuild matching signed artifacts before acceptance/release. The
-owner-approved [visual reference](../../design/prototype/README.md) uses simulated
+owner-approved visual reference (`design/prototype/`, removed Nov 28, in git history) uses simulated
 flows, not implemented product behavior.
 
 ## Active milestone: finish unattended owner access

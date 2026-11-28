@@ -41,7 +41,7 @@ Earlier dated checkpoints: [workspace checkpoints](history/workspace-checkpoints
 
 ## Approved design
 
-The current visual direction is [design/DIRECTION.md](../design/DIRECTION.md) (the November 2026 rebuild with the drawn cast). `design/prototype/` is an older reference kept for its history and is no longer the target. Current screenshots remain under `design/screenshots/`.
+The current visual direction is [design/DIRECTION.md](../design/DIRECTION.md) (the November 2026 rebuild with the drawn cast). The older `design/prototype/` mock-up was removed on November 28 (it remains in git history). Current screenshots remain under `design/screenshots/`.
 
 The secrets root README.md, CREDENTIALS.csv and ROTATION.md explain credential purposes and staged replacement. REMOTE_LOCAL_ACCOUNTS_DIR selects local fixture accounts; REMOTE_PRODUCTION_LOGIN_FILE selects the explicit production test login. Generators keep ephemeral session links/cookies in local state rather than the stable account file.
 

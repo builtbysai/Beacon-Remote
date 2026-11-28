@@ -228,7 +228,7 @@ does not mean the live relay has already been separated or hardened.
 
 ## Workspace ownership
 
-Use D:/Dev/Beacon-Remote and its external private state selected by scripts/Enter-Workspace.ps1. Old C:/Dev archives, migration manifests and loose acceptance scripts have been removed. The current guide is workspace.md; approved interactive UI source is under ../design/prototype. Keep View's processes, identities, relay and databases separate. Source publication does not deploy production.
+Use D:/Dev/Beacon-Remote and its external private state selected by scripts/Enter-Workspace.ps1. Old C:/Dev archives, migration manifests and loose acceptance scripts have been removed. The current guide is workspace.md; the current visual direction is ../design/DIRECTION.md. Keep View's processes, identities, relay and databases separate. Source publication does not deploy production.
 
 ## Isolated input development
 
