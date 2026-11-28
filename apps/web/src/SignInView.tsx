@@ -41,6 +41,20 @@ export function SignInView({
   const [still, setStill] = useState<string | undefined>(() =>
     lastFrame(machineId),
   );
+  const latest = useRef<string | undefined>(lastFrame(machineId));
+  // While the picture is live, keep a recent still of it for the moments between streams.
+  useEffect(() => {
+    if (!picture) return;
+    const keep = () => {
+      const frame = captureFrame(video.current);
+      if (!frame) return;
+      latest.current = frame;
+      rememberFrame(machineId, frame);
+    };
+    keep();
+    const timer = setInterval(keep, 1500);
+    return () => clearInterval(timer);
+  }, [picture, machineId]);
   const reconnects = useRef(0);
   useEffect(() => {
     const abort = new AbortController();
@@ -112,10 +126,9 @@ export function SignInView({
           const element = video.current;
           if (!element) return;
           if (!stream) {
-            // Keep the last picture on screen (as the video's poster) while the next stream starts.
-            const frame = captureFrame(element);
-            rememberFrame(machineId, frame);
-            if (frame && !disposed) setStill(frame);
+            // Keep the last picture on screen (as the video's poster) while the next stream starts. The track is
+            // already stopped here, so it is the still taken while the picture was live.
+            if (latest.current && !disposed) setStill(latest.current);
             clear();
             if (!disposed) {
               setPicture(false);

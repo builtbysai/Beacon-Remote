@@ -1304,9 +1304,14 @@ fn console() -> Option<(u32, &'static str)> {
 fn attempt_handoff(
     active: &mut crate::signin_worker::Worker,
     pending: &mut Option<crate::signin_worker::RetiredLease>,
+    machine: &str,
 ) {
-    if let Some(retired) = active.retire_for_handoff() {
-        *pending = Some(retired);
+    match active.retire_for_handoff() {
+        Some(retired) => *pending = Some(retired),
+        None => diag(
+            machine,
+            &format!("no desktop handoff: {}", active.retire_detail),
+        ),
     }
 }
 
@@ -1557,7 +1562,7 @@ fn run_service() -> Result<(), HostError> {
                 epoch != observed_epoch || console() == Some((active.console, "signed-in"))
             }) {
                 if let Some(active) = worker.as_mut() {
-                    attempt_handoff(active, &mut pending_handoff);
+                    attempt_handoff(active, &mut pending_handoff, machine);
                 }
                 worker.take();
                 next_heartbeat = Instant::now();
@@ -1593,7 +1598,7 @@ fn run_service() -> Result<(), HostError> {
                     );
                 }
                 if let Some(active) = worker.as_mut() {
-                    attempt_handoff(active, &mut pending_handoff);
+                    attempt_handoff(active, &mut pending_handoff, machine);
                 }
                 worker.take();
                 next_launch = Instant::now() + Duration::from_secs(5);
@@ -1665,7 +1670,7 @@ fn run_service() -> Result<(), HostError> {
                         // Signing in unlocks the console between probes: hand the viewer over to the desktop here
                         // too, or it is left with an ended sign-in view (only a signed-in, same console qualifies).
                         if let Some(active) = worker.as_mut() {
-                            attempt_handoff(active, &mut pending_handoff);
+                            attempt_handoff(active, &mut pending_handoff, machine);
                         }
                         worker.take();
                     }

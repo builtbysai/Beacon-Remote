@@ -476,6 +476,8 @@ pub(crate) struct Worker {
     retired: bool,
     retirement_confirmed: bool,
     last_ready: Option<Instant>,
+    /// Why the last retirement was or was not confirmed, for the supervisor's log (states only).
+    pub(crate) retire_detail: String,
 }
 pub(crate) struct RetiredLease {
     pub lease: String,
@@ -504,17 +506,29 @@ impl Worker {
     }
     pub(crate) fn retire_for_handoff(&mut self) -> Option<RetiredLease> {
         if self.retired || self.disable_requested() || self.revoke.requested() {
+            self.retire_detail = format!(
+                "already retired {}, disable {}, revoke {}",
+                self.retired,
+                self.disable_requested(),
+                self.revoke.requested()
+            );
             return None;
         }
-        let lease = self.lease.clone()?;
+        let Some(lease) = self.lease.clone() else {
+            self.retire_detail = "no lease".into();
+            return None;
+        };
         let candidate = RetiredLease {
             lease,
             instance: self.instance.clone(),
             console: self.console,
             deadline: self.lease_deadline,
         };
-        if crate::signin_scope::tick() >= candidate.deadline
-            || !self.retire()
+        if crate::signin_scope::tick() >= candidate.deadline {
+            self.retire_detail = "the lease had already ended".into();
+            return None;
+        }
+        if !self.retire()
             || self.disable_requested()
             || self.revoke.requested()
             || crate::signin_scope::tick() >= candidate.deadline
@@ -634,6 +648,7 @@ impl Worker {
             retired: false,
             retirement_confirmed: false,
             last_ready: None,
+            retire_detail: String::new(),
         };
         if unsafe { ResumeThread(thread.as_raw_handle()) } == u32::MAX {
             return Err(std::io::Error::last_os_error().into());
@@ -939,10 +954,16 @@ impl Worker {
             WaitForSingleObject(self.process.as_raw_handle(), 1000);
         }
         let mut exit = 1;
-        self.retirement_confirmed = acknowledged
-            && natural
-            && unsafe { GetExitCodeProcess(self.process.as_raw_handle(), &mut exit) } != 0
-            && exit == 0;
+        let read = unsafe { GetExitCodeProcess(self.process.as_raw_handle(), &mut exit) } != 0;
+        self.retirement_confirmed = acknowledged && natural && read && exit == 0;
+        self.retire_detail = format!(
+            "acknowledged {acknowledged}, exited on its own {natural}, exit status {}",
+            if read {
+                format!("{exit:#x}")
+            } else {
+                "unknown".into()
+            }
+        );
         self.retirement_confirmed
     }
 }
@@ -1859,6 +1880,7 @@ mod tests {
             retired: false,
             retirement_confirmed: false,
             last_ready: None,
+            retire_detail: String::new(),
         }
     }
     #[test]
