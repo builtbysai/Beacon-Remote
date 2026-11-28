@@ -6,7 +6,7 @@ import {
 } from "./view-preferences.js";
 import { ViewerIcon } from "./viewer-icons";
 import { Character, toneFor } from "./Characters.js";
-import { classifyConnectionRoute } from "./connection-route";
+import { classifyConnectionRoute, connectionAdvice } from "./connection-route";
 import {
   videoPerformance,
   type VideoCounters,
@@ -2678,7 +2678,9 @@ export function LiveView({
             </>
           )}
           <details className="viewer-diagnostics">
-            <summary>Connection</summary>
+            <summary>
+              Connection · {connectionAdvice(route, iceState, presentedFps)}
+            </summary>
             <div className="viewer-diagnostics-panel">
               <p>Decoded frames: {frames}</p>
               <p>
