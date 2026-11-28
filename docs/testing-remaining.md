@@ -150,9 +150,12 @@ loopback API): the Android app in the web workspace's identity (character cast, 
 tint tiles, pill buttons, light and dark). The runner had not followed the November 20 tab redesign (it looked for the
 access switch on the Device tab); it now opens the Access tab, and also captures pairing, Device, Access and Privacy in both
 themes and Privacy at 200% font, where it checks that each clipboard choice is at least 48 dp, unclipped, not broken
-mid-word and reports its checked state. Passed. Not covered: TalkBack and keyboard navigation (semantics were added, not
-listened to), sharing/paused states of the Device tile (no viewer in this fixture), the smooth-video prompt, and a
-physical phone.
+mid-word and reports its checked state, and that the tabs report which one is selected. It also captures the "..."
+menu sheet in both themes. The consent screen's last stock Material button is now a pill. Passed. On a physical Pixel 7a
+(Android 17) only the side-by-side `.lab` debug copy was installed, next to the untouched release app; its unpaired pairing
+screen renders correctly in dark mode. It was not paired (no fixture of this branch was running), so the paired tabs on a
+real phone are not covered. Also not covered: TalkBack and keyboard navigation (semantics were added and asserted, not
+listened to), sharing/paused states of the Device tile (no viewer in this fixture) and the smooth-video prompt.
 
 The physical acceptance matrix should
 exercise both switches independently. With general notifications still enabled,

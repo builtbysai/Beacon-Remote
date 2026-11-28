@@ -62,12 +62,14 @@ class ConsentActivity : Activity() {
         val density = resources.displayMetrics.density
         fun dp(value: Int) = (value * density).toInt()
         val layout = HostUi.column(this)
-        layout.addView(HostUi.text(this, "Incoming request", 12f, true, true).apply { setPadding(0, dp(24), 0, dp(4)) })
-        layout.addView(HostUi.headline(this, "Someone wants to see your screen.", 40f))
+        // Remote access that knocks first: this phone's character, surprised, above the request.
+        layout.addView(Character(this, Character.toneFor(Identity(this).machineId), Character.Mood.WOW), LinearLayout.LayoutParams(dp(64), dp(66)).apply { topMargin = dp(16) })
+        layout.addView(HostUi.text(this, "Incoming request", 14f, true, true).apply { setPadding(0, dp(8), 0, dp(4)) })
+        layout.addView(HostUi.headline(this, "Someone wants to see your screen."))
         layout.addView(
             TextView(this).apply {
                 text = grant.controller
-                textSize = 14f
+                textSize = 16f
                 typeface = HostUi.bold(this@ConsentActivity)
                 setTextColor(getColor(R.color.beacon_text))
                 setPadding(0, dp(12), 0, dp(2))
@@ -81,9 +83,10 @@ class ConsentActivity : Activity() {
                     } else {
                         "wants to see this screen."
                     }
-                textSize = 13f
+                textSize = 15f
+                typeface = HostUi.font(this@ConsentActivity, 400)
                 setTextColor(getColor(R.color.beacon_muted))
-                setPadding(0, 0, 0, dp(28))
+                setPadding(0, 0, 0, dp(24))
             },
         )
         layout.addView(HostUi.divider(this))
@@ -100,15 +103,14 @@ class ConsentActivity : Activity() {
                     isChecked = savedInstanceState?.getBoolean("control") ?: true
                     minHeight = dp(48)
                 }
-            controlNote = TextView(this).apply { textSize = 12f; setTextColor(getColor(R.color.beacon_muted)); setPadding(dp(40), 0, 0, dp(14)) }
+            controlNote = TextView(this).apply { textSize = 14f; typeface = HostUi.font(this@ConsentActivity, 400); setTextColor(getColor(R.color.beacon_muted)); setPadding(dp(40), 0, 0, dp(12)) }
             controlSettings =
-                Button(this).apply {
-                    text = "Turn on control in Settings"
+                HostUi.button(this, "Turn on control in Settings").apply {
                     setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
                 }
             layout.addView(control)
             layout.addView(controlNote)
-            layout.addView(controlSettings)
+            layout.addView(controlSettings, LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(14) })
         }
         if (FileReceiver.supported) {
             files =
@@ -124,7 +126,8 @@ class ConsentActivity : Activity() {
             layout.addView(files)
             layout.addView(TextView(this).apply {
                 text = "Files are saved to Downloads/Beacon Remote."
-                textSize = 12f
+                textSize = 14f
+                typeface = HostUi.font(this@ConsentActivity, 400)
                 setTextColor(getColor(R.color.beacon_muted))
                 setPadding(dp(40), 0, 0, dp(14))
             })
@@ -134,7 +137,8 @@ class ConsentActivity : Activity() {
             TextView(this).apply {
                 text =
                     "Android will ask you to confirm screen capture. Pause and Stop stay visible while sharing."
-                textSize = 12f
+                textSize = 14f
+                typeface = HostUi.font(this@ConsentActivity, 400)
                 setTextColor(getColor(R.color.beacon_muted))
                 setPadding(0, dp(18), 0, dp(18))
             },
@@ -144,7 +148,7 @@ class ConsentActivity : Activity() {
             setOnClickListener { startActivity(SharingNotifications.settings(this@ConsentActivity)) }
         }
         layout.addView(notificationNote)
-        layout.addView(notificationSettings)
+        layout.addView(notificationSettings, LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT))
         val buttons = LinearLayout(this).apply {
             gravity = Gravity.END
             val horizontal = maxOf(20, (resources.configuration.screenWidthDp - 600) / 2)
@@ -175,17 +179,9 @@ class ConsentActivity : Activity() {
         files?.setOnCheckedChangeListener { _, _ -> refreshScope() }
         val header = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
-            val horizontal = maxOf(25, (resources.configuration.screenWidthDp - 600) / 2)
+            val horizontal = maxOf(22, (resources.configuration.screenWidthDp - 600) / 2)
             setPadding(dp(horizontal), dp(8), dp(horizontal - 8), dp(4))
-            addView(
-                TextView(this@ConsentActivity).apply {
-                    text = "Beacon Remote"
-                    textSize = 14f
-                    typeface = HostUi.bold(this@ConsentActivity)
-                    setTextColor(getColor(R.color.beacon_text))
-                },
-                LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
-            )
+            addView(HostUi.brand(this@ConsentActivity), LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             addView(
                 TextView(this@ConsentActivity).apply {
                     text = "×"
@@ -195,6 +191,9 @@ class ConsentActivity : Activity() {
                     gravity = Gravity.CENTER
                     contentDescription = "Decline request"
                     setTextColor(getColor(R.color.beacon_text))
+                    // A 36 dp circle inside the 48 dp target, like the sheets' close button.
+                    background = android.graphics.drawable.InsetDrawable(HostUi.pill(this@ConsentActivity, getColor(R.color.beacon_tile)), dp(6))
+                    HostUi.role(this, android.widget.Button::class.java.name)
                     setOnClickListener { decline() }
                 },
                 LinearLayout.LayoutParams(dp(48), dp(48)),

@@ -16,9 +16,6 @@ import android.os.Handler
 import android.os.Looper
 import android.text.InputFilter
 import android.text.InputType
-import android.text.SpannableStringBuilder
-import android.text.Spanned
-import android.text.style.ForegroundColorSpan
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -85,7 +82,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             val horizontal = maxOf(22, (resources.configuration.screenWidthDp - 600) / 2)
             setPadding(dp(horizontal), dp(8), dp(horizontal - 8), dp(4))
-            addView(brand(), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(HostUi.brand(this@MainActivity), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             addView(moreButton, LinearLayout.LayoutParams(dp(48), dp(48)))
         }
         nav = buildNav()
@@ -281,25 +278,6 @@ class MainActivity : Activity() {
     }
 
     // ---- Frame -------------------------------------------------------------------------------------------------
-
-    /** The web workspace's brand: the mark, then "Beacon" heavy and "Remote" in the muted regular weight. */
-    private fun brand(): LinearLayout = LinearLayout(this).apply {
-        gravity = Gravity.CENTER_VERTICAL
-        contentDescription = "Beacon Remote"
-        addView(ImageView(context).apply { setImageResource(R.drawable.beacon_mark); importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO },
-            LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginEnd = dp(10) })
-        addView(TextView(context).apply {
-            val name = SpannableStringBuilder("Beacon Remote")
-            name.setSpan(ForegroundColorSpan(color(R.color.beacon_muted)), 7, name.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            if (Build.VERSION.SDK_INT >= 28) name.setSpan(android.text.style.TypefaceSpan(HostUi.font(context, 400)), 7, name.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            text = name
-            textSize = 20f
-            typeface = HostUi.heavy(context)
-            letterSpacing = -0.035f
-            setTextColor(color(R.color.beacon_text))
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        })
-    }
 
     private fun buildNav(): LinearLayout {
         val bar = LinearLayout(this).apply { setPadding(dp(12), dp(6), dp(12), dp(6)) }

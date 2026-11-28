@@ -142,6 +142,12 @@ class UiLayoutAcceptance : Instrumentation() {
                     openTab(current, page, marker)
                     screenshot(automation, "$page-$theme")
                 }
+                // The "..." menu sheet, then its Connection details sheet.
+                onMain { tagged(current.get(), "more-options")!!.performClick() }
+                SystemClock.sleep(600)
+                screenshot(automation, "menu-$theme")
+                shell(automation, "input keyevent KEYCODE_BACK")
+                SystemClock.sleep(400)
             }
             appearance(automation, current, "no", "2.0")
             openTab(current, "privacy", "clipboard-mode")
@@ -158,6 +164,14 @@ class UiLayoutAcceptance : Instrumentation() {
                     val info = android.view.accessibility.AccessibilityNodeInfo.obtain()
                     segment.onInitializeAccessibilityNodeInfo(info)
                     check(info.isCheckable && info.isChecked == (Identity(active).clipboardMode == mode)) { "Clipboard choice does not report its selection: $mode" }
+                }
+                // The tabs say which one is selected, and every tab is a 48 dp+ target.
+                for (page in listOf("device", "access", "privacy")) {
+                    val item = tagged(active, "nav-$page")!!
+                    val info = android.view.accessibility.AccessibilityNodeInfo.obtain()
+                    item.onInitializeAccessibilityNodeInfo(info)
+                    check(info.isSelected == (page == "privacy")) { "Tab does not report its selection: $page" }
+                    check(item.height >= minimum) { "Tab under 48 dp: $page" }
                 }
             }
             screenshot(automation, "privacy-large-light")
@@ -295,7 +309,8 @@ class UiLayoutAcceptance : Instrumentation() {
     private fun fixture(server: String): JSONObject = Api.http.newCall(Request.Builder().url("$server/fixture/state").build()).execute().use { JSONObject(it.body!!.string()) }
     private fun screenshot(ui: UiAutomation, name: String) {
         android.util.Log.i("UiLayoutAcceptance", "screenshot: $name")
-        SystemClock.sleep(150)
+        waitForIdleSync()
+        SystemClock.sleep(900) // let rotation and the system bars settle, so the capture matches the theme
         waitFor("unobscured app window: $name") { ui.rootInActiveWindow?.packageName?.toString() == "com.beaconremote.host" }
         val image = checkNotNull(ui.takeScreenshot())
         val file = File(checkNotNull(targetContext.getExternalFilesDir("ui")), "$name.png")

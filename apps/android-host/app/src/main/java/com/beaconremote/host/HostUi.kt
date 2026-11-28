@@ -96,6 +96,25 @@ object HostUi {
         ViewCompat.setAccessibilityHeading(this, true)
     }
 
+    /** The web workspace's brand: the mark, then "Beacon" heavy and "Remote" in the muted regular weight. */
+    fun brand(activity: Activity): LinearLayout = LinearLayout(activity).apply {
+        gravity = Gravity.CENTER_VERTICAL
+        contentDescription = "Beacon Remote"
+        addView(android.widget.ImageView(activity).apply { setImageResource(R.drawable.beacon_mark); importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO },
+            LinearLayout.LayoutParams(dp(activity, 32), dp(activity, 32)).apply { marginEnd = dp(activity, 10) })
+        addView(TextView(activity).apply {
+            val name = android.text.SpannableStringBuilder("Beacon Remote")
+            name.setSpan(android.text.style.ForegroundColorSpan(activity.getColor(R.color.beacon_muted)), 7, name.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            if (Build.VERSION.SDK_INT >= 28) name.setSpan(android.text.style.TypefaceSpan(font(activity, 400)), 7, name.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            text = name
+            textSize = 20f
+            typeface = heavy(activity)
+            letterSpacing = -0.035f
+            setTextColor(activity.getColor(R.color.beacon_text))
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        })
+    }
+
     fun divider(activity: Activity) = View(activity).apply {
         setBackgroundColor(activity.getColor(R.color.beacon_line))
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1)
