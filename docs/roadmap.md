@@ -79,9 +79,10 @@ Exit: main contains the stack, CI green on main, signed candidates staged, nothi
 
 ### M2. Windows unattended access, accepted on a real laptop
 
-0. Before the secure-attention test the owner sets the machine policy `SoftwareSASGeneration` to 1 (services) as an
-   administrator; Beacon never writes it ([signin-authority.md](signin-authority.md)). Without it the viewer correctly
-   reports "policy does not allow Ctrl+Alt+Delete". (owner)
+0. Owner decision (November 27): the one-time elevated sign-in setup and Repair let services send Ctrl+Alt+Delete
+   (`SoftwareSASGeneration`, services bit only) and uninstall restores the previous value
+   ([signin-authority.md](signin-authority.md)). Wake on request uses it to get from the lock-screen picture to the
+   password prompt, because Windows ignores injected key presses there.
 1. Sign-in screen: type the PIN or password through the viewer (owner types it); secure attention (Ctrl+Alt+Delete);
    wake the lock screen without a click; Stop, Disable and input release on the sign-in desktop. (owner, device)
 2. Restart recovery: restart or fast-restart from the viewer, the fresh-policy reconnect and the hand-off to the user
@@ -201,7 +202,7 @@ where they are in M2–M9 and the [parity backlog](rdp-vnc-parity-roadmap.md).
 | Order | Feature                                                                 | Who has it                                  | Beacon now                                                                  | Fits under               |
 | ----- | ----------------------------------------------------------------------- | ------------------------------------------- | --------------------------------------------------------------------------- | ------------------------ |
 | 1     | Follow the input desktop (lock picture, UAC, sign-in) in one view       | VNC services, RustDesk, AnyDesk, TeamViewer | Separate sign-in worker and ordinary helper with a handoff; wake on request | M2                       |
-| 2     | Send Ctrl+Alt+Del from the viewer                                       | All of them (needs the SAS policy)          | Built, blocked on the owner-set `SoftwareSASGeneration` policy              | M2                       |
+| 2     | Send Ctrl+Alt+Del from the viewer                                       | All of them (needs the SAS policy)          | Built; setup now sets the services-only policy (owner decision, Nov 27)     | M2                       |
 | 3     | Lock the computer when a session ends (setting)                         | AnyDesk, RustDesk, TeamViewer               | Missing                                                                     | M2 / M9                  |
 | 4     | Privacy mode: blank the local screen during unattended work             | AnyDesk, TeamViewer, RustDesk, BeyondTrust  | Missing (backlog note); must keep Stop reachable and never hide sharing     | M8 (design first)        |
 | 5     | Block local keyboard and mouse while a controller works                 | AnyDesk, TeamViewer, MeshCentral            | Missing; same rule: local Stop always works                                 | M8 (design first)        |

@@ -563,6 +563,9 @@ fn install(machine: &str, server: &str, owner: &str, enable: bool) -> Result<(),
         signin_revoke::enable(&programs.join("disabled.latch"))?;
     }
     service.change_config(&info)?;
+    // The one setting outside Beacon's own folders: services may send Ctrl+Alt+Del, so the service can bring the
+    // password prompt up from the lock-screen picture. Put back when the last installation goes.
+    crate::sas_policy::allow_services(&data_root)?;
     service.start::<&str>(&[])?;
     Ok(())
 }
@@ -661,6 +664,18 @@ fn uninstall(machine: &str, owner: &str) -> Result<(), HostError> {
     drop(maintenance);
     fs::remove_file(data.join("maintenance.lock"))?;
     fs::remove_dir(data)?;
+    // The last installation on this computer: put the Ctrl+Alt+Del policy back as it was before Beacon.
+    let (program_root, data_root) = roots()?;
+    let others = fs::read_dir(&program_root)
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .any(|entry| entry.path().is_dir())
+        })
+        .unwrap_or(false);
+    if !others {
+        crate::sas_policy::restore(&data_root)?;
+    }
     Ok(())
 }
 
@@ -1155,6 +1170,24 @@ fn remove_after_owner_removal(machine: &str) -> Result<(), HostError> {
             files.push(path.join("beacon-remote-agent.exe"));
         }
         folders.push(path);
+    }
+    // The last installation on this computer also puts the Ctrl+Alt+Del policy back (the program folder still holds
+    // this installation until the detached cleanup runs, so it is the only one left when it is alone).
+    let (program_root, data_root) = roots()?;
+    let others = fs::read_dir(&program_root)
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .any(|entry| entry.path().is_dir() && entry.path() != programs)
+        })
+        .unwrap_or(true);
+    if !others {
+        if let Err(error) = crate::sas_policy::restore(&data_root) {
+            diag(
+                machine,
+                &format!("could not restore the Ctrl+Alt+Del policy: {error}"),
+            );
+        }
     }
     folders.extend([programs, data]);
     crate::self_removal::remove_after_exit(&name(machine), &files, &folders)

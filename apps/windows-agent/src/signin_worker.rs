@@ -1396,7 +1396,26 @@ pub(crate) fn wake_prompt(machine: &str, console: u32) -> Result<(), HostError> 
     }
     let executable = std::env::current_exe()?;
     signin_endpoint::validate_binary(machine, &executable)?;
+    // Windows ignores injected key presses on the lock-screen picture; Ctrl+Alt+Del (allowed for services by the
+    // owner's setup) is what takes it to the password prompt. Sent only on a locked console, checked just above; the
+    // helper below then looks whether the prompt came up and, if it did not, presses as before and says so.
+    // The same fixed-purpose path as the viewer's Ctrl+Alt+Del: SendSAS aimed at the console session through this
+    // service's own restricted worker token.
     let token = worker_token(console)?;
+    let deadline = crate::signin_scope::tick() + 2000 * crate::signin_scope::TICKS_PER_MILLISECOND;
+    match crate::signin_attention::request(token.as_handle(), console, deadline, || true) {
+        crate::signin_attention::Outcome::Requested => {
+            std::thread::sleep(std::time::Duration::from_millis(600));
+        }
+        crate::signin_attention::Outcome::PolicyUnavailable => signin_endpoint::diag(
+            machine,
+            "Ctrl+Alt+Del is not allowed for services (run Repair); pressing a key instead",
+        ),
+        crate::signin_attention::Outcome::Unavailable => signin_endpoint::diag(
+            machine,
+            "Ctrl+Alt+Del could not be sent; pressing a key instead",
+        ),
+    }
     let job = Job::new()?;
     let mut attributes = Attributes::new(&job)?;
     let executable_wide = wide(&executable.to_string_lossy());
