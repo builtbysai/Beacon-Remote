@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import type { Machine } from "@beacon-remote/protocol";
+import { signinAuthorityState } from "@beacon-remote/protocol";
+import { wakeSignIn } from "./signin-wake.js";
 import "./style.css";
 import "./viewer.css";
 import { LiveView, type ViewGrant } from "./LiveView.js";
@@ -392,6 +394,67 @@ function App() {
     }
     setView(null);
     await testVideo(machine, capability, displayId);
+  }
+
+  function openSignIn(machine: Machine) {
+    if (machine.revokedAt || stale || busy || view || signInContext.current)
+      return;
+    cancelRestart();
+    // A delayed ordinary-view resume cannot coexist with this
+    // separate privileged request context.
+    viewContext.current.active = false;
+    viewContext.current = { active: true };
+    forgetView();
+    const context = {
+      machineId: machine.id,
+      name: machine.name,
+      abort: new AbortController(),
+    };
+    signInContext.current = context;
+    setSignInView(context);
+  }
+
+  /**
+   * The one Connect action (review R02): the person picks a computer, Beacon picks the way in. At the Windows lock or
+   * sign-in screen it brings the password prompt up if needed and opens the sign-in view, which continues to the
+   * desktop after signing in; otherwise it opens the desktop.
+   */
+  async function connect(machine: Machine) {
+    if (controlEnabled && machine.accessMode === "trusted") {
+      const state = await api<unknown>(
+        `machines/${machine.id}/signin-authority`,
+        undefined,
+        AbortSignal.timeout(3000),
+      )
+        .then((raw) => signinAuthorityState.safeParse(raw))
+        .catch(() => null);
+      const signIn =
+        state?.success &&
+        state.data.enabled &&
+        state.data.state !== "signed-in" &&
+        (state.data.connectable || state.data.wakeable);
+      if (signIn) {
+        if (!state?.data?.connectable) {
+          setError("");
+          const ready = await wakeSignIn(
+            machine.id,
+            AbortSignal.timeout(25_000),
+          );
+          if (!ready) {
+            setError(
+              `${machine.name} is at the Windows lock screen, but its password prompt did not come up. Try Connect again.`,
+            );
+            return;
+          }
+        }
+        openSignIn(machine);
+        return;
+      }
+    }
+    await testVideo(
+      machine,
+      controlEnabled ? "desktop:control" : "desktop:view",
+    );
   }
 
   async function testVideo(
@@ -1216,20 +1279,19 @@ function App() {
                                     ? lastSeen(machine.lastSeenAt)
                                     : "Never"}
                       </span>
-                      {live ? (
+                      {live ||
+                      (!machine.revokedAt &&
+                        controlEnabled &&
+                        machine.accessMode === "trusted" &&
+                        (machine.bootState === "locked" ||
+                          machine.bootState === "signed-out")) ? (
                         <button
                           className="device-open"
-                          disabled={!canView}
+                          disabled={live ? !canView : busy || stale}
                           onClick={() => {
-                            // One click: ask for viewing and control together. The person at the
-                            // computer sees both and can choose View only; nothing is granted until
-                            // they approve. Open the details for a view-only request.
-                            void testVideo(
-                              machine,
-                              controlEnabled
-                                ? "desktop:control"
-                                : "desktop:view",
-                            );
+                            // One click: the way in is chosen here (desktop, or the Windows sign-in screen when the
+                            // computer is locked or signed out). Attended computers still ask the person there.
+                            void connect(machine);
                           }}
                           title={
                             !mediaEnabled
@@ -1264,28 +1326,7 @@ function App() {
                       const machine = machines.find(
                         (entry) => entry.id === selected,
                       );
-                      if (
-                        !machine ||
-                        machine.revokedAt ||
-                        stale ||
-                        busy ||
-                        view ||
-                        signInContext.current
-                      )
-                        return;
-                      cancelRestart();
-                      // A delayed ordinary-view resume cannot coexist with this
-                      // separate privileged request context.
-                      viewContext.current.active = false;
-                      viewContext.current = { active: true };
-                      forgetView();
-                      const context = {
-                        machineId: machine.id,
-                        name: machine.name,
-                        abort: new AbortController(),
-                      };
-                      signInContext.current = context;
-                      setSignInView(context);
+                      if (machine) openSignIn(machine);
                     }}
                     onRequestView={(displayId) => {
                       void testVideo(
@@ -1295,11 +1336,13 @@ function App() {
                       );
                     }}
                     onRequestControl={(displayId) => {
-                      void testVideo(
-                        machines.find((machine) => machine.id === selected)!,
-                        "desktop:control",
-                        displayId,
-                      );
+                      const machine = machines.find(
+                        (entry) => entry.id === selected,
+                      )!;
+                      // Without a chosen display, Remote is the same one Connect (desktop or sign-in screen).
+                      if (displayId)
+                        void testVideo(machine, "desktop:control", displayId);
+                      else void connect(machine);
                     }}
                     machine={machines.find(
                       (machine) => machine.id === selected,
