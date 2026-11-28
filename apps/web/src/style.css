@@ -3796,3 +3796,21 @@ code.hash {
   color: var(--text);
   margin-bottom: 8px;
 }
+
+/* Long names (review R16): two lines at most in the list and three in the details; the full name stays in the
+   button's text for assistive technology and in its tooltip. */
+.device-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.inspector-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}

@@ -275,7 +275,9 @@ export function ComputerInspector({
           mood={machine.revokedAt ? "locked" : online ? "awake" : "asleep"}
         />
         <div className="inspector-title">
-          <h2 className="inspector-name">{machine.name}</h2>
+          <h2 className="inspector-name" title={machine.name}>
+            {machine.name}
+          </h2>
           <p className={`inspector-state${online ? " is-online" : ""}`}>
             <span className="inspector-status-dot" aria-hidden="true" />
             {stateLabel}

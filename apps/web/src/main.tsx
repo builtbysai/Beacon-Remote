@@ -1241,6 +1241,7 @@ function App() {
                       <button
                         id={`device-${machine.id}`}
                         className="device-name secondary"
+                        title={machine.name}
                         onClick={() =>
                           setSelected(
                             selected === machine.id ? null : machine.id,
