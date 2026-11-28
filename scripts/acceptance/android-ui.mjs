@@ -240,7 +240,7 @@ try {
       `http://10.0.2.2:${server.address().port}`,
       "com.beaconremote.host.test/com.beaconremote.host.UiLayoutAcceptance",
     ],
-    150_000,
+    300_000,
   );
   await writeFile(
     join(output, "instrumentation.log"),

@@ -5,7 +5,6 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
-import android.graphics.Typeface
 import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
 import android.os.Build
@@ -69,7 +68,7 @@ class ConsentActivity : Activity() {
             TextView(this).apply {
                 text = grant.controller
                 textSize = 14f
-                typeface = Typeface.DEFAULT_BOLD
+                typeface = HostUi.bold(this@ConsentActivity)
                 setTextColor(getColor(R.color.beacon_text))
                 setPadding(0, dp(12), 0, dp(2))
             },
@@ -93,7 +92,7 @@ class ConsentActivity : Activity() {
                 CheckBox(this).apply {
                     text = "Allow touch and typing"
                     textSize = 15f
-                    typeface = Typeface.DEFAULT_BOLD
+                    typeface = HostUi.bold(this@ConsentActivity)
                     buttonTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.beacon_accent))
                     setPadding(dp(8), dp(10), 0, dp(10))
                     // They asked for control, so it starts selected; nothing is shared until Allow once, and
@@ -116,7 +115,7 @@ class ConsentActivity : Activity() {
                 CheckBox(this).apply {
                     text = "Allow receiving files"
                     textSize = 15f
-                    typeface = Typeface.DEFAULT_BOLD
+                    typeface = HostUi.bold(this@ConsentActivity)
                     buttonTintList = android.content.res.ColorStateList.valueOf(getColor(R.color.beacon_accent))
                     setPadding(dp(8), dp(10), 0, dp(10))
                     isChecked = savedInstanceState?.getBoolean("files") == true
@@ -182,7 +181,7 @@ class ConsentActivity : Activity() {
                 TextView(this@ConsentActivity).apply {
                     text = "Beacon Remote"
                     textSize = 14f
-                    typeface = Typeface.DEFAULT_BOLD
+                    typeface = HostUi.bold(this@ConsentActivity)
                     setTextColor(getColor(R.color.beacon_text))
                 },
                 LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f),

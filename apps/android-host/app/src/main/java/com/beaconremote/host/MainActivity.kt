@@ -9,7 +9,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
-import android.graphics.Typeface
+import androidx.core.view.ViewCompat
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -78,11 +78,12 @@ class MainActivity : Activity() {
             contentDescription = "More options"
             tag = "more-options"
             setTextColor(color(R.color.beacon_text))
+            HostUi.role(this, Button::class.java.name)
             setOnClickListener { showMenu() }
         }
         val header = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
-            val horizontal = maxOf(25, (resources.configuration.screenWidthDp - 600) / 2)
+            val horizontal = maxOf(22, (resources.configuration.screenWidthDp - 600) / 2)
             setPadding(dp(horizontal), dp(8), dp(horizontal - 8), dp(4))
             addView(brand(), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             addView(moreButton, LinearLayout.LayoutParams(dp(48), dp(48)))
@@ -167,10 +168,11 @@ class MainActivity : Activity() {
 
     private fun renderDeviceCode(origin: String, deviceName: String, code: Api.DevicePairing) {
         root.removeAllViews()
-        root.addView(HostUi.kicker(this, "Set up"))
-        root.addView(HostUi.headline(this, code.userCode))
-        root.addView(HostUi.text(this, "On a computer, open ${origin.removePrefix("https://")}, sign in, choose Add a computer, and type this code. Then approve $deviceName.", 13f, false, true).apply { setPadding(0, dp(8), 0, dp(16)) })
-        root.addView(HostUi.text(this, "Waiting for you to approve it…", 14f).apply { tag = "device-code-status"; accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE })
+        root.addView(Character(this, Character.Tone.BLUE, Character.Mood.WAVE), LinearLayout.LayoutParams(dp(84), dp(88)).apply { topMargin = dp(12) })
+        root.addView(HostUi.kicker(this, "Type this code in your workspace"))
+        root.addView(HostUi.headline(this, code.userCode).apply { typeface = HostUi.mono(context); letterSpacing = 0.02f })
+        root.addView(HostUi.text(this, "On a computer, open ${origin.removePrefix("https://")}, sign in, choose Add a computer, and type this code. Then approve $deviceName.", 15f, false, true).apply { setPadding(0, dp(8), 0, dp(16)) })
+        root.addView(HostUi.text(this, "Waiting for you to approve it…", 15f, true).apply { tag = "device-code-status"; accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE })
         root.addView(HostUi.button(this, "Cancel").apply {
             setOnClickListener { stopDeviceCode(); render() }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(22) })
@@ -280,18 +282,27 @@ class MainActivity : Activity() {
 
     // ---- Frame -------------------------------------------------------------------------------------------------
 
-    private fun brand(): TextView = TextView(this).apply {
-        val name = SpannableStringBuilder("Beacon Remote")
-        name.setSpan(ForegroundColorSpan(color(R.color.beacon_muted)), 7, name.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        text = name
-        textSize = 20f
-        typeface = Typeface.DEFAULT_BOLD
-        letterSpacing = -0.03f
-        setTextColor(color(R.color.beacon_text))
+    /** The web workspace's brand: the mark, then "Beacon" heavy and "Remote" in the muted regular weight. */
+    private fun brand(): LinearLayout = LinearLayout(this).apply {
+        gravity = Gravity.CENTER_VERTICAL
+        contentDescription = "Beacon Remote"
+        addView(ImageView(context).apply { setImageResource(R.drawable.beacon_mark); importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO },
+            LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginEnd = dp(10) })
+        addView(TextView(context).apply {
+            val name = SpannableStringBuilder("Beacon Remote")
+            name.setSpan(ForegroundColorSpan(color(R.color.beacon_muted)), 7, name.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            if (Build.VERSION.SDK_INT >= 28) name.setSpan(android.text.style.TypefaceSpan(HostUi.font(context, 400)), 7, name.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            text = name
+            textSize = 20f
+            typeface = HostUi.heavy(context)
+            letterSpacing = -0.035f
+            setTextColor(color(R.color.beacon_text))
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        })
     }
 
     private fun buildNav(): LinearLayout {
-        val bar = LinearLayout(this).apply { setPadding(dp(15), dp(4), dp(15), dp(6)) }
+        val bar = LinearLayout(this).apply { setPadding(dp(12), dp(6), dp(12), dp(6)) }
         for ((id, label, icon) in listOf(
             Triple("device", "Device", R.drawable.ic_nav_device),
             Triple("access", "Access", R.drawable.ic_nav_access),
@@ -302,20 +313,22 @@ class MainActivity : Activity() {
                 gravity = Gravity.CENTER
                 tag = "nav-$id"
                 contentDescription = label
-                setPadding(0, dp(8), 0, dp(8))
+                minimumHeight = dp(56)
+                isFocusable = true
+                setPadding(0, dp(7), 0, dp(7))
                 addView(ImageView(context).apply { setImageResource(icon); tag = "icon" }, LinearLayout.LayoutParams(dp(22), dp(22)))
                 addView(TextView(context).apply {
                     text = label
-                    textSize = 11f
-                    typeface = Typeface.DEFAULT_BOLD
+                    textSize = 12f
+                    typeface = HostUi.bold(context)
                     gravity = Gravity.CENTER
-                    setPadding(0, dp(4), 0, 0)
+                    setPadding(0, dp(3), 0, 0)
                     tag = "label"
                 })
                 setOnClickListener { selectPage(id) }
             }
             navItems[id] = item
-            bar.addView(item, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(2); marginEnd = dp(2) })
+            bar.addView(item, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(3); marginEnd = dp(3) })
         }
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -338,7 +351,10 @@ class MainActivity : Activity() {
         for ((id, item) in navItems) {
             val selected = id == page
             val tint = ColorStateList.valueOf(color(if (selected) R.color.beacon_text else R.color.beacon_muted))
-            item.background = if (selected) HostUi.rounded(this, color(R.color.beacon_soft), 4) else null
+            item.background = if (selected) HostUi.tile(this, color(R.color.beacon_tile), 20) else null
+            item.isSelected = selected
+            // TalkBack: "Device, tab, selected".
+            HostUi.role(item, Button::class.java.name, selected = selected, roleDescription = "Tab")
             item.findViewWithTag<ImageView>("icon").imageTintList = tint
             item.findViewWithTag<TextView>("label").setTextColor(tint)
         }
@@ -371,25 +387,26 @@ class MainActivity : Activity() {
         setSingleLine(true)
         minHeight = dp(52)
         textSize = 16f
+        typeface = HostUi.font(context, 400)
         setTextColor(color(R.color.beacon_text))
         setHintTextColor(color(R.color.beacon_muted))
-        background = HostUi.rounded(this@MainActivity, color(R.color.beacon_surface), 4, color(R.color.beacon_line))
-        setPadding(dp(14), 0, dp(14), 0)
+        background = HostUi.rounded(this@MainActivity, color(R.color.beacon_surface), 16, color(R.color.beacon_line_strong))
+        setPadding(dp(16), dp(10), dp(16), dp(10))
         importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
     }
 
     private fun field(title: String, input: EditText) {
-        root.addView(HostUi.text(this, title, 12f, true, true).apply {
+        root.addView(HostUi.text(this, title, 15f, true).apply {
             labelFor = input.id
-            setPadding(0, dp(16), 0, dp(6))
+            setPadding(0, dp(16), 0, dp(8))
         })
         root.addView(input)
     }
 
     private fun renderPairing() {
-        root.addView(HostUi.kicker(this, "Set up"))
-        root.addView(HostUi.headline(this, "Pair this device."))
-        root.addView(HostUi.text(this, "In your workspace, choose Add a computer, then copy its code or link and paste it here.", 13f, false, true).apply { setPadding(0, dp(4), 0, dp(8)) })
+        root.addView(Character(this, Character.Tone.BLUE, Character.Mood.WAVE), LinearLayout.LayoutParams(dp(84), dp(88)).apply { topMargin = dp(12); bottomMargin = dp(4) })
+        root.addView(HostUi.headline(this, "Pair this phone."))
+        root.addView(HostUi.text(this, "In your workspace, choose Add a computer, then scan its QR code or copy its code and paste it here.", 15f, false, true).apply { setPadding(0, dp(4), 0, dp(14)) })
         root.addView(HostUi.button(this, "Scan the QR code", true).apply { tag = "pair-scan"; setOnClickListener { scanPairingQr() } },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         root.addView(HostUi.button(this, "Paste code from clipboard").apply { tag = "pair-paste"; setOnClickListener { pasteFromClipboard() } },
@@ -402,7 +419,7 @@ class MainActivity : Activity() {
         field("Device name", name)
         field("Pairing code", code)
         val server = fieldBox(R.id.pair_server, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI, 512).apply { setText("https://remote.builtbysai.com") }
-        val serverLabel = HostUi.text(this, "Server address", 12f, true, true).apply { labelFor = server.id; visibility = View.GONE; setPadding(0, dp(16), 0, dp(6)) }
+        val serverLabel = HostUi.text(this, "Server address", 15f, true).apply { labelFor = server.id; visibility = View.GONE; setPadding(0, dp(16), 0, dp(8)) }
         server.visibility = View.GONE
         root.addView(HostUi.link(this, "Server address").apply {
             gravity = Gravity.START or Gravity.CENTER_VERTICAL
@@ -417,11 +434,11 @@ class MainActivity : Activity() {
         // One choice up front, so setup is the same few taps whether or not this phone should be reachable unattended.
         val (autoRow, autoSwitch) = HostUi.switchRow(
             this, "Connect without asking",
-            "Let your account view and control this phone while it's unlocked, with no prompt each time. Pause and Stop stay visible. You can change it later.",
+            UNATTENDED_SUMMARY + " It turns on once setup is done. You can change it later.",
             "pair-unattended", true,
         )
         root.addView(autoRow.apply { setPadding(0, dp(14), 0, 0) })
-        val message = HostUi.text(this, pairingNotice.orEmpty(), 14f).apply { tag = "pair-notice"; accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE; setPadding(0, dp(12), 0, 0) }
+        val message = HostUi.text(this, pairingNotice.orEmpty(), 15f).apply { tag = "pair-notice"; accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE; setPadding(0, dp(12), 0, 0) }
         val pair = HostUi.button(this, "Pair device", true).apply { tag = "pair-submit" }
         pair.setOnClickListener {
             val origin = Api.validServer(server.text.toString())
@@ -498,49 +515,84 @@ class MainActivity : Activity() {
     }
 
     private fun renderDevice() {
-        root.addView(HostUi.kicker(this, "This device"))
-        root.addView(HostUi.headline(this, identity.name, 42f))
-        val meta = LinearLayout(this).apply {
+        // This phone's character (the same colour as its tile in the workspace), its name and state, kept compact so the
+        // sharing tile below stays in view even for a long name or a large font (review R16).
+        val sharing = HostState.sharing
+        val head = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(8), 0, dp(14))
+            setPadding(0, dp(10), 0, dp(4))
         }
-        meta.addView(TextView(this).apply {
+        head.addView(Character(this, Character.toneFor(identity.machineId), deviceMood()).apply { tag = "device-character" },
+            LinearLayout.LayoutParams(dp(60), dp(62)).apply { marginEnd = dp(14) })
+        val names = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        names.addView(HostUi.headline(this, identity.name, 26f).apply {
+            tag = "device-name"
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            // The full name is always read out, even when the drawn one is shortened.
+            contentDescription = identity.name
+            setPadding(0, 0, 0, dp(2))
+        })
+        names.addView(TextView(this).apply {
             tag = "status"
             text = friendlyStatus()
-            textSize = 13f
-            typeface = Typeface.DEFAULT_BOLD
+            textSize = 15f
+            typeface = HostUi.bold(context)
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
-            setTextColor(color(R.color.beacon_text))
-        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        meta.addView(HostUi.link(this, if (identity.wantsAvailable) "Go offline" else "Go online").apply {
-            tag = "availability-toggle"
-            setOnClickListener { toggleAvailability() }
+            setTextColor(color(if (HostState.status == "Available" || sharing) R.color.beacon_green else R.color.beacon_muted))
         })
-        root.addView(meta)
-        setupCard()?.let { root.addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(14) }) }
+        head.addView(names, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        root.addView(head)
+        root.addView(HostUi.link(this, if (identity.wantsAvailable) "Go offline" else "Go online").apply {
+            tag = "availability-toggle"
+            gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            setOnClickListener { toggleAvailability() }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(6) })
         root.addView(sessionCard(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        root.addView(overviewRow("Unattended access", "Connect without asking", if (identity.unattended) "Enabled" else "Off") { selectPage("access") }.also { (it.layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(14) })
-        root.addView(overviewRow("Clipboard", "How copied content moves between devices", clipboardName(identity.clipboardMode)) { selectPage("privacy") })
+        setupCard()?.let { root.addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) }) }
+        smoothVideoCard()?.let { root.addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) }) }
         val steps = setupSteps()
-        root.addView(overviewRow("Device setup", if (steps.all { it.done }) "All permissions ready" else "One permission needs attention", "") { selectPage("access") })
+        val left = steps.count { !it.done }
+        root.addView(overviewRow("Connect without asking", accessSummary()) { selectPage("access") }.also { (it.layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(16) })
+        root.addView(overviewRow("Clipboard", clipboardName(identity.clipboardMode)) { selectPage("privacy") })
+        root.addView(overviewRow("Phone setup", if (left == 0) "Ready: all ${steps.size} steps done" else "${steps.size - left} of ${steps.size} done · ${stepsLeft(left)}") { selectPage("access") })
+    }
+
+    private fun stepsLeft(count: Int) = if (count == 1) "1 step left" else "$count steps left"
+
+    /** The face says the state: asleep offline, awake and signalling when reachable, waving while someone is connected. */
+    private fun deviceMood(): Character.Mood = when {
+        HostState.sharing && HostState.paused -> Character.Mood.ASLEEP
+        HostState.sharing -> Character.Mood.WAVE
+        !identity.wantsAvailable -> Character.Mood.ASLEEP
+        HostState.status != "Available" -> Character.Mood.WOW
+        else -> Character.Mood.AWAKE
+    }
+
+    /** What "Connect without asking" means for this phone right now, in a few words. */
+    private fun accessSummary(): String = when {
+        identity.paired && AccessIntents.fence.pending(identity.accessBinding()) -> "Updating…"
+        identity.unattended -> "On"
+        identity.unattendedAfterSetup -> "Turns on when setup is done"
+        else -> "Off · you approve each request"
     }
 
     private fun sessionCard(): LinearLayout {
         val sharing = HostState.sharing
         val paused = sharing && HostState.paused
         val offline = !sharing && !identity.wantsAvailable
+        val unattended = identity.unattended
+        // Colour is content: brand blue while someone sees the screen (Stop is the action), sun while paused, mint when
+        // private and reachable, plain tile when offline. The words always say the state too.
         val fill = when {
-            paused -> R.color.beacon_paused
+            paused -> R.color.beacon_tint_sun
             sharing -> R.color.beacon_accent
-            offline -> R.color.beacon_offline
-            else -> R.color.beacon_dark
+            offline -> R.color.beacon_tile
+            else -> R.color.beacon_tint_mint
         }
-        val tagText = when {
-            paused -> "Paused"
-            sharing -> "Connected"
-            offline -> "Offline"
-            else -> ""
-        }
+        val onBlue = sharing && !paused
+        val ink = if (onBlue) color(R.color.beacon_on_accent) else color(R.color.beacon_text)
+        val soft = if (onBlue) ink else color(R.color.beacon_muted)
         val title = when {
             paused -> "Sharing paused."
             sharing -> "Sharing your screen."
@@ -548,73 +600,92 @@ class MainActivity : Activity() {
             else -> "Not sharing."
         }
         val sub = when {
-            paused -> "The viewer is connected but cannot see screen updates."
-            sharing -> if (HostState.controlling) "Your screen is visible to the approved viewer, who can also touch and type." else "Your screen is visible to the approved viewer."
+            paused -> "The viewer is still connected but sees no screen updates."
+            sharing -> if (HostState.controlling) "The viewer can see your screen and touch and type." else "The viewer can see your screen."
             offline -> "This phone is not accepting remote connections."
-            else -> "Your screen is private. An incoming request needs your approval."
+            unattended -> "Your screen is private. Your account can connect without asking; anyone else needs your approval."
+            else -> "Your screen is private. Each request needs your approval here."
         }
         val foot = when {
-            paused -> "Sharing is temporarily paused"
-            sharing -> "Pause and Stop stay available"
-            offline -> "Connections are unavailable"
-            else -> "Pause and Stop are available during sharing"
+            paused -> "Resume or Stop at any time"
+            sharing -> "Pause and Stop stay here and in the notification"
+            offline -> "Go online to be reachable again"
+            else -> "Pause and Stop appear here while sharing"
         }
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             tag = "session-card"
-            minimumHeight = dp(270)
-            setPadding(dp(23), dp(23), dp(23), dp(20))
-            background = HostUi.rounded(this@MainActivity, color(fill), 4)
+            setPadding(dp(22), dp(20), dp(22), dp(20))
+            background = HostUi.tile(this@MainActivity, color(fill))
         }
-        val top = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-        top.addView(TextView(this).apply { text = "Screen sharing"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        if (tagText.isNotEmpty()) top.addView(TextView(this).apply { text = tagText; textSize = 12f; setTextColor(Color.WHITE); alpha = 0.7f })
-        card.addView(top)
-        val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(8), 0, dp(8)) }
-        body.addView(TextView(this).apply {
+        card.addView(TextView(this).apply { text = "Screen sharing"; textSize = 14f; typeface = HostUi.bold(context); setTextColor(soft); alpha = if (onBlue) 0.85f else 1f })
+        card.addView(TextView(this).apply {
             text = title
-            textSize = 36f
-            typeface = Typeface.DEFAULT_BOLD
-            letterSpacing = -0.04f
-            setLineSpacing(0f, 0.98f)
-            setTextColor(Color.WHITE)
+            tag = "session-title"
+            textSize = 32f
+            typeface = HostUi.heavy(context)
+            letterSpacing = -0.035f
+            setLineSpacing(0f, 1.02f)
+            setTextColor(ink)
+            setPadding(0, dp(6), 0, 0)
+            ViewCompat.setAccessibilityHeading(this, true)
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
         })
-        body.addView(TextView(this).apply { text = sub; textSize = 13f; setTextColor(Color.WHITE); alpha = 0.78f; setLineSpacing(0f, 1.15f); setPadding(0, dp(10), 0, 0) })
-        card.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        val line = View(this).apply { setBackgroundColor(Color.WHITE); alpha = 0.22f }
-        card.addView(line, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1))
-        val footer = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(14), 0, 0) }
-        footer.addView(TextView(this).apply { text = foot; textSize = 12f; setTextColor(Color.WHITE); alpha = 0.7f }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        card.addView(TextView(this).apply { text = sub; tag = "session-detail"; textSize = 15f; typeface = HostUi.font(context, 400); setTextColor(soft); alpha = if (onBlue) 0.9f else 1f; setLineSpacing(0f, 1.18f); setPadding(0, dp(8), 0, 0) })
+        card.addView(TextView(this).apply { text = foot; textSize = 13f; typeface = HostUi.bold(context); setTextColor(soft); alpha = if (onBlue) 0.8f else 1f; setPadding(0, dp(12), 0, 0) })
         if (sharing) {
-            footer.addView(sessionButton(if (paused) "Stop" else "Pause", secondary = true) {
-                if (paused) stopCapture() else pauseOrResume()
-            })
-            footer.addView(sessionButton(if (paused) "Resume" else "Stop sharing", secondary = false) {
-                if (paused) pauseOrResume() else stopCapture()
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(8) })
+            // Stop is always the most prominent control while someone can see the screen.
+            val actions = LinearLayout(this).apply { setPadding(0, dp(14), 0, 0) }
+            actions.addView(sessionButton(if (paused) "Resume" else "Pause", onBlue, prominent = false) {
+                pauseOrResume()
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(5) })
+            actions.addView(sessionButton(if (paused) "Stop" else "Stop sharing", onBlue, prominent = true) {
+                stopCapture()
+            }.apply { tag = "session-stop" }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(5) })
+            card.addView(actions)
         }
-        card.addView(footer)
         return card
     }
 
-    private fun sessionButton(label: String, secondary: Boolean, onClick: () -> Unit) = Button(this).apply {
+    /** Pill buttons on the sharing tile: on brand blue a white Stop and an outlined Pause; on a tint an ink Stop. */
+    private fun sessionButton(label: String, onBlue: Boolean, prominent: Boolean, onClick: () -> Unit) = Button(this).apply {
         text = label
         isAllCaps = false
-        textSize = 12f
-        typeface = Typeface.DEFAULT_BOLD
+        textSize = 15f
+        typeface = HostUi.bold(context)
         stateListAnimator = null
-        minHeight = dp(40)
-        minimumHeight = dp(40)
-        setPadding(dp(14), 0, dp(14), 0)
-        if (secondary) {
-            background = HostUi.rounded(this@MainActivity, Color.TRANSPARENT, 2, 0x69FFFFFF)
-            setTextColor(Color.WHITE)
-        } else {
-            background = HostUi.rounded(this@MainActivity, 0xFFF7F8F3.toInt(), 2)
-            // A fixed light button, so a fixed dark label in both themes.
-            setTextColor(0xFF171A19.toInt())
+        minHeight = dp(48)
+        minimumHeight = dp(48)
+        setPadding(dp(14), dp(6), dp(14), dp(6))
+        when {
+            onBlue && prominent -> { background = HostUi.pill(this@MainActivity, Color.WHITE); setTextColor(0xFF17171A.toInt()) }
+            onBlue -> { background = HostUi.pill(this@MainActivity, Color.TRANSPARENT, 0xB3FFFFFF.toInt()); setTextColor(Color.WHITE) }
+            prominent -> { background = HostUi.pill(this@MainActivity, color(R.color.beacon_ink)); setTextColor(color(R.color.beacon_on_ink)) }
+            else -> { background = HostUi.pill(this@MainActivity, color(R.color.beacon_surface)); setTextColor(color(R.color.beacon_text)) }
         }
+        HostUi.pressable(this)
         setOnClickListener { onClick() }
+    }
+
+    /**
+     * Connect without asking includes smooth video, which Android lets Beacon start only after its own one-tap prompt,
+     * once after every restart of the app or the phone. Until then this says so and offers the prompt (review R15).
+     */
+    private fun smoothVideoCard(): LinearLayout? {
+        if (!identity.unattended || StandingScreen.active || Build.VERSION.SDK_INT < 30 || setupSteps().any { !it.done }) return null
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            tag = "smooth-video-card"
+            setPadding(dp(20), dp(18), dp(20), dp(18))
+            background = HostUi.tile(this@MainActivity, color(R.color.beacon_tint_blue), 24)
+        }
+        card.addView(HostUi.text(this, "Smooth video is off", 18f, true).apply { setPadding(0, 0, 0, dp(4)) })
+        card.addView(HostUi.text(this, "Android asks once after each restart before Beacon can send smooth video without asking. Until then your account can still connect, with slower video and without the phone's sound.", 14f, false, true))
+        card.addView(HostUi.button(this, "Turn on smooth video", true).apply {
+            tag = "smooth-video-start"
+            setOnClickListener { fastAsked = false; resumeFastVideo() }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        return card
     }
 
     private fun pauseOrResume() {
@@ -622,26 +693,30 @@ class MainActivity : Activity() {
         handler.postDelayed({ if (!isDestroyed) refreshStatus() }, 400)
     }
 
-    private fun overviewRow(title: String, description: String, summary: String, onClick: () -> Unit): LinearLayout {
+    /** A row that opens another tab: its title, then where it stands now. The whole row is one 48 dp+ button. */
+    private fun overviewRow(title: String, summary: String, onClick: () -> Unit): LinearLayout {
         val wrap = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         wrap.addView(HostUi.divider(this))
         val row = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
-            minimumHeight = dp(57)
-            setPadding(dp(1), dp(7), dp(1), dp(7))
+            minimumHeight = dp(60)
+            setPadding(dp(1), dp(10), dp(1), dp(10))
             isClickable = true
             isFocusable = true
+            contentDescription = "$title: $summary"
+            HostUi.role(this, Button::class.java.name)
             setOnClickListener { onClick() }
         }
         val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        texts.addView(TextView(this).apply { text = title; textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(color(R.color.beacon_text)) })
-        texts.addView(TextView(this).apply { text = description; textSize = 12f; setTextColor(color(R.color.beacon_muted)); setPadding(0, dp(4), 0, 0) })
+        texts.addView(TextView(this).apply { text = title; textSize = 16f; typeface = HostUi.bold(context); setTextColor(color(R.color.beacon_text)) })
+        texts.addView(TextView(this).apply { text = summary; textSize = 14f; typeface = HostUi.font(context, 400); setTextColor(color(R.color.beacon_muted)); setPadding(0, dp(2), 0, 0) })
         row.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         row.addView(TextView(this).apply {
-            text = if (summary.isEmpty()) "›" else "$summary  ›"
-            textSize = 12f
-            typeface = Typeface.DEFAULT_BOLD
+            text = "›"
+            textSize = 22f
+            typeface = HostUi.bold(context)
             setTextColor(color(R.color.beacon_muted))
+            setPadding(dp(10), 0, dp(4), 0)
         })
         wrap.addView(row)
         wrap.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -650,18 +725,17 @@ class MainActivity : Activity() {
 
     // ---- Access tab --------------------------------------------------------------------------------------------
 
-    private fun subhead(kicker: String, title: String, copy: String) {
-        root.addView(HostUi.kicker(this, kicker))
-        root.addView(HostUi.headline(this, title, 44f))
-        root.addView(HostUi.text(this, copy, 13f, false, true).apply { setPadding(0, dp(4), dp(40), dp(18)) })
+    private fun subhead(title: String, copy: String) {
+        root.addView(HostUi.headline(this, title).apply { setPadding(0, dp(14), 0, dp(4)) })
+        root.addView(HostUi.text(this, copy, 15f, false, true).apply { setPadding(0, dp(2), dp(24), dp(14)) })
     }
 
     private fun renderAccess() {
-        subhead("Who can connect", "Access.", "Control how your phone can be reached from your workspace.")
+        subhead("Access.", "Who can reach this phone from your workspace, and what it still needs.")
         root.addView(HostUi.divider(this))
         val (accessRow, accessSwitch) = HostUi.switchRow(
             this, "Connect without asking",
-            "Your account can view and control this phone, and unlock it, without a prompt. Smooth video is included. Pause and Stop remain available.",
+            "$UNATTENDED_SUMMARY Smooth video is included. Turn it off to approve each request on this phone instead.",
             "access-toggle", identity.unattended,
         )
         accessSwitch.setOnClickListener {
@@ -669,8 +743,8 @@ class MainActivity : Activity() {
             accessSwitch.isChecked = identity.unattended
             changeAccess()
         }
-        accessRow.addView(HostUi.text(this, "Android 11+ · Android shows its cast icon while smooth video is on. After a restart, open Beacon once to turn smooth video back on · No system audio", 11.5f, false, true).apply { setPadding(0, dp(10), 0, 0) })
-        accessRow.addView(HostUi.text(this, "", 13f).apply {
+        accessRow.addView(HostUi.text(this, "Needs Android 11 or later. While smooth video is on, Android shows its screen-sharing icon. After a restart, open Beacon once and accept Android's prompt to turn smooth video back on; until then video is slower and without the phone's sound. Beacon never stores your passcode.", 13f, false, true).apply { setPadding(0, dp(10), dp(24), 0) })
+        accessRow.addView(HostUi.text(this, "", 14f).apply {
             tag = "access-notice"
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
             val note = AccessIntents.notice?.takeIf { it.first == identity.accessBinding() }?.second.orEmpty()
@@ -683,11 +757,37 @@ class MainActivity : Activity() {
         root.addView(lockTypeLine())
         root.addView(HostUi.divider(this))
         val steps = setupSteps()
-        val title = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(18), 0, dp(10)) }
-        title.addView(TextView(this).apply { text = "Device setup"; textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(color(R.color.beacon_text)) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        title.addView(TextView(this).apply { text = "${steps.count { it.done }} of ${steps.size} complete"; textSize = 12f; setTextColor(color(R.color.beacon_muted)); tag = "setup-count" })
+        val left = steps.count { !it.done }
+        val title = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(18), 0, dp(4)) }
+        title.addView(TextView(this).apply { text = "Phone setup"; textSize = 18f; typeface = HostUi.bold(context); setTextColor(color(R.color.beacon_text)); ViewCompat.setAccessibilityHeading(this, true) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        title.addView(TextView(this).apply {
+            text = if (left == 0) "All ${steps.size} done" else "${steps.size - left} of ${steps.size} done"
+            textSize = 14f
+            typeface = HostUi.bold(context)
+            setTextColor(color(if (left == 0) R.color.beacon_green else R.color.beacon_muted))
+            tag = "setup-count"
+        })
         root.addView(title)
+        root.addView(HostUi.text(this, readiness(steps), 14f, false, true).apply { tag = "setup-readiness"; setPadding(0, 0, dp(12), dp(8)) })
         for (step in steps) root.addView(checkRow(step))
+    }
+
+    /**
+     * What works now and what each missing step would add, so a partly set-up phone is described precisely rather than
+     * as "needs attention" (review R15).
+     */
+    private fun readiness(steps: List<SetupStep>): String {
+        val missing = steps.filter { !it.done }.map { it.title }
+        if (missing.isEmpty()) return if (identity.unattended) "Ready. Your account can connect without asking, and you can approve requests from anyone else."
+        else "Ready. People you allow can ask to see this screen, and you approve each request here."
+        if ("Notifications allowed" in missing) return "Nothing can connect yet: Android needs notifications on so Pause and Stop are always visible while sharing."
+        val parts = ArrayList<String>()
+        parts += "Requests you approve work now."
+        if ("Beacon accessibility enabled" in missing) parts += "A viewer can watch but not touch or type until accessibility is on" +
+            (if (identity.unattended || identity.unattendedAfterSetup) ", and Connect without asking needs it too." else ".")
+        if ("Background running allowed" in missing) parts += "Without background running, Android may stop Beacon while the screen is off."
+        if (identity.unattendedAfterSetup && !identity.unattended) parts += "Connect without asking turns on when these are done."
+        return parts.joinToString(" ")
     }
 
     /** What kind of lock the phone has, as far as Beacon has seen: shown under the unlock switch. */
@@ -700,59 +800,52 @@ class MainActivity : Activity() {
             else -> "Lock type: " + when (kind) { "pin" -> "PIN"; "pattern" -> "Pattern"; else -> "Password" } +
                 " (last seen " + android.text.format.DateUtils.getRelativeTimeSpanString(identity.lastLockKindAt, System.currentTimeMillis(), android.text.format.DateUtils.MINUTE_IN_MILLIS) + ")"
         }
-        return HostUi.text(this, text, 12f, false, true).apply { tag = "lock-type"; setPadding(0, 0, 0, dp(14)) }
+        return HostUi.text(this, text, 14f, false, true).apply { tag = "lock-type"; setPadding(0, dp(14), dp(24), dp(14)) }
     }
 
+    /** One setup step: a check badge when done; otherwise the whole row is a 48 dp+ button that does the step. */
     private fun checkRow(step: SetupStep): LinearLayout = LinearLayout(this).apply {
         gravity = Gravity.CENTER_VERTICAL
-        minimumHeight = dp(44)
+        minimumHeight = dp(52)
+        setPadding(0, dp(4), 0, dp(4))
         tag = "setup-${step.title}"
         addView(TextView(context).apply {
             text = if (step.done) "✓" else ""
-            textSize = 10f
-            typeface = Typeface.DEFAULT_BOLD
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 13f)
+            includeFontPadding = false
+            typeface = HostUi.bold(context)
             gravity = Gravity.CENTER
-            setTextColor(color(R.color.beacon_background))
-            background = if (step.done) HostUi.rounded(this@MainActivity, color(R.color.beacon_text), 9)
-            else GradientDrawableRing(this@MainActivity)
-        }, LinearLayout.LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(10) })
+            setTextColor(Color.WHITE)
+            background = if (step.done) HostUi.pill(this@MainActivity, color(R.color.beacon_green))
+            else HostUi.pill(this@MainActivity, Color.TRANSPARENT, color(R.color.beacon_line_strong))
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }, LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginEnd = dp(12) })
         addView(TextView(context).apply {
             text = step.title
-            textSize = 13f
-            setTextColor(color(if (step.done) R.color.beacon_text else R.color.beacon_muted))
+            textSize = 15f
+            typeface = if (step.done) HostUi.font(context, 400) else HostUi.bold(context)
+            setTextColor(color(R.color.beacon_text))
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         if (!step.done) {
             addView(TextView(context).apply {
                 text = "Set up"
-                textSize = 12f
-                typeface = Typeface.DEFAULT_BOLD
-                paintFlags = paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
-                setTextColor(color(R.color.beacon_accent))
+                textSize = 14f
+                typeface = HostUi.bold(context)
+                gravity = Gravity.CENTER
+                minHeight = dp(40)
+                setPadding(dp(16), dp(6), dp(16), dp(6))
+                setTextColor(color(R.color.beacon_on_ink))
+                background = HostUi.pill(this@MainActivity, color(R.color.beacon_ink))
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             })
             isClickable = true
             isFocusable = true
+            contentDescription = "Set up: ${step.button}"
+            HostUi.role(this, Button::class.java.name)
             setOnClickListener { step.action() }
+        } else {
+            contentDescription = "${step.title}: done"
         }
-    }
-
-    @Suppress("FunctionName")
-    private fun GradientDrawableRing(activity: Activity) = HostUi.rounded(activity, Color.TRANSPARENT, 9, 0xFFAEB4AD.toInt())
-
-    private fun confirmUnlock() {
-        HostUi.sheet(this) { panel, close ->
-            panel.addView(HostUi.headline(this, "Allow remote unlocking?", 27f))
-            panel.addView(HostUi.text(this, "An unattended viewer may see and use your phone's lock screen, including entering your passcode. Beacon does not store or log your passcode.", 13f, false, true).apply { setPadding(0, dp(8), 0, dp(18)) })
-            val buttons = LinearLayout(this)
-            buttons.addView(HostUi.button(this, "Cancel").apply { setOnClickListener { close() } }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) })
-            buttons.addView(HostUi.button(this, "Allow unlocking", true).apply {
-                setOnClickListener {
-                    identity.unlockFromViewer = true
-                    close()
-                    render()
-                }
-            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4) })
-            panel.addView(buttons)
-        }.show()
     }
 
     // ---- Privacy tab -------------------------------------------------------------------------------------------
@@ -766,39 +859,30 @@ class MainActivity : Activity() {
     }
 
     private fun renderPrivacy() {
-        subhead("Shared information", "Privacy.", "Choose what a connected viewer can receive.")
+        subhead("Privacy.", "What a connected viewer can receive from this phone.")
         root.addView(HostUi.divider(this))
-        root.addView(HostUi.text(this, "Clipboard", 17f, true).apply { setPadding(0, dp(18), 0, dp(12)) })
-        val segmented = LinearLayout(this).apply {
-            tag = "clipboard-mode"
-            setPadding(dp(4), dp(4), dp(4), dp(4))
-            background = HostUi.rounded(this@MainActivity, color(R.color.beacon_soft), 5)
-        }
-        for ((mode, label) in listOf("auto" to "Automatic", "button" to "Button only", "off" to "Off")) {
-            val selected = identity.clipboardMode == mode
-            segmented.addView(TextView(this).apply {
-                text = label
-                textSize = 12f
-                typeface = Typeface.DEFAULT_BOLD
-                gravity = Gravity.CENTER
-                tag = "clipboard-$mode"
-                minHeight = dp(40)
-                setTextColor(color(if (selected) R.color.beacon_text else R.color.beacon_muted))
-                background = if (selected) HostUi.rounded(this@MainActivity, color(R.color.beacon_surface), 3) else null
-                isClickable = true
-                setOnClickListener {
-                    identity.clipboardMode = mode
-                    render()
-                }
-            }, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(2); marginEnd = dp(2) })
-        }
-        root.addView(segmented)
-        root.addView(HostUi.text(this, clipboardWords(identity.clipboardMode), 12f, false, true).apply { setPadding(0, dp(10), 0, dp(18)) })
+        root.addView(HostUi.text(this, "Clipboard", 18f, true).apply { setPadding(0, dp(16), 0, dp(10)); ViewCompat.setAccessibilityHeading(this, true) })
+        // Each option grows with its text and is at least 48 dp tall, so a 200% font never clips it (review R33).
+        val segmented = HostUi.segmented(this, listOf("auto" to "Automatic", "button" to "Button only", "off" to "Off"), identity.clipboardMode, "clipboard") { mode ->
+            identity.clipboardMode = mode
+            render()
+        }.apply { tag = "clipboard-mode" }
+        root.addView(segmented, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        root.addView(HostUi.text(this, clipboardWords(identity.clipboardMode), 14f, false, true).apply { setPadding(0, dp(10), 0, dp(16)) })
+        root.addView(HostUi.divider(this))
+        // Three different sounds, told apart (review R14): what the phone plays, its microphone, and a viewer's voice.
+        root.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            tag = "phone-sound"
+            setPadding(0, dp(14), 0, dp(16))
+            addView(HostUi.text(this@MainActivity, "Phone sound", 18f, true).apply { setPadding(0, 0, 0, dp(4)) })
+            addView(HostUi.text(this@MainActivity, phoneSoundWords(), 14f, false, true).apply { setPadding(0, 0, dp(24), 0) })
+        })
         root.addView(HostUi.divider(this))
         val granted = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         val (micRow, micSwitch) = HostUi.switchRow(
             this, "Microphone",
-            "Trusted viewers can hear your phone's microphone, even while it's locked. Android shows when it's in use.",
+            "Trusted viewers can also hear what's around the phone through its microphone, even while it's locked. Android shows when it's in use.",
             "mic-toggle", identity.shareMic && granted,
         )
         micSwitch.setOnClickListener {
@@ -822,7 +906,16 @@ class MainActivity : Activity() {
         }
         root.addView(talkRow)
         root.addView(HostUi.divider(this))
-        root.addView(HostUi.text(this, "Receiving files is approved for each attended request. Files are saved to Downloads/Beacon Remote.", 11.5f, false, true).apply { setPadding(0, dp(14), 0, 0) })
+        root.addView(HostUi.text(this, "Receiving files is approved for each attended request. Files are saved to Downloads/Beacon Remote.", 14f, false, true).apply { setPadding(0, dp(14), dp(24), 0) })
+    }
+
+    /** What the phone plays (not the microphone): sent with the screen where Android allows it. */
+    private fun phoneSoundWords(): String = when {
+        Build.VERSION.SDK_INT < 29 -> "Not available: sending what the phone plays needs Android 10 or later."
+        checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED ->
+            "What the phone plays is sent with the screen once Beacon has Android's audio permission. Some apps block it."
+        else -> "What the phone plays is sent with the screen. Some apps block it. This is not the microphone." +
+            if (identity.unattended && !StandingScreen.active) " Without asking, it is sent only while smooth video is on." else ""
     }
 
     // ---- Sheets ------------------------------------------------------------------------------------------------
@@ -830,16 +923,20 @@ class MainActivity : Activity() {
     private fun showMenu() {
         if (!identity.paired) return
         HostUi.sheet(this) { panel, close ->
-            panel.addView(HostUi.headline(this, "More options", 27f))
+            panel.addView(HostUi.headline(this, "More options", 28f))
             fun choice(label: String, danger: Boolean, action: () -> Unit) {
                 panel.addView(HostUi.divider(this))
                 panel.addView(TextView(this).apply {
                     text = label
-                    textSize = 14f
-                    typeface = Typeface.DEFAULT_BOLD
+                    textSize = 16f
+                    typeface = HostUi.bold(context)
+                    gravity = Gravity.CENTER_VERTICAL
+                    minHeight = dp(56)
                     setTextColor(color(if (danger) R.color.beacon_danger else R.color.beacon_text))
-                    setPadding(0, dp(16), 0, dp(16))
+                    setPadding(0, dp(12), 0, dp(12))
                     isClickable = true
+                    isFocusable = true
+                    HostUi.role(this, Button::class.java.name)
                     setOnClickListener { close(); action() }
                 })
             }
@@ -850,12 +947,12 @@ class MainActivity : Activity() {
 
     private fun showDetails() {
         HostUi.sheet(this) { panel, close ->
-            panel.addView(HostUi.headline(this, "Connection details", 27f))
-            panel.addView(HostUi.text(this, "This phone communicates with your Beacon Remote workspace through the following address.", 13f, false, true).apply { setPadding(0, dp(8), 0, dp(18)) })
-            panel.addView(HostUi.text(this, "Server", 12f, false, true).apply { setPadding(0, 0, 0, dp(6)) })
+            panel.addView(HostUi.headline(this, "Connection details", 28f))
+            panel.addView(HostUi.text(this, "This phone talks to your Beacon Remote workspace at this address.", 15f, false, true).apply { setPadding(0, dp(8), 0, dp(18)) })
+            panel.addView(HostUi.text(this, "Server", 14f, true, true).apply { setPadding(0, 0, 0, dp(6)) })
             panel.addView(HostUi.divider(this))
-            val row = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(14), 0, dp(14)) }
-            row.addView(TextView(this).apply { text = identity.server; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(color(R.color.beacon_text)) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            val row = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, dp(6)) }
+            row.addView(TextView(this).apply { text = identity.server; textSize = 15f; typeface = HostUi.mono(context); setTextColor(color(R.color.beacon_text)) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             row.addView(HostUi.link(this, "Copy").apply {
                 setOnClickListener {
                     getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Beacon server", identity.server))
@@ -866,11 +963,15 @@ class MainActivity : Activity() {
             panel.addView(HostUi.divider(this))
             panel.addView(TextView(this).apply {
                 text = "Remove device"
-                textSize = 13f
-                typeface = Typeface.DEFAULT_BOLD
+                textSize = 15f
+                typeface = HostUi.bold(context)
+                gravity = Gravity.CENTER_VERTICAL
+                minHeight = dp(48)
                 setTextColor(color(R.color.beacon_danger))
-                setPadding(0, dp(18), 0, 0)
+                setPadding(0, dp(10), 0, 0)
                 isClickable = true
+                isFocusable = true
+                HostUi.role(this, Button::class.java.name)
                 setOnClickListener { close(); confirmRemove() }
             })
         }.show()
@@ -878,14 +979,15 @@ class MainActivity : Activity() {
 
     private fun confirmRemove() {
         HostUi.sheet(this) { panel, close ->
-            panel.addView(HostUi.headline(this, "Remove this device?", 27f))
-            panel.addView(HostUi.text(this, "This stops sharing and removes the local pairing. To remove the workspace entry, remove this device from your workspace separately.", 13f, false, true).apply { setPadding(0, dp(8), 0, dp(18)) })
+            panel.addView(Character(this, Character.toneFor(identity.machineId), Character.Mood.LOCKED), LinearLayout.LayoutParams(dp(64), dp(66)).apply { bottomMargin = dp(6) })
+            panel.addView(HostUi.headline(this, "Remove this phone?", 28f))
+            panel.addView(HostUi.text(this, "This stops sharing and removes the pairing on this phone. Remove it from your workspace too, so it no longer appears there.", 15f, false, true).apply { setPadding(0, dp(8), 0, dp(18)) })
             val buttons = LinearLayout(this)
             buttons.addView(HostUi.button(this, "Cancel").apply { setOnClickListener { close() } }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) })
             buttons.addView(HostUi.button(this, "Remove device", true).apply {
                 tag = "confirm-remove"
-                background = HostUi.rounded(this@MainActivity, color(R.color.beacon_danger), 4)
-                setTextColor(Color.WHITE)
+                background = HostUi.pill(this@MainActivity, color(R.color.beacon_danger))
+                setTextColor(color(R.color.beacon_on_ink))
                 setOnClickListener { close(); unpair() }
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4) })
             panel.addView(buttons)
@@ -947,7 +1049,7 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT >= 30) {
             list += SetupStep(
                 "Beacon accessibility enabled", "Turn on accessibility", ControlService.enabled(this) && ControlService.instance != null,
-                "Lets an approved viewer touch and type. It does nothing outside a session you approve.",
+                "Lets a viewer touch and type. It acts only while someone is connected: a request you approved, or your own account with Connect without asking on.",
                 hint = "If Android says the setting is restricted: open App info, tap ⋮ (top right), choose Allow restricted settings, then come back.",
             ) { openAccessibilityPage() }
         }
@@ -984,31 +1086,38 @@ class MainActivity : Activity() {
         startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:$packageName")))
     }
 
-    /** The card on the Device tab until setup is done: where you are, what is next, and one button that does it. */
+    /**
+     * The tile on the Device tab until setup is done: how far along, the one next step and why, and one button that does
+     * it. Below the sharing tile, so the phone's private/shared state is always the first thing on screen (review R15).
+     */
     private fun setupCard(): LinearLayout? {
         val steps = setupSteps()
         val next = steps.firstOrNull { !it.done } ?: return null
+        val done = steps.count { it.done }
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             tag = "setup-card"
-            setPadding(dp(18), dp(16), dp(18), dp(18))
-            background = HostUi.rounded(this@MainActivity, color(R.color.beacon_surface), 4, color(R.color.beacon_line))
+            setPadding(dp(20), dp(18), dp(20), dp(20))
+            background = HostUi.tile(this@MainActivity, color(R.color.beacon_tint_sun), 24)
         }
         val top = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-        top.addView(TextView(this).apply { text = "Finish setup"; textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(color(R.color.beacon_text)) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        top.addView(TextView(this).apply { text = "${steps.count { it.done }} of ${steps.size}"; textSize = 12f; setTextColor(color(R.color.beacon_muted)) })
+        top.addView(TextView(this).apply { text = "Finish setup"; textSize = 15f; typeface = HostUi.bold(context); setTextColor(color(R.color.beacon_text)) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        top.addView(TextView(this).apply { text = "Step ${done + 1} of ${steps.size}"; tag = "setup-step"; textSize = 14f; typeface = HostUi.bold(context); setTextColor(color(R.color.beacon_muted)) })
         card.addView(top)
-        val bars = LinearLayout(this).apply { setPadding(0, dp(12), 0, dp(14)) }
+        val bars = LinearLayout(this).apply {
+            setPadding(0, dp(10), 0, dp(12))
+            contentDescription = "$done of ${steps.size} setup steps done"
+        }
         for ((index, step) in steps.withIndex()) {
             bars.addView(View(this).apply {
-                setBackgroundColor(color(if (step.done) R.color.beacon_accent else R.color.beacon_line))
-            }, LinearLayout.LayoutParams(0, dp(4), 1f).apply { if (index > 0) marginStart = dp(4) })
+                background = HostUi.pill(this@MainActivity, color(if (step.done) R.color.beacon_ink else R.color.beacon_line_strong))
+            }, LinearLayout.LayoutParams(0, dp(5), 1f).apply { if (index > 0) marginStart = dp(5) })
         }
         card.addView(bars)
-        card.addView(TextView(this).apply { text = next.title.replace(" allowed", "").replace(" enabled", ""); textSize = 17f; typeface = Typeface.DEFAULT_BOLD; letterSpacing = -0.02f; setTextColor(color(R.color.beacon_text)) })
-        card.addView(HostUi.text(this, next.why, 12.5f, false, true).apply { setPadding(0, dp(6), 0, dp(14)) })
+        card.addView(TextView(this).apply { text = next.title.replace(" allowed", "").replace(" enabled", ""); textSize = 20f; typeface = HostUi.heavy(context); letterSpacing = -0.02f; setTextColor(color(R.color.beacon_text)) })
+        card.addView(HostUi.text(this, next.why, 14f, false, true).apply { setPadding(0, dp(4), 0, dp(12)) })
         next.hint?.let { hint ->
-            card.addView(HostUi.text(this, hint, 11.5f, false, true).apply { setPadding(0, 0, 0, dp(4)) })
+            card.addView(HostUi.text(this, hint, 13f, false, true).apply { setPadding(0, 0, 0, 0) })
             card.addView(HostUi.link(this, "Open app info").apply { gravity = Gravity.START or Gravity.CENTER_VERTICAL; setOnClickListener { openAppInfo() } })
         }
         card.addView(HostUi.button(this, next.button, true).apply {
@@ -1102,6 +1211,8 @@ class MainActivity : Activity() {
     private companion object {
         val pairing = AtomicBoolean(false)
         private const val REQUEST_FAST = 21
+        /** The one combined unattended setting, said the same way on pairing and on Access (review R14). */
+        const val UNATTENDED_SUMMARY = "Your account can see and control this phone without a prompt each time, including unlocking it from the viewer. Pause and Stop stay on screen."
         @Volatile var pairingNotice: String? = null
         @Volatile var page = "device"
     }
