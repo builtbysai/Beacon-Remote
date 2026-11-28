@@ -1,5 +1,7 @@
 # 0017 — Package the working attended host before service persistence
 
+> Superseded by [ADR 0030](0030-windows-installer.md) (the per-user installer) and [ADR 0028](0028-signed-host-updates.md) (signed updates).
+
 Date: 2026-10-12
 
 The owner authorized an unsigned working development installer while service,

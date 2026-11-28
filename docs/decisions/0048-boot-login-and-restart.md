@@ -1,5 +1,7 @@
 # 0048 — Boot startup, Windows sign-in and restart recovery
 
+> November 27, 2026 (owner decision): the one-time elevated sign-in setup and Repair let services send Ctrl+Alt+Del (`SoftwareSASGeneration`, services bit only), and uninstall restores the previous value; wake on request uses it to reach the password prompt. See [signin-authority.md](../signin-authority.md).
+
 Date: 2026-10-30. Scope authorized by the owner; sign-in endpoint not implemented.
 
 November 10 source checkpoint: separate sign-in transport/control, supported

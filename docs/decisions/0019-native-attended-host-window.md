@@ -1,5 +1,7 @@
 # Native attended host window
 
+> Superseded by [ADR 0059](0059-host-window-owns-all-ui.md): one host window now owns pairing, status, consent and sharing.
+
 The installed per-user development host now has a native pairing/status window
 and tray. It shares enrollment, DPAPI persistence and signed presence code with
 the CLI. No browser password or machine private key enters shortcut arguments.
