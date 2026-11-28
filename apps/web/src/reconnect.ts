@@ -25,6 +25,19 @@ export function isRefusal(error: unknown): boolean {
   );
 }
 
+// The browser's own signals that a retry is worth making now.
+export function networkNudge(wake: () => void): () => void {
+  const onVisible = () => {
+    if (document.visibilityState === "visible") wake();
+  };
+  window.addEventListener("online", wake);
+  document.addEventListener("visibilitychange", onVisible);
+  return () => {
+    window.removeEventListener("online", wake);
+    document.removeEventListener("visibilitychange", onVisible);
+  };
+}
+
 export async function reconnectUntil<T>(options: {
   attempt: () => Promise<T | null>;
   isCurrent: () => boolean;
@@ -32,11 +45,24 @@ export async function reconnectUntil<T>(options: {
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => number;
   random?: () => number;
+  // Cuts a backoff wait short (the network came back, the page became visible), so a restored
+  // connection resumes at once instead of after up to 15 seconds. Returns its own cleanup.
+  nudge?: (wake: () => void) => () => void;
 }): Promise<T | null> {
-  const sleep =
+  const wait =
     options.sleep ??
     ((milliseconds: number) =>
       new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
+  const sleep = (milliseconds: number) => {
+    if (!options.nudge) return wait(milliseconds);
+    let release = () => {};
+    return Promise.race([
+      wait(milliseconds),
+      new Promise<void>((resolve) => {
+        release = options.nudge!(resolve);
+      }),
+    ]).finally(() => release());
+  };
   const now = options.now ?? (() => performance.now());
   const giveUpAt = now() + options.windowMs;
   for (let attempt = 0; ; attempt++) {

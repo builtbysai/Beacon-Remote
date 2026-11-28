@@ -26,7 +26,7 @@ import { viewDeadline } from "./deadline.js";
 import { rememberView, forgetView } from "./resume-view.js";
 import { peerLifetime } from "./peer-lifetime.js";
 import { recoverTransport } from "./recover-transport.js";
-import { reconnectUntil } from "./reconnect.js";
+import { networkNudge, reconnectUntil } from "./reconnect.js";
 import { attachRemoteInput } from "./remote-input.js";
 import type { TouchMode } from "./touch-input.js";
 import type { DisplayInfo, SessionPermission } from "@beacon-remote/protocol";
@@ -910,6 +910,7 @@ export function LiveView({
             ),
           isCurrent: () => !finished && !expired(),
           windowMs: (grant.reconnectSeconds ?? 120) * 1000,
+          nudge: networkNudge,
         });
         if (!resumed) return;
         ice.current = { id: grant.id, servers: resumed.iceServers };

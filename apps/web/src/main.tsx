@@ -11,7 +11,8 @@ import {
 } from "./favourites.js";
 import "./style.css";
 import "./viewer.css";
-import { LiveView, type ViewGrant } from "./LiveView.js";
+import { LiveView, displayName, type ViewGrant } from "./LiveView.js";
+import { lastFrame } from "./last-frame.js";
 import { SignInView } from "./SignInView.js";
 import { Brand, ProductPage, pageFromHash } from "./Product.js";
 import { Character, toneFor } from "./Characters.js";
@@ -411,14 +412,30 @@ function App() {
     const machine = machines?.find((entry) => entry.id === view.machineId);
     if (!machine) return;
     const capability = view.grant.capability ?? "desktop:view";
+    // Between the two streams the viewer keeps the last picture on screen, never the computer list or black.
+    const target = machine.displays?.find((entry) => entry.id === displayId);
+    setSwitching({
+      machineId: machine.id,
+      name: machine.name,
+      label: target ? displayName(target) : "the other display",
+    });
     try {
-      await api(`sessions/${view.grant.id}/stop`, {});
-    } catch {
-      // Already ended; a new one can still be requested.
+      try {
+        await api(`sessions/${view.grant.id}/stop`, {});
+      } catch {
+        // Already ended; a new one can still be requested.
+      }
+      setView(null);
+      await testVideo(machine, capability, displayId);
+    } finally {
+      setSwitching(null);
     }
-    setView(null);
-    await testVideo(machine, capability, displayId);
   }
+  const [switching, setSwitching] = useState<{
+    machineId: string;
+    name: string;
+    label: string;
+  } | null>(null);
 
   const connecting = useRef<AbortController | null>(null);
   function openSignIn(machine: Machine) {
@@ -1438,6 +1455,31 @@ function App() {
                 End
               </button>
             </div>
+          )}
+          {!view && switching && (
+            <section
+              className="live-view switching-view"
+              aria-label={`${switching.name} remote viewer`}
+              aria-busy="true"
+            >
+              <header className="viewer-toolbar">
+                <div className="viewer-identity">
+                  <div className="viewer-identity-text">
+                    <strong>{switching.name}</strong>
+                    <span role="status">Switching to {switching.label}…</span>
+                  </div>
+                </div>
+              </header>
+              <div className="viewer-stage fit">
+                {lastFrame(switching.machineId) && (
+                  <img
+                    className="switching-still"
+                    src={lastFrame(switching.machineId)}
+                    alt=""
+                  />
+                )}
+              </div>
+            </section>
           )}
           {view && (
             <LiveView

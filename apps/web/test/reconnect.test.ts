@@ -88,3 +88,29 @@ test("recovery gives up when the server's window has passed or the view is gone"
     null,
   );
 });
+
+test("a nudge (network back) ends the backoff wait at once", async () => {
+  let wake: (() => void) | undefined;
+  let released = 0;
+  let calls = 0;
+  const result = await reconnectUntil({
+    attempt: async () => {
+      calls++;
+      if (calls === 1) {
+        setTimeout(() => wake?.(), 0);
+        throw new Error("offline");
+      }
+      return "resumed";
+    },
+    isCurrent: () => true,
+    windowMs: 60_000,
+    sleep: () => new Promise<void>(() => {}),
+    nudge: (callback) => {
+      wake = callback;
+      return () => released++;
+    },
+  });
+  assert.equal(result, "resumed");
+  assert.equal(calls, 2);
+  assert.equal(released, 1);
+});
