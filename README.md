@@ -1,11 +1,11 @@
 # Beacon Remote
 
-Start development with [docs/workspace.md](docs/workspace.md). See [docs/roadmap.md](docs/roadmap.md) for scope and [docs/development-status.md](docs/development-status.md) for validation and remaining gates.
+Start development with [docs/workspace.md](docs/workspace.md). See [docs/roadmap.md](docs/roadmap.md) for scope and [docs/history/development-status.md](docs/history/development-status.md) for validation and remaining gates.
 
 The hosted alpha has ordinary media and control enabled. The separate Windows
 sign-in endpoint is integrated in source behind default-off build/server gates;
 actual boot/sign-in/control/handoff acceptance remains open. See the current
-[completion checklist](docs/completion-checklist.md) for exact publication and
+[completion checklist](docs/history/completion-checklist.md) for exact publication and
 deployment evidence; a successful build is not physical acceptance.
 
 Windows computers, accessible from a browser. Part of Beacon, independently

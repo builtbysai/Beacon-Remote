@@ -1,7 +1,7 @@
 # Development status
 
-> **Start here (November 28, 2026):** the current state is [handoff-2026-11-27.md](handoff-2026-11-27.md) and the
-> [roadmap](roadmap.md) (including "Experience review findings"). The checkpoints below are dated history,
+> **Start here (November 28, 2026):** the current state is [handoff-2026-11-27.md](../handoff-2026-11-27.md) and the
+> [roadmap](../roadmap.md) (including "Experience review findings"). The checkpoints below are dated history,
 > kept as evidence; where they disagree with the handoff or roadmap, those win.
 
 ## CI audit gate — November 17, 2026
@@ -41,8 +41,8 @@ unchanged. These source changes are pushed on `codex/device-acceptance-preparati
 
 ## Earlier handoff — November 17, 2026, evening
 
-Use the [RDP/VNC parity plan](rdp-vnc-parity-roadmap.md),
-[remaining-test ledger](testing-remaining.md) and [next-chat handoff](next-agent-handoff.md).
+Use the [RDP/VNC parity plan](../rdp-vnc-parity-roadmap.md),
+[remaining-test ledger](../testing-remaining.md) and [next-chat handoff](next-agent-handoff.md).
 The owner changed this chat to a documentation/handoff task; no additional feature
 implementation or device testing is required by that final request.
 
@@ -1126,7 +1126,7 @@ acceptance-schema regressions, typecheck, focused lint and script parsing passed
 Known plaintext recovery staging copies were bounded/hash-checked and removed.
 No View/shared service, signer, server identity, installed DPAPI identity or OS
 account was changed. Historical/provider copies and offline endpoint acceptance
-remain explicitly open in [account-reset.md](account-reset.md).
+remain explicitly open in [account-reset.md](../account-reset.md).
 
 The backup source now accepts a valid zero-account scheduled restore. Shell
 syntax passed, but the pinned operational image has not been updated. A fresh
@@ -1180,7 +1180,7 @@ timeout/late-update tests passed; no SYSTEM window or real input/capture ran.
 Missing Windows binding imports were corrected before the passing full run.
 
 The owner's latest request is a roadmap-only review before resuming development.
-[The roadmap](roadmap.md) now includes the requested appearance, Downloads,
+[The roadmap](../roadmap.md) now includes the requested appearance, Downloads,
 Settings, outgoing-email and whole-product design pass, supplied viewport
 criteria and a clean-slate reset of all Remote accounts and associated data,
 including test accounts. The reset supersedes earlier retained-test-account
@@ -1336,7 +1336,7 @@ remains historical evidence rather than a current database availability claim.
 Media readiness is deliberately false. DXGI capture, scoped input, controller/Stop integration,
 lease-to-worker integration, authenticated transport/browser
 UI and fresh ordinary-desktop handoff remain required. See
-[the implementation boundary](signin-authority.md).
+[the implementation boundary](../signin-authority.md).
 
 Offline disable now uses fixed SCM request/confirmation controls. The supervisor
 drops the worker before flushing a protected restart-persistent latch; failed or
@@ -1430,7 +1430,7 @@ service/worker implementation status. DXGI capture/scoped input, controller/Stop
 integration, lease integration, peer transport/browser UI and fresh
 ordinary-desktop handoff remain unfinished. The launcher uses the documented
 named-pipe correction to ADR 0048's inherited-channel proposal. See
-[the current contract and remaining native work](signin-authority.md).
+[the current contract and remaining native work](../signin-authority.md).
 Do not resume device acceptance, enable sign-in connectability, or claim full
 unattended completion from these checks. The roadmap's later automation,
 additional-platform and feature backlog is also not complete.

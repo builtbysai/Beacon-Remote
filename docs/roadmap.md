@@ -1,11 +1,11 @@
 # Beacon Remote roadmap
 
 Updated November 27, 2026. This is the one current plan. Dated checkpoints, handoffs and earlier plans are in
-[roadmap history](roadmap-history.md); do not copy status from there without checking it.
+[roadmap history](history/roadmap-history.md); do not copy status from there without checking it.
 
 Source and CI do not prove device, boot, privacy or network acceptance. Anything marked "needs a device" is only
 done when a real run is recorded in [testing-remaining.md](testing-remaining.md) or the
-[completion checklist](completion-checklist.md).
+[completion checklist](history/completion-checklist.md).
 
 ## Where the product stands
 
@@ -302,7 +302,7 @@ authorize a deployment or an install, reboot or UAC action on any machine; the o
 
 ## Sources of truth
 
-[completion checklist](completion-checklist.md) (evidence and receipts) · [testing remaining](testing-remaining.md)
+[completion checklist](history/completion-checklist.md) (evidence and receipts) · [testing remaining](testing-remaining.md)
 (next test units) · [RDP/VNC parity plan](rdp-vnc-parity-roadmap.md) (detailed backlog P0–P3) ·
-[development status](development-status.md) (last verified checkpoints) · [sign-in authority](signin-authority.md) ·
-[windows agent](windows-agent.md) · [owner actions](owner-actions.md) · [roadmap history](roadmap-history.md)
+[development status](history/development-status.md) (last verified checkpoints) · [sign-in authority](signin-authority.md) ·
+[windows agent](windows-agent.md) · [owner actions](owner-actions.md) · [roadmap history](history/roadmap-history.md)

@@ -90,6 +90,6 @@ that hardware, device reboot and real cross-network owner control/file-transfer
 acceptance remain required. The emulator is not a substitute. Native and Android
 setup UI have not received a complete visual/accessibility acceptance pass.
 
-See [the acceptance guide](unattended-access.md). Migration 023 is additive and
+See [the acceptance guide](../unattended-access.md). Migration 023 is additive and
 must precede a matching backend/web rollout. Keep existing deployment, signing
 material and rollback evidence intact. Broad cleanup follows device acceptance.

@@ -18,7 +18,7 @@ Next bounded unit is physical Surfiena control/Stop/key release (P0-2). No devic
 or hosted runtime changes ran in this continuation. The paragraph below records
 the preceding physical checkpoint; use the updated handoff before acting.
 
-Evening handoff: follow [next-agent-handoff.md](next-agent-handoff.md),
+Evening handoff: follow [next-agent-handoff.md](history/next-agent-handoff.md),
 [rdp-vnc-parity-roadmap.md](rdp-vnc-parity-roadmap.md) and
 [testing-remaining.md](testing-remaining.md). Rotation routing is fixed in `c22dc2f`
 and physically verified with local compiled viewer assets; permission revoke/
@@ -85,7 +85,7 @@ unchanged. The earlier release checkpoints below are historical.
 
 ## Earlier checkpoint - November 15, 2026
 
-Use [completion-checklist.md](completion-checklist.md) and [roadmap.md](roadmap.md).
+Use [completion-checklist.md](history/completion-checklist.md) and [roadmap.md](roadmap.md).
 PRs #115-#117 and #124 are merged. The VM runs tested application source
 `5e8d5c5` from #124. All four CI jobs, ARM64 runtime verification, migrations
 025-029, quiesced encrypted backup/integrity/isolated recovery and both products'
@@ -144,7 +144,7 @@ desktop authorization. Synthetic browser restart/Stop/cancellation passed, with
 reconnect Cancel reachable above the inventory at narrow and short sizes. No OS
 reboot or actual SYSTEM acceptance ran; readiness/public connectability remain
 disabled. Setup/readiness, reliable Disable and the remaining design/features
-are unfinished. The [completion checklist](completion-checklist.md) supersedes
+are unfinished. The [completion checklist](history/completion-checklist.md) supersedes
 the historical implementation gaps in dated notes below.
 
 Implemented work includes local standing owner access, optional presence-only Windows boot service with separate credential/ACL, signed boot availability, shared inventory/session readiness, Android accessibility capture with visible local opt-in/Stop, and fresh-policy restart recovery with signed host process markers. Migrations 023/024 must precede matching backend/client deployment. Existing security, single-controller, lease, local-revoke and protected-desktop boundaries remain required.
@@ -216,7 +216,7 @@ successful viewer transfer does not cancel the new ordinary session. Full native
 and control-plane checks and a real-browser synthetic RTC transition passed.
 Apply migrations 027/028 and matching source together; no rollout or actual
 Windows unlock/capture/input acceptance ran. Readiness remains false. Follow
-[the completion checklist](completion-checklist.md) for remaining implementation
+[the completion checklist](history/completion-checklist.md) for remaining implementation
 and gates rather than rebuilding dated foundations above.
 
 Use Node 22.13–22.x, pnpm 11.9.0, Rust/MSVC/Windows SDK and the Android SDK/JDK where needed. `pnpm install --frozen-lockfile` installs the reviewed lockfile. Workspace configuration uses hoisted copied dependencies and injected workspace packages without deduplicating them into directory links. Build/typecheck/test/dev scripts refresh injected copies; after editing protocol source, run its typecheck/build workflow or reinstall before consuming it. Regenerate dependencies after changing OS/architecture or toolchains even when the folder itself can be moved.
@@ -248,7 +248,7 @@ No production deployment is part of workspace publication. Existing `beacon-orac
 
 The old audit, archive and migration directories have been removed. Use this guide, the roadmap and development-status.md for current work. Never recover occupied ports by stopping their owners. Back up before installs/moves/cleanup and test restoration; GitHub protects pushed source, not ignored secrets, databases or enrolled identities.
 
-Last validated checkpoint: [development-status.md](development-status.md). This records the actual checks and remaining acceptance gates.
+Last validated checkpoint: [development-status.md](history/development-status.md). This records the actual checks and remaining acceptance gates.
 
 ## Approved design
 

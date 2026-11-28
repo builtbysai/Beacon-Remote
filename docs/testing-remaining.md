@@ -1,7 +1,7 @@
 # Remaining acceptance and completed evidence
 
 Checkpoint: November 17, 2026. Use with the [parity roadmap](rdp-vnc-parity-roadmap.md)
-and [next-agent handoff](next-agent-handoff.md). This ledger prevents repetition
+and [next-agent handoff](history/next-agent-handoff.md). This ledger prevents repetition
 of completed tests and prevents source-only checks being called acceptance.
 
 For P0-4 Windows files and recording, request each from a connected view-only

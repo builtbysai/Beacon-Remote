@@ -28,6 +28,6 @@ This review did not adopt their dependency changes.
 The current feature branch has 12 published commits after main, ending at
 `8df0741b`, and no implementation PR. November 7 source edits are uncommitted
 local development. The separate initial Windows sign-in endpoint, UI/transport
-and secure desktop handoff remain unfinished; see [sign-in development](signin-authority.md).
+and secure desktop handoff remain unfinished; see [sign-in development](../signin-authority.md).
 The existing support chat/handoff feature should not be confused with that OS
 desktop transition.

@@ -1,13 +1,13 @@
 # Beacon Remote: next-chat development and acceptance handoff
 
-> **Start here (November 28, 2026):** the current state is [handoff-2026-11-27.md](handoff-2026-11-27.md) and the
-> [roadmap](roadmap.md) (including "Experience review findings"). The checkpoints below are dated history,
+> **Start here (November 28, 2026):** the current state is [handoff-2026-11-27.md](../handoff-2026-11-27.md) and the
+> [roadmap](../roadmap.md) (including "Experience review findings"). The checkpoints below are dated history,
 > kept as evidence; where they disagree with the handoff or roadmap, those win.
 
 Latest state: see [the 21 November handoff](handoff-2026-11-21.md). The notes below are older evidence.
 
 November 17, 2026. Read the workspace instructions, then this file, the
-[parity roadmap](rdp-vnc-parity-roadmap.md), [test ledger](testing-remaining.md)
+[parity roadmap](../rdp-vnc-parity-roadmap.md), [test ledger](../testing-remaining.md)
 and [development status](development-status.md). The preceding chat ended with
 this handoff and an RDP/VNC feature audit; development has since resumed below.
 No new chat was created automatically. This document records scope and evidence;
@@ -46,7 +46,7 @@ Not done: Pixel control expiry, lock, accessibility loss, Stop during a transfer
 (a 120 MB test file and driver exist in the private preparation folder; the phone
 locked itself while waiting and only the owner can unlock it), and Pause then a
 fresh offer; Windows mute button, session listing, monitor changes and printing;
-the measured RDP/VNC comparison (see [the comparison record](rdp-vnc-comparison.md));
+the measured RDP/VNC comparison (see [the comparison record](../rdp-vnc-comparison.md));
 USB forwarding, native session attach and trusted sound/microphone.
 
 Device notes: never enter the Pixel passcode; ask the owner to unlock. A
@@ -123,7 +123,7 @@ emulator screenshot fixture now checks channel loss with app-wide notifications
 still enabled. Android unit tests, lint, debug APK and instrumentation builds
 passed. The fixture passed on an owned Android API 36 emulator, observing actual
 screenshot frames cease after channel removal. See the
-[test ledger](testing-remaining.md) for the remaining physical Settings cases.
+[test ledger](../testing-remaining.md) for the remaining physical Settings cases.
 
 P0-2 is still the next physical unit. On this continuation Surfiena SSH timed
 out, and the maintained acceptance status probe returned 502 on both the
@@ -349,7 +349,7 @@ features that have not been implemented at all; tests cannot supply those featur
 
 Suggested owner message for the new chat:
 
-> Continue Beacon Remote from D:/Dev/Beacon-Remote. Read docs/next-agent-handoff.md,
+> Continue Beacon Remote from D:/Dev/Beacon-Remote. Read docs/history/next-agent-handoff.md,
 > docs/rdp-vnc-parity-roadmap.md and docs/testing-remaining.md. I authorize development
 > and automated testing with full control of my connected Pixel through ADB and
 > Surfiena through its existing SSH setup, within the documented OS/consent and

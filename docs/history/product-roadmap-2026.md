@@ -2,8 +2,8 @@
 
 Revision 2 updates the November 2026 roadmap with the evidence from the Pixel
 re-pairing and control runs, the Surfiena blockers, and a competitor feature check.
-Detailed capability notes stay in [rdp-vnc-parity-roadmap.md](rdp-vnc-parity-roadmap.md).
-Test results stay in [testing-remaining.md](testing-remaining.md).
+Detailed capability notes stay in [rdp-vnc-parity-roadmap.md](../rdp-vnc-parity-roadmap.md).
+Test results stay in [testing-remaining.md](../testing-remaining.md).
 
 ## 1. Goal
 
@@ -79,7 +79,7 @@ with known gaps. **missing** means not built. Hardware items need a device.
 
 ## 4. Milestones
 
-Each milestone has an exit gate. Evidence goes into [testing-remaining.md](testing-remaining.md).
+Each milestone has an exit gate. Evidence goes into [testing-remaining.md](../testing-remaining.md).
 
 ### M0. Environment with no blockers (now)
 
@@ -197,7 +197,7 @@ enabled_accessibility_services ''`. The session ended within about 5 s, unattend
 - Pixel 8 s Wi-Fi drop on the fixed backend (19 Nov, ~19:10): the session ended and did not resume.
   Phone log: signaling socket failure then "Session ended: Connection lost"; the backend also finishes a
   session when the host socket closes. The viewer already reconnects, so auto-resume needs host-side
-  changes on both Android and the backend. Design written in [host-reconnect-design.md](host-reconnect-design.md);
+  changes on both Android and the backend. Design written in [host-reconnect-design.md](../host-reconnect-design.md);
   awaiting owner approval and two answers (window length; attended sessions).
 - Auto-resume build log (19 Nov, 19:00 to 20:45): the phone now waits 20 s after a lost connection, retries every
   2 s and re-attaches (log: "Connection lost; waiting", then "Reconnected after a short network loss", about 10 s after
@@ -325,7 +325,7 @@ Until then the claim is "measured" or "different by design", never "better".
 ## 8. Working rules
 
 - Every change ships with the smallest test that protects the behavior.
-- Every device test is recorded in [testing-remaining.md](testing-remaining.md) with build and hardware.
+- Every device test is recorded in [testing-remaining.md](../testing-remaining.md) with build and hardware.
 - Development checkpoints are committed and pushed to the feature branch. Deployment to a
   shared server is a separate, explicit step.
 - Destructive actions on devices (wiping accounts, reinstalling) need an owner request.

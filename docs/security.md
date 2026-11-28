@@ -1,6 +1,6 @@
 # Security boundaries
 
-See the [October 12 public-source security review](security-review-2026-10-12.md)
+See the [October 12 public-source security review](history/security-review-2026-10-12.md)
 for inspected history, CI hardening, publication settings and remaining gates.
 Public source visibility does not authorize a general-consumer or media release.
 

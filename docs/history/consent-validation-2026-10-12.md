@@ -14,7 +14,7 @@ The native prompt defaults to Decline, identifies the requester and remains
 cancellable while signaling is read. Cancellation, disconnect, expiry and input
 desktop loss deny sharing; the original monotonic deadline includes setup and
 the person's response. Loopback WebSocket checks use no approval or capture.
-See [the design decision](decisions/0013-cancellable-attended-consent.md).
+See [the design decision](../decisions/0013-cancellable-attended-consent.md).
 
 A native-only follow-up fixes message-queue cleanup on a reused blocking thread.
 Destroying a prompt before starting its pump previously posted a quit message

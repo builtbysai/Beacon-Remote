@@ -1,11 +1,11 @@
 # Beacon Remote completion checklist
 
-> **Start here (November 28, 2026):** the current state is [handoff-2026-11-27.md](handoff-2026-11-27.md) and the
-> [roadmap](roadmap.md) (including "Experience review findings"). The checkpoints below are dated history,
+> **Start here (November 28, 2026):** the current state is [handoff-2026-11-27.md](../handoff-2026-11-27.md) and the
+> [roadmap](../roadmap.md) (including "Experience review findings"). The checkpoints below are dated history,
 > kept as evidence; where they disagree with the handoff or roadmap, those win.
 
 Current checkpoint: November 17, 2026. This is the single current completion
-tracker for the owner's full-roadmap goal. The [roadmap](roadmap.md) defines
+tracker for the owner's full-roadmap goal. The [roadmap](../roadmap.md) defines
 scope; [development status](development-status.md) retains dated validation
 records. Historical entries do not override this tracker or grant new release
 authorization. No percentage is inferred from passing builds.
@@ -27,7 +27,7 @@ authorization. No percentage is inferred from passing builds.
 ## Earlier continuation scope — November 17 evening
 
 The owner requested a full RDP/VNC gap audit and next-agent handoff. Use
-[the parity backlog](rdp-vnc-parity-roadmap.md), [remaining testing](testing-remaining.md)
+[the parity backlog](../rdp-vnc-parity-roadmap.md), [remaining testing](../testing-remaining.md)
 and [the handoff](next-agent-handoff.md) as the detailed current queues.
 Pixel rotation/input now passed with local viewer `c22dc2f`; accessibility revoke/
 recovery and 3 MiB hash-verified file receipt also passed. Signed Android `1afcc9e`

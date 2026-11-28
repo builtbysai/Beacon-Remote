@@ -96,7 +96,7 @@ evidence remains in the October 29 record; physical-phone acceptance is pending.
 The owner's subsequent clarification requires initial Windows sign-in-screen
 control and full optional boot startup. That privileged endpoint remains
 unimplemented. It is a development requirement, not just a hardware acceptance
-gate. See [ADR 0048](decisions/0048-boot-login-and-restart.md).
+gate. See [ADR 0048](../decisions/0048-boot-login-and-restart.md).
 
 Windows administrator service installation, repair, reboot and uninstall still
 need acceptance on the designated second PC. Physical Android and real remote

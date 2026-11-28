@@ -5,7 +5,7 @@
 ## Unattended development (October 29)
 
 Read [unattended setup and acceptance](unattended-access.md) and
-[the validation record](validation-2026-10-29.md). Migration 023 is applied by the
+[the validation record](history/validation-2026-10-29.md). Migration 023 is applied by the
 normal migration runner. Boot presence is separate from interactive presence and
 never enables media. Local test setup must not install a real system service
 without the tester approving Windows administrator setup.

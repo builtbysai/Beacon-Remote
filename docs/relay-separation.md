@@ -9,7 +9,7 @@ The deployable Remote-owned candidate is now in
 It passed actual authenticated allocation, IPv4 forbidden-peer permissions,
 foreign-secret rejection, combined admission limits and cleanup/recovery against
 the pinned non-root image in an isolated local Docker fixture. See
-[the validation record](relay-validation-2026-10-11.md). A standalone instance is
+[the validation record](history/relay-validation-2026-10-11.md). A standalone instance is
 now deployed on Oracle and passed VM protocol checks with real separate product
 secrets. Public TCP reachability and authenticated UDP relay-pair traffic passed
 from Windows after the owner approved the three narrow Oracle ingress rules.

@@ -1,6 +1,6 @@
 # Beacon Remote roadmap history
 
-Dated checkpoints and earlier plans, kept unedited for evidence. The current plan is in [roadmap.md](roadmap.md);
+Dated checkpoints and earlier plans, kept unedited for evidence. The current plan is in [roadmap.md](../roadmap.md);
 read this file only to see why something was decided or what a past checkpoint recorded.
 
 ## Not yet released (internal; not shown on the public Security page)
@@ -11,8 +11,8 @@ The public Security page describes only what ships. These items stay here until 
   starts at the sign-in screen, the server offers "Open sign-in", the viewer connects, and the real sign-in screen
   streams at 25 frames per second; a click in the viewer woke the lock screen to the PIN prompt (November 26, 2026).
   Not yet accepted: typing a password or PIN through the viewer, secure attention, a lock-screen wake-up without a
-  click, and a boot-to-sign-in run on a clean install. See [sign-in authority](signin-authority.md).
-- The full device and network acceptance matrix ([remaining testing](testing-remaining.md)).
+  click, and a boot-to-sign-in run on a clean install. See [sign-in authority](../signin-authority.md).
+- The full device and network acceptance matrix ([remaining testing](../testing-remaining.md)).
 - Peer authentication against the signaling service.
 - Email recovery depends on the operator's server setup.
 
@@ -27,9 +27,9 @@ and historical runtime/device distinctions; no hosted/device changes ran here.
 
 The owner now requests modern RDP/VNC feature parity and additional agent/support
 capabilities. The complete audited implementation plan is
-[RDP/VNC parity and beyond](rdp-vnc-parity-roadmap.md), with every supplied gap
+[RDP/VNC parity and beyond](../rdp-vnc-parity-roadmap.md), with every supplied gap
 corrected against current code/evidence and additional missing feature families
-explicitly queued. Use [remaining testing](testing-remaining.md) to avoid repeating
+explicitly queued. Use [remaining testing](../testing-remaining.md) to avoid repeating
 completed tests, and [the next-chat handoff](next-agent-handoff.md) to resume.
 
 Prior physical checkpoint used Android `1afcc9e`: `c22dc2f` fixes rotation-triggered input
@@ -248,9 +248,9 @@ remain unfinished. No real-device/readiness gate was raised.
 The original approved idea is one coherent product: browser workspace,
 Windows/Android host setup and pairing, owner unattended access, attended/guest
 support with visible control, reliable reconnect and a consistent interface.
-The approved [design specification](../design/prototype/DESIGN_SPEC.md) and
-[ADRs 0047](decisions/0047-unattended-owner-access.md)/
-[0048](decisions/0048-boot-login-and-restart.md) define that scope. Automation/Motive
+The approved [design specification](../../design/prototype/DESIGN_SPEC.md) and
+[ADRs 0047](../decisions/0047-unattended-owner-access.md)/
+[0048](../decisions/0048-boot-login-and-restart.md) define that scope. Automation/Motive
 is a later requested milestone; the unmerged view-only MCP work does not deliver
 full computer use. Working features must be preserved during the redesign.
 
@@ -315,7 +315,7 @@ scrollbars. Record any untested platforms honestly.
 
 ### Requested clean-slate account/data reset
 
-November 8 execution checkpoint: [the reset record](account-reset.md) now records
+November 8 execution checkpoint: [the reset record](../account-reset.md) now records
 the committed reset of all four databases after independent encrypted recovery,
 passing current/legacy regressions, empty-store checks and refusal of both old
 production logins. Current obsolete credential records/canonical dumps and known
@@ -383,7 +383,7 @@ exist in source, including rotation/cursor composition that awaits GPU acceptanc
 An initial scoped input adapter now exists with fake-sink cleanup regressions;
 initial native/browser transport and controls are now wired in source. Actual
 OS interoperability, persistent Disable failure handling and fresh desktop
-handoff remain unfinished; [the current implementation contract](signin-authority.md)
+handoff remain unfinished; [the current implementation contract](../signin-authority.md)
 records that boundary. Device testing is paused by owner direction while source
 development continues. [The live branch/PR review](branch-review-2026-11-07.md)
 accounts for the branches and nine open PRs at that review date. Existing temporary
@@ -445,12 +445,12 @@ matching `BeaconRemoteDevelopment-5f019c49` folder/ZIP/trust folder and
 `BeaconRemoteHost-4e7a39fc.apk`. These do not represent today's uncommitted source.
 Historical native CI, hashes and signatures are not current install/media
 acceptance. Rebuild matching signed artifacts before acceptance/release. The
-owner-approved [visual reference](../design/prototype/README.md) uses simulated
+owner-approved [visual reference](../../design/prototype/README.md) uses simulated
 flows, not implemented product behavior.
 
 ## Active milestone: finish unattended owner access
 
-The owner's October 20 direction is in [PR #113](https://github.com/builtbysai/Beacon-Remote/pull/113). The October 30 clarification explicitly requires optional boot startup, control at the initial Windows sign-in screen and fresh-policy reconnect after restart. Signed-in-only access does not complete this milestone. [ADR 0047](decisions/0047-unattended-owner-access.md), [ADR 0048](decisions/0048-boot-login-and-restart.md) and [unattended-access.md](unattended-access.md) define the boundary.
+The owner's October 20 direction is in [PR #113](https://github.com/builtbysai/Beacon-Remote/pull/113). The October 30 clarification explicitly requires optional boot startup, control at the initial Windows sign-in screen and fresh-policy reconnect after restart. Signed-in-only access does not complete this milestone. [ADR 0047](../decisions/0047-unattended-owner-access.md), [ADR 0048](../decisions/0048-boot-login-and-restart.md) and [unattended-access.md](../unattended-access.md) define the boundary.
 
 | Area                                    | Current evidence                                                                                                                                          | Remaining work                                                                                                                          |
 | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
@@ -472,7 +472,7 @@ actual Windows and device acceptance remain open.
 
 1. **Resume ADR 0048 implementation.** Build a separate administrator-enabled machine endpoint, default off, with owner-only sign-in authority and short leases. Keep the boot-presence credential incapable of desktop access. Use the supported interactive-session worker/desktop boundary; never put capture/input in Session 0 or weaken UAC/UIPI/desktop ACLs. Disable files, clipboard, audio, recording and automation in sign-in scope. Terminate that worker on Windows sign-in and obtain fresh ordinary-host authorization.
 2. **Validate the machine boundary before treating sign-in as connectable.** Exercise authorization/replay/account isolation, restricted installation/IPC, worker lifetime, desktop switches, local Stop, lease expiry, held-input release and revocation. Preserve current ordinary-session rejection of secure desktops. Run the relevant real-PostgreSQL and native checks; local CI must not install services or reboot this workstation.
-3. **Resume device acceptance after development is ready.** The owner supplied a USB Pixel and a Windows SSH endpoint; the November 7 readiness session verified those connections. Testing is now paused by owner direction. Reconfirm device identity and availability when testing resumes; do not probe unrelated endpoints. Cold boot/sign-in/restart/uninstall and true separate-network capture/control/file gates remain open. Use [acceptance-checklist.md](acceptance-checklist.md), [unattended-access.md](unattended-access.md) and the October 29/30 records; compilation or emulator screenshots do not close these gates.
+3. **Resume device acceptance after development is ready.** The owner supplied a USB Pixel and a Windows SSH endpoint; the November 7 readiness session verified those connections. Testing is now paused by owner direction. Reconfirm device identity and availability when testing resumes; do not probe unrelated endpoints. Cold boot/sign-in/restart/uninstall and true separate-network capture/control/file gates remain open. Use [acceptance-checklist.md](../acceptance-checklist.md), [unattended-access.md](../unattended-access.md) and the October 29/30 records; compilation or emulator screenshots do not close these gates.
 4. **Integrate and release deliberately after evidence review.** Reconcile roadmap PR #113 with this newer implementation branch, resolve current dependency/CI failures against the proposed head, and review the seven Dependabot PRs rather than merging old lockfiles blindly. Apply migrations 023/024 before compatible backend/hosts; update v2-emitting hosts only after the backend, and roll hosts back first. Credential-maintenance backend/data image pins must be explicitly reviewed for a code release. Use the new signers and fresh enrollment. Keep the separate acceptance fixture's STOP marker/services stopped until deliberately scheduled.
 5. **Then take up automation.** Review the view-only MCP work in #105, integrate/revalidate it on the current stack and prove a live consented session. Full computer-use input, UI-tree semantics, scoped automation tokens, audit and Beacon Motive integration follow as their own milestone. A green protocol test is not a working Motive integration.
 
@@ -525,4 +525,4 @@ Keep these tasks visible without starting them inside unattended endpoint work:
 
 ## Working boundaries
 
-Preserve View on the shared VM/workstation, independent databases and dedicated relay ownership. Keep visible sharing, single-controller authority, local revoke, short leases, the unattended idle limit, fresh-policy reconnect and protected-content handling. Never bypass Windows credentials, secure desktop rules, Android lock/PIN or protected content. Read [security.md](security.md), [architecture.md](architecture.md) and [workspace.md](workspace.md) before implementation. November 1 automated checks and November 2 roadmap inspection do not prove new hardware acceptance or authorize a deployment.
+Preserve View on the shared VM/workstation, independent databases and dedicated relay ownership. Keep visible sharing, single-controller authority, local revoke, short leases, the unattended idle limit, fresh-policy reconnect and protected-content handling. Never bypass Windows credentials, secure desktop rules, Android lock/PIN or protected content. Read [security.md](../security.md), [architecture.md](../architecture.md) and [workspace.md](../workspace.md) before implementation. November 1 automated checks and November 2 roadmap inspection do not prove new hardware acceptance or authorize a deployment.
