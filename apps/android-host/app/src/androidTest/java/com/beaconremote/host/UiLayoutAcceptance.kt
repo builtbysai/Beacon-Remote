@@ -63,9 +63,27 @@ class UiLayoutAcceptance : Instrumentation() {
             (targetContext.applicationContext as Application).registerActivityLifecycleCallbacks(callbacks)
             registered = true
             ownsIdentity = true
-            val screen = startActivitySync(Intent(targetContext, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            startActivitySync(Intent(targetContext, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             waitFor("pairing form") { current.get() is MainActivity }
             screenshot(automation, "pairing-light")
+            appearance(automation, current, "yes", "1.0")
+            screenshot(automation, "pairing-dark")
+            appearance(automation, current, "no", "1.0")
+            // Review R09: a pairing link fills the form, names its unusual server in plain words, and pairs nothing until Pair.
+            val link = android.net.Uri.parse("beaconremote://pair").buildUpon()
+                .appendQueryParameter("code", "aB3_dE6-gH9_jK2-mN5_pQ8-rS1_tU4v").appendQueryParameter("server", server).build()
+            onMain { targetContext.startActivity(Intent(Intent.ACTION_VIEW, link).setPackage(targetContext.packageName).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)) }
+            waitFor("link filled the form") { (current.get() as? MainActivity)?.findViewById<EditText>(R.id.pair_code)?.text?.toString() == "aB3_dE6-gH9_jK2-mN5_pQ8-rS1_tU4v" }
+            onMain {
+                val active = current.get() as MainActivity
+                check(active.findViewById<EditText>(R.id.pair_server).text.toString() == server) { "The link's server was not put in the form" }
+                val note = tagged(active, "pair-server-note") as android.widget.TextView
+                check(note.visibility == View.VISIBLE && note.text.contains(android.net.Uri.parse(server).host!!)) { "An unusual server was not shown before Pair" }
+            }
+            SystemClock.sleep(1500)
+            check(!identity.paired && fixture(server).optInt("enrollments") == 0) { "A pairing link paired without a tap" }
+            screenshot(automation, "pairing-link-light")
+            val screen = current.get() as MainActivity
             onMain {
                 screen.findViewById<EditText>(R.id.pair_server).setText(server)
                 screen.findViewById<EditText>(R.id.pair_name).setText("Synthetic Android device with a long name")
@@ -117,6 +135,8 @@ class UiLayoutAcceptance : Instrumentation() {
             shell(automation, "settings put secure enabled_accessibility_services com.beaconremote.host/.ControlService")
             shell(automation, "settings put secure accessibility_enabled 1")
             waitFor("accessibility binding") { UnattendedAccess.ready(targetContext) }
+            // The switch lives on the Access tab since the Nov 20 tab redesign.
+            openTab(current, "access", "access-toggle")
             onMain { (tagged(current.get(), "access-toggle") as Button).performClick() }
             waitFor("enable request reached the dummy server") { fixture(server).optInt("enables") > 0 }
             onMain { (tagged(current.get(), "access-toggle") as Button).performClick() }
@@ -124,7 +144,53 @@ class UiLayoutAcceptance : Instrumentation() {
             check(!identity.unattended) { "A late enable response restored access" }
             onMain { ControlService.instance?.disableSelf() }
             waitFor("accessibility disabled") { ControlService.instance == null }
+            // Guided setup may have opened Android's accessibility page over the app; bring the app back in front.
+            onMain { targetContext.startActivity(Intent(targetContext, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)) }
+            openTab(current, "device", "session-card")
             screenshot(automation, "paired-light")
+            // The paired tabs in both themes, then Privacy at the system's largest font (review R33: no clipped choice).
+            for (night in listOf("no", "yes")) {
+                appearance(automation, current, night, "1.0")
+                val theme = if (night == "yes") "dark" else "light"
+                for ((page, marker) in listOf("device" to "session-card", "access" to "access-toggle", "privacy" to "clipboard-mode")) {
+                    openTab(current, page, marker)
+                    screenshot(automation, "$page-$theme")
+                }
+                // The "..." menu sheet, then its Connection details sheet.
+                onMain { tagged(current.get(), "more-options")!!.performClick() }
+                SystemClock.sleep(600)
+                screenshot(automation, "menu-$theme")
+                shell(automation, "input keyevent KEYCODE_BACK")
+                SystemClock.sleep(400)
+            }
+            appearance(automation, current, "no", "2.0")
+            openTab(current, "privacy", "clipboard-mode")
+            onMain {
+                val active = current.get()!!
+                val minimum = (48 * active.resources.displayMetrics.density).toInt()
+                for (mode in listOf("auto", "button", "off")) {
+                    val segment = tagged(active, "clipboard-$mode") as android.widget.TextView
+                    val layout = checkNotNull(segment.layout)
+                    val needed = layout.getLineBottom(layout.lineCount - 1) + segment.totalPaddingTop + segment.totalPaddingBottom
+                    check(segment.height >= needed) { "Clipboard choice clipped at 200% font: $mode (${segment.height} < $needed)" }
+                    check(segment.height >= minimum) { "Clipboard choice under 48 dp: $mode" }
+                    for (line in 0 until layout.lineCount - 1) check(segment.text[layout.getLineEnd(line) - 1].isWhitespace()) { "Clipboard choice broken mid-word at 200% font: $mode" }
+                    val info = android.view.accessibility.AccessibilityNodeInfo.obtain()
+                    segment.onInitializeAccessibilityNodeInfo(info)
+                    check(info.isCheckable && info.isChecked == (Identity(active).clipboardMode == mode)) { "Clipboard choice does not report its selection: $mode" }
+                }
+                // The tabs say which one is selected, and every tab is a 48 dp+ target.
+                for (page in listOf("device", "access", "privacy")) {
+                    val item = tagged(active, "nav-$page")!!
+                    val info = android.view.accessibility.AccessibilityNodeInfo.obtain()
+                    item.onInitializeAccessibilityNodeInfo(info)
+                    check(info.isSelected == (page == "privacy")) { "Tab does not report its selection: $page" }
+                    check(item.height >= minimum) { "Tab under 48 dp: $page" }
+                }
+            }
+            screenshot(automation, "privacy-large-light")
+            appearance(automation, current, "no", "1.0")
+            openTab(current, "device", "session-card")
             val grant = JSONObject().put("id", UUID.randomUUID().toString()).put("token", "synthetic-not-a-real-grant")
                 .put("controller", "Long synthetic helper identity — fixture@example.test")
                 .put("capability", "desktop:control")
@@ -229,16 +295,36 @@ class UiLayoutAcceptance : Instrumentation() {
         failure.get()?.let { throw it }
     }
     private data class Mode(val name: String, val rotation: Int, val scale: String, val night: String)
+    /** Sets dark mode and font scale, then waits until the app's screen has been recreated with both. */
+    private fun appearance(ui: UiAutomation, current: AtomicReference<Activity?>, night: String, scale: String) {
+        shell(ui, "settings put system font_scale $scale")
+        shell(ui, "cmd uimode night $night")
+        SystemClock.sleep(1000)
+        waitFor("appearance night=$night font=$scale") {
+            val config = (current.get() as? MainActivity)?.resources?.configuration
+            config != null && config.fontScale == scale.toFloat() &&
+                (config.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES) == (night == "yes")
+        }
+        waitForIdleSync()
+    }
+    private fun openTab(current: AtomicReference<Activity?>, page: String, marker: String) {
+        onMain { tagged(current.get(), "nav-$page")!!.performClick() }
+        waitFor("$page tab") { tagged(current.get(), marker) != null }
+        waitForIdleSync()
+    }
     private fun tagged(activity: Activity?, tag: String): View? = activity?.window?.decorView?.findViewWithTag(tag)
     private fun checkboxes(view: View): List<CheckBox> = if (view is CheckBox) listOf(view) else if (view is android.view.ViewGroup) (0 until view.childCount).flatMap { checkboxes(view.getChildAt(it)) } else emptyList()
     private fun waitFor(what: String, condition: () -> Boolean) {
+        android.util.Log.i("UiLayoutAcceptance", "wait: $what")
         repeat(100) { if (condition()) return; SystemClock.sleep(100) }
         error("Timed out: $what")
     }
     private fun shell(ui: UiAutomation, command: String) { android.os.ParcelFileDescriptor.AutoCloseInputStream(ui.executeShellCommand(command)).use { it.readBytes() } }
     private fun fixture(server: String): JSONObject = Api.http.newCall(Request.Builder().url("$server/fixture/state").build()).execute().use { JSONObject(it.body!!.string()) }
     private fun screenshot(ui: UiAutomation, name: String) {
-        SystemClock.sleep(150)
+        android.util.Log.i("UiLayoutAcceptance", "screenshot: $name")
+        waitForIdleSync()
+        SystemClock.sleep(900) // let rotation and the system bars settle, so the capture matches the theme
         waitFor("unobscured app window: $name") { ui.rootInActiveWindow?.packageName?.toString() == "com.beaconremote.host" }
         val image = checkNotNull(ui.takeScreenshot())
         val file = File(checkNotNull(targetContext.getExternalFilesDir("ui")), "$name.png")

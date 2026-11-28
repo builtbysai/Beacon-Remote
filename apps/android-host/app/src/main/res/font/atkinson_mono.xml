@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Atkinson Hyperlegible Mono, only for real codes and IDs (the pairing code). Its variable default is 200, so it is named at 700. -->
+<font-family xmlns:android="http://schemas.android.com/apk/res/android">
+    <font android:font="@font/atkinson_mono_var" android:fontStyle="normal" android:fontWeight="700" android:fontVariationSettings="'wght' 700" />
+</font-family>

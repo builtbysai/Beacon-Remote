@@ -1,18 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="launcher_background">#10264F</color>
-    <!-- Paper, ink and one blue: the redesigned Beacon look. -->
-    <color name="beacon_background">#F8F8F5</color>
+    <!-- Beacon Remote's identity, the same tokens as the web workspace (apps/web/src/style.css): warm paper, ink,
+         one brand blue, and four tints for the cast. Light is the baseline; values-night keeps the cast on charcoal. -->
+    <color name="launcher_background">#2D6CF6</color>
+    <color name="beacon_background">#FBFAF7</color>
+    <color name="beacon_tile">#F2EFE9</color>
     <color name="beacon_surface">#FFFFFF</color>
-    <color name="beacon_text">#171A19</color>
-    <color name="beacon_muted">#686F6A</color>
-    <color name="beacon_soft">#E7E9E4</color>
-    <color name="beacon_line">#DDDEDA</color>
-    <color name="beacon_accent">#3756ED</color>
+    <color name="beacon_text">#17171A</color>
+    <color name="beacon_muted">#66645E</color>
+    <color name="beacon_line">#E7E3DA</color>
+    <color name="beacon_line_strong">#D2CDC1</color>
+    <color name="beacon_ink">#17171A</color>
+    <color name="beacon_on_ink">#FFFFFF</color>
+    <color name="beacon_accent">#2D6CF6</color>
+    <color name="beacon_accent_text">#1A4FC4</color>
     <color name="beacon_on_accent">#FFFFFF</color>
-    <color name="beacon_danger">#BD3D38</color>
-    <color name="beacon_dark">#1B211F</color>
-    <color name="beacon_paused">#484E5A</color>
-    <color name="beacon_offline">#333736</color>
-    <color name="beacon_switch_off">#D8DBD6</color>
+    <color name="beacon_green">#11803F</color>
+    <color name="beacon_danger">#CF2F25</color>
+    <color name="beacon_danger_wash">#FDE8E5</color>
+    <color name="beacon_tint_mint">#DFF6EC</color>
+    <color name="beacon_tint_sun">#FFF0C4</color>
+    <color name="beacon_tint_blue">#DDE8FF</color>
+    <color name="beacon_tint_coral">#FFE0D8</color>
+    <color name="beacon_arc">#14C796</color>
+    <!-- The cast's sleeping/locked grey, which the web darkens on charcoal. -->
+    <color name="beacon_sleep_shell">#C8CCD8</color>
+    <color name="beacon_sleep_screen">#E9EBF2</color>
+    <color name="beacon_sleep_deep">#9498A8</color>
 </resources>
