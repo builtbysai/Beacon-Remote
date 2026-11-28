@@ -4,30 +4,48 @@ import { useReleaseStatus } from "./release.js";
 const mb = (bytes: number) => `${(bytes / 1_048_576).toFixed(1)} MB`;
 
 function Hash({ label, value }: { label: string; value: string }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"done" | "failed" | null>(null);
+  const [full, setFull] = useState(false);
   return (
     <div className="verify-row">
       <dt>{label}</dt>
       <dd>
-        <code className="download-hash" title={value}>
-          {value.slice(0, 10)}…{value.slice(-8)}
+        {/* The whole fingerprint is one click away and selectable, so a blocked clipboard is never a dead end. */}
+        <code
+          className="download-hash"
+          title={value}
+          onClick={() => setFull(true)}
+        >
+          {full ? value : `${value.slice(0, 10)}…${value.slice(-8)}`}
         </code>
         <button
           type="button"
           className="secondary"
           aria-label={`Copy ${label} fingerprint`}
           onClick={() => {
+            const done = (result: "done" | "failed") => {
+              setCopied(result);
+              if (result === "failed") setFull(true);
+              window.setTimeout(() => setCopied(null), 2400);
+            };
+            if (!navigator.clipboard) {
+              done("failed");
+              return;
+            }
             void navigator.clipboard
-              ?.writeText(value)
-              .then(() => {
-                setCopied(true);
-                window.setTimeout(() => setCopied(false), 1600);
-              })
-              .catch(() => undefined);
+              .writeText(value)
+              .then(() => done("done"))
+              .catch(() => done("failed"));
           }}
         >
-          {copied ? "Copied" : "Copy"}
+          {copied === "done" ? "Copied" : "Copy"}
         </button>
+        {copied === "failed" && (
+          <small role="status">
+            Couldn’t copy here. The full fingerprint is shown; select it to
+            copy.
+          </small>
+        )}
       </dd>
     </div>
   );
@@ -102,50 +120,53 @@ export function DownloadsPage({ workspace }: { workspace: string }) {
                   "Enter the pairing code in the host.",
                 ]}
               </Steps>
-              <h3 className="verify-title">Verify</h3>
-              <dl className="verify">
-                <Hash label="Installer" value={windows.sha256} />
-                {release.installer && (
-                  <Hash label="ZIP" value={release.sha256} />
-                )}
-                {release.signing && (
-                  <>
-                    <Hash label="Publisher" value={release.signing.sha256} />
-                    <Hash
-                      label="Trust script"
-                      value={release.signing.scriptSha256}
-                    />
-                  </>
-                )}
-              </dl>
-              <p className="verify-links">
-                {release.installer && (
-                  <a href={`/downloads/${release.file}`} download>
-                    ZIP package
-                  </a>
-                )}
-                {release.signing && (
-                  <>
-                    <a
-                      href={`/downloads/${release.signing.certificate}`}
-                      download
-                    >
-                      Certificate
+              {/* Fingerprints and trust files are for people who check them; the steps above are the default path. */}
+              <details className="verify-details">
+                <summary className="verify-title">Verify this download</summary>
+                <dl className="verify">
+                  <Hash label="Installer" value={windows.sha256} />
+                  {release.installer && (
+                    <Hash label="ZIP" value={release.sha256} />
+                  )}
+                  {release.signing && (
+                    <>
+                      <Hash label="Publisher" value={release.signing.sha256} />
+                      <Hash
+                        label="Trust script"
+                        value={release.signing.scriptSha256}
+                      />
+                    </>
+                  )}
+                </dl>
+                <p className="verify-links">
+                  {release.installer && (
+                    <a href={`/downloads/${release.file}`} download>
+                      ZIP package
                     </a>
-                    <a href={`/downloads/${release.signing.script}`} download>
-                      Trust script
-                    </a>
-                    <span>
-                      Expires{" "}
-                      <time dateTime={release.signing.notAfter}>
-                        {new Date(release.signing.notAfter)
-                          .toISOString()
-                          .slice(0, 10)}
-                      </time>
-                    </span>
-                  </>
-                )}
-              </p>
+                  )}
+                  {release.signing && (
+                    <>
+                      <a
+                        href={`/downloads/${release.signing.certificate}`}
+                        download
+                      >
+                        Certificate
+                      </a>
+                      <a href={`/downloads/${release.signing.script}`} download>
+                        Trust script
+                      </a>
+                      <span>
+                        Expires{" "}
+                        <time dateTime={release.signing.notAfter}>
+                          {new Date(release.signing.notAfter)
+                            .toISOString()
+                            .slice(0, 10)}
+                        </time>
+                      </span>
+                    </>
+                  )}
+                </p>
+              </details>
               {release.signing && (
                 <p className="download-trust">
                   Private certificate. Match the fingerprint before you trust
@@ -188,13 +209,15 @@ export function DownloadsPage({ workspace }: { workspace: string }) {
                   "Control needs accessibility access in Android Settings.",
                 ]}
               </Steps>
-              <h3 className="verify-title">Verify</h3>
-              <dl className="verify">
-                <Hash label="APK" value={android.sha256} />
-                {android.signer && (
-                  <Hash label="Signing key" value={android.signer} />
-                )}
-              </dl>
+              <details className="verify-details">
+                <summary className="verify-title">Verify this download</summary>
+                <dl className="verify">
+                  <Hash label="APK" value={android.sha256} />
+                  {android.signer && (
+                    <Hash label="Signing key" value={android.signer} />
+                  )}
+                </dl>
+              </details>
             </>
           )}
         </article>

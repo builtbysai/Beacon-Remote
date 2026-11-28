@@ -1334,6 +1334,17 @@ input[type="radio"] {
   font-weight: 700;
   color: var(--muted);
 }
+summary.verify-title {
+  cursor: pointer;
+  min-height: 44px;
+  display: list-item;
+}
+.verify-details[open] summary.verify-title {
+  color: var(--text);
+}
+.download-hash {
+  overflow-wrap: anywhere;
+}
 .verify {
   display: grid;
   gap: 6px;
@@ -3751,4 +3762,21 @@ code.hash {
 .account-popover a,
 .account-popover button {
   justify-content: flex-start;
+}
+
+/* Work screens stay calm (review R17): the cast keeps its personality on public pages, but in the computer list and
+   details nothing moves on its own. The online signal plays once when it appears, so movement means a change. */
+.inventory-layout .char .eyes,
+.inventory-layout .char .zzz,
+.inventory-layout .char.mood-wave .arm,
+.inventory-layout .inspector-char,
+.device-inspector .char .eyes,
+.device-inspector .char .zzz,
+.device-inspector .char.mood-wave .arm,
+.inspector-char {
+  animation: none;
+}
+.inventory-layout .char .arcs > *,
+.device-inspector .char .arcs > * {
+  animation-iteration-count: 1;
 }
