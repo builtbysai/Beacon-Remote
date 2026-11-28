@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { base64url, type HostProof } from "@beacon-remote/protocol";
 import {
+  admission,
   browserPinStore,
   identityNotice,
   judgeOffer,
@@ -180,4 +181,20 @@ test("strict mode can be turned on and off and says when it could not be kept", 
   assert.equal(setStrictIdentity(false, storage), true);
   assert.equal(strictIdentity(storage), false);
   assert.equal(setStrictIdentity(true, undefined), false);
+});
+
+test("admission: failed proofs are refused, changed keys held, old hosts admitted unless strict", () => {
+  assert.equal(
+    admission({ state: "verified", code: "A", firstUse: false }, false),
+    "admit",
+  );
+  assert.equal(admission({ state: "failed", problem: "x" }, false), "refuse");
+  assert.equal(
+    admission({ state: "changed", code: "B", pinned: "A" }, false),
+    "hold",
+  );
+  assert.equal(admission({ state: "unsigned" }, false), "admit");
+  assert.equal(admission({ state: "unsigned" }, true), "refuse");
+  assert.equal(admission({ state: "no-key" }, false), "admit");
+  assert.equal(admission({ state: "no-key" }, true), "refuse");
 });

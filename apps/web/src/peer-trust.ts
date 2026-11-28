@@ -154,3 +154,25 @@ export function identityNotice(verdict: IdentityVerdict): string | null {
       return "This computer could not prove who it is. The connection may not be from the computer you chose.";
   }
 }
+
+/**
+ * Whether an offer may be answered (ADR 0061, review R06). A proof that is present but does not verify is refused
+ * before anything is answered, since no legitimate host sends one; a known computer presenting another key is held
+ * until the person chooses; older hosts without a proof connect with a notice unless strict mode is on.
+ */
+export function admission(
+  verdict: IdentityVerdict,
+  strict: boolean,
+): "admit" | "hold" | "refuse" {
+  switch (verdict.state) {
+    case "verified":
+      return "admit";
+    case "failed":
+      return "refuse";
+    case "changed":
+      return "hold";
+    case "unsigned":
+    case "no-key":
+      return strict ? "refuse" : "admit";
+  }
+}

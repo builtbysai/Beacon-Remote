@@ -51,6 +51,7 @@ import {
   strictIdentity,
   trustChangedKey,
   type IdentityVerdict,
+  admission,
 } from "./peer-trust.js";
 import {
   ClipboardClient,
@@ -359,6 +360,9 @@ export function LiveView({
   const [clipStatus, setClipStatus] = useState("");
   // Whether the offer really came from the computer whose key this browser pinned (ADR 0061).
   const [identity, setIdentity] = useState<IdentityVerdict | null>(null);
+  // A changed key holds the connection until the person chooses (Trust the new key, or Cancel).
+  const [keyPending, setKeyPending] = useState(false);
+  const keyChoice = useRef<((trusted: boolean) => void) | null>(null);
   // The last text this viewer sent, so Automatic never sends the same thing twice.
   const lastClipSent = useRef("");
   const [transfer, setTransfer] = useState<Transfer | null>(null);
@@ -804,6 +808,8 @@ export function LiveView({
       return api(`sessions/${grant.id}/stop`, {}).catch(() => {});
     }
     function finish(reason: string, reloading = false) {
+      // A connection waiting on the person's key choice ends with it (as a Cancel).
+      keyChoice.current?.(false);
       downloads.current.dispose();
       if (finished) return;
       finished = true;
@@ -1331,8 +1337,9 @@ export function LiveView({
                 message.sdp.length > 32768
               )
                 throw new Error("Invalid offer");
-              // Check who made the offer before anything is answered. Advisory unless the person turned strict
-              // mode on: older hosts send no proof, so by default the connection goes ahead and says so.
+              // Check who made the offer before anything is answered (review R06): a proof that does not verify is
+              // refused, a changed key waits for the person's choice, and older hosts without a proof go ahead with
+              // a notice unless strict mode is on.
               if (machineId) {
                 const verdict = await judgeOffer({
                   store: browserPinStore(),
@@ -1346,11 +1353,36 @@ export function LiveView({
                 });
                 if (closed) return;
                 setIdentity(verdict);
-                if (strictIdentity() && verdict.state !== "verified") {
+                const decision = admission(verdict, strictIdentity());
+                if (decision === "refuse") {
                   finish(
-                    "Strict mode: this computer could not prove who it is.",
+                    verdict.state === "failed"
+                      ? "This computer's identity proof did not check out, so nothing was shown or sent. Try again; if it keeps happening, check the computer."
+                      : "Strict mode: this computer could not prove who it is.",
                   );
                   return;
+                }
+                if (decision === "hold" && verdict.state === "changed") {
+                  // Nothing is answered (no picture, no input) until the person compares the code and chooses.
+                  const trusted = await new Promise<boolean>((resolve) => {
+                    keyChoice.current = resolve;
+                    setKeyPending(true);
+                  });
+                  keyChoice.current = null;
+                  setKeyPending(false);
+                  if (closed) return;
+                  if (!trusted) {
+                    finish(
+                      "Cancelled: this computer presented a different key than before.",
+                    );
+                    return;
+                  }
+                  trustChangedKey(browserPinStore(), machineId, verdict);
+                  setIdentity({
+                    state: "verified",
+                    code: verdict.code,
+                    firstUse: false,
+                  });
                 }
               }
               await pc.setRemoteDescription({
@@ -1620,21 +1652,23 @@ export function LiveView({
         {identity && identityNotice(identity) && (
           <span role="status" className="viewer-identity-notice">
             {identityNotice(identity)}
-            {identity.state === "changed" && machineId && (
-              <button
-                type="button"
-                className="viewer-identity-trust"
-                onClick={() => {
-                  trustChangedKey(browserPinStore(), machineId, identity);
-                  setIdentity({
-                    state: "verified",
-                    code: identity.code,
-                    firstUse: false,
-                  });
-                }}
-              >
-                Trust the new key
-              </button>
+            {identity.state === "changed" && keyPending && (
+              <>
+                <button
+                  type="button"
+                  className="viewer-identity-trust"
+                  onClick={() => keyChoice.current?.(true)}
+                >
+                  Trust the new key
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => keyChoice.current?.(false)}
+                >
+                  Cancel
+                </button>
+              </>
             )}
           </span>
         )}

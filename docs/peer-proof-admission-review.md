@@ -1,6 +1,6 @@
 # Peer-proof admission: review and proposal (R06)
 
-Status: **proposal for a security review**, November 28 2026. Nothing here changes behaviour yet.
+Status: **built November 28, 2026** (owner's standing permission to finish the review items): steps 1 and 2 below are in `admission()` (`apps/web/src/peer-trust.ts`) and the viewer's offer handler, unit-tested. A security review of the result is still recommended, and the device run is open.
 
 ## What the code does today
 
