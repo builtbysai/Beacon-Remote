@@ -2652,6 +2652,21 @@ export function LiveView({
               {recordingSince === null ? "Record" : "Stop recording"}
             </button>
           )}
+          {/* The task asks for what it needs (review R22): Send file requests file transfer alone, then is ready. */}
+          {!fileReady &&
+            !ended &&
+            frames > 0 &&
+            permissionView.options.includes("files") && (
+              <button
+                data-g="files"
+                className="viewer-control"
+                title="Ask the computer to allow file transfer for this session"
+                disabled={permissionView.busy || peerPaused}
+                onClick={() => permissions.current?.request("files")}
+              >
+                Send file…
+              </button>
+            )}
           {fileReady && (
             <>
               <button
