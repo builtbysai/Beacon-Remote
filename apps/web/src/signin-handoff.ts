@@ -59,7 +59,7 @@ export async function handoffDesktop(
       throw new Error("Desktop handoff timed out");
   };
   try {
-    notice("Checking for a desktop handoff…");
+    notice("Signing in… your desktop opens here next.");
     while (true) {
       current();
       const raw = await io.request(
@@ -81,7 +81,7 @@ export async function handoffDesktop(
         state.hostContext.consoleSessionId !== scope.consoleSessionId
       )
         throw new Error("Desktop handoff context changed");
-      notice("Connecting to your desktop…");
+      notice("Opening your desktop…");
       const issued = await io.request(
         `machines/${machine}/sessions`,
         {

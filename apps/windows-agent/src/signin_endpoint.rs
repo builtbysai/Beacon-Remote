@@ -1297,8 +1297,48 @@ fn console() -> Option<(u32, &'static str)> {
     }
     Some((session, state))
 }
+/// Retires the worker's lease for a desktop handoff and keeps it in `pending`; [`offer_handoff`] offers it on this and
+/// every later supervisor pass once the same console is signed in. Signing in takes longer than a moment (the welcome
+/// screen, a profile load), and a handoff that gave up early left the viewer with an ended sign-in view although the
+/// person was signed in.
 fn attempt_handoff(
     active: &mut crate::signin_worker::Worker,
+    pending: &mut Option<crate::signin_worker::RetiredLease>,
+) {
+    if let Some(retired) = active.retire_for_handoff() {
+        *pending = Some(retired);
+    }
+}
+
+/// What a pending handoff does on this pass.
+#[derive(Debug, PartialEq, Eq)]
+enum HandoffStep {
+    /// The same console is signed in: offer the desktop now.
+    Offer,
+    /// Still signing in: look again on the next pass.
+    Wait,
+    /// Another session took the console, or the lease ran out: drop it.
+    Abandon,
+}
+fn handoff_step(
+    console_now: Option<(u32, &str)>,
+    retired_console: u32,
+    expired: bool,
+) -> HandoffStep {
+    if expired {
+        return HandoffStep::Abandon;
+    }
+    match console_now {
+        Some((session, "signed-in")) if session == retired_console => HandoffStep::Offer,
+        Some((session, _)) if session != retired_console => HandoffStep::Abandon,
+        _ => HandoffStep::Wait,
+    }
+}
+
+/// Offers a pending handoff once its console is signed in, keeps it while signing in is still under way, and drops
+/// it if the console changed hands, the lease ran out, or Disable/revoke is pending. Never waits.
+fn offer_handoff(
+    pending: &mut Option<crate::signin_worker::RetiredLease>,
     http: &reqwest::blocking::Client,
     server: &reqwest::Url,
     machine: &str,
@@ -1306,46 +1346,59 @@ fn attempt_handoff(
     cancel: &AtomicBool,
     revoke: &signin_revoke::LocalRevoke,
 ) -> Result<(), HostError> {
-    let Some(retired) = active.retire_for_handoff() else {
+    let Some(retired) = pending.as_ref() else {
         return Ok(());
     };
-    // WTS notifications and desktop loss can precede the unlocked flag. End
-    // SYSTEM authority first, then allow a short bounded observation window.
-    let until = Instant::now() + Duration::from_millis(1500);
-    while !cancel.load(Ordering::Acquire)
-        && !revoke.pending()?
-        && crate::signin_scope::tick() < retired.deadline
-    {
-        match console() {
-            Some((session, "signed-in")) if session == retired.console => {
-                if cancel.load(Ordering::Acquire)
-                    || revoke.pending()?
-                    || crate::signin_scope::tick() >= retired.deadline
-                {
-                    return Ok(());
-                }
-                let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
-                let nonce = uuid::Uuid::new_v4().to_string();
-                let message = format!(
-                    "beacon-remote:signin-handoff:v1\n{machine}\n{timestamp}\n{nonce}\n{}\n{}\n{}",
-                    retired.lease, retired.instance, retired.console
-                );
-                let _=http.post(server.join("/api/signin/handoff")?).json(&serde_json::json!({
+    if cancel.load(Ordering::Acquire) || revoke.pending()? {
+        *pending = None;
+        return Ok(());
+    }
+    let expired = crate::signin_scope::tick() >= retired.deadline;
+    match handoff_step(console(), retired.console, expired) {
+        HandoffStep::Wait => Ok(()),
+        HandoffStep::Abandon => {
+            diag(
+                machine,
+                "desktop handoff dropped: the lease ended or another session took the console",
+            );
+            *pending = None;
+            Ok(())
+        }
+        HandoffStep::Offer => {
+            let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
+            let nonce = uuid::Uuid::new_v4().to_string();
+            let message = format!(
+                "beacon-remote:signin-handoff:v1
+{machine}
+{timestamp}
+{nonce}
+{}
+{}
+{}",
+                retired.lease, retired.instance, retired.console
+            );
+            let sent = http
+                .post(server.join("/api/signin/handoff")?)
+                .json(&serde_json::json!({
                     "version":1,"machineId":machine,"timestamp":timestamp,"nonce":nonce,
                     "leaseId":retired.lease,"instanceId":retired.instance,"consoleSessionId":retired.console,
                     "signature":STANDARD.encode(key.sign(message.as_bytes()).to_bytes()),
-                })).send();
-                return Ok(());
+                }))
+                .send();
+            match sent {
+                Ok(response) => diag(
+                    machine,
+                    &format!(
+                        "offered the desktop handoff ({})",
+                        response.status().as_u16()
+                    ),
+                ),
+                Err(_) => diag(machine, "could not offer the desktop handoff (network)"),
             }
-            Some((session, _)) if session != retired.console => return Ok(()),
-            _ => {}
+            *pending = None;
+            Ok(())
         }
-        if Instant::now() >= until {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(25));
     }
-    Ok(())
 }
 define_windows_service!(ffi_signin, service_main);
 fn service_main(_: Vec<OsString>) {
@@ -1451,6 +1504,7 @@ fn run_service() -> Result<(), HostError> {
         let mut next_launch = Instant::now();
         let mut last_launch_error = String::new();
         let mut next_wake_poll = Instant::now();
+        let mut pending_handoff: Option<crate::signin_worker::RetiredLease> = None;
         let mut last_ack_note = String::new();
         let mut next_heartbeat = Instant::now();
         let mut disable_acknowledged = false;
@@ -1488,12 +1542,22 @@ fn run_service() -> Result<(), HostError> {
                 crate::pause(&cancel, Duration::from_millis(500));
                 continue;
             }
+            // A desktop handoff waiting for signing in to finish.
+            offer_handoff(
+                &mut pending_handoff,
+                &http,
+                &server,
+                machine,
+                &key,
+                &cancel,
+                &revoke,
+            )?;
             let epoch = session_epoch.load(Ordering::Acquire);
             if worker.as_ref().is_some_and(|active| {
                 epoch != observed_epoch || console() == Some((active.console, "signed-in"))
             }) {
                 if let Some(active) = worker.as_mut() {
-                    attempt_handoff(active, &http, &server, machine, &key, &cancel, &revoke)?;
+                    attempt_handoff(active, &mut pending_handoff);
                 }
                 worker.take();
                 next_heartbeat = Instant::now();
@@ -1529,7 +1593,7 @@ fn run_service() -> Result<(), HostError> {
                     );
                 }
                 if let Some(active) = worker.as_mut() {
-                    attempt_handoff(active, &http, &server, machine, &key, &cancel, &revoke)?;
+                    attempt_handoff(active, &mut pending_handoff);
                 }
                 worker.take();
                 next_launch = Instant::now() + Duration::from_secs(5);
@@ -1601,9 +1665,7 @@ fn run_service() -> Result<(), HostError> {
                         // Signing in unlocks the console between probes: hand the viewer over to the desktop here
                         // too, or it is left with an ended sign-in view (only a signed-in, same console qualifies).
                         if let Some(active) = worker.as_mut() {
-                            attempt_handoff(
-                                active, &http, &server, machine, &key, &cancel, &revoke,
-                            )?;
+                            attempt_handoff(active, &mut pending_handoff);
                         }
                         worker.take();
                     }
@@ -1797,6 +1859,30 @@ pub fn command(arguments: &[String]) -> Option<Result<(), HostError>> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_handoff_waits_for_signing_in_and_only_for_its_own_console() {
+        // Still on the lock or sign-in screen, or between states: keep waiting.
+        assert_eq!(
+            handoff_step(Some((2, "locked")), 2, false),
+            HandoffStep::Wait
+        );
+        assert_eq!(handoff_step(None, 2, false), HandoffStep::Wait);
+        // Signed in on the same console: offer the desktop.
+        assert_eq!(
+            handoff_step(Some((2, "signed-in")), 2, false),
+            HandoffStep::Offer
+        );
+        // Someone else's session took the console, or the lease ran out: never offer.
+        assert_eq!(
+            handoff_step(Some((3, "signed-in")), 2, false),
+            HandoffStep::Abandon
+        );
+        assert_eq!(
+            handoff_step(Some((2, "signed-in")), 2, true),
+            HandoffStep::Abandon
+        );
+    }
+
     #[test]
     fn only_an_explicit_removed_answer_makes_the_service_remove_itself() {
         assert!(super::removed_answer(

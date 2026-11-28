@@ -1,4 +1,5 @@
 import { talkMids } from "./talk-line";
+import { lastFrame } from "./last-frame.js";
 import { ViewerIcon } from "./viewer-icons";
 import { Character, toneFor } from "./Characters.js";
 import { classifyConnectionRoute } from "./connection-route";
@@ -1834,6 +1835,8 @@ export function LiveView({
             autoPlay
             muted
             playsInline
+            // Continuing from the sign-in screen: show its last picture until the desktop's first frame.
+            poster={machineId ? lastFrame(machineId) : undefined}
             tabIndex={controlReady && !ended ? 0 : -1}
             className={controlReady && !ended ? "input-enabled" : undefined}
             aria-label={

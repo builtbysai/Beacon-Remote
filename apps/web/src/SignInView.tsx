@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { captureFrame, lastFrame, rememberFrame } from "./last-frame.js";
 import { SignInConnection } from "./signin-connection.js";
 import { handoffDesktop, cancelSignInHandoff } from "./signin-handoff.js";
 import type { ViewGrant } from "./LiveView.js";
@@ -36,6 +37,10 @@ export function SignInView({
   // Windows puts an idle password prompt away after a short while; the view raises it again and reconnects, as a
   // person at the keyboard would by pressing a key, a few times per opening.
   const [attempt, setAttempt] = useState(0);
+  // The last picture of this computer, shown while a stream is being replaced instead of a black screen.
+  const [still, setStill] = useState<string | undefined>(() =>
+    lastFrame(machineId),
+  );
   const reconnects = useRef(0);
   useEffect(() => {
     const abort = new AbortController();
@@ -107,6 +112,10 @@ export function SignInView({
           const element = video.current;
           if (!element) return;
           if (!stream) {
+            // Keep the last picture on screen (as the video's poster) while the next stream starts.
+            const frame = captureFrame(element);
+            rememberFrame(machineId, frame);
+            if (frame && !disposed) setStill(frame);
             clear();
             if (!disposed) {
               setPicture(false);
@@ -381,6 +390,7 @@ export function SignInView({
             autoPlay
             muted
             playsInline
+            poster={still}
             tabIndex={input && picture && !ended ? 0 : -1}
             aria-label="Windows sign-in screen. Shift+Escape stops control."
             onLoadedData={() => {
