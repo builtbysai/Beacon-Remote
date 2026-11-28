@@ -108,7 +108,9 @@ Remove-Item -Force -ErrorAction SilentlyContinue "$out/${id}.*"
       .find((line) => line.startsWith("ANSWER "))
       .slice(7);
     const answer = JSON.parse(
-      Buffer.from(answerLine, "base64").toString("utf8").replace(/^\uFEFF/, ""),
+      Buffer.from(answerLine, "base64")
+        .toString("utf8")
+        .replace(/^\uFEFF/, ""),
     );
     const pngLine = lines.find((line) => line.startsWith("PNG "));
     if (pngLine) {

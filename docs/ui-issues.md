@@ -1,38 +1,37 @@
 # Website and app UI issues noticed during lab testing
 
-Collected while testing sign-in access on the lab laptop (November 2026). Not yet scheduled; each line says where it
-was seen and what would be better. Add to it as testing continues.
+Collected while testing sign-in access on the lab laptop (November 27–28, 2026). The broader experience review is
+tracked in [roadmap.md](roadmap.md) ("Experience review findings"); this list keeps the lab observations and their
+status.
 
 ## Website (computers page)
 
-1. **"Windows sign-in · Unavailable" on a signed-in computer.** Reads like something is broken. When someone is
-   signed in it should say "Signed in" (or hide the row), and keep "Unavailable" for a real fault.
-2. **No answer when waking the sign-in screen fails.** "Bringing up the password prompt…" stays with no progress and
-   no reason when the prompt does not come up. Show elapsed time, then a plain failure with a Try again button.
-3. **"Starting host" for a computer that is only reconnecting.** After a network drop the list showed
-   "0 of 1 online" and "Starting host" until the next heartbeat; "Reconnecting…" would be accurate.
-4. **Filter counts do not add up.** "All 1 · Online 1 · Offline 0 · Revoked 2": All excludes revoked computers while
-   Revoked counts them. Either include them in All or label it "Active".
-5. **Cramped details panel at narrow widths.** In a narrow window "Open sign-in" wraps onto three lines and the
-   sign-in status wraps beside it; stack the button under the status below a width.
-6. **Signed-in visitors land on the marketing page.** The site root shows the product page even with a signed-in
-   session; go straight to Computers (keep the product page one click away).
-
-10. **Sign-in viewer drops a working stream after about 10 seconds (open bug, Nov 27).** ICE connects in about 1 s
-    and the worker sends frames, but the video is cleared (`play()` interrupted by `pause()`, readyState 0). The
-    10-second first-frame timer then fails the connection; the viewer reconnects and the same thing happens, showing
-    a black screen with "Show screen". Suspects: the lease renewal at about 4–5 s re-authorizes the worker and the
-    connection resets the stream, or `stream(null)` from `SignInConnection` during that. Next: log where
-    `stream(null)` comes from and whether renewal renegotiates.
-    Narrowed later the same day: the clearing is `end()` from the 10-second first-frame timer, and `play()` never
-    resolves before it. ICE and the peer connection are up by 2.5 s and the worker sends about 20 samples a second,
-    so the browser is receiving but not decoding. Next: read `inbound-rtp` stats while live (framesReceived vs
-    framesDecoded, keyFramesDecoded, pliCount) and check that the worker's H.264 stream starts with a keyframe and
-    answers PLI.
+- **Fixed:** "Windows sign-in · Unavailable" on a signed-in computer. The row is hidden while someone is signed in,
+  and a real fault reads "Not reachable right now" (R03).
+- **Fixed:** no answer when bringing up the password prompt fails. The wake now sends Ctrl+Alt+Del, and a failure
+  says to try Connect again.
+- **Fixed:** black sign-in video with a connected transport. Causes: media on a throttled tunnel in the lab, and the
+  shared request limit exhausted by the sign-in service's polling (R01).
+- **Fixed:** black stage between streams. The viewer keeps the last picture of each computer as the poster.
+- **Open:** "Starting host" for a computer that is only reconnecting after a network drop; "Reconnecting…" would be
+  accurate.
+- **Open:** filter counts ("All 1 · Online 1 · Offline 0 · Revoked 2"): All excludes revoked computers while Revoked
+  counts them. Either include them in All or label it "Active".
+- **Open:** in a narrow window "Open sign-in" wraps onto three lines beside its status.
+- **Open:** a signed-in visitor lands on the product page; go straight to Computers.
 
 ## Windows app (host window)
 
-7. **Header stays on "Set up this computer" after pairing** until the window is reopened.
-8. **"Paired to 127.0.0.1"** shows a raw address; show the server's name, with the address in a tooltip.
-9. **Updating the sign-in service needs a separate Repair approval** after every app update. Fold it into the
-   installer's own elevation (one approval per update), or have the app offer it right after the update.
+- **Fixed:** the heading stayed on "Set up this computer" after pairing (R12).
+- **Open:** "Paired to 127.0.0.1" shows a raw address; show the server's name, with the address in a tooltip.
+- **Partly fixed:** an update needs a separate Repair approval for the sign-in service. The host now brings that one
+  approval forward right after the update (R13); folding it into the update itself is still open.
+- **Fixed:** the web's "Open link" did nothing on Windows; the installer now registers `beaconremote:` links.
+
+## Sign-in to desktop
+
+- **In progress:** after signing in through the viewer, the handoff to the desktop is refused because the sign-in
+  worker cannot confirm that its input was released. Fixed so far: Enter is a complete tap, modifiers are pressed only
+  around a key, the handoff waits for the console to be signed in, heartbeats wait for a pending handoff. The latest
+  build logs content-free counts (`input cleanup not confirmed: ended …, keys …, buttons …, text …`) to show what is
+  still held; verify on the lab laptop.
