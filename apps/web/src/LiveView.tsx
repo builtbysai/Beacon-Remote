@@ -1,5 +1,5 @@
 import { talkMids } from "./talk-line";
-import { lastFrame } from "./last-frame.js";
+import { captureFrame, lastFrame, rememberFrame } from "./last-frame.js";
 import { ViewerIcon } from "./viewer-icons";
 import { Character, toneFor } from "./Characters.js";
 import { classifyConnectionRoute } from "./connection-route";
@@ -400,6 +400,16 @@ export function LiveView({
   const [passwordDraft, setPasswordDraft] = useState("");
   // The layout of the phone's PIN screen, sent by the phone while the pad is open, drawn as a stand-in for the picture.
   const [lockScreen, setLockScreen] = useState<LockScreen | null>(null);
+  // Remember a recent picture of this computer, so the next view of it (a reconnect, the sign-in screen, the switch
+  // back to the desktop) starts from what was last seen instead of a black stage. In memory, this page only.
+  useEffect(() => {
+    if (!machineId) return;
+    const timer = setInterval(() => {
+      const frame = captureFrame(video.current);
+      if (frame) rememberFrame(machineId, frame);
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [machineId]);
   useEffect(() => {
     if (clipMode !== "auto") return;
     const sync = () => {
