@@ -390,7 +390,7 @@ export function ComputerInspector({
                 : "Request control; approve on the computer"
           }
         >
-          <WorkspaceIcon name="computers" /> Remote
+          <WorkspaceIcon name="computers" /> Connect
         </button>
         <button
           className="secondary"
