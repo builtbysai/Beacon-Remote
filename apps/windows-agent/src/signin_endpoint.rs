@@ -775,6 +775,17 @@ pub fn setup() -> Result<(), HostError> {
     // One administrator approval sets up both services unattended access needs: boot status before sign-in, and
     // sign-in access itself.
     elevate("unattended-install", &user.machine_id, &user.server, &owner)?;
+    finish_unattended()
+}
+
+/// The signed-in user's half of unattended setup, after the elevated half installed both services for this pairing
+/// and this Windows user: tells the server the sign-in endpoint's key and finishes boot status. Also run on its own
+/// (`unattended-finish`) when an administrator installed the services separately, for example by a deployment tool
+/// for a standard account that cannot approve the administrator prompt itself. Grants nothing new: it only binds
+/// services that already belong to this user and pairing.
+pub fn finish_unattended() -> Result<(), HostError> {
+    let user = load_identity()?;
+    let owner = availability::current_sid()?;
     let binding = read_binding(&user.machine_id)?;
     if binding.owner_sid != owner || binding.server != validate_server(&user.server)?.to_string() {
         return Err("The new sign-in binding does not match this pairing".into());
@@ -1779,6 +1790,7 @@ pub fn command(arguments: &[String]) -> Option<Result<(), HostError>> {
             arguments.get(3).map(String::as_str),
         )),
         Some("signin-wake") => Some(crate::signin_worker::run_wake(arguments)),
+        Some("unattended-finish") if arguments.len() == 2 => Some(finish_unattended()),
         _ => None,
     }
 }

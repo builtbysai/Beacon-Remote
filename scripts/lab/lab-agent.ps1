@@ -1,4 +1,4 @@
-# Beacon lab helper. Runs in the signed-in user's own desktop session on the test laptop and does what an SSH session
+﻿# Beacon lab helper. Runs in the signed-in user's own desktop session on the test laptop and does what an SSH session
 # cannot: look at the screen and press keys and mouse buttons. It has no network port. It only reads command files that
 # the same Windows user (over SSH) places in its spool folder, and answers with files next to them.
 #
@@ -31,6 +31,7 @@ public static class Lab {
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
+  [DllImport("user32.dll")] public static extern void SwitchToThisWindow(IntPtr h, bool altTab);
   [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
@@ -151,6 +152,16 @@ function Confirm-Focus($cmd) {
     [void][Lab]::ShowWindow([IntPtr]$win.Handle, 9)
     [void][Lab]::SetForegroundWindow([IntPtr]$win.Handle)
     Start-Sleep -Milliseconds 250
+    # Windows refuses the focus to a background program while nothing (or another program) is in front. Minimizing and
+    # restoring the named window hands it the foreground without sending any input; the check below still decides.
+    if ([Lab]::GetForegroundWindow().ToInt64() -ne $win.Handle) {
+        [void][Lab]::ShowWindow([IntPtr]$win.Handle, 6)
+        Start-Sleep -Milliseconds 150
+        [void][Lab]::ShowWindow([IntPtr]$win.Handle, 9)
+        [Lab]::SwitchToThisWindow([IntPtr]$win.Handle, $true)
+        [void][Lab]::SetForegroundWindow([IntPtr]$win.Handle)
+        Start-Sleep -Milliseconds 250
+    }
     if ([Lab]::GetForegroundWindow().ToInt64() -ne $win.Handle) { throw "The window '$($win.Title)' could not take the focus; nothing was sent." }
     $win
 }
