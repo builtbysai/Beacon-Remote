@@ -28,7 +28,10 @@ use windows_sys::Win32::{
         Threading::CreateMutexW,
     },
     UI::{
-        Controls::{DRAWITEMSTRUCT, EM_SETLIMITTEXT, ODS_DISABLED, ODS_FOCUS, ODS_SELECTED},
+        Controls::{
+            DRAWITEMSTRUCT, EM_SETLIMITTEXT, EM_SETREADONLY, EM_SETSEL, ODS_DISABLED, ODS_FOCUS,
+            ODS_SELECTED,
+        },
         HiDpi::{
             GetDpiForSystem, SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_SYSTEM_AWARE,
         },
@@ -43,6 +46,8 @@ const ACTION: usize = 101;
 const SERVER: usize = 103;
 const NAME: usize = 104;
 const CODE: usize = 105;
+/// "Change" beside the server address, which is read-only until it is pressed (review R11).
+const SERVER_CHANGE: usize = 106;
 const AUTOSTART: usize = 120;
 const FILES: usize = 121;
 const BOOT_START: usize = 122;
@@ -1694,6 +1699,12 @@ unsafe extern "system" fn procedure(
         }
         WM_COMMAND if !state.is_null() && (wparam >> 16) == BN_CLICKED as usize => {
             match wparam & 0xffff {
+                SERVER_CHANGE => {
+                    SendMessageW((*state).server, EM_SETREADONLY, 0, 0);
+                    SendMessageW((*state).server, EM_SETSEL, 0, -1);
+                    SetFocus((*state).server);
+                    ShowWindow(GetDlgItem(window, SERVER_CHANGE as i32), SW_HIDE);
+                }
                 ACTION => {
                     if (*state).paired && (*state).worker.is_some() {
                         (*state).stop();
@@ -2231,6 +2242,28 @@ pub fn show(background: bool, link: Option<String>) -> Result<(), io::Error> {
             state
                 .enrollment
                 .extend([state.server, state.name, state.code]);
+            // Most people use the default workspace: its address is shown but not in the way. "Change" makes it
+            // editable for a self-hosted workspace; a pairing link fills it in either way.
+            SendMessageW(state.server, EM_SETREADONLY, 1, 0);
+            MoveWindow(
+                state.server,
+                scale(40),
+                scale(130),
+                scale(330),
+                scale(22),
+                0,
+            );
+            let change = child(
+                "BUTTON",
+                "Change",
+                384,
+                125,
+                96,
+                32,
+                owner_draw,
+                SERVER_CHANGE,
+            )?;
+            state.enrollment.push(change);
 
             // Paired view: four tabs on one fixed-size page. Every control is created once, with the tabs it
             // belongs to and its place; `controls()` shows and moves them.
