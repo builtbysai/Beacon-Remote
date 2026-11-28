@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { captureFrame, lastFrame, rememberFrame } from "./last-frame.js";
 import { SignInConnection } from "./signin-connection.js";
-import { handoffDesktop, cancelSignInHandoff } from "./signin-handoff.js";
+import {
+  handoffDesktop,
+  cancelSignInHandoff,
+  signedIn,
+} from "./signin-handoff.js";
 import type { ViewGrant } from "./LiveView.js";
 import { attachRemoteInput } from "./remote-input.js";
 import { ViewerIcon } from "./viewer-icons.js";
@@ -14,13 +18,19 @@ export function SignInView({
   signal,
   onClose,
   onDesktop,
+  onSignedIn,
 }: {
   machineId: string;
   name: string;
   signal: AbortSignal;
   onClose: () => void;
   onDesktop: (grant: ViewGrant, transfer: () => void) => boolean;
+  // Windows signed in but the sign-in service could not hand its connection over: open the desktop the ordinary
+  // way (this view stays on screen with its last picture until the desktop shows).
+  onSignedIn?: () => void;
 }) {
+  const signedInHandler = useRef(onSignedIn);
+  signedInHandler.current = onSignedIn;
   const video = useRef<HTMLVideoElement>(null),
     shell = useRef<HTMLElement>(null),
     stopButton = useRef<HTMLButtonElement>(null);
@@ -196,12 +206,23 @@ export function SignInView({
                   )
                     void cancelSignInHandoff(context.leaseId, grant.id);
                 })
-                .catch(() => {
-                  // No desktop to hand over to: the prompt went back to the lock-screen picture.
-                  if (!disposed) {
-                    active.stop();
-                    rewake();
+                .catch(async () => {
+                  if (disposed) return;
+                  active.stop();
+                  // Signed in, but no handover: continue to the desktop the ordinary way, never a dead end.
+                  if (
+                    signedInHandler.current &&
+                    !signal.aborted &&
+                    !abort.signal.aborted &&
+                    (await signedIn(machineId))
+                  ) {
+                    if (disposed) return;
+                    setStatus("Signed in. Opening your desktop…");
+                    signedInHandler.current();
+                    return;
                   }
+                  // No desktop to hand over to: the prompt went back to the lock-screen picture.
+                  if (!disposed) rewake();
                 });
               return;
             }

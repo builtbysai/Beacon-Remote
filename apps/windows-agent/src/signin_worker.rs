@@ -1382,8 +1382,8 @@ fn run_worker(arguments: &[String]) -> Result<(), HostError> {
                             signaling,
                             scope.0.as_ref().ok_or("Missing sign-in scope")?.clone(),
                         )?);
+                        note(machine, "media runner started");
                     }
-                    note(machine, "media runner started");
                     // The media runner negotiates here; its capture/input adapters
                     // still require the actual authenticated peer-connected gate.
                 }

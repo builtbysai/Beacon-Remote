@@ -1,9 +1,10 @@
 import {
+  signinAuthorityState,
   signinHandoffStatus,
   signinDesktopGrant,
   type SignInContext,
 } from "@beacon-remote/protocol";
-import { api } from "./api.js";
+import { api, ApiError } from "./api.js";
 import type { ViewGrant } from "./LiveView.js";
 
 export type HandoffIO = {
@@ -32,6 +33,65 @@ const defaults: HandoffIO = {
       if (signal.aborted) abort();
     }),
 };
+/** Whether the computer reports a signed-in console now (its own sign-in state, not a guess from timing). */
+export async function signedIn(machine: string, io = defaults) {
+  try {
+    const state = signinAuthorityState.safeParse(
+      await io.request(
+        `machines/${machine}/signin-authority`,
+        undefined,
+        AbortSignal.timeout(3000),
+      ),
+    );
+    return state.success && state.data.state === "signed-in";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The ordinary trusted desktop session after Windows signed in, for when the sign-in service could not hand its own
+ * connection over. The desktop host needs a few seconds after sign-in to come online, so an unavailable computer is
+ * asked again until `windowMs` ends; being signed out of Beacon or refused access ends it at once.
+ */
+export async function desktopAfterSignIn(
+  machine: string,
+  signal: AbortSignal,
+  io = defaults,
+  windowMs = 45_000,
+): Promise<ViewGrant> {
+  const started = io.now();
+  for (;;) {
+    signal.throwIfAborted();
+    try {
+      const grant = await io.request(
+        `machines/${machine}/sessions`,
+        { source: "desktop", capability: "desktop:control" },
+        AbortSignal.any([signal, AbortSignal.timeout(5000)]),
+      );
+      if (
+        grant &&
+        typeof grant === "object" &&
+        "id" in grant &&
+        typeof grant.id === "string"
+      )
+        return grant as ViewGrant;
+      throw new Error("Unexpected desktop grant");
+    } catch (error) {
+      signal.throwIfAborted();
+      if (
+        error instanceof ApiError &&
+        (error.status === 401 || error.status === 403)
+      )
+        throw error;
+      if (io.now() - started >= windowMs) throw error;
+    }
+    await io.wait(signal);
+    await io.wait(signal);
+    await io.wait(signal);
+  }
+}
+
 export async function cancelSignInHandoff(
   lease: string,
   desktop?: string,

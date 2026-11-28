@@ -4,6 +4,7 @@ import type { Machine } from "@beacon-remote/protocol";
 import { signinAuthorityState } from "@beacon-remote/protocol";
 import { wakeSignIn } from "./signin-wake.js";
 import { startingLabel } from "./computer-status.js";
+import { desktopAfterSignIn } from "./signin-handoff.js";
 import {
   favouritesFirst,
   readFavourites,
@@ -1532,6 +1533,33 @@ function App() {
                 bridging.current = true;
                 bridgeTimer.current = setTimeout(desktopShown, 15_000);
                 return true;
+              }}
+              onSignedIn={() => {
+                const context = signInView;
+                void desktopAfterSignIn(context.machineId, context.abort.signal)
+                  .then((grant) => {
+                    if (
+                      signInContext.current !== context ||
+                      context.abort.signal.aborted
+                    ) {
+                      void api(`sessions/${grant.id}/stop`, {}).catch(() => {});
+                      return;
+                    }
+                    setView({
+                      grant,
+                      name: context.name,
+                      machineId: context.machineId,
+                    });
+                    bridging.current = true;
+                    bridgeTimer.current = setTimeout(desktopShown, 15_000);
+                  })
+                  .catch(() => {
+                    if (signInContext.current !== context) return;
+                    closeSignIn();
+                    setError(
+                      `${context.name} signed in, but its desktop did not come online. Try Connect again.`,
+                    );
+                  });
               }}
             />
           )}

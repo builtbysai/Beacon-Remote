@@ -6,7 +6,7 @@ set -euo pipefail
 cd /d/Dev/Beacon-Remote
 PROFILE_NAME=${LAB_PROFILE:-BeaconTest}
 # The SSH (administrator) account's lab folder on the laptop, e.g. C:\Users\<admin>\BeaconLab; kept out of the repo.
-ADMIN_LAB=${LAB_ADMIN_ROOT:?Set LAB_ADMIN_ROOT to the SSH account's BeaconLab folder on the laptop}
+ADMIN_LAB=${LAB_ADMIN_ROOT:?Set LAB_ADMIN_ROOT to the BeaconLab folder of the SSH account on the laptop}
 S=scripts/lab
 export LAB_REMOTE_ROOT="C:/Users/$PROFILE_NAME/BeaconLab"
 SETUP=$(ls -t dist/BeaconRemoteSetup-*-signin-media.exe | head -1)

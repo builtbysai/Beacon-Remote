@@ -198,7 +198,16 @@ fn pace(new_frame: bool, encoded_before: bool, since_last: Duration) -> Pace {
         Pace::Wait
     }
 }
-fn video(scope: Arc<SignInScope>, packets: mpsc::Sender<Packet>) -> Result<(), HostError> {
+/// The capture side of the sign-in video. It reports "video stopped" to `completion` as soon as the screen capture is
+/// released and no packet can be queued any more, which is what retirement must prove. The hardware encoder is
+/// released after that: an asynchronous Media Foundation encoder and `MFShutdown` can take seconds to let go, and
+/// waiting for them made every desktop handoff fail ("input released false") although nothing could be captured or
+/// sent. Whatever the encoder still holds dies with this worker process, which its kill-on-close job ends.
+fn video(
+    scope: Arc<SignInScope>,
+    packets: mpsc::Sender<Packet>,
+    completion: Arc<Completion>,
+) -> Result<(), HostError> {
     let _end = EndScope(scope.clone());
     scope.authorize()?;
     crate::signin_worker::trace("video: starting capture");
@@ -219,6 +228,28 @@ fn video(scope: Arc<SignInScope>, packets: mpsc::Sender<Packet>) -> Result<(), H
         }
     };
     crate::signin_worker::trace("video: encoder started");
+    let result = frames(&scope, &packets, &mut capture, &mut encoder);
+    // Stop first, then release what can see or send the screen, then say so; the slow codec release comes last.
+    scope.stop();
+    drop(capture);
+    drop(packets);
+    completion.video.store(true, Ordering::Release);
+    crate::signin_worker::trace("video: capture released");
+    let releasing = Instant::now();
+    drop(encoder);
+    crate::signin_worker::trace(&format!(
+        "video: encoder released after {} ms",
+        releasing.elapsed().as_millis()
+    ));
+    result
+}
+
+fn frames(
+    scope: &Arc<SignInScope>,
+    packets: &mpsc::Sender<Packet>,
+    capture: &mut SignInCapture,
+    encoder: &mut Encoder,
+) -> Result<(), HostError> {
     let mut nv12 = Zeroizing::new(vec![0u8; (WIDTH * HEIGHT * 3 / 2) as usize]);
     let mut index = 0u64;
     let mut last_encoded = Instant::now();
@@ -467,7 +498,7 @@ async fn peer(
                     if answered && video_thread.is_none() && scope.authorize().is_ok() {
                         let owned_scope=scope.clone();let owned_packets=packets.clone();let owned_completion=cleanup.clone();
                         cleanup.video.store(false,Ordering::Release);
-                        video_thread=Some(thread::Builder::new().name("signin-video".into()).spawn(move||{let _done=VideoDone(owned_completion);if let Err(error)=video(owned_scope,owned_packets){crate::signin_worker::trace(&format!("video thread ended with an error: {error}"));}})?);
+                        video_thread=Some(thread::Builder::new().name("signin-video".into()).spawn(move||{let _done=VideoDone(owned_completion.clone());if let Err(error)=video(owned_scope,owned_packets,owned_completion){crate::signin_worker::trace(&format!("video thread ended with an error: {error}"));}})?);
                     }
                     if video_thread.as_ref().is_some_and(|thread|thread.is_finished()){crate::signin_worker::trace("peer loop: the video thread finished");return Err(rejected());}
                     // Bound each poll batch; queue overflow independently ends signaling.
@@ -642,13 +673,22 @@ impl SignInMedia {
         let Some(thread) = self.thread.take() else {
             return self.joined && self.cleanup.complete();
         };
+        let waiting = Instant::now();
         unsafe {
             WaitForSingleObject(thread.as_raw_handle(), 3500);
         }
         if !thread.is_finished() {
+            crate::signin_worker::trace("media cleanup: the media thread did not finish in 3.5 s");
             return false;
         }
         self.joined = thread.join().is_ok();
+        crate::signin_worker::trace(&format!(
+            "media cleanup: joined {} after {} ms, input released {}, video stopped {}",
+            self.joined,
+            waiting.elapsed().as_millis(),
+            self.cleanup.input.load(Ordering::Acquire),
+            self.cleanup.video.load(Ordering::Acquire)
+        ));
         self.joined && self.cleanup.complete()
     }
     /// Poll without holding up private lifecycle replies or the Retry window.
@@ -921,8 +961,14 @@ mod tests {
         )
         .unwrap();
         let (packets, mut receiver) = mpsc::channel(2);
-        assert!(video(scope.clone(), packets).is_err());
+        let completion = Arc::new(Completion {
+            input: AtomicBool::new(true),
+            video: AtomicBool::new(false),
+        });
+        assert!(video(scope.clone(), packets, completion.clone()).is_err());
         assert!(scope.expired());
         assert!(receiver.try_recv().is_err());
+        // Video that never started reports nothing; the thread's own guard covers it.
+        assert!(!completion.video.load(Ordering::Acquire));
     }
 }
