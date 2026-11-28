@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   readViewPreferences,
   saveViewPreferences,
+  zoomStep,
 } from "../src/view-preferences.js";
 
 test("view choices are remembered per computer and anything else is ignored", () => {
@@ -31,4 +32,12 @@ test("view choices are remembered per computer and anything else is ignored", ()
   store.set("beacon-remote:view:d", "not json");
   assert.deepEqual(readViewPreferences("d"), {});
   assert.deepEqual(readViewPreferences(undefined), {});
+});
+
+test("pinch and Ctrl+wheel step through Fit, 100 %, 150 % and 200 % and stop at the ends", () => {
+  assert.equal(zoomStep("fit", 1), "actual");
+  assert.equal(zoomStep("actual", 1), "150");
+  assert.equal(zoomStep("200", 1), "200");
+  assert.equal(zoomStep("150", -1), "actual");
+  assert.equal(zoomStep("fit", -1), "fit");
 });

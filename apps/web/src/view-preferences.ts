@@ -46,3 +46,11 @@ export function saveViewPreferences(
     // Storage full or blocked: the choice simply is not remembered.
   }
 }
+
+const STEPS: readonly ViewScale[] = ["fit", "actual", "150", "200"];
+
+/** One zoom step in (`direction` 1) or out (-1) from `current`, staying within Fit … 200 % (review R26). */
+export function zoomStep(current: ViewScale, direction: 1 | -1): ViewScale {
+  const index = STEPS.indexOf(current);
+  return STEPS[Math.min(STEPS.length - 1, Math.max(0, index + direction))]!;
+}

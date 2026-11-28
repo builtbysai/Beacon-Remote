@@ -4,6 +4,7 @@ import {
   readViewPreferences,
   saveViewPreferences,
   type ViewScale,
+  zoomStep,
 } from "./view-preferences.js";
 import { ViewerIcon } from "./viewer-icons";
 import { Character, toneFor } from "./Characters.js";
@@ -160,6 +161,12 @@ function RailButton({
   );
 }
 
+/** Distance between the first two touches, for pinch zoom. */
+function touchSpan(touches: React.TouchList) {
+  const [a, b] = [touches[0]!, touches[1]!];
+  return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+}
+
 export function LiveView({
   grant,
   name,
@@ -210,6 +217,32 @@ export function LiveView({
   const selectedScope = permissionView.options.find(
     (scope) => scope === requestedScope,
   );
+  const stage = useRef<HTMLDivElement>(null);
+  const pinch = useRef<number | null>(null);
+  const changeScale = (value: ViewScale) => {
+    setScale(value);
+    saveViewPreferences(machineId, { scale: value });
+  };
+  // A touchpad pinch arrives as Ctrl+wheel: while viewing only, it steps the zoom instead of zooming the page.
+  const inputLive = useRef(false);
+  const scaleNow = useRef<ViewScale>("fit");
+  useEffect(() => {
+    const element = stage.current;
+    if (!element) return;
+    let last = 0;
+    const wheel = (event: WheelEvent) => {
+      if (inputLive.current || !event.ctrlKey) return;
+      event.preventDefault();
+      const now = performance.now();
+      if (now - last < 250 || Math.abs(event.deltaY) < 1) return;
+      last = now;
+      const next = zoomStep(scaleNow.current, event.deltaY < 0 ? 1 : -1);
+      setScale(next);
+      saveViewPreferences(machineId, { scale: next });
+    };
+    element.addEventListener("wheel", wheel, { passive: false });
+    return () => element.removeEventListener("wheel", wheel);
+  }, [machineId]);
   // The picture's own size, for the 150 % and 200 % scales.
   const [natural, setNatural] = useState<{
     width: number;
@@ -256,8 +289,10 @@ export function LiveView({
   }, [frames]);
   const [ended, setEnded] = useState(false);
   const [controlReady, setControlReady] = useState(false);
+  inputLive.current = controlReady;
   // The computer said it is an Android phone: Back, Home and Recents replace the clipboard button.
   const [phoneHost, setPhoneHost] = useState(false);
+  scaleNow.current = scale;
   const [touchMode, setTouchMode] = useState<TouchMode>(
     () => readViewPreferences(machineId).touch ?? "trackpad",
   );
@@ -1875,7 +1910,25 @@ export function LiveView({
           </div>
         )}
         <div
+          ref={stage}
           className={`viewer-stage ${scale === "fit" ? "fit" : "actual"}`}
+          // Pinch to zoom while viewing only (review R26); while controlling, touch belongs to the remote device.
+          onTouchStart={(event) => {
+            if (!controlReady && event.touches.length === 2)
+              pinch.current = touchSpan(event.touches);
+          }}
+          onTouchMove={(event) => {
+            if (pinch.current === null || event.touches.length !== 2) return;
+            const span = touchSpan(event.touches);
+            const ratio = span / Math.max(1, pinch.current);
+            if (ratio > 1.25 || ratio < 0.8) {
+              changeScale(zoomStep(scale, ratio > 1 ? 1 : -1));
+              pinch.current = span;
+            }
+          }}
+          onTouchEnd={(event) => {
+            if (event.touches.length < 2) pinch.current = null;
+          }}
           onPointerDown={(event) => {
             if (!controlReady || ended || event.button > 0) return;
             const box = event.currentTarget.getBoundingClientRect();
@@ -2033,11 +2086,7 @@ export function LiveView({
             <select
               aria-label="Video scale"
               value={scale}
-              onChange={(event) => {
-                const value = event.target.value as ViewScale;
-                setScale(value);
-                saveViewPreferences(machineId, { scale: value });
-              }}
+              onChange={(event) => changeScale(event.target.value as ViewScale)}
             >
               <option value="fit">Fit</option>
               <option value="actual">100%</option>
