@@ -65,7 +65,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       # Production dependencies only. The high picomatch advisory (GHSA-fc5q-39xc-vjpf) is in
-      # a dev-only tool chain with no published patch; it is tracked in docs/development-status.md
+      # a dev-only tool chain with no published patch; it is tracked in docs/security.md
       # and must be re-reviewed by 2026-12-31 rather than silently waived.
       - run: pnpm audit --prod --audit-level high
   android:
