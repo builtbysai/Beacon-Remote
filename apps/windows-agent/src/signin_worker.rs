@@ -1489,12 +1489,16 @@ fn wake_target(input_desktop: Option<&str>) -> WakeTarget {
 
 /// `beacon-remote-agent signin-wake <machine> <console>`, started only by `wake_prompt`.
 pub(crate) fn run_wake(arguments: &[String]) -> Result<(), HostError> {
+    use windows_sys::Win32::System::Power::{
+        SetThreadExecutionState, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED,
+    };
     use windows_sys::Win32::System::StationsAndDesktops::{
         CloseDesktop, OpenInputDesktop, SetThreadDesktop, DESKTOP_JOURNALPLAYBACK,
         DESKTOP_READOBJECTS, DESKTOP_WRITEOBJECTS,
     };
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_CONTROL,
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP,
+        MOUSEEVENTF_MOVE, MOUSEINPUT, VK_CONTROL,
     };
     if arguments.len() != 4 {
         return Err("Invalid prompt helper invocation".into());
@@ -1526,11 +1530,32 @@ pub(crate) fn run_wake(arguments: &[String]) -> Result<(), HostError> {
             },
         },
     };
-    let keys = [key(0), key(KEYEVENTF_KEYUP)];
-    // With the display asleep or dimmed, the first press only wakes the screen and the picture keeps the input. So
-    // the helper looks again after each press and presses once more, at most WAKE_PRESSES times, and only while the
-    // console is still locked and the picture still has the input.
-    for press in 0..WAKE_PRESSES {
+    let nudge = |dx| INPUT {
+        r#type: INPUT_MOUSE,
+        Anonymous: INPUT_0 {
+            mi: MOUSEINPUT {
+                dx,
+                dy: 0,
+                mouseData: 0,
+                dwFlags: MOUSEEVENTF_MOVE,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    };
+    // A one-pixel move there and back (the pointer ends where it was), then Ctrl down and up.
+    let keys = [nudge(1), nudge(-1), key(0), key(KEYEVENTF_KEYUP)];
+    // About a minute after a lock Windows turns the display off, and injected input alone does not turn it back on,
+    // so the first press would be lost. Like other remote-control tools, the helper first tells Windows the display
+    // is needed (only for this short-lived thread; it ends with the helper). Then it looks again after each press and
+    // presses once more, at most WAKE_PRESSES times, and only while the console is still locked and the picture still
+    // has the input.
+    unsafe {
+        SetThreadExecutionState(ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED);
+    }
+    std::thread::sleep(std::time::Duration::from_millis(WAKE_SETTLE_MS));
+    // One pass more than presses: the last pass only looks whether the last press brought the prompt up.
+    for press in 0..=WAKE_PRESSES {
         let input = unsafe {
             OpenInputDesktop(
                 0,
@@ -1552,6 +1577,7 @@ pub(crate) fn run_wake(arguments: &[String]) -> Result<(), HostError> {
                 std::thread::sleep(std::time::Duration::from_millis(WAKE_SETTLE_MS));
                 continue;
             }
+            WakeTarget::Picture if press == WAKE_PRESSES => break,
             WakeTarget::Picture => {}
         }
         if unsafe { SetThreadDesktop(input.0) } == 0 {
@@ -1573,11 +1599,14 @@ pub(crate) fn run_wake(arguments: &[String]) -> Result<(), HostError> {
         }
         std::thread::sleep(std::time::Duration::from_millis(WAKE_SETTLE_MS));
     }
-    Ok(())
+    Err(WAKE_STILL_PICTURE.into())
 }
 
-/// Presses the prompt helper may send in one run, and the pause after each; together well inside the supervisor's
-/// five-second wait for the helper.
+/// The helper's answer when every press went out and the picture still has the input; the supervisor logs it.
+const WAKE_STILL_PICTURE: &str = "The lock-screen picture kept the input after every press";
+
+/// Presses the prompt helper may send in one run, and the pause after each; with the first pause, well inside the
+/// supervisor's five-second wait for the helper.
 const WAKE_PRESSES: u32 = 4;
 const WAKE_SETTLE_MS: u64 = 700;
 
