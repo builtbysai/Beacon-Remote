@@ -3,6 +3,7 @@ import { captureFrame, lastFrame, rememberFrame } from "./last-frame.js";
 import {
   readViewPreferences,
   saveViewPreferences,
+  type ViewScale,
 } from "./view-preferences.js";
 import { ViewerIcon } from "./viewer-icons";
 import { Character, toneFor } from "./Characters.js";
@@ -209,8 +210,13 @@ export function LiveView({
   const selectedScope = permissionView.options.find(
     (scope) => scope === requestedScope,
   );
+  // The picture's own size, for the 150 % and 200 % scales.
+  const [natural, setNatural] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
   // Remembered per computer in this browser (harmless view choices only).
-  const [scale, setScale] = useState<"fit" | "actual">(
+  const [scale, setScale] = useState<ViewScale>(
     () => readViewPreferences(machineId).scale ?? "fit",
   );
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -1869,7 +1875,7 @@ export function LiveView({
           </div>
         )}
         <div
-          className={`viewer-stage ${scale}`}
+          className={`viewer-stage ${scale === "fit" ? "fit" : "actual"}`}
           onPointerDown={(event) => {
             if (!controlReady || ended || event.button > 0) return;
             const box = event.currentTarget.getBoundingClientRect();
@@ -1900,6 +1906,30 @@ export function LiveView({
             playsInline
             // Continuing from the sign-in screen: show its last picture until the desktop's first frame.
             poster={machineId ? lastFrame(machineId) : undefined}
+            // 150 % and 200 % draw the picture larger inside the scrollable stage (review R26): scroll to pan, and
+            // pointer input still maps through the element's real on-screen size.
+            onLoadedMetadata={(event) =>
+              setNatural({
+                width: event.currentTarget.videoWidth,
+                height: event.currentTarget.videoHeight,
+              })
+            }
+            onResize={(event) =>
+              setNatural({
+                width: event.currentTarget.videoWidth,
+                height: event.currentTarget.videoHeight,
+              })
+            }
+            style={
+              natural && (scale === "150" || scale === "200")
+                ? {
+                    width: (natural.width * Number(scale)) / 100,
+                    height: (natural.height * Number(scale)) / 100,
+                    maxWidth: "none",
+                    maxHeight: "none",
+                  }
+                : undefined
+            }
             tabIndex={controlReady && !ended ? 0 : -1}
             className={controlReady && !ended ? "input-enabled" : undefined}
             aria-label={
@@ -2004,13 +2034,15 @@ export function LiveView({
               aria-label="Video scale"
               value={scale}
               onChange={(event) => {
-                const value = event.target.value as "fit" | "actual";
+                const value = event.target.value as ViewScale;
                 setScale(value);
                 saveViewPreferences(machineId, { scale: value });
               }}
             >
               <option value="fit">Fit</option>
               <option value="actual">100%</option>
+              <option value="150">150%</option>
+              <option value="200">200%</option>
             </select>
           </label>
           {displays.length > 1 && onSwitchDisplay && (

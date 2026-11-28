@@ -2,8 +2,10 @@
  * Harmless per-computer viewer choices (review R23): how the picture is scaled and how touch drives the pointer.
  * Kept in this browser only. Never permissions, grants, trust exceptions, microphone or recording state.
  */
+export type ViewScale = "fit" | "actual" | "150" | "200";
+const SCALES: readonly ViewScale[] = ["fit", "actual", "150", "200"];
 export type ViewPreferences = {
-  scale?: "fit" | "actual";
+  scale?: ViewScale;
   touch?: "trackpad" | "direct";
 };
 
@@ -20,8 +22,8 @@ export function readViewPreferences(
     if (!raw || typeof raw !== "object") return {};
     const value = raw as Record<string, unknown>;
     const choices: ViewPreferences = {};
-    if (value.scale === "fit" || value.scale === "actual")
-      choices.scale = value.scale;
+    if (SCALES.includes(value.scale as ViewScale))
+      choices.scale = value.scale as ViewScale;
     if (value.touch === "trackpad" || value.touch === "direct")
       choices.touch = value.touch;
     return choices;

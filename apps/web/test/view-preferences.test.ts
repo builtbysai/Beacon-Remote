@@ -26,6 +26,8 @@ test("view choices are remembered per computer and anything else is ignored", ()
     JSON.stringify({ scale: "huge", touch: "direct", grant: "x" }),
   );
   assert.deepEqual(readViewPreferences("c"), { touch: "direct" });
+  saveViewPreferences("e", { scale: "200" });
+  assert.deepEqual(readViewPreferences("e"), { scale: "200" });
   store.set("beacon-remote:view:d", "not json");
   assert.deepEqual(readViewPreferences("d"), {});
   assert.deepEqual(readViewPreferences(undefined), {});
