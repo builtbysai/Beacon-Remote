@@ -674,7 +674,12 @@ fn uninstall(machine: &str, owner: &str) -> Result<(), HostError> {
         })
         .unwrap_or(false);
     if !others {
-        crate::sas_policy::restore(&data_root)?;
+        // Everything of this installation is already gone; a policy that cannot be put back is reported, not a
+        // failed removal.
+        // (Its own log folder is gone, so this goes to the elevated command's output.)
+        if let Err(error) = crate::sas_policy::restore(&data_root) {
+            eprintln!("Could not restore the Ctrl+Alt+Del policy: {error}");
+        }
     }
     Ok(())
 }
@@ -1360,9 +1365,10 @@ fn offer_handoff(
     }
     // Signing in normally finishes in a few seconds; a wrong password leaves the console locked. Heartbeats wait
     // while a handoff is pending (they would report the console as signed in before the offer and the server would
-    // refuse it), so a handoff that is not ready in time is dropped.
+    // refuse it), so a handoff that is not ready within 10 seconds is dropped.
     let expired = crate::signin_scope::tick() >= retired.deadline
-        || since.elapsed() >= Duration::from_secs(15);
+        // Inside the server's 15-second freshness window for the endpoint (heartbeats wait while this is pending).
+        || since.elapsed() >= Duration::from_secs(10);
     match handoff_step(console(), retired.console, expired) {
         HandoffStep::Wait => {
             std::thread::sleep(Duration::from_millis(50));

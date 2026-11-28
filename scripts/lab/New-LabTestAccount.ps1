@@ -1,7 +1,8 @@
 # Elevated, on the lab laptop: creates the standard (non-admin) local account BeaconTest for Beacon Remote sign-in
 # testing. Reads the generated password from a staged file, deletes that file, and records only the outcome.
+param([Parameter(Mandatory)][string]$Lab)
 $ErrorActionPreference = 'Stop'
-$lab = 'C:\Users\saiha\BeaconLab'
+$lab = $Lab
 $secret = Join-Path $lab 'test-user.secret'
 $out = Join-Path $lab 'create-test-user.txt'
 try {

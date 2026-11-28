@@ -419,6 +419,7 @@ function App() {
     await testVideo(machine, capability, displayId);
   }
 
+  const connecting = useRef<AbortController | null>(null);
   function openSignIn(machine: Machine) {
     if (machine.revokedAt || stale || busy || view || signInContext.current)
       return;
@@ -443,6 +444,11 @@ function App() {
    * desktop after signing in; otherwise it opens the desktop.
    */
   async function connect(machine: Machine) {
+    // One way in at a time: a second Connect while a password prompt is being brought up replaces the first, and a
+    // wake that finishes after the person moved on opens nothing.
+    connecting.current?.abort();
+    const attempt = new AbortController();
+    connecting.current = attempt;
     if (controlEnabled && machine.accessMode === "trusted") {
       const state = await api<unknown>(
         `machines/${machine.id}/signin-authority`,
@@ -459,10 +465,12 @@ function App() {
       if (signIn) {
         if (!state?.data?.connectable) {
           setError("");
+          setBusy(true);
           const ready = await wakeSignIn(
             machine.id,
-            AbortSignal.timeout(25_000),
-          );
+            AbortSignal.any([attempt.signal, AbortSignal.timeout(25_000)]),
+          ).finally(() => setBusy(false));
+          if (attempt.signal.aborted || connecting.current !== attempt) return;
           if (!ready) {
             setError(
               `${machine.name} is at the Windows lock screen, but its password prompt did not come up. Try Connect again.`,
@@ -1444,6 +1452,8 @@ function App() {
               minimized={minimized}
               onMinimize={() => setMinimized(true)}
               onClose={() => {
+                // Closing the desktop during a sign-in bridge ends the bridge too, so Connect works again at once.
+                desktopShown();
                 setView(null);
                 setMinimized(false);
               }}

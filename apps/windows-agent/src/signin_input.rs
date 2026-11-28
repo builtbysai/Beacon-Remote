@@ -296,6 +296,8 @@ impl<S: Sink> Tracked<S> {
         !self.keys.is_empty() || !self.buttons.is_empty() || !self.unicode.is_empty()
     }
     fn release(&mut self) {
+        // Remembered modifiers are only a note for the next key; a release forgets them even when nothing can be sent.
+        self.modifiers.clear();
         if !self.gate.cleanup() {
             return;
         }
@@ -755,6 +757,17 @@ mod tests {
         state.process(5, &g(false), 1004).unwrap();
         state.process(6, &shift(false), 1005).unwrap();
         assert_eq!(state.sink.events.lock().unwrap().len(), 6);
+        // The viewer's release (blur, Shift+Escape) sends release_all and no key-ups: Shift is forgotten.
+        state.process(7, &shift(true), 1006).unwrap();
+        state.process(8, &Input::ReleaseAll, 1007).unwrap();
+        state.process(9, &g(true), 1008).unwrap();
+        assert!(
+            state.sink.events.lock().unwrap()[6..]
+                == [
+                    Event::Scan(0x22, false, true),
+                    Event::Scan(0x22, false, false)
+                ]
+        );
     }
 
     #[test]

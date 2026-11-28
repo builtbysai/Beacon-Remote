@@ -1,7 +1,7 @@
 # Lab only, over the elevated SSH session: brings the installed sign-in and boot services up to the app build that is
 # installed for the given profile, with the product's own repair command (the same one the Repair button runs after
 # its UAC). Repairs only the installations whose owner is that profile's Windows account.
-param([string]$Profile = 'saiha')
+param([Parameter(Mandatory)][string]$Profile)
 $ErrorActionPreference = 'Stop'
 $agent = "C:\Users\$Profile\AppData\Local\Programs\Beacon Remote\beacon-remote-agent.exe"
 $sid = (New-Object Security.Principal.NTAccount("$env:COMPUTERNAME\$Profile")).Translate([Security.Principal.SecurityIdentifier]).Value

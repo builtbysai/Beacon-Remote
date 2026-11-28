@@ -51,7 +51,12 @@ export function SupportInvite({ token }: { token: string }) {
         if (!live) return;
         // Only a definite answer about the link means it cannot be used; a network or server error is retried.
         const status = error instanceof ApiError ? error.status : 0;
-        setInvite(status >= 400 && status < 500 ? null : "offline");
+        // Timeouts and rate limits (408, 429) are temporary, like a network failure.
+        setInvite(
+          status >= 400 && status < 500 && status !== 408 && status !== 429
+            ? null
+            : "offline",
+        );
       });
     return () => {
       live = false;

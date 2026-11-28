@@ -5,6 +5,8 @@
 set -euo pipefail
 cd /d/Dev/Beacon-Remote
 PROFILE_NAME=${LAB_PROFILE:-BeaconTest}
+# The SSH (administrator) account's lab folder on the laptop, e.g. C:\Users\<admin>\BeaconLab; kept out of the repo.
+ADMIN_LAB=${LAB_ADMIN_ROOT:?Set LAB_ADMIN_ROOT to the SSH account's BeaconLab folder on the laptop}
 S=scripts/lab
 export LAB_REMOTE_ROOT="C:/Users/$PROFILE_NAME/BeaconLab"
 SETUP=$(ls -t dist/BeaconRemoteSetup-*-signin-media.exe | head -1)
@@ -17,9 +19,9 @@ for i in $(seq 1 30); do
   n=$(ssh beacon-surfiena-link "powershell -NoProfile -Command \"(Get-Process BeaconRemoteSetup* -EA SilentlyContinue | Measure-Object).Count\"" | tr -d '\r')
   [ "$n" = "0" ] && break
 done
-ssh beacon-surfiena-link "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\saiha\\BeaconLab\\Repair-LabSignIn.ps1 -Profile $PROFILE_NAME"
+ssh beacon-surfiena-link "powershell -NoProfile -ExecutionPolicy Bypass -File $ADMIN_LAB\\Repair-LabSignIn.ps1 -Profile $PROFILE_NAME"
 # Each repair installs the sign-in agent in a new version folder; the cable-only rules follow the programs.
-ssh beacon-surfiena-link "powershell -NoProfile -ExecutionPolicy Bypass -Command \"\$p = (Get-Process beacon-remote-agent | Where-Object Path -like '*Beacon Remote Sign-in*' | Sort-Object StartTime | Select-Object -Last 1).Path; & C:\\Users\\saiha\\BeaconLab\\Limit-LabMediaToCable.ps1 -Program \$p -RuleName BeaconLab-signin-cable-only-in; & C:\\Users\\saiha\\BeaconLab\\Limit-LabMediaToCable.ps1 -Program 'C:\\Users\\$PROFILE_NAME\\AppData\\Local\\Programs\\Beacon Remote\\beacon-remote-session.exe' -RuleName BeaconLab-bt-session-cable-only-in\""
+ssh beacon-surfiena-link "powershell -NoProfile -ExecutionPolicy Bypass -Command \"\$p = (Get-Process beacon-remote-agent | Where-Object Path -like '*Beacon Remote Sign-in*' | Sort-Object StartTime | Select-Object -Last 1).Path; & $ADMIN_LAB\\Limit-LabMediaToCable.ps1 -Program \$p -RuleName BeaconLab-signin-cable-only-in; & $ADMIN_LAB\\Limit-LabMediaToCable.ps1 -Program 'C:\\Users\\$PROFILE_NAME\\AppData\\Local\\Programs\\Beacon Remote\\beacon-remote-session.exe' -RuleName BeaconLab-bt-session-cable-only-in\""
 node scripts/lab/lab.mjs launch "C:/Users/$PROFILE_NAME/AppData/Local/Programs/Beacon Remote/beacon-remote-host.exe" --background >/dev/null || true
 sleep 4
 ssh beacon-surfiena-link "powershell -NoProfile -Command \"Get-Process beacon-remote-host -EA SilentlyContinue | Format-Table Id,SessionId,StartTime -AutoSize | Out-String\""

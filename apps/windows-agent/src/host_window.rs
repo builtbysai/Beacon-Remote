@@ -145,6 +145,9 @@ struct State {
     signin_check: Option<JoinHandle<Result<Option<bool>, HostError>>>,
     /// Whether this run already brought the "finish the update" step forward (review R13): once per run.
     repair_offered: bool,
+    /// Whether the session page currently open saw an actual session (not only a request that was declined or
+    /// expired): only then may "lock when a remote session ends" lock Windows.
+    session_ran: bool,
     signin_health: Option<bool>,
     signin_recheck: bool,
     helpers_job: Option<(JoinHandle<Result<(), HostError>>, u8)>,
@@ -1049,6 +1052,9 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
     unsafe fn follow_session(&mut self, window: HWND) {
         beacon_remote_agent::session_hub::alive();
         let view = beacon_remote_agent::session_hub::view();
+        if view.session.is_some() {
+            self.session_ran = true;
+        }
         if view.active() && self.session_page.is_null() {
             self.open_session(&view);
         } else if !view.active() && !self.session_page.is_null() {
@@ -1143,8 +1149,10 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
         if self.session_page.is_null() {
             return;
         }
-        // The owner asked for Windows to lock whenever a remote session ends.
-        if beacon_remote_agent::local_access().lock_on_end {
+        // The owner asked for Windows to lock whenever a remote session ends: only after a session that actually ran,
+        // never after a request the person here declined or let expire.
+        let ran = std::mem::take(&mut self.session_ran);
+        if ran && beacon_remote_agent::local_access().lock_on_end {
             beacon_remote_agent::lock_workstation();
         }
         DestroyWindow(self.session_page);
@@ -1202,11 +1210,20 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
                     self.controls();
                 }
                 restore(window);
-                text(
-                    self.status,
-                    "Beacon Remote was updated. Approve once (Repair on this page) so unattended access uses the new version too.",
-                );
             }
+        }
+        // Kept on the Unattended page while the services still run the previous build, so a later status report
+        // does not wipe the reason the page opened (written only when it differs, so nothing flickers).
+        const UPDATED: &str = "Beacon Remote was updated. Approve once (Repair on this page) so unattended access uses the new version too.";
+        if self.signin_health == Some(true)
+            && self.repair_offered
+            && self.session_page.is_null()
+            && TABS
+                .get(self.tab as usize)
+                .is_some_and(|(tab, _)| *tab == TAB_UNATTENDED)
+            && read(self.status) != UPDATED
+        {
+            text(self.status, UPDATED);
         }
         if self
             .unattended_job
@@ -2082,6 +2099,7 @@ pub fn show(background: bool, link: Option<String>) -> Result<(), io::Error> {
             update_install: None,
             signin_check: None,
             repair_offered: false,
+            session_ran: false,
             signin_health: None,
             signin_recheck: false,
             helpers_job: None,
