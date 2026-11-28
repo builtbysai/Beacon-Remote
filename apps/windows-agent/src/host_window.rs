@@ -75,6 +75,7 @@ const ACCESS_CONTROL: usize = 112;
 const TRAY_SHOW: usize = 201;
 const TRAY_STOP: usize = 202;
 const TRAY_QUIT: usize = 203;
+const TRAY_LOCK_ON_END: usize = 204;
 const TRAY_MESSAGE: u32 = WM_APP + 1;
 use beacon_remote_agent::support::DEFAULT_SERVER;
 // Static text controls, identified so each can take its colour from the design.
@@ -595,6 +596,7 @@ impl State {
             allow_control: choice == 2,
             helpers: self.access.helpers,
             files: choice > 0 && self.access.files,
+            lock_on_end: self.access.lock_on_end,
         };
         text(self.status, "Updating trusted access…");
         let handle = thread::spawn(move || {
@@ -1135,6 +1137,10 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
     unsafe fn close_session(&mut self) {
         if self.session_page.is_null() {
             return;
+        }
+        // The owner asked for Windows to lock whenever a remote session ends.
+        if beacon_remote_agent::local_access().lock_on_end {
+            beacon_remote_agent::lock_workstation();
         }
         DestroyWindow(self.session_page);
         self.session_page = null_mut();
@@ -1762,6 +1768,12 @@ unsafe extern "system" fn procedure(
                     }
                 }
                 TRAY_SHOW => restore(window),
+                TRAY_LOCK_ON_END => {
+                    let on = !beacon_remote_agent::local_access().lock_on_end;
+                    if beacon_remote_agent::set_lock_on_end(on).is_ok() {
+                        (*state).access = beacon_remote_agent::local_access();
+                    }
+                }
                 TRAY_STOP => (*state).stop(),
                 TRAY_QUIT => {
                     SendMessageW(window, WM_CLOSE, 0, 0);
@@ -1795,6 +1807,19 @@ unsafe extern "system" fn procedure(
                         TRAY_SHOW,
                         wide("Show Beacon Remote").as_ptr(),
                     );
+                    if (*state).paired {
+                        AppendMenuW(
+                            menu,
+                            MF_STRING
+                                | if (*state).access.lock_on_end {
+                                    MF_CHECKED
+                                } else {
+                                    0
+                                },
+                            TRAY_LOCK_ON_END,
+                            wide("Lock this computer when a remote session ends").as_ptr(),
+                        );
+                    }
                     if (*state).paired {
                         let available = (*state).unattended_job.is_none()
                             && (*state).access_job.is_none()

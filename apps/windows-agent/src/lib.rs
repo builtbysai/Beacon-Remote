@@ -105,6 +105,9 @@ pub struct LocalAccess {
     /// asking (ADR 0031). Purely local: the computer decides, and the server is never asked.
     #[serde(default)]
     pub files: bool,
+    /// Lock Windows when a remote session ends, so unattended work never leaves the desktop open. Purely local.
+    #[serde(default)]
+    pub lock_on_end: bool,
 }
 
 fn access_path() -> io::Result<PathBuf> {
@@ -123,6 +126,7 @@ pub fn local_access() -> LocalAccess {
             allow_control: access.trusted && access.allow_control,
             helpers: access.helpers.min(2),
             files: access.trusted && access.files,
+            lock_on_end: access.lock_on_end,
         })
     };
     read().unwrap_or_default()
@@ -279,6 +283,22 @@ pub fn set_files(on: bool) -> Result<(), HostError> {
     Ok(())
 }
 
+/// Locks Windows whenever a remote session ends (or stops doing so). Local only, like file transfer.
+pub fn set_lock_on_end(on: bool) -> Result<(), HostError> {
+    save_local_access(LocalAccess {
+        lock_on_end: on,
+        ..local_access()
+    })
+}
+
+/// Locks this Windows session now. Used when a remote session ends and the owner asked for it.
+#[cfg(windows)]
+pub fn lock_workstation() {
+    unsafe {
+        windows_sys::Win32::System::Shutdown::LockWorkStation();
+    }
+}
+
 /// Raises or lowers this computer's access. Lowering takes effect locally at once, whether or not
 /// the server can be reached (the next presence report repeats it); raising needs the server.
 pub fn set_access(trusted: bool, allow_control: bool) -> Result<(), HostError> {
@@ -287,6 +307,7 @@ pub fn set_access(trusted: bool, allow_control: bool) -> Result<(), HostError> {
         allow_control: trusted && allow_control,
         helpers: local_access().helpers,
         files: trusted && local_access().files,
+        lock_on_end: local_access().lock_on_end,
     };
     let current = local_access();
     let raising =
@@ -377,6 +398,7 @@ fn reconcile_access(
         allow_control: local.allow_control && server_trusted && server_control,
         helpers: local.helpers,
         files: local.files && server_trusted,
+        lock_on_end: local.lock_on_end,
     };
     if target != local {
         let _ = save_local_access(target);
@@ -897,6 +919,18 @@ pub fn cli() -> Result<(), HostError> {
                     set_access(false, false)?;
                     println!("Attended access: every connection needs your Allow.");
                 }
+                "lock-on-end" => {
+                    let on = std::env::args().nth(3).as_deref() != Some("off");
+                    set_lock_on_end(on)?;
+                    println!(
+                        "{}",
+                        if on {
+                            "Windows locks when a remote session ends."
+                        } else {
+                            "Windows no longer locks when a remote session ends."
+                        }
+                    );
+                }
                 _ => {
                     let access = local_access();
                     println!(
@@ -1152,5 +1186,24 @@ mod presence_tests {
             presence_message("machine", 123, "nonce", "instance", None),
             "beacon-remote:heartbeat:v3\nmachine\n123\nnonce\ninstance\noff"
         );
+    }
+}
+
+#[cfg(test)]
+mod local_access_tests {
+    use super::LocalAccess;
+
+    #[test]
+    fn settings_saved_by_an_older_build_load_with_locking_off() {
+        let old: LocalAccess = serde_json::from_str(
+            r#"{"trusted":true,"allow_control":true,"helpers":1,"files":true}"#,
+        )
+        .unwrap();
+        assert!(!old.lock_on_end);
+        assert!(old.trusted && old.allow_control && old.files);
+        let new: LocalAccess =
+            serde_json::from_str(r#"{"trusted":false,"allow_control":false,"lock_on_end":true}"#)
+                .unwrap();
+        assert!(new.lock_on_end);
     }
 }
