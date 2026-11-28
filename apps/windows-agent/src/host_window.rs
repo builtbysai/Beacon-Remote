@@ -137,6 +137,8 @@ struct State {
     update_check: Option<JoinHandle<Result<Option<UpdateOffer>, HostError>>>,
     update_install: Option<JoinHandle<Result<(), HostError>>>,
     signin_check: Option<JoinHandle<Result<Option<bool>, HostError>>>,
+    /// Whether this run already brought the "finish the update" step forward (review R13): once per run.
+    repair_offered: bool,
     signin_health: Option<bool>,
     signin_recheck: bool,
     helpers_job: Option<(JoinHandle<Result<(), HostError>>, u8)>,
@@ -1177,6 +1179,23 @@ Beacon Remote will close and start again. Any sharing stops while it updates, an
                 self.check_signin();
             }
             self.show_access();
+            // After an update the services still run the previous build until one administrator approval brings them
+            // up to date. Say so right away, on the page where that approval is, instead of leaving it to be found.
+            if self.signin_health == Some(true)
+                && !self.repair_offered
+                && self.session_page.is_null()
+            {
+                self.repair_offered = true;
+                if let Some(index) = TABS.iter().position(|(tab, _)| *tab == TAB_UNATTENDED) {
+                    self.tab = index as u8;
+                    self.controls();
+                }
+                restore(window);
+                text(
+                    self.status,
+                    "Beacon Remote was updated. Approve once (Repair on this page) so unattended access uses the new version too.",
+                );
+            }
         }
         if self
             .unattended_job
@@ -2026,6 +2045,7 @@ pub fn show(background: bool, link: Option<String>) -> Result<(), io::Error> {
             update_check: None,
             update_install: None,
             signin_check: None,
+            repair_offered: false,
             signin_health: None,
             signin_recheck: false,
             helpers_job: None,
