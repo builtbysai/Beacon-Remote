@@ -1615,14 +1615,14 @@ export function LiveView({
         {onMinimize && (
           <button
             className="viewer-back"
-            title="Back to your devices. The session stays connected."
+            title="Back to your computers. The session stays connected."
             onClick={() => {
               setMenuOpen(false);
               onMinimize();
             }}
           >
             <ViewerIcon name="back" />
-            <span>Devices</span>
+            <span>Computers</span>
           </button>
         )}
         <div className="viewer-identity">
@@ -2775,6 +2775,52 @@ export function LiveView({
               {recordingSince === null ? "Record" : "Stop recording"}
             </button>
           )}
+          {/* The other tasks ask for what they need the same way (review R22): each requests only its own access. */}
+          {!ended &&
+            frames > 0 &&
+            (
+              [
+                [
+                  "audio",
+                  !hasSound,
+                  "Sound…",
+                  "Ask to hear what is playing on the device",
+                ],
+                [
+                  "recording",
+                  !recordingAllowed,
+                  "Record…",
+                  "Ask to record this session (the person there is told while it records)",
+                ],
+                [
+                  "drive",
+                  !driveReady,
+                  "Shared folder…",
+                  "Ask to open the folder the owner shares",
+                ],
+                [
+                  "print",
+                  !printReady,
+                  "Print…",
+                  "Ask to print on the device's printers",
+                ],
+              ] as const
+            )
+              .filter(
+                ([scope, missing]) =>
+                  missing && permissionView.options.includes(scope),
+              )
+              .map(([scope, , label, title]) => (
+                <button
+                  key={scope}
+                  className="viewer-control"
+                  title={title}
+                  disabled={permissionView.busy || peerPaused}
+                  onClick={() => permissions.current?.request(scope)}
+                >
+                  {label}
+                </button>
+              ))}
           {/* The task asks for what it needs (review R22): Send file requests file transfer alone, then is ready. */}
           {!fileReady &&
             !ended &&
