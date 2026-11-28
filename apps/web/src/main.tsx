@@ -3,6 +3,11 @@ import { createRoot } from "react-dom/client";
 import type { Machine } from "@beacon-remote/protocol";
 import { signinAuthorityState } from "@beacon-remote/protocol";
 import { wakeSignIn } from "./signin-wake.js";
+import {
+  favouritesFirst,
+  readFavourites,
+  toggleFavourite,
+} from "./favourites.js";
 import "./style.css";
 import "./viewer.css";
 import { LiveView, type ViewGrant } from "./LiveView.js";
@@ -111,6 +116,7 @@ function App() {
   const [theme, setTheme] = useState(readTheme);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
+  const [favourites, setFavourites] = useState<Set<string>>(readFavourites);
   const [groupFilter, setGroupFilter] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
@@ -724,22 +730,25 @@ function App() {
     }
   }
 
-  const visibleMachines = (machines ?? []).filter(
-    (machine) =>
-      // Temporary support computers live in Assist, not in the everyday list.
-      !machine.temporary &&
-      (machine.name + " " + (machine.group ?? ""))
-        .toLowerCase()
-        .includes(search.trim().toLowerCase()) &&
-      (groupFilter === "" || machine.group === groupFilter) &&
-      // Revoked computers stay out of the everyday list; they have their own filter.
-      (filter === "all"
-        ? !machine.revokedAt
-        : (machine.revokedAt
-            ? "revoked"
-            : !stale && machine.online
-              ? "online"
-              : "offline") === filter),
+  const visibleMachines = favouritesFirst(
+    (machines ?? []).filter(
+      (machine) =>
+        // Temporary support computers live in Assist, not in the everyday list.
+        !machine.temporary &&
+        (machine.name + " " + (machine.group ?? ""))
+          .toLowerCase()
+          .includes(search.trim().toLowerCase()) &&
+        (groupFilter === "" || machine.group === groupFilter) &&
+        // Revoked computers stay out of the everyday list; they have their own filter.
+        (filter === "all"
+          ? !machine.revokedAt
+          : (machine.revokedAt
+              ? "revoked"
+              : !stale && machine.online
+                ? "online"
+                : "offline") === filter),
+    ),
+    favourites,
   );
   const groups = [
     ...new Set(
@@ -1260,6 +1269,11 @@ function App() {
                         }
                         aria-expanded={selected === machine.id}
                       >
+                        {favourites.has(machine.id) && (
+                          <span className="device-favourite" title="Favourite">
+                            ★{" "}
+                          </span>
+                        )}
                         {machine.name}
                         {machine.group && (
                           <small className="device-group">
@@ -1366,6 +1380,10 @@ function App() {
                     machine={machines.find(
                       (machine) => machine.id === selected,
                     )!}
+                    favourite={favourites.has(selected)}
+                    onToggleFavourite={() =>
+                      setFavourites(toggleFavourite(selected))
+                    }
                     replacesRemoved={replacesRemoved(
                       machines.find((machine) => machine.id === selected)!,
                       machines,

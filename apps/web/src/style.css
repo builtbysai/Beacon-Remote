@@ -3814,3 +3814,13 @@ code.hash {
   line-clamp: 3;
   overflow: hidden;
 }
+
+/* Favourite computers (this browser only). */
+.device-favourite {
+  color: var(--accent, currentColor);
+}
+.inspector-favourite {
+  margin-top: 6px;
+  min-height: 36px;
+  font-size: 13px;
+}

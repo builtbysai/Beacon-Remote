@@ -80,6 +80,8 @@ export function ComputerInspector({
   sessionActive = false,
   onRestart,
   onRequestSignIn,
+  favourite,
+  onToggleFavourite,
   replacesRemoved = false,
 }: {
   machine: Machine;
@@ -97,6 +99,9 @@ export function ComputerInspector({
   onRequestSignIn?: () => void;
   /** Whether a removed computer has this one's name (see computer-replacement.ts). */
   replacesRemoved?: boolean;
+  // Starred computers are listed first (this browser only; grants nothing).
+  favourite?: boolean;
+  onToggleFavourite?: () => void;
 }) {
   const [display, setDisplay] = useState("");
   const displays = machine.displays ?? [];
@@ -278,6 +283,21 @@ export function ComputerInspector({
           <h2 className="inspector-name" title={machine.name}>
             {machine.name}
           </h2>
+          {onToggleFavourite && (
+            <button
+              type="button"
+              className="inspector-favourite secondary"
+              aria-pressed={Boolean(favourite)}
+              title={
+                favourite
+                  ? "Remove from favourites"
+                  : "Add to favourites (listed first)"
+              }
+              onClick={onToggleFavourite}
+            >
+              {favourite ? "★ Favourite" : "☆ Favourite"}
+            </button>
+          )}
           <p className={`inspector-state${online ? " is-online" : ""}`}>
             <span className="inspector-status-dot" aria-hidden="true" />
             {stateLabel}
