@@ -175,6 +175,12 @@ function App() {
     setError("");
   }, [page]);
   const signedIn = machines !== null;
+  // A signed-in visitor who opens the bare site goes straight to their computers; the product page stays one click
+  // away (the brand link, #home).
+  useEffect(() => {
+    if (signedIn && window.location.hash === "")
+      window.location.replace("#computers");
+  }, [signedIn]);
   knownSignedIn.current = signedIn;
   const assistGeneration = assistEpoch.current;
   useEffect(
@@ -1125,7 +1131,8 @@ function App() {
                   >
                     {(
                       [
-                        ["all", "All"],
+                        // Active = online + offline; revoked computers are counted on their own (lab note).
+                        ["all", "Active"],
                         ["online", "Online"],
                         ["offline", "Offline"],
                         ["revoked", "Revoked"],
