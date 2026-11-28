@@ -1,5 +1,9 @@
 import { talkMids } from "./talk-line";
 import { captureFrame, lastFrame, rememberFrame } from "./last-frame.js";
+import {
+  readViewPreferences,
+  saveViewPreferences,
+} from "./view-preferences.js";
 import { ViewerIcon } from "./viewer-icons";
 import { Character, toneFor } from "./Characters.js";
 import { classifyConnectionRoute } from "./connection-route";
@@ -201,7 +205,10 @@ export function LiveView({
   const selectedScope = permissionView.options.find(
     (scope) => scope === requestedScope,
   );
-  const [scale, setScale] = useState<"fit" | "actual">("fit");
+  // Remembered per computer in this browser (harmless view choices only).
+  const [scale, setScale] = useState<"fit" | "actual">(
+    () => readViewPreferences(machineId).scale ?? "fit",
+  );
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [needsPlay, setNeedsPlay] = useState(false);
   // The person at the computer paused sharing; screen and input are off until they resume.
@@ -236,7 +243,9 @@ export function LiveView({
   const [controlReady, setControlReady] = useState(false);
   // The computer said it is an Android phone: Back, Home and Recents replace the clipboard button.
   const [phoneHost, setPhoneHost] = useState(false);
-  const [touchMode, setTouchMode] = useState<TouchMode>("trackpad");
+  const [touchMode, setTouchMode] = useState<TouchMode>(
+    () => readViewPreferences(machineId).touch ?? "trackpad",
+  );
   const touchModeRef = useRef(touchMode);
   touchModeRef.current = touchMode;
   const controlling = grant.capability === "desktop:control";
@@ -930,7 +939,9 @@ export function LiveView({
         setDisplayError,
         (platform) => {
           setPhoneHost(platform === "android");
-          if (platform === "android") setTouchMode("direct");
+          // A phone defaults to direct touch unless this browser remembers another choice for it.
+          if (platform === "android" && !readViewPreferences(machineId).touch)
+            setTouchMode("direct");
         },
         undefined,
         setInputRoundTripMillis,
@@ -1950,9 +1961,11 @@ export function LiveView({
             <select
               aria-label="Video scale"
               value={scale}
-              onChange={(event) =>
-                setScale(event.target.value as "fit" | "actual")
-              }
+              onChange={(event) => {
+                const value = event.target.value as "fit" | "actual";
+                setScale(value);
+                saveViewPreferences(machineId, { scale: value });
+              }}
             >
               <option value="fit">Fit</option>
               <option value="actual">100%</option>
@@ -2601,11 +2614,11 @@ export function LiveView({
               className="viewer-control"
               aria-pressed={touchMode === "direct"}
               title="Trackpad moves the cursor like a laptop touchpad. Touch acts where you tap."
-              onClick={() =>
-                setTouchMode((mode) =>
-                  mode === "trackpad" ? "direct" : "trackpad",
-                )
-              }
+              onClick={() => {
+                const next = touchMode === "trackpad" ? "direct" : "trackpad";
+                setTouchMode(next);
+                saveViewPreferences(machineId, { touch: next });
+              }}
             >
               Touch: {touchMode === "trackpad" ? "Trackpad" : "Direct"}
             </button>
