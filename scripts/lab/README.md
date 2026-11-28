@@ -56,7 +56,7 @@ clicks and keys from the viewer reached a laptop window, the viewer's End closed
 2. **Tunnel**: `ssh -N -R 127.0.0.1:3012:127.0.0.1:3012 -o ExitOnForwardFailure=yes beacon-surfiena-link`. The host only
    allows plain HTTP to its own loopback address, so the laptop's `127.0.0.1:3012` reaches the server through SSH.
 3. **Host on the laptop**: build `cargo build --release -p beacon-remote-agent -p beacon-remote-session`, copy the three
-   `beacon-remote-{agent,host,session}.exe` to `C:\Users\saiha\BeaconLab\builds\lab\`, pair with the agent's stdin
+   `beacon-remote-{agent,host,session}.exe` to `C:\Users\<lab user>\BeaconLab\builds\lab\`, pair with the agent's stdin
    prompts (server `http://127.0.0.1:3012`, a name, the code from `state/lab-development/pairing.json`), then start the host
    with `LOCALAPPDATA` pointed at `builds\lab\profile` so it never touches the laptop's real identity.
 4. **Keep media on the cable**: ICE can otherwise nominate the Wi-Fi or the Tailscale relay (30-40 ms, throttled) and the

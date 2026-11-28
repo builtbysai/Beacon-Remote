@@ -6,7 +6,7 @@
 # config is checked with `sshd -t` before sshd restarts, and if the check fails nothing is changed.
 #   add:     Allow-LabSsh.ps1
 #   remove:  Allow-LabSsh.ps1 -Remove
-param([Parameter(Mandatory)][string]$DevTailscaleAddress, [string]$Adapter = 'Ethernet 3', [string]$LocalAddress = '10.77.0.2', [string]$RemoteAddress = '10.77.0.1', [switch]$Remove)
+param([Parameter(Mandatory)][string]$DevTailscaleAddress, [Parameter(Mandatory)][string]$User, [string]$Adapter = 'Ethernet 3', [string]$LocalAddress = '10.77.0.2', [string]$RemoteAddress = '10.77.0.1', [switch]$Remove)
 $ErrorActionPreference = 'Stop'
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run this elevated.' }
@@ -15,7 +15,7 @@ $config = Join-Path $env:ProgramData 'ssh\sshd_config'
 $marker = '# beacon-lab-wired-link'
 $text = [IO.File]::ReadAllText($config)
 $lines = $text -split "`r?`n" | Where-Object { $_ -notmatch [regex]::Escape($marker) }
-$matchOld = "Match User saiha Address *,!$DevTailscaleAddress"
+$matchOld = "Match User $User Address *,!$DevTailscaleAddress"
 $matchNew = "$matchOld,!$RemoteAddress"
 $keysFile = Join-Path $env:ProgramData 'ssh\administrators_authorized_keys'
 $fromOld = "from=`"$DevTailscaleAddress`""

@@ -40,8 +40,14 @@ function pickHost() {
 }
 const host = pickHost();
 const here = dirname(fileURLToPath(import.meta.url));
-const remoteRoot = "C:/Users/saiha/BeaconLab"; // the laptop's user profile; override with LAB_REMOTE_ROOT
-const root = process.env.LAB_REMOTE_ROOT ?? remoteRoot;
+// The lab folder in the laptop user's profile, e.g. C:/Users/<lab user>/BeaconLab (kept out of the repo).
+const root = process.env.LAB_REMOTE_ROOT;
+if (!root) {
+  console.error(
+    "Set LAB_REMOTE_ROOT to the lab folder on the laptop, e.g. C:/Users/<lab user>/BeaconLab",
+  );
+  process.exit(2);
+}
 
 function run(program, args, options = {}) {
   const result = spawnSync(program, args, { encoding: "utf8", ...options });
